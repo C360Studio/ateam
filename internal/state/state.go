@@ -405,6 +405,43 @@ func runGitOutput(ctx context.Context, root string, args ...string) string {
 	return string(out)
 }
 
+// ReadFastGitHead reads .git/HEAD and loose/packed refs directly from disk without spawning git, keeping hook latency <5ms.
+func ReadFastGitHead(root string) (branch, shortSHA string) {
+	gitDir := filepath.Join(root, ".git")
+	headBytes, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return "", ""
+	}
+	headStr := strings.TrimSpace(string(headBytes))
+	if ref, ok := strings.CutPrefix(headStr, "ref:"); ok {
+		ref = strings.TrimSpace(ref)
+		branch = strings.TrimPrefix(ref, "refs/heads/")
+		if refBytes, err := os.ReadFile(filepath.Join(gitDir, filepath.FromSlash(ref))); err == nil {
+			sha := strings.TrimSpace(string(refBytes))
+			if len(sha) >= 7 {
+				return branch, sha[:7]
+			}
+		}
+		if packed, err := os.ReadFile(filepath.Join(gitDir, "packed-refs")); err == nil {
+			for _, line := range strings.Split(string(packed), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+					continue
+				}
+				fields := strings.Fields(line)
+				if len(fields) == 2 && fields[1] == ref && len(fields[0]) >= 7 {
+					return branch, fields[0][:7]
+				}
+			}
+		}
+		return branch, ""
+	}
+	if len(headStr) >= 7 {
+		return "HEAD", headStr[:7]
+	}
+	return "", ""
+}
+
 // BuildPickupSummary creates a concise reconciliation report for SessionStart or pickup.
 func BuildPickupSummary(st *State) string {
 	var b strings.Builder
