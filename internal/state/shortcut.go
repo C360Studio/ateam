@@ -17,7 +17,7 @@ type ShortcutItem struct {
 	Raw            string `json:"raw"`
 }
 
-var shortcutPattern = regexp.MustCompile(`(?i)(?://|#|--)\s*shortcut:\s*(.+)$`)
+var shortcutPattern = regexp.MustCompile(`(?i)^\s*(?://|#|--)\s*shortcut:\s*(.+)$`)
 
 var skippedDirs = map[string]bool{
 	".git":         true,
@@ -57,6 +57,9 @@ func ScanShortcuts(root string) ([]ShortcutItem, error) {
 			return nil
 		}
 		if !sourceExts[filepath.Ext(d.Name())] {
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), "_test.go") || strings.HasSuffix(d.Name(), ".test.ts") {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
