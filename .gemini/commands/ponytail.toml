@@ -1,0 +1,2 @@
+description = "Apply the Ponytail 6-step lazy senior dev decision ladder, review diffs, or scan shortcut debt."
+prompt = "Read .agents/skills/ponytail/SKILL.md fully and apply the canonical Ponytail workflow."

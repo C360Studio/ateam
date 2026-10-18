@@ -1,0 +1,51 @@
+{
+  "contextFileName": "AGENTS.md",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ateam hook --event session-start"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ateam hook --event before-prompt"
+          }
+        ]
+      }
+    ],
+    "PreCompress": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ateam hook --event pre-compact"
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ateam hook --event turn-end"
+          }
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "ateam": {
+      "command": "ateam",
+      "args": ["mcp"]
+    }
+  }
+}

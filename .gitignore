@@ -1,0 +1,18 @@
+# Runtime & local harness state
+.ateam/
+.worktrees/
+.enjoy-logs/
+benchmarks/runs/
+coverage/
+bin/
+/ateam
+
+# UI build artifacts & dependencies
+ui/node_modules/
+ui/.svelte-kit/
+ui/build/
+internal/web/dist/*
+!internal/web/dist/.keep
+
+# OS / Editor
+.DS_Store

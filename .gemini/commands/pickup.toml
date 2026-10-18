@@ -1,0 +1,2 @@
+description = "Resume repository work by reconciling live worktree, GitHub/Gitea, OpenSpec, and handoff state."
+prompt = "Read .agents/skills/pickup/SKILL.md fully and follow the canonical pickup workflow."

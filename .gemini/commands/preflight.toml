@@ -1,0 +1,2 @@
+description = "Select and run Taskfile verification gates for the current diff."
+prompt = "Read .agents/skills/preflight/SKILL.md fully and follow the canonical preflight verification workflow."

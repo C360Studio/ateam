@@ -1,0 +1,3 @@
+# ATeam
+
+@AGENTS.md

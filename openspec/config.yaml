@@ -1,0 +1,6 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Go 1.26+, Svelte 5, SvelteKit (adapter-static), Taskfile v3
+  We follow the Ponytail 6-step decision ladder and SemEngine 4-gate workflow protocol.
+  Supported forges: GitHub (gh / REST API) and Gitea (tea / REST API v1).

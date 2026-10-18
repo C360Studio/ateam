@@ -1,0 +1,111 @@
+// Package taskrunner parses Taskfile.yml and executes validated task targets.
+package taskrunner
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+// Target describes a single task in Taskfile.yml.
+type Target struct {
+	Name string `json:"name"`
+	Desc string `json:"desc"`
+}
+
+// ListTargets parses Taskfile.yml in root using stdlib and returns sorted task targets.
+// shortcut: indentation-based Taskfile.yml parser for top-level tasks: block, upgrade to full YAML AST if nested includes are added
+func ListTargets(root string) ([]Target, error) {
+	p := filepath.Join(root, "Taskfile.yml")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, fmt.Errorf("read Taskfile.yml: %w", err)
+	}
+	tasks := parseTaskfileTargets(string(data))
+	out := make([]Target, 0, len(tasks))
+	for name, desc := range tasks {
+		out = append(out, Target{Name: name, Desc: desc})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func parseTaskfileTargets(raw string) map[string]string {
+	tasks := make(map[string]string)
+	inTasks := false
+	currentTask := ""
+	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if indent == 0 {
+			inTasks = trimmed == "tasks:"
+			currentTask = ""
+			continue
+		}
+		if !inTasks {
+			continue
+		}
+		if indent == 2 && strings.HasSuffix(trimmed, ":") {
+			name := strings.TrimSpace(strings.TrimSuffix(trimmed, ":"))
+			name = strings.Trim(name, `"'`)
+			if name != "" {
+				currentTask = name
+				tasks[currentTask] = ""
+			}
+			continue
+		}
+		if indent == 4 && currentTask != "" && strings.HasPrefix(trimmed, "desc:") {
+			desc := strings.TrimSpace(strings.TrimPrefix(trimmed, "desc:"))
+			desc = strings.Trim(desc, `"'`)
+			tasks[currentTask] = desc
+		}
+	}
+	return tasks
+}
+
+// Run executes a validated target defined in Taskfile.yml using the task CLI.
+func Run(ctx context.Context, root, target string, extraArgs []string) (string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", fmt.Errorf("target name is required")
+	}
+	targets, err := ListTargets(root)
+	if err != nil {
+		return "", err
+	}
+	allowed := false
+	for _, t := range targets {
+		if t.Name == target {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return "", fmt.Errorf("unknown task target %q (not in Taskfile.yml)", target)
+	}
+
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	args := []string{target}
+	if len(extraArgs) > 0 {
+		args = append(args, "--")
+		args = append(args, extraArgs...)
+	}
+	cmd := exec.CommandContext(cctx, "task", args...)
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("task %s failed: %w\n%s", target, err, string(out))
+	}
+	return string(out), nil
+}

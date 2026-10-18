@@ -1,0 +1,125 @@
+version: '3'
+
+# Single entrypoint for local verification, ateam_task MCP tool, and CI.
+
+tasks:
+  default:
+    desc: List all available tasks
+    cmds:
+      - task --list
+
+  doctor:
+    desc: Check tool versions, OpenSpec state, and multi-agent parity
+    cmds:
+      - go run ./cmd/ateam doctor
+
+  fmt:
+    desc: Format Go sources
+    cmds:
+      - gofmt -w ./cmd ./internal
+
+  fmt:check:
+    desc: Fail if any Go source needs formatting (no writes)
+    cmds:
+      - |
+        drift=$(gofmt -l ./cmd ./internal)
+        if [ -n "$drift" ]; then echo "gofmt drift:"; echo "$drift"; exit 1; fi
+
+  spec:check:
+    desc: "Validate OpenSpec changes/specs and fail on a Hold: written outside every task"
+    cmds:
+      - go run ./cmd/ateam state spec-check
+
+  spec:queue:
+    desc: Show each in-flight OpenSpec change with its holds and blocking conditions
+    cmds:
+      - go run ./cmd/ateam state spec-queue
+
+  tidy:check:
+    desc: Fail if go.mod or go.sum is not tidy
+    cmds:
+      - go mod tidy -diff
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run revive with revive.toml
+    cmds:
+      - |
+        if command -v revive >/dev/null 2>&1; then
+          revive -config revive.toml -formatter friendly -set_exit_status ./...
+        else
+          go run github.com/mgechev/revive@v1.15.0 -config revive.toml -formatter friendly -set_exit_status ./...
+        fi
+
+  test:unit:
+    desc: Run Go unit and agent-parity tests with race detector
+    cmds:
+      - go test -race -count=1 ./...
+
+  bench:selftest:
+    desc: Run offline benchmark self-tests and mutation checks (0 API calls)
+    cmds:
+      - go run ./cmd/ateam bench --selftest
+
+  ui:install:
+    desc: Install UI dependencies in ui/
+    dir: ui
+    cmds:
+      - npm install
+
+  ui:check:
+    desc: Run svelte-kit sync and svelte-check
+    dir: ui
+    cmds:
+      - npm run check
+
+  ui:test:
+    desc: Run UI unit tests with vitest
+    dir: ui
+    cmds:
+      - npm run test:unit
+
+  ui:build:
+    desc: Build static SvelteKit UI and sync into internal/web/dist
+    cmds:
+      - cd ui && npm run build
+      - rm -rf internal/web/dist && mkdir -p internal/web/dist
+      - touch internal/web/dist/.keep
+      - cp -R ui/build/. internal/web/dist/
+
+  build:
+    desc: Build static UI and single ./bin/ateam binary
+    cmds:
+      - task: ui:build
+      - mkdir -p bin
+      - go build -o bin/ateam ./cmd/ateam
+
+  serve:
+    desc: Start ateam PM board and API server
+    cmds:
+      - go run ./cmd/ateam serve
+
+  verify:
+    desc: Run all 4 Definition of Done gates on a clean tree
+    cmds:
+      - task: fmt:check
+      - task: spec:check
+      - task: tidy:check
+      - task: vet
+      - task: lint
+      - task: test:unit
+      - task: bench:selftest
+      - task: ui:check
+      - task: ui:test
+      - task: ui:build
+      - |
+        dirty=$(git status --porcelain)
+        if [ -n "$dirty" ]; then
+          echo "verify check: tracked/untracked drift after verify:"
+          echo "$dirty"
+          exit 1
+        fi

@@ -1,0 +1,2 @@
+description = "Checkpoint repository work and emit the 5-field pickup prompt."
+prompt = "Read .agents/skills/handoff/SKILL.md fully and follow the canonical handoff workflow."
