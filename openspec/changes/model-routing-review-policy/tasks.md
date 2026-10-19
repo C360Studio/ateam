@@ -7,21 +7,21 @@
 
 ## 2. Policy and routing
 
-- [ ] 2.1 Reconcile overlapping bootstrap/CLI/instruction work from #12 and live UI/benchmark changes.
-- [ ] 2.2 Confirm approved model comparisons, policy authority, runtime identity evidence and exception representation.
-- [ ] 2.3 Implement policy validation and eligibility tests for every implementation model, with no silent fallback.
-- [ ] 2.4 Add developer/reviewer adapters and bootstrap/doctor parity while preserving custom configuration.
+- [x] 2.1 Reconcile overlapping bootstrap/CLI/instruction work from #12 and live UI/benchmark changes.
+- [x] 2.2 Define explicit owner-configured comparisons, verified-default-branch authority, attested runtime identities and scoped exception representation; bundle no invented rankings.
+- [x] 2.3 Implement policy validation and eligibility tests for every implementation model, with no silent fallback.
+- [x] 2.4 Add portable developer/reviewer route cards and provider pointers, with bootstrap/doctor parity and custom-file preservation.
 
 ## 3. Review evidence and gate
 
-- [ ] 3.1 Port generic independent read-only review workflow and finding/verdict format.
-- [ ] 3.2 Validate commit/policy-bound review records, scoped exceptions, independence and required evidence.
-- [ ] 3.3 Classify executable instructions and renamed paths as review-sensitive.
-- [ ] 3.4 Add CLI/Taskfile integration and equivalent GitHub/Gitea evidence handling through existing boundaries.
+- [x] 3.1 Port generic independent read-only review workflow and finding/verdict format.
+- [x] 3.2 Validate commit/policy-bound review records, scoped exceptions, independence and required evidence.
+- [x] 3.3 Apply substantive review to every path, including executable instructions and renames, without a docs-only exemption.
+- [x] 3.4 Add CLI/Taskfile integration and equivalent GitHub/Gitea evidence handling through existing boundaries.
 
 ## 4. Verification and completion
 
-- [ ] 4.1 Prove refusal tests with non-destructive mutations and generated combinations/histories against an independent model.
+- [x] 4.1 Prove refusal tests with non-destructive mutations and generated combinations/histories against an independent model.
 - [ ] 4.2 Run required verification, doctor/parity and benchmark self-tests on the implementation commit.
 - [ ] 4.3 Obtain independent review, resolve findings and record current-commit evidence.
 - [ ] 4.4 Reconcile specs/tasks, then explicitly close #14 only when implementation is complete.

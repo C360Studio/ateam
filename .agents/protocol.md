@@ -60,3 +60,11 @@ Shared truth lives in the repository's versioned code, `openspec/` specs and cha
    - Ensure generators/seeds reach the exact boundary, prove **assertion activation** (what makes the assertion actually execute rather than skipping an empty loop/guard), and compare histories against a test-owned reference model updated from the requirement.
    - Record in the PR: `Decision`, `Rule`, `Inputs`, `Run` (commit, command, seed, completed checks from `-v` output; seed replay vs. `-fuzz` exploration separate), `Mutation` (wrong change + outcome), and `Not covered` (unresolved survivors or deferred checks).
 
+
+## 4. Configured Model Routing & Independent Review
+
+When `.agents/review-policy.json` is configured, validate the route before implementation with `ateam review route`. After any escalation, revalidate against every actual implementation model. Reasoning effort is separate from model strength; neither effort nor a different provider proves superiority. The reviewer must be an independent run that wrote none of the deliverable and outrank every implementer under explicit trusted-policy comparisons. Cross-provider review is optional and additional.
+
+Follow the [developer](contracts/developer.md) and [reviewer](contracts/reviewer.md) contracts. The reviewer remains read-only and the author fixes findings. Review the complete diff and affected callers; instructions, contracts, policy, executable Markdown and rename paths require substantive review. Bind all runs, findings, verdict and actual/reported/unavailable verification to the repository, base/head commits and governing policy digest. New commits or policy revisions invalidate approval.
+
+At the model ceiling, block approval until an authorized owner explicitly grants a head/reviewer/policy-bound exception with a reason. It waives superiority only, never independence, provider constraints, current evidence, required checks or the verdict. `ateam review check` reads trusted baseline policy and authenticated GitHub/Gitea comment authors; candidate policy cannot authorize its own waiver. A configured route and a forge login remain attestations, not proof of model runtime identity or a separate human owner. See [model review](../docs/model-review.md) for the format and limitations.

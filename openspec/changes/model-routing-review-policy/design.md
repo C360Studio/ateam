@@ -42,8 +42,10 @@ The routing/review work owns the new policy package, its tests and this OpenSpec
 
 Tests use requirement-owned expected outcomes, not production comparisons as their oracle. Add refusal mutations (e.g. accepting equal-tier review, ignoring a new commit, accepting an unscoped exception). Use generated policy/input combinations and review histories against a small test-owned reference model; prove assertion activation and boundary reach. Record seeds, completed checks and detection/survivor/invalid/inconclusive outcomes. Run required repository gates before implementation completion.
 
-## Risks and remaining design work
+## Implemented decisions and limits
 
-Exact approved model mappings and runtime model-identity evidence must be confirmed before adapters are enabled. Do not advertise configuration pins as proof of the model actually used. The exception-authority representation and forge evidence transport require concrete fixtures before coding their trust boundaries. These implementation details do not reopen the owner's strict ceiling decision.
+Policy is explicitly installed with `review setup --policy FILE`; no universal ranking is bundled. Portable role cards plus Claude skill/Gemini command pointers describe exact model/effort intent. They do not pin native runtime settings or launch agents; the operator must select the model and disclose actual identities. This replaces the proposed native-adapter pinning with the smallest portable mechanism supported by existing adapter conventions.
 
-This is a design/claim only. No executable policy, gate, ranking, reviewer approval or implementation completeness is asserted.
+The gate reads policy from the live default-branch commit verified through forge repository/branch metadata, not an arbitrary PR target. Initial policy adoption must land separately under owner control. Configured `review_authors` authenticate permitted record-posting accounts independently of exception `owners`. Required check evidence must be reviewer-executed; all PR files require review, eliminating docs/rename bypasses without a separate file classifier. Current review and exception comments are pinned by ID and revalidated before a successful result. Shared-account, runtime identity and implementation-completeness claims remain attestations.
+
+No UI/benchmark implementation, new MCP tool, automatic merge, branch-protection mutation, native model launcher, universal ranking or cryptographic runtime attestation is introduced. PR #12 remains open; integration was kept in separate review files with minimal existing-file hooks, and current main was merged without overwriting its registration changes. Final integration must preserve its pending edits.

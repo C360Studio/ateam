@@ -40,7 +40,7 @@ When no eligible stronger reviewer is available, ATeam SHALL block approval unle
 
 ### Requirement: Current and independently attributed review evidence
 
-ATeam SHALL validate review evidence against the reviewed head and policy revision, including all implementation model identities, the independent reviewer identity/model/provider/effort, findings, verdict, checks performed and unavailable evidence. It SHALL distinguish checks performed by the reviewer from implementer-reported results. Any changed head or governing policy revision SHALL invalidate prior approval initially. Review-sensitive instructions, role contracts/adapters and policy/configuration files SHALL NOT receive an ordinary documentation exemption, including through a rename.
+ATeam SHALL bind review evidence to repository, base, head and policy digest, all implementation runs, and an independent reviewer. Only configured review authors may submit approving evidence. Required checks SHALL have reviewer-executed passing evidence at the current head; reported results are distinct. Changed head or governing policy SHALL invalidate approval. All files, including instructions and rename paths, require review without a Markdown exemption.
 
 #### Scenario: Stale approving record
 
@@ -59,7 +59,7 @@ ATeam SHALL validate review evidence against the reviewed head and policy revisi
 
 ### Requirement: Portable enforcement and honest trust boundaries
 
-ATeam SHALL provide equivalent GitHub/Gitea policy and review-record validation through existing task/forge boundaries. It SHALL preserve custom adapter configuration, diagnose policy drift, retain two MCP tools and keep network/model launches out of lifecycle hooks. It SHALL distinguish declared identity from authenticated runtime evidence and SHALL NOT treat missing or incomplete forge evidence as approval. Governing policy and owner authority SHALL be resolved from a trusted baseline or explicit authorized transition rather than self-authorized candidate-branch edits.
+ATeam SHALL validate GitHub/Gitea evidence equivalently, preserve custom setup, diagnose drift, retain two MCP tools and keep network/model launches out of hooks. Model/session/check claims are attestations, not runtime proof. Missing evidence SHALL block approval. Governing policy and owner authority SHALL come from the verified repository default branch, never a candidate-chosen target or candidate policy edit.
 
 #### Scenario: Missing forge evidence
 
@@ -75,3 +75,27 @@ ATeam SHALL provide equivalent GitHub/Gitea policy and review-record validation 
 
 - **WHEN** a branch changes reviewer policy or exception authority without an authorized policy transition
 - **THEN** that change alone does not make the branch eligible for approval
+
+#### Scenario: Candidate targets a permissive branch
+
+- **WHEN** a PR targets a branch other than the verified repository default branch, or its base repository or revision does not match that branch
+- **THEN** the gate refuses to treat that target's policy as trusted authority
+
+### Requirement: Explicit setup and portable routing
+
+ATeam SHALL install owner-approved model policy and portable role instructions only through explicit setup. Setup SHALL preserve custom files and refuse conflicts before writing. Routing SHALL select configured models without launching agents, changing native model settings or claiming runtime attestation. Missing policy SHALL block review commands while preserving existing init/doctor compatibility.
+
+#### Scenario: No project-approved model ranking
+
+- **WHEN** no review policy has been installed
+- **THEN** route/check refuse approval without inventing model comparisons
+
+#### Scenario: Configured role cards drift
+
+- **WHEN** generated role instructions no longer match the policy
+- **THEN** doctor reports drift without overwriting custom configuration
+
+#### Scenario: Known edited owner exception
+
+- **WHEN** a comment lacks valid creation/update timestamps, has unequal timestamps, or changes while validation runs
+- **THEN** the gate rejects it and requires a fresh comment, without claiming that timestamp equality proves body authorship

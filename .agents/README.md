@@ -39,3 +39,9 @@ Canonical skills live in `.agents/skills/<name>/SKILL.md`:
 3. `AGENTS.md` stays strictly under 24,000 bytes and matches `.agents/rules-index.md` in numbered rule sections and row counts.
 4. Every canonical skill in `.agents/skills/<name>/SKILL.md` has a matching thin pointer in `.claude/skills/<name>/SKILL.md` and `.gemini/commands/<name>.toml`.
 5. `.claude/settings.json`, `.codex/hooks.json`, and `.gemini/settings.json` wire all four lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) with `--agent claude|codex|gemini` and register the `ateam mcp` server.
+
+## Configured model review
+
+Optional `.agents/review-policy.json` defines exact approved models, explicit stronger-than comparisons, developer/reviewer routes, authorized reviewer/owner forge logins and required verification. No universal model ranking is bundled. See [model review](../docs/model-review.md) for setup, trust boundaries and commit-bound evidence.
+
+`ateam review setup --policy FILE` preserves custom configurations and creates portable role cards plus thin Claude skill or Gemini CLI command pointers for configured routes. Codex reads the canonical card. Operators select the runtime model explicitly; these files do not launch a model or attest its identity. Canonical [developer](contracts/developer.md) and [reviewer](contracts/reviewer.md) contracts keep implementation and read-only review separate. `ateam doctor` checks configured policy and instruction drift; unconfigured repositories remain compatible.
