@@ -41,3 +41,12 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 - **WHEN** a repository is configured with a Gitea remote or `GITEA_URL`
 - **THEN** `ateam` maps Gitea issues and pull requests into unified board cards (`needs-decision`, `backlog`, `in-progress`, `in-review`, `blocked`, `done`)
+
+### Requirement: Constant-time forge webhook verification and rate limiting
+
+`ateam serve` SHALL expose `POST /api/webhooks/gitea` and `POST /api/webhooks/github` protected by a 60 req/min per-IP fixed-window rate limiter and constant-time `hmac.Equal` HMAC-SHA256 verification (`X-Gitea-Signature` and `X-Hub-Signature-256`) whenever `ATEAM_WEBHOOK_SECRET` is configured.
+
+#### Scenario: Valid signed Gitea webhook payload
+
+- **WHEN** `POST /api/webhooks/gitea` receives a payload signed with `ATEAM_WEBHOOK_SECRET`
+- **THEN** the matching `BoardCard` column and labels update in `.ateam/state.json` and the response reports `merge_allowed` based on active OpenSpec `Hold:` items

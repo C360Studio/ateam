@@ -30,15 +30,18 @@ type DashboardPayload struct {
 
 // Server serves the ATeam HTTP API and embedded static UI.
 type Server struct {
-	repoRoot string
-	mu       sync.Mutex
-	mux      *http.ServeMux
+	repoRoot      string
+	webhookSecret string
+	limiter       *webhookLimiter
+	mu            sync.Mutex
+	mux           *http.ServeMux
 }
 
 // NewServer creates a new ATeam HTTP server rooted at repoRoot.
 func NewServer(repoRoot string) (*Server, error) {
 	s := &Server{
 		repoRoot: repoRoot,
+		limiter:  newWebhookLimiter(60, time.Minute),
 		mux:      http.NewServeMux(),
 	}
 	if err := s.registerRoutes(); err != nil {
@@ -62,6 +65,8 @@ func (s *Server) registerRoutes() error {
 	s.mux.HandleFunc("/api/shortcuts", s.handleShortcuts)
 	s.mux.HandleFunc("/api/benchmarks", s.handleBenchmarks)
 	s.mux.HandleFunc("/api/sync", s.handleSyncForge)
+	s.mux.HandleFunc("/api/webhooks/gitea", s.handleWebhook("gitea"))
+	s.mux.HandleFunc("/api/webhooks/github", s.handleWebhook("github"))
 
 	sub, err := fs.Sub(embeddedDist, "dist")
 	if err != nil {

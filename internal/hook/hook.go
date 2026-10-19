@@ -71,6 +71,10 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 	if err != nil {
 		st = &state.State{Mode: state.ModeFull}
 	}
+	if br, sha := state.ReadFastGitHead(root); sha != "" {
+		st.Git.Branch = br
+		st.Git.HeadSHA = sha
+	}
 
 	switch ev {
 	case "session-start":

@@ -1,6 +1,8 @@
 package hook
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -74,5 +76,45 @@ func TestHookLatencyBudget(t *testing.T) {
 	avg := time.Since(start) / iterations
 	if avg > 5*time.Millisecond {
 		t.Errorf("average hook latency %v exceeds 5ms budget", avg)
+	}
+}
+
+func TestSessionStartDetectsHeadDrift(t *testing.T) {
+	dir := t.TempDir()
+	headsDir := filepath.Join(dir, ".git", "refs", "heads")
+	if err := os.MkdirAll(headsDir, 0o755); err != nil {
+		t.Fatalf("mkdir .git/refs/heads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatalf("write .git/HEAD: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("cd8ea792914382474208bd59658c26d00bed9860\n"), 0o644); err != nil {
+		t.Fatalf("write refs/heads/main: %v", err)
+	}
+
+	st := &state.State{
+		Mode: state.ModeFull,
+		Git:  state.GitStatus{Branch: "main", HeadSHA: "148420d"},
+		LastHandoff: &state.Handoff{
+			Goal:          "Complete dual-forge webhook receiver",
+			Addresses:     "openspec/changes/dual-forge-webhooks",
+			Constraints:   "Hold on task 2.1",
+			DoneWhen:      "task verify green",
+			ChecksToRun:   "task verify",
+			Branch:        "main",
+			CheckpointSHA: "148420d",
+		},
+	}
+	if err := state.Save(dir, st); err != nil {
+		t.Fatalf("state.Save: %v", err)
+	}
+
+	out, err := Handle(dir, "session-start", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("Handle session-start: %v", err)
+	}
+	wantDrift := "Last Handoff (HEAD drifted from 148420d -> cd8ea79):"
+	if !strings.Contains(out.AdditionalContext, wantDrift) {
+		t.Errorf("expected %q in SessionStart AdditionalContext, got:\n%s", wantDrift, out.AdditionalContext)
 	}
 }

@@ -3,7 +3,6 @@
 	import {
 		BOARD_COLUMNS,
 		filterCards,
-		formatFiveFieldPrompt,
 		groupCardsByColumn,
 		type BoardCard,
 		type DashboardPayload
@@ -290,14 +289,18 @@
 				<div class="strip-header">
 					<strong>5-Field SemEngine Pickup State</strong>
 					{#if payload.state.last_handoff}
-						<span class="badge ok">Checkpoint @ {payload.state.last_handoff.checkpoint_sha}</span>
+						{#if payload.state.git.head_sha && payload.state.last_handoff.checkpoint_sha && payload.state.last_handoff.checkpoint_sha !== payload.state.git.head_sha}
+							<span class="badge warn">
+								HEAD DRIFTED ({payload.state.last_handoff.checkpoint_sha} → {payload.state.git.head_sha})
+							</span>
+						{:else}
+							<span class="badge ok">Checkpoint @ {payload.state.last_handoff.checkpoint_sha}</span>
+						{/if}
 					{:else}
 						<span class="badge">Live Git / OpenSpec Reconciliation</span>
 					{/if}
 				</div>
-				<pre class="pickup-pre">{payload.state.last_handoff
-						? formatFiveFieldPrompt(payload.state.last_handoff)
-						: payload.pickup_text}</pre>
+				<pre class="pickup-pre">{payload.pickup_text}</pre>
 			</div>
 
 			<div class="strip-card metrics-mini">
