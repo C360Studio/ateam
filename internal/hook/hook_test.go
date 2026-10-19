@@ -10,6 +10,7 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
 func TestBeforePromptInjectsLadderOnlyOnModeSwitch(t *testing.T) {
 	dir := t.TempDir()
 
@@ -60,6 +61,8 @@ func TestBeforePromptInjectsLadderOnlyOnModeSwitch(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	dir := t.TempDir()
 	out, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress"}`))
@@ -78,6 +81,7 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
 func TestHookLatencyBudget(t *testing.T) {
 	dir := t.TempDir()
 	_, _ = Handle(dir, "session-start", strings.NewReader(`{}`))
@@ -98,6 +102,8 @@ func TestHookLatencyBudget(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Fast Git identity across worktrees
 func TestSessionStartDetectsHeadDrift(t *testing.T) {
 	dir := t.TempDir()
 	headsDir := filepath.Join(dir, ".git", "refs", "heads")
@@ -138,6 +144,8 @@ func TestSessionStartDetectsHeadDrift(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *testing.T) {
 	dir := t.TempDir()
 

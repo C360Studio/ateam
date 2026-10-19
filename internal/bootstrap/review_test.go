@@ -10,6 +10,7 @@ import (
 
 const testReviewPolicy = `{"version":1,"models":[{"id":"test-dev","provider":"codex"},{"id":"test-review","provider":"claude","stronger_than":["test-dev"]}],"routes":{"developer":{"model":"test-dev","effort":"medium"},"reviewer":{"model":"test-review","effort":"high"}},"owners":["project-owner"],"review_authors":["review-bot"],"required_checks":["unit"],"cross_provider":false}`
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestConfigureReviewLifecycle(t *testing.T) {
 	root := t.TempDir()
 	if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
@@ -42,6 +43,7 @@ func TestConfigureReviewLifecycle(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestConfigureReviewConflictNoWrites(t *testing.T) {
 	for _, conflict := range []string{".agents/review-policy.json", ".agents/contracts/reviewer.md", ".agents/routes/reviewer.md", ".claude/skills/ateam-reviewer/SKILL.md", ".gemini/commands/ateam-reviewer.toml", ".claude/skills/ateam-developer/SKILL.md", ".gemini/commands/ateam-developer.toml"} {
 		t.Run(conflict, func(t *testing.T) {
@@ -78,6 +80,7 @@ func TestConfigureReviewConflictNoWrites(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestConfigureReviewRefusesInvalidAndSymlinks(t *testing.T) {
 	root := t.TempDir()
 	if _, err := ConfigureReview(root, []byte(`{"version":100}`)); err == nil {
@@ -98,6 +101,8 @@ func TestConfigureReviewRefusesInvalidAndSymlinks(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestReviewSetupDrift(t *testing.T) {
 	for _, path := range []string{".agents/review-policy.json", ".agents/contracts/developer.md", ".agents/contracts/reviewer.md", ".agents/routes/developer.md", ".agents/routes/reviewer.md", ".claude/skills/ateam-reviewer/SKILL.md"} {
 		t.Run(path, func(t *testing.T) {
@@ -120,6 +125,8 @@ func TestReviewSetupDrift(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit owner exception at the model ceiling
 func TestConfigureReviewGeminiAndCeiling(t *testing.T) {
 	root := t.TempDir()
 	policy := strings.ReplaceAll(testReviewPolicy, `"provider":"claude"`, `"provider":"gemini"`)
@@ -136,6 +143,7 @@ func TestConfigureReviewGeminiAndCeiling(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestCanonicalReviewContracts(t *testing.T) {
 	for role, expected := range map[string]string{"developer": developerContract, "reviewer": reviewerContract} {
 		data, err := os.ReadFile(filepath.Join(repoRoot(t), ".agents/contracts", role+".md"))
@@ -145,6 +153,7 @@ func TestCanonicalReviewContracts(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestConfigureReviewUnsupportedProvider(t *testing.T) {
 	root := t.TempDir()
 	policy := strings.ReplaceAll(testReviewPolicy, `"provider":"claude"`, `"provider":"unknown"`)
@@ -156,6 +165,7 @@ func TestConfigureReviewUnsupportedProvider(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestConfigureReviewProviderMatrix(t *testing.T) {
 	checked := 0
 	for _, developer := range []string{"codex", "claude", "gemini"} {
@@ -216,6 +226,7 @@ func TestConfigureReviewProviderMatrix(t *testing.T) {
 
 // The listed paths come from the supported provider/role contract, independent
 // of reviewFiles. Existing inactive pointers must never be silently accepted.
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestReviewInactivePointers(t *testing.T) {
 	for _, rel := range []string{".claude/skills/ateam-developer/SKILL.md", ".gemini/commands/ateam-developer.toml", ".gemini/commands/ateam-reviewer.toml"} {
 		for _, kind := range []string{"file", "dangling-symlink"} {
@@ -249,6 +260,7 @@ func TestReviewInactivePointers(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestReviewUnconfiguredArtifacts(t *testing.T) {
 	for _, role := range []string{"developer", "reviewer"} {
 		for _, operation := range []string{"delete", "drift"} {
@@ -290,6 +302,7 @@ func TestReviewUnconfiguredArtifacts(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestReviewAbsentInactivePointerUnderLinkedDirectory(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Symlink(t.TempDir(), filepath.Join(root, ".gemini")); err != nil {

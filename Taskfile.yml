@@ -65,6 +65,12 @@ tasks:
           go run github.com/mgechev/revive@v1.15.0 -config revive.toml -formatter friendly -set_exit_status ./...
         fi
 
+  test:spec:
+    desc: Check deterministic Go and Vitest test-to-spec attribution
+    cmds:
+      - go run ./cmd/ateam test-spec
+      - npm --prefix ui run test:unit -- scripts/testspec.test.js
+
   test:unit:
     desc: Run Go unit and agent-parity tests with race detector
     cmds:
@@ -123,6 +129,7 @@ tasks:
     cmds:
       - task: fmt:check
       - task: spec:check
+      - task: test:spec
       - task: tidy:check
       - task: vet
       - task: lint

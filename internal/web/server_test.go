@@ -16,6 +16,7 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
+// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
 func TestServerEndpoints(t *testing.T) {
 	dir := t.TempDir()
 	srv, err := NewServer(dir)
@@ -100,6 +101,7 @@ func TestServerEndpoints(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Constant-time forge webhook verification and rate limiting
 func TestWebhookSignatureAndRateLimit(t *testing.T) {
 	dir := t.TempDir()
 	srv, err := NewServer(dir)
@@ -146,6 +148,8 @@ func TestWebhookSignatureAndRateLimit(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Constant-time forge webhook verification and rate limiting
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestSecurityAndFailClosedProbes(t *testing.T) {
 	dir := t.TempDir()
 	srv, err := NewServer(dir)
@@ -210,6 +214,7 @@ func TestSecurityAndFailClosedProbes(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
 func TestReadAuthAndLoopbackEnforcement(t *testing.T) {
 	dir := t.TempDir()
 	srv, err := NewServer(dir)

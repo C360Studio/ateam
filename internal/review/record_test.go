@@ -13,6 +13,8 @@ func testRecord() (Record, Expected) {
 }
 
 // Model eligibility cannot substitute for a current substantive independent review.
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
+// spec: openspec/specs/model-review/spec.md#Requirement: Stronger independent reviewer
 func TestRecordRefusals(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -75,6 +77,7 @@ func testException(r Record) Exception {
 	return Exception{Version: 1, Repository: r.Repository, Head: r.Head, ReviewerModel: r.Reviewer.Model, PolicyDigest: r.PolicyDigest, Reason: "explicitly accept equal model for this commit"}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit owner exception at the model ceiling
 func TestOwnerException(t *testing.T) {
 	r, e := testRecord()
 	r.Reviewer.Model = "small"
@@ -137,6 +140,8 @@ func TestOwnerException(t *testing.T) {
 	})
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit owner exception at the model ceiling
 func TestRecordParsing(t *testing.T) {
 	r, _ := testRecord()
 	if _, err := ParseRecord(mustJSON(t, r)); err != nil {
@@ -156,6 +161,7 @@ func TestRecordParsing(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
 func TestRecordAuthor(t *testing.T) {
 	r, e := testRecord()
 	for _, author := range []string{"", "attacker", "owner", "Reviewer-Login"} {
@@ -171,6 +177,8 @@ func TestRecordAuthor(t *testing.T) {
 }
 
 // Enumerated histories use the rule that approval survives only if no identity changed.
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit owner exception at the model ceiling
 func TestReviewHistory(t *testing.T) {
 	checks := 0
 	for sequence := 0; sequence < 256; sequence++ {

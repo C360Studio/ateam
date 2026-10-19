@@ -20,6 +20,8 @@ func cliReviewPolicy() review.Policy {
 	return review.Policy{Version: 1, Models: []review.Model{{ID: "work", Provider: "codex", StrongerThan: []string{}}, {ID: "audit", Provider: "codex", StrongerThan: []string{"work"}}}, Routes: review.Routes{Developer: review.Route{Model: "work", Effort: "medium"}, Reviewer: review.Route{Model: "audit", Effort: "high"}}, Owners: []string{"owner"}, ReviewAuthors: []string{"review-account"}, RequiredChecks: []string{"task verify"}}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
+// spec: openspec/specs/model-review/spec.md#Requirement: Stronger independent reviewer
 func TestReviewCLISetupAndRouting(t *testing.T) {
 	root := t.TempDir()
 	p := cliReviewPolicy()
@@ -41,6 +43,11 @@ func TestReviewCLISetupAndRouting(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
+// spec: openspec/specs/model-review/spec.md#Requirement: Stronger independent reviewer
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit owner exception at the model ceiling
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestReviewCLICurrentForgeEvidence(t *testing.T) {
 	for _, scenario := range []string{"pass", "untrusted-author", "stale-head", "moving-head", "same-tier", "exception", "wrong-owner", "candidate-policy", "edited-record", "moving-record", "moving-exception"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -154,6 +161,8 @@ func TestReviewCLICurrentForgeEvidence(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestReviewCommentAndFileBoundaries(t *testing.T) {
 	for _, body := range []string{"{}", "ateam-review {}", "```json\n{}\n```", "ateam-review-exception\n{}"} {
 		if _, err := reviewCommentPayload(body, "ateam-review"); err == nil {
@@ -173,6 +182,7 @@ func TestReviewCommentAndFileBoundaries(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestReviewTokenDoesNotReadDefaultAccountForCustomAPI(t *testing.T) {
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
@@ -183,6 +193,7 @@ func TestReviewTokenDoesNotReadDefaultAccountForCustomAPI(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestReviewTokenEnvironment(t *testing.T) {
 	for _, tc := range []struct {
 		name                               string

@@ -9,6 +9,8 @@ import (
 	"testing"
 )
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
 func TestBaselinePolicyRejectsCandidateAuthority(t *testing.T) {
 	root := t.TempDir()
 	git := func(args ...string) string {
@@ -58,6 +60,8 @@ func TestBaselinePolicyRejectsCandidateAuthority(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestBaselinePolicyRequiresAdoptionAndAncestor(t *testing.T) {
 	root := t.TempDir()
 	git := func(args ...string) string {
@@ -92,6 +96,7 @@ func TestBaselinePolicyRequiresAdoptionAndAncestor(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestGitOutputBound(t *testing.T) {
 	b := &boundedOutput{}
 	if _, err := b.Write(make([]byte, 2<<20)); err != nil {

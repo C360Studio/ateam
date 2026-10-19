@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+// spec: openspec/specs/harness/spec.md#Requirement: Task target discovery and validation
 func TestListTargetsAndValidation(t *testing.T) {
 	dir := t.TempDir()
 	tf := `version: '3'

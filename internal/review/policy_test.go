@@ -21,6 +21,7 @@ func mustJSON(t *testing.T, value any) []byte {
 }
 
 // Rank is independent of effort/provider: equal or weaker reviewers must fail.
+// spec: openspec/specs/model-review/spec.md#Requirement: Stronger independent reviewer
 func TestEligible(t *testing.T) {
 	cases := []struct {
 		name, model, provider string
@@ -47,6 +48,9 @@ func TestEligible(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Stronger independent reviewer
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit owner exception at the model ceiling
 func TestValidatePolicy(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -92,6 +96,8 @@ func TestValidatePolicy(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
 func TestStrictJSON(t *testing.T) {
 	valid := string(mustJSON(t, testPolicy()))
 	// Nil slices encode as null, deliberately forbidden at trust boundaries.
@@ -119,6 +125,7 @@ func TestStrictJSON(t *testing.T) {
 }
 
 // A generated linear order has a simple integer oracle, independent of graph traversal.
+// spec: openspec/specs/model-review/spec.md#Requirement: Stronger independent reviewer
 func TestGeneratedRankComparisons(t *testing.T) {
 	checks := 0
 	for count := 2; count <= 12; count++ {
@@ -148,6 +155,7 @@ func TestGeneratedRankComparisons(t *testing.T) {
 	t.Logf("completed %d comparisons; equal, adjacent, transitive and ceiling boundaries reached", checks)
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func FuzzPolicyJSON(f *testing.F) {
 	valid, err := json.Marshal(testPolicy())
 	if err != nil {
@@ -172,6 +180,7 @@ func FuzzPolicyJSON(f *testing.F) {
 	})
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestPolicyModelLimit(t *testing.T) {
 	p := testPolicy()
 	p.Models = nil

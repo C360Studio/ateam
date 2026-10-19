@@ -160,6 +160,7 @@ While working on a change:
   - `survivor`: the mutated line was executed by the test, but the test still passed.
   - `invalid`: the mutant failed to compile, or the test never executed the mutated line.
   - `inconclusive`: the baseline test failed, timed out, or failed with an unrelated error.
+- **Attribute tests to requirements:** Attach `// spec: openspec/specs/<capability>/spec.md#Requirement: Exact heading` to each Go test/fuzz/executable example and each Vitest test. Run `task test:spec` to catch missing or stale references. This checks attribution syntax and existing targets; reviewers still assess whether assertions prove the cited behavior. See [the attribution protocol](.agents/protocol.md#test-to-spec-attribution).
 - **Run the full verification suite (`task verify`):**
   ```bash
   task verify
@@ -224,6 +225,7 @@ From the web board you can:
 | `ateam state sync [--forge github\|gitea]` | Sync open issues and PRs from GitHub or Gitea into `.ateam/state.json` |
 | `ateam state mode [lite\|full\|ultra\|off]` | Get or set the active discipline level |
 | `ateam task [list\|<target>]` | List or run targets defined in `Taskfile.yml` |
+| `ateam test-spec` | Check test attribution comments against exact OpenSpec requirement headings |
 | `ateam mutate -pkg ... -test ... -file ... -mutant ...` | Run a non-destructive `go test -overlay` mutation check |
 | `ateam bench [--selftest] [--markdown]` | Run offline benchmark self-tests and mutation checks |
 | `ateam hook --event <event> [--agent <name>]` | Run lifecycle hook (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) |
@@ -237,6 +239,7 @@ From the web board you can:
 | `task review:route -- ...` | Check configured model routing, forwarding optional CLI arguments |
 | `task review:check -- --pr N --record-comment ID [...]` | Validate current PR review evidence and an optional owner exception |
 | `task fmt` / `task fmt:check` | Format Go files / fail if any Go file is unformatted |
+| `task test:spec` | Validate attached test-to-spec references in Go and Vitest tests |
 | `task spec:check` | Validate `openspec/` specs and changes |
 | `task spec:queue` | Show in-flight `openspec/changes/*` progress and holds |
 | `task tidy:check` | Fail if `go.mod` or `go.sum` is not tidy |

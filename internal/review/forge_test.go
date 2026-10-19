@@ -15,6 +15,8 @@ import (
 
 const forgePRFixture = `{"state":"open","merged":false,"number":7,"base":{"sha":"1111111111111111111111111111111111111111"},"head":{"sha":"2222222222222222222222222222222222222222"},"draft":false,"user":{"login":"developer"}}`
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
 func TestForgeProviders(t *testing.T) {
 	for _, provider := range []string{"github", "gitea"} {
 		t.Run(provider, func(t *testing.T) {
@@ -71,6 +73,8 @@ func TestForgeProviders(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
 func TestForgeRejectsPartialPullRequests(t *testing.T) {
 	for _, provider := range []string{"github", "gitea"} {
 		t.Run(provider, func(t *testing.T) {
@@ -100,6 +104,8 @@ func TestForgeRejectsPartialPullRequests(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestForgeRejectsUnboundComments(t *testing.T) {
 	for _, provider := range []string{"github", "gitea"} {
 		t.Run(provider, func(t *testing.T) {
@@ -141,6 +147,7 @@ func TestForgeRejectsUnboundComments(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestForgeHTTPFailures(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -166,6 +173,7 @@ func TestForgeHTTPFailures(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestForgeRedirectDoesNotForwardCredentials(t *testing.T) {
 	var requests atomic.Int32
 	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { requests.Add(1); fmt.Fprint(w, forgePRFixture) }))
@@ -184,6 +192,7 @@ func TestForgeRedirectDoesNotForwardCredentials(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestForgeCancellation(t *testing.T) {
 	started := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { close(started); <-r.Context().Done() }))
@@ -212,6 +221,7 @@ func TestForgeCancellation(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestForgeRejectsInvalidConfiguration(t *testing.T) {
 	for _, tc := range []struct{ name, provider, base, owner, repo string }{
 		{"provider", "local", "https://example.test", "team", "project"},
@@ -243,6 +253,8 @@ func TestForgeRejectsInvalidConfiguration(t *testing.T) {
 
 // Gitea's issue comment converter uses pull_request_url for PR comments,
 // with an HTML pull URL, and leaves issue_url empty.
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
 func TestForgeGiteaPullComment(t *testing.T) {
 	var base string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +271,7 @@ func TestForgeGiteaPullComment(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestForgeTargetAuthority(t *testing.T) {
 	for _, provider := range []string{"github", "gitea"} {
 		t.Run(provider, func(t *testing.T) {
@@ -322,6 +335,7 @@ func TestForgeTargetAuthority(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestForgeRejectEditedComments(t *testing.T) {
 	for _, provider := range []string{"github", "gitea"} {
 		t.Run(provider, func(t *testing.T) {
