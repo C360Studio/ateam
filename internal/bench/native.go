@@ -10,9 +10,12 @@ import (
 )
 
 // IsNative distinguishes built-in provider execution from the command protocol.
-func (e Experiment) IsNative() bool { return e.Gemini != nil || e.Claude != nil }
+func (e Experiment) IsNative() bool { return e.Gemini != nil || e.Claude != nil || e.Codex != nil }
 
 func nativeKeyName(e Experiment) string {
+	if e.Codex != nil {
+		return "OPENAI_API_KEY"
+	}
 	if e.Claude != nil {
 		return "ANTHROPIC_API_KEY"
 	}
@@ -20,6 +23,9 @@ func nativeKeyName(e Experiment) string {
 }
 
 func nativeSettings(e Experiment) ([]byte, error) {
+	if e.Codex != nil {
+		return codexSettings(e)
+	}
 	if e.Claude != nil {
 		return claudeSettings(e)
 	}
@@ -27,6 +33,9 @@ func nativeSettings(e Experiment) ([]byte, error) {
 }
 
 func nativeArguments(e Experiment) []string {
+	if e.Codex != nil {
+		return codexArguments(e)
+	}
 	if e.Claude != nil {
 		return claudeArguments(e)
 	}
@@ -34,6 +43,9 @@ func nativeArguments(e Experiment) []string {
 }
 
 func parseNativeOutput(e Experiment, output string) (AdapterResponse, error) {
+	if e.Codex != nil {
+		return parseCodexOutput(output)
+	}
 	if e.Claude != nil {
 		if e.Claude.OutputFormat == "json-schema" {
 			return parseClaudeStructuredOutput(output)
@@ -60,13 +72,19 @@ func resolveNative(r *ResolvedExperiment, e Experiment) error {
 	}
 	version := strings.TrimSpace(out.String())
 	want := "0.43.0"
+	if e.Codex != nil {
+		want = "codex-cli 0.160.1"
+	}
 	if e.Claude != nil {
 		want = "2.1.292 (Claude Code)"
 	}
 	if out.overflow || version != want {
 		return fmt.Errorf("%s CLI %s is required for the verified native telemetry/config contract", e.Agent, want)
 	}
-	if e.Claude != nil {
+	if e.Codex != nil {
+		r.CodexVersion = version
+		r.BudgetPolicy = "OPENAI_API_KEY only via fixed direct OpenAI provider; isolated app-server stdio; CLI-resolved model/effort/provider checked before inference, backend identity unknown; reroutes refused; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; zero HTTP/SSE retries; no supported per-request output or model-turn cap; no in-flight monetary guarantee; cumulative native thread usage once; cost unknown"
+	} else if e.Claude != nil {
 		r.ClaudeVersion = version
 		r.BudgetPolicy = "ANTHROPIC_API_KEY only via bare mode; local managed configuration refused; remote policy remains enforced and requires live preflight; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported whole-call modelUsage; 4 agentic turns/attempt, requested 8192 output tokens/request, MAX_STRUCTURED_OUTPUT_RETRIES=1 (one structured-output attempt) and 0 transport retries; no fallback accepted; native cost is a client estimate, not billing"
 	} else {
@@ -80,4 +98,19 @@ func resolveNative(r *ResolvedExperiment, e Experiment) error {
 	r.NativeSettings = settings
 	r.NativeArguments = nativeArguments(e)
 	return nil
+}
+
+// Codex reports resolved CLI configuration, not provider per-model accounting.
+// Keep that assurance distinct and preserve the existing Gemini/Claude checks.
+func nativeIdentityStatus(e Experiment, evidence *NativeEvidence) string {
+	if e.Codex == nil {
+		return nativeModelStatus(evidence, e.Model)
+	}
+	if evidence == nil || evidence.Codex == nil || evidence.Codex.IdentitySource != "cli-thread-start" || evidence.Codex.ModelProvider == nil || evidence.ResolvedModel == nil || evidence.ResolvedReasoning == nil {
+		return "model-unverified"
+	}
+	if *evidence.Codex.ModelProvider != "benchmark_openai" || *evidence.ResolvedModel != e.Model || *evidence.ResolvedReasoning != e.Codex.Reasoning {
+		return "model-mismatch"
+	}
+	return ""
 }

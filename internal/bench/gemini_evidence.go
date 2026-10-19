@@ -26,6 +26,7 @@ type GeminiReportedUsage struct {
 
 // NativeEvidence describes a CLI report; backend identity remains unknown unless reported.
 type NativeEvidence struct {
+	Codex               *CodexEvidence       `json:"codex,omitempty"`
 	ClaudeReportedUsage *ClaudeReportedUsage `json:"claude_reported_usage,omitempty"`
 	SessionID           string               `json:"session_id"`
 	Terminal            string               `json:"terminal"`

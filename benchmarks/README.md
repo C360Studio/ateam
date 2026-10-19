@@ -150,3 +150,22 @@ Claude accounting differs from Gemini: the whole-call `modelUsage` map includes 
 The common stop rules, self-test gate, comparison and offline immutable replay apply unchanged. API credential availability, policy preflight and a successful live A/A remain required before declaring Haiku calibrated. The $2 target is an operator-approved pilot policy, not a new automatic spending authorization embedded in the example.
 
 The [Haiku A/A pilot](haiku-calibration-pilot-2026-10-19.md) completed 30 passing attempts and 15 evaluable pairs. It records descriptive variation, immutable replay and billing limits; it is not a harness-performance improvement claim.
+
+### Codex Luna through the API
+
+Use `benchmarks/examples/codex-aa.json` for identical treatments or `codex-ab.json` for different instruction strings. Both arms share `gpt-6-luna` and explicit low effort. The adapter requires Codex CLI 0.160.1 and `OPENAI_API_KEY`; supply the key through the process environment, never the experiment JSON. Run the same commands as the other providers:
+
+```sh
+ateam bench run benchmarks/examples/codex-aa.json --dry-run
+ateam bench run benchmarks/examples/codex-aa.json
+ateam bench compare <run.json>
+ateam bench rescore <run.json>
+```
+
+The adapter uses native app-server **stdio** because `codex exec --json` omits model/effort identity. It validates the native thread/start response before requesting inference and records **CLI-resolved** model, effort and provider. Provider-reported backend identity remains unknown; this is a different assurance source from Claude modelUsage. Any observed reroute is refused. Structured source comes from native outputSchema, with no prose/fence repair.
+
+A fixed `benchmark_openai` provider points to `https://api.openai.com/v1`, reads only the explicit API key and disables both HTTP and stream retries. Fresh HOME/CODEX_HOME, an ephemeral thread and controlled configuration prevent subscription/session inheritance. Host-managed policy is retained or refused, not bypassed. Shell and external capabilities are disabled, native read-only/no-network sandbox settings are checked before inference, and unexpected tool items stop execution. The complete native tool-definition inventory is not independently verified; arbitrary skills/hooks are outside this initial calibration.
+
+The examples schedule 30 attempts with a 100,000 reported-token threshold, 120 seconds per attempt and one hour overall. Codex has no verified per-request output or model-turn cap in this adapter. Token limits stop between attempts, and elapsed-time cancellation does not prove a provider request was unbilled; the $2 pilot policy is a target, not a hard guarantee. A bounded canary must validate installed native behavior before the full live pilot.
+
+Native thread usage contains cumulative `total` and per-request `last` snapshots. The latest complete cumulative total is normalized once; cached input and reasoning output are subsets and are not added again. Missing or invalid accounting stays unknown, and native failures remain visible during replay. Resolved settings, native events, usage and observed item types do not prove that a skill or tool was used. See the [official app-server contract](https://learn.chatgpt.com/docs/app-server) and [Luna model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).

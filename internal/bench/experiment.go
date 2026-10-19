@@ -23,6 +23,7 @@ type Experiment struct {
 	Mode           string        `json:"mode,omitempty"`
 	Gemini         *GeminiConfig `json:"gemini,omitempty"`
 	Claude         *ClaudeConfig `json:"claude,omitempty"`
+	Codex          *CodexConfig  `json:"codex,omitempty"`
 	MaxTotalTokens int64         `json:"max_total_tokens,omitempty"`
 	MaxRunSeconds  int           `json:"max_run_seconds,omitempty"`
 	Name           string        `json:"name"`
@@ -51,6 +52,7 @@ type ResolvedExperiment struct {
 	NativeArguments []string          `json:"native_arguments,omitempty"`
 	GeminiVersion   string            `json:"gemini_version,omitempty"`
 	ClaudeVersion   string            `json:"claude_version,omitempty"`
+	CodexVersion    string            `json:"codex_version,omitempty"`
 	BudgetPolicy    string            `json:"budget_policy,omitempty"`
 	Original        Experiment        `json:"original_experiment"`
 	Grader          GraderIdentity    `json:"grader"`
@@ -146,7 +148,13 @@ func validateExperiment(e Experiment) error {
 	default:
 		return fmt.Errorf("mode must be aa or ab")
 	}
-	if e.Gemini != nil && e.Claude != nil {
+	providers := 0
+	for _, selected := range []bool{e.Gemini != nil, e.Claude != nil, e.Codex != nil} {
+		if selected {
+			providers++
+		}
+	}
+	if providers > 1 {
 		return fmt.Errorf("select exactly one native provider")
 	}
 	if e.Gemini != nil {
@@ -181,6 +189,19 @@ func validateExperiment(e Experiment) error {
 		case "low", "medium", "high":
 		default:
 			return fmt.Errorf("claude reasoning must be explicitly selected")
+		}
+	}
+	if e.Codex != nil {
+		if e.Model != "gpt-6-luna" || e.Agent != "codex" || len(e.Command) != 1 {
+			return fmt.Errorf("codex requires fixed model gpt-6-luna, agent codex and a single executable")
+		}
+		if e.Codex.Auth != "api-key-env" {
+			return fmt.Errorf("codex auth must explicitly select api-key-env (OPENAI_API_KEY)")
+		}
+		switch e.Codex.Reasoning {
+		case "low", "medium", "high":
+		default:
+			return fmt.Errorf("codex reasoning must be explicitly selected")
 		}
 	}
 	if e.IsNative() {

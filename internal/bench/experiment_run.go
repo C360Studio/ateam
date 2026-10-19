@@ -59,6 +59,9 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 }
 
 func executeAdapter(ctx context.Context, e Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
+	if e.Codex != nil {
+		return executeCodex(ctx, e, request, dir)
+	}
 	if e.Claude != nil {
 		return executeClaude(ctx, e, request, dir)
 	}
@@ -114,7 +117,7 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err != nil {
 		return "", err
 	}
-	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.GeminiVersion != resolved.GeminiVersion || current.ClaudeVersion != resolved.ClaudeVersion || (current.Experiment.IsNative() && !jsonEquivalent(current.NativeSettings, resolved.NativeSettings)) || !reflect.DeepEqual(current.NativeArguments, resolved.NativeArguments) || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
+	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.GeminiVersion != resolved.GeminiVersion || current.ClaudeVersion != resolved.ClaudeVersion || current.CodexVersion != resolved.CodexVersion || (current.Experiment.IsNative() && !jsonEquivalent(current.NativeSettings, resolved.NativeSettings)) || !reflect.DeepEqual(current.NativeArguments, resolved.NativeArguments) || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
 		return "", fmt.Errorf("resolved experiment changed before execution")
 	}
 	if err := os.MkdirAll(outputRoot, 0700); err != nil {
@@ -158,9 +161,9 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 		response, stdout, stderr, status, runErr := executeAdapter(ctx, resolved.Experiment, a.Request, workspace)
 		a.AgentNanos = time.Since(start).Nanoseconds()
 		if resolved.Experiment.IsNative() && runErr == nil {
-			if reason := nativeModelStatus(response.Native, resolved.Experiment.Model); reason != "" {
+			if reason := nativeIdentityStatus(resolved.Experiment, response.Native); reason != "" {
 				status = "adapter-error"
-				runErr = fmt.Errorf("%s: native accounting does not confirm the configured model", reason)
+				runErr = fmt.Errorf("%s: native evidence does not confirm the configured model/settings", reason)
 			}
 		}
 		a.Stdout = stdout
@@ -225,7 +228,7 @@ func nativeStop(ctx context.Context, e Experiment, a Attempt, used *int64, last 
 		return "session-reuse", fmt.Errorf("native session reused; stopped before further calls")
 	}
 	if a.Response != nil {
-		if reason := nativeModelStatus(a.Response.Native, e.Model); reason != "" {
+		if reason := nativeIdentityStatus(e, a.Response.Native); reason != "" {
 			return reason, fmt.Errorf("native model accounting invalid; stopped before further calls")
 		}
 	}
@@ -335,7 +338,7 @@ func validateRun(r ExperimentRun) error {
 	default:
 		return fmt.Errorf("unknown run stop reason")
 	}
-	if cfg.IsNative() && (((cfg.Gemini != nil && r.Resolved.GeminiVersion == "") || (cfg.Claude != nil && r.Resolved.ClaudeVersion == "")) || r.Resolved.BudgetPolicy == "" || len(r.Resolved.NativeSettings) == 0 || len(r.Resolved.NativeArguments) == 0) {
+	if cfg.IsNative() && (((cfg.Gemini != nil && r.Resolved.GeminiVersion == "") || (cfg.Claude != nil && r.Resolved.ClaudeVersion == "") || (cfg.Codex != nil && r.Resolved.CodexVersion == "")) || r.Resolved.BudgetPolicy == "" || len(r.Resolved.NativeSettings) == 0 || len(r.Resolved.NativeArguments) == 0) {
 		return fmt.Errorf("missing native provenance")
 	}
 	if cfg.IsNative() {
@@ -371,7 +374,7 @@ func validateRun(r ExperimentRun) error {
 			}
 			session := a.Response.Native.SessionID
 			if a.Status == "passed" || a.Status == "failed" || a.Status == "grading-error" {
-				if parseErr != nil || nativeModelStatus(a.Response.Native, cfg.Model) != "" || (session != "" && sessions[session]) {
+				if parseErr != nil || nativeIdentityStatus(cfg, a.Response.Native) != "" || (session != "" && sessions[session]) {
 					return fmt.Errorf("attempt %d: incomplete or reused native session", i)
 				}
 			}
@@ -429,7 +432,7 @@ func validateNativeStop(r ExperimentRun) error {
 			}
 			return nil
 		}
-		if reason := nativeModelStatus(a.Response.Native, r.Resolved.Experiment.Model); reason != "" {
+		if reason := nativeIdentityStatus(r.Resolved.Experiment, a.Response.Native); reason != "" {
 			if !last || (r.StopReason != reason && r.StopReason != "cancelled" && r.StopReason != "run-timeout") {
 				return fmt.Errorf("native execution continued with unverified or changed model")
 			}
