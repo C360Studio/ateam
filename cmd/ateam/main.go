@@ -92,6 +92,7 @@ Commands:
 func runHook(repoRoot string, args []string) int {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	evFlag := fs.String("event", "", "normalized hook event name")
+	agFlag := fs.String("agent", "", "agent name (claude, codex, gemini)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -99,7 +100,7 @@ func runHook(repoRoot string, args []string) int {
 	if ev == "" && fs.NArg() > 0 {
 		ev = fs.Arg(0)
 	}
-	out, err := hook.Handle(repoRoot, ev, os.Stdin)
+	out, err := hook.HandleWithAgent(repoRoot, ev, *agFlag, os.Stdin)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ateam hook: %v\n", err)
 		return 1
@@ -237,8 +238,10 @@ func runStateHandoff(repoRoot string, args []string) int {
 	if strings.TrimSpace(ho.Addresses) == "" {
 		ho.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 	}
+	_ = state.ClearWriterLease(repoRoot)
 	if _, err := state.Update(repoRoot, func(cur *state.State) error {
 		cur.LastHandoff = &ho
+		cur.Writer = nil
 		return nil
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "ateam state handoff: %v\n", err)

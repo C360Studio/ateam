@@ -31,7 +31,21 @@ func TestForgeGitHubAndGitea(t *testing.T) {
 					"title":    "Support Gitea API v1",
 					"state":    "open",
 					"html_url": "http://gitea.local/c360/ateam/issues/10",
+					"comments": 1,
 					"labels":   []map[string]any{{"name": "status:needs-decision"}},
+				},
+				{
+					"number":   12,
+					"title":    "Zero comment Gitea issue",
+					"state":    "open",
+					"html_url": "http://gitea.local/c360/ateam/issues/12",
+					"comments": 0,
+				},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/c360/ateam/issues/10/comments":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"body": "Decision: use Gitea v1 issues and comments endpoints",
 				},
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/c360/ateam/pulls":
@@ -68,14 +82,14 @@ func TestForgeGitHubAndGitea(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SyncForgeBoard Gitea: %v", err)
 	}
-	if len(cards) != 2 {
-		t.Fatalf("got %d cards, want 2", len(cards))
+	if len(cards) != 3 {
+		t.Fatalf("got %d cards, want 3", len(cards))
 	}
-	if cards[0].Column != "needs-decision" || cards[0].Forge != "gitea" {
+	if cards[0].Column != "needs-decision" || cards[0].Forge != "gitea" || cards[0].Decision != "Decision: use Gitea v1 issues and comments endpoints" {
 		t.Errorf("unexpected issue card: %+v", cards[0])
 	}
-	if cards[1].Column != "in-progress" || cards[1].Agent != "codex" {
-		t.Errorf("unexpected PR card: %+v", cards[1])
+	if cards[2].Column != "in-progress" || cards[2].Agent != "codex" {
+		t.Errorf("unexpected PR card: %+v", cards[2])
 	}
 
 	labels, err := BootstrapForgeLabels(context.Background(), t.TempDir(), cfg)
@@ -103,22 +117,40 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 		t.Fatal("expected partial gh failure (issues ok, prs fail) to return an error, got nil")
 	}
 
-	// Probe 4b: When both succeed, MergeForgeCards preserves local cards alongside synced GitHub cards.
-	scriptFull := "#!/bin/sh\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n"
-	if err := os.WriteFile(fakeGH, []byte(scriptFull), 0o755); err != nil {
+	// Probe 4b & G-06: When comments expansion fails/times out, SyncForgeBoard falls back to comment-free issue list and returns cards.
+	scriptFallback := "#!/bin/sh\ncase \"$*\" in\n  *comments*)\n    exit 1\n    ;;\nesac\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n"
+	if err := os.WriteFile(fakeGH, []byte(scriptFallback), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	synced, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub})
 	if err != nil {
-		t.Fatalf("SyncForgeBoard full fake gh: %v", err)
+		t.Fatalf("SyncForgeBoard fallback fake gh: %v", err)
 	}
 	st := &State{
 		Cards: []BoardCard{
 			{ID: "LOCAL-1", Title: "Local task card", Column: "backlog", Forge: "local"},
 		},
 	}
+	// Astra #2: Dashboard-created card (UpsertCard with Forge: "github") gets ATEAM-* ID and must survive empty and non-empty GitHub sync.
+	uiCard, err := st.UpsertCard(BoardCard{Title: "Created in dashboard", Forge: "github", Column: "backlog"})
+	if err != nil {
+		t.Fatalf("UpsertCard: %v", err)
+	}
+	st.MergeForgeCards(nil, ForgeGitHub)
+	if len(st.Cards) != 2 {
+		t.Fatalf("expected 2 local/dashboard cards after empty GitHub sync, got %d: %+v", len(st.Cards), st.Cards)
+	}
 	st.MergeForgeCards(synced, ForgeGitHub)
-	if len(st.Cards) != 3 {
-		t.Fatalf("expected 3 cards after MergeForgeCards (1 local + 2 github), got %d: %+v", len(st.Cards), st.Cards)
+	if len(st.Cards) != 4 {
+		t.Fatalf("expected 4 cards after MergeForgeCards (1 local + 1 dashboard ATEAM + 2 github), got %d: %+v", len(st.Cards), st.Cards)
+	}
+	foundUI := false
+	for _, c := range st.Cards {
+		if c.ID == uiCard.ID {
+			foundUI = true
+		}
+	}
+	if !foundUI {
+		t.Fatalf("dashboard card %s lost after MergeForgeCards", uiCard.ID)
 	}
 }

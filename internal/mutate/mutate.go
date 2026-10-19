@@ -186,19 +186,27 @@ func Run(ctx context.Context, repoRoot string, opts Options, stdout, stderr io.W
 		return rep, 2
 	}
 
+	var baselineCounts map[string]int
 	for i := 1; i <= opts.Runs; i++ {
-		if res := runGoTest(ctx, absRoot, opts, "", ""); res.outcome != "pass" {
+		res := runGoTest(ctx, absRoot, opts, "", "", nil)
+		if res.outcome != "pass" {
 			rep.Verdict = OutcomeInconclusive
 			rep.Reason = fmt.Sprintf("baseline run %d of %d did not pass: %s", i, opts.Runs, res.reason)
 			writeSummary(stdout, rep)
 			return rep, 1
+		}
+		if i == 1 {
+			baselineCounts = make(map[string]int, len(res.matchedLines))
+			for _, ln := range res.matchedLines {
+				baselineCounts[ln]++
+			}
 		}
 	}
 
 	var mutantOutcomes []runAnalysis
 	allPassed := true
 	for i := 1; i <= opts.Runs; i++ {
-		res := runGoTest(ctx, absRoot, opts, overlayPath, "")
+		res := runGoTest(ctx, absRoot, opts, overlayPath, "", baselineCounts)
 		mutantOutcomes = append(mutantOutcomes, res)
 		allPassed = allPassed && (res.outcome == "pass")
 		if len(res.matchedLines) > 0 && len(rep.MatchedLine) == 0 {
@@ -206,7 +214,7 @@ func Run(ctx context.Context, repoRoot string, opts Options, stdout, stderr io.W
 		}
 	}
 
-	afterRes := runGoTest(ctx, absRoot, opts, "", "")
+	afterRes := runGoTest(ctx, absRoot, opts, "", "", nil)
 	afterBytes, readErr := os.ReadFile(absTarget)
 	if readErr != nil || sha256Hex(afterBytes) != beforeSHA {
 		rep.Verdict, rep.Reason = OutcomeInconclusive, "the target file changed during the check"
@@ -261,12 +269,19 @@ func finalizeVerdict(ctx context.Context, absRoot, tmpDir, absTarget string, tar
 	}
 	if allPassed {
 		coverPath := filepath.Join(tmpDir, "reach.cover")
-		reachRes := runGoTest(ctx, absRoot, opts, "", coverPath)
+		reachRes := runGoTest(ctx, absRoot, opts, "", coverPath, nil)
 		if reachRes.outcome != "pass" {
 			return OutcomeInconclusive, "the reach run on the unchanged code did not pass: " + reachRes.reason
 		}
-		reachedChange, err := checkReach(targetBytes, mutantBytes, filepath.Base(absTarget), coverPath)
-		if err != nil || reachedChange {
+		relTarget := filepath.ToSlash(opts.File)
+		if rel, err := filepath.Rel(absRoot, absTarget); err == nil {
+			relTarget = filepath.ToSlash(rel)
+		}
+		reachedChange, err := checkReach(targetBytes, mutantBytes, relTarget, coverPath)
+		if err != nil {
+			return OutcomeInconclusive, "could not verify mutation reach from coverage profile: " + err.Error()
+		}
+		if reachedChange {
 			return OutcomeSurvivor, fmt.Sprintf("the named test passed in every mutant run and reached the wrong change (seed %d)", opts.Seed)
 		}
 		return OutcomeInvalid, "the test did not reach the wrong change: no executed coverage block touched the mutated lines"
@@ -287,7 +302,7 @@ type testEvent struct {
 	FailedBuild string `json:"FailedBuild"`
 }
 
-func runGoTest(ctx context.Context, repoRoot string, opts Options, overlayPath, coverProfile string) runAnalysis {
+func runGoTest(ctx context.Context, repoRoot string, opts Options, overlayPath, coverProfile string, baselineCounts map[string]int) runAnalysis {
 	runPattern := buildExactRunPattern(opts.Test)
 	args := []string{"test", "-json", "-race", "-count=1", "-timeout=" + opts.Timeout.String(), "-run=" + runPattern}
 	if overlayPath != "" {
@@ -319,6 +334,7 @@ func runGoTest(ctx context.Context, repoRoot string, opts Options, overlayPath, 
 		result       string
 		expectedHits []string
 	)
+	seenInRun := make(map[string]int)
 	isOurs := func(t string) bool {
 		return t == opts.Test || strings.HasPrefix(t, opts.Test+"/")
 	}
@@ -354,7 +370,11 @@ func runGoTest(ctx context.Context, repoRoot string, opts Options, overlayPath, 
 				buildFailed = true
 			}
 			if isOurs(ev.Test) && matchesExpectation(text, opts.Expect, opts.ExpectText) {
-				expectedHits = append(expectedHits, strings.TrimSpace(text))
+				clean := strings.TrimSpace(text)
+				seenInRun[clean]++
+				if baselineCounts == nil || seenInRun[clean] > baselineCounts[clean] {
+					expectedHits = append(expectedHits, clean)
+				}
 			}
 		}
 	}
@@ -370,7 +390,7 @@ func runGoTest(ctx context.Context, repoRoot string, opts Options, overlayPath, 
 	case !selected:
 		return runAnalysis{outcome: OutcomeInconclusive, reason: fmt.Sprintf("test %q was not selected in %s", opts.Test, opts.Pkg)}
 	case result == "pass" && err == nil:
-		return runAnalysis{outcome: "pass", reason: "passed"}
+		return runAnalysis{outcome: "pass", reason: "passed", matchedLines: expectedHits}
 	case result == "fail" && isMutant && len(expectedHits) > 0:
 		return runAnalysis{outcome: OutcomeDetection, reason: "failed with expected assertion", matchedLines: expectedHits}
 	case result == "fail" && isMutant:
@@ -407,22 +427,28 @@ func matchesExpectation(line string, locations, texts []string) bool {
 
 var coverLineRe = regexp.MustCompile(`^(.+):([0-9]+)\.[0-9]+,([0-9]+)\.[0-9]+ [0-9]+ ([0-9]+)$`)
 
-func checkReach(orig, mutant []byte, baseName, coverPath string) (bool, error) {
+func checkReach(orig, mutant []byte, relTarget, coverPath string) (bool, error) {
 	coverData, err := os.ReadFile(coverPath)
 	if err != nil {
 		return false, err
 	}
+	if len(bytes.TrimSpace(coverData)) == 0 {
+		return false, errors.New("empty coverage profile")
+	}
 	changedLines := diffChangedLines(orig, mutant)
 	if len(changedLines) == 0 {
-		return true, nil
+		return false, nil
 	}
+	relTarget = strings.TrimPrefix(filepath.ToSlash(relTarget), "./")
+	baseName := filepath.Base(relTarget)
 	var sawFileBlock bool
 	for _, line := range strings.Split(string(coverData), "\n") {
 		m := coverLineRe.FindStringSubmatch(strings.TrimSpace(line))
 		if len(m) != 5 {
 			continue
 		}
-		if !strings.HasSuffix(m[1], "/"+baseName) && m[1] != baseName {
+		covFile := filepath.ToSlash(m[1])
+		if !strings.HasSuffix(covFile, "/"+relTarget) && covFile != relTarget && !strings.HasSuffix(covFile, "/"+baseName) && covFile != baseName {
 			continue
 		}
 		sawFileBlock = true
@@ -439,7 +465,7 @@ func checkReach(orig, mutant []byte, baseName, coverPath string) (bool, error) {
 		}
 	}
 	if !sawFileBlock {
-		return true, nil
+		return false, nil
 	}
 	return false, nil
 }

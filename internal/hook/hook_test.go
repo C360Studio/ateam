@@ -79,19 +79,7 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 }
 
 func TestHookLatencyBudget(t *testing.T) {
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	repoRoot := filepath.Clean(filepath.Join(wd, "..", ".."))
-	// Measure against a realistic tree containing source packages without mutating the real repo's .ateam.
 	dir := t.TempDir()
-	for i := 0; i < 40; i++ {
-		pkgDir := filepath.Join(dir, "internal", "pkg", string(rune('a'+(i%26))))
-		_ = os.MkdirAll(pkgDir, 0o755)
-		_ = os.WriteFile(filepath.Join(pkgDir, "file.go"), []byte("package p\n// shortcut: fast path, upgrade later\nfunc F() {}\n"), 0o644)
-	}
-	_ = repoRoot
 	_, _ = Handle(dir, "session-start", strings.NewReader(`{}`))
 
 	start := time.Now()
@@ -162,7 +150,7 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 		t.Fatalf("expected empty Output for unknown event, got: %+v", unknownOut)
 	}
 
-	// F-06: Active writer lease from another PID must be surfaced in session-start pickup summary.
+	// F-06: Active writer lease from another session must be surfaced in session-start pickup summary.
 	leaseData := []byte(`{"agent":"claude","session_id":"sess-other","pid":999999,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"}`)
 	_ = os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755)
 	if err := os.WriteFile(state.WriterLeasePath(dir), leaseData, 0o644); err != nil {
@@ -172,9 +160,9 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 	// Astra #3: Failed Hold/OpenSpec scan (e.g. stray Hold or invalid UTF-8 tasks.md) must NOT silently report holds=0.
 	changeDir := filepath.Join(dir, "openspec", "changes", "broken-hold")
 	_ = os.MkdirAll(changeDir, 0o755)
-	_ = os.WriteFile(filepath.Join(changeDir, "tasks.md"), []byte("## 1. Work\nHold: stray hold outside task\n- [ ] 1.1 Task\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "openspec", "changes", "broken-hold", "tasks.md"), []byte("## 1. Work\nHold: stray hold outside task\n- [ ] 1.1 Task\n"), 0o644)
 
-	out, err := Handle(dir, "session-start", strings.NewReader(`{}`))
+	out, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-current"}`))
 	if err != nil {
 		t.Fatalf("Handle session-start: %v", err)
 	}
@@ -186,5 +174,31 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 	}
 	if !strings.Contains(out.AdditionalContext, "WARNING: another writer may be active") {
 		t.Fatalf("session-start missing active writer lease warning:\n%s", out.AdditionalContext)
+	}
+
+	// Astra #5 & G-01: Same session ID must NOT warn even when PID differs, and ClearWriterLease clears the lease.
+	if _, err := HandleWithAgent(dir, "turn-end", "codex", strings.NewReader(`{"session_id":"same-session"}`)); err != nil {
+		t.Fatalf("HandleWithAgent turn-end: %v", err)
+	}
+	sameOut, err := HandleWithAgent(dir, "session-start", "codex", strings.NewReader(`{"session_id":"same-session"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent session-start same-session: %v", err)
+	}
+	if !strings.Contains(sameOut.AdditionalContext, "agent=codex") {
+		t.Fatalf("expected agent=codex in writer lease line, got:\n%s", sameOut.AdditionalContext)
+	}
+	if strings.Contains(sameOut.AdditionalContext, "WARNING: another writer may be active") {
+		t.Fatalf("same-session lease triggered false competing-writer warning:\n%s", sameOut.AdditionalContext)
+	}
+
+	if err := state.ClearWriterLease(dir); err != nil {
+		t.Fatalf("ClearWriterLease: %v", err)
+	}
+	afterHandoffOut, err := HandleWithAgent(dir, "session-start", "claude", strings.NewReader(`{"session_id":"next-session"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent after ClearWriterLease: %v", err)
+	}
+	if strings.Contains(afterHandoffOut.AdditionalContext, "WARNING: another writer may be active") {
+		t.Fatalf("cleared writer lease still triggered warning:\n%s", afterHandoffOut.AdditionalContext)
 	}
 }

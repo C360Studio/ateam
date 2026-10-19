@@ -65,6 +65,7 @@ func Tools() []ToolDef {
 					"constraints":   map[string]any{"type": "string"},
 					"done_when":     map[string]any{"type": "string"},
 					"checks_to_run": map[string]any{"type": "string"},
+					"post":          map[string]any{"type": "boolean"},
 				},
 				"required": []string{"action"},
 			},
@@ -192,6 +193,7 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage) (s
 		Constraints string `json:"constraints"`
 		DoneWhen    string `json:"done_when"`
 		ChecksToRun string `json:"checks_to_run"`
+		Post        *bool  `json:"post"`
 	}
 	_ = json.Unmarshal(rawArgs, &args)
 
@@ -218,17 +220,32 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage) (s
 		if h.Addresses == "" {
 			h.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 		}
+		_ = state.ClearWriterLease(root)
 		if _, err := state.Update(root, func(cur *state.State) error {
 			cur.LastHandoff = &h
+			cur.Writer = nil
 			return nil
 		}); err != nil {
 			return err.Error(), true
 		}
 		prompt := state.FormatFiveFieldPrompt(h)
-		if st.Forge.Provider != state.ForgeLocal {
-			_, _ = state.PostPRHandoffComment(ctx, root, st.Forge, h.Branch, prompt)
+		shouldPost := args.Post == nil || *args.Post
+		statusLine := "PR comment: skipped (post=false)"
+		if shouldPost {
+			if st.Forge.Provider == state.ForgeLocal {
+				statusLine = "PR comment: skipped (local forge)"
+			} else {
+				posted, postErr := state.PostPRHandoffComment(ctx, root, st.Forge, h.Branch, prompt)
+				if postErr != nil {
+					statusLine = fmt.Sprintf("PR comment: skipped (%v)", postErr)
+				} else if !posted {
+					statusLine = "PR comment: skipped (no open PR for branch)"
+				} else {
+					statusLine = "PR comment: posted"
+				}
+			}
 		}
-		return prompt, false
+		return prompt + statusLine + "\n", false
 	case "debt":
 		data, _ := json.MarshalIndent(st.Shortcuts, "", "  ")
 		return string(data), false

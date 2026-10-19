@@ -290,7 +290,16 @@ func checkSkillAdapters(root string) []string {
 
 func checkHookConfigs(root string) []string {
 	var out []string
-	for _, rel := range []string{".claude/settings.json", ".codex/hooks.json", ".gemini/settings.json"} {
+	configs := []struct {
+		rel   string
+		agent string
+	}{
+		{rel: ".claude/settings.json", agent: "claude"},
+		{rel: ".codex/hooks.json", agent: "codex"},
+		{rel: ".gemini/settings.json", agent: "gemini"},
+	}
+	for _, cfg := range configs {
+		rel := cfg.rel
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
 			out = append(out, fmt.Sprintf("%s: missing hook config file", rel))
@@ -306,6 +315,9 @@ func checkHookConfigs(root string) []string {
 			if !strings.Contains(text, "ateam hook --event "+ev) {
 				out = append(out, fmt.Sprintf("%s: missing hook command for event %s", rel, ev))
 			}
+		}
+		if !strings.Contains(text, "--agent "+cfg.agent) {
+			out = append(out, fmt.Sprintf("%s: missing --agent %s in hook commands", rel, cfg.agent))
 		}
 		if !strings.Contains(text, `"ateam"`) || !strings.Contains(text, `"mcp"`) {
 			out = append(out, fmt.Sprintf("%s: missing ateam mcp server entry", rel))
