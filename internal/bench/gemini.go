@@ -14,9 +14,17 @@ import (
 
 // GeminiConfig opts into the built-in, API-key-only Gemini CLI adapter.
 type GeminiConfig struct {
-	Reasoning    string `json:"reasoning"`
-	Auth         string `json:"auth"`
-	OutputFormat string `json:"output_format,omitempty"`
+	Reasoning       string `json:"reasoning"`
+	Auth            string `json:"auth"`
+	OutputFormat    string `json:"output_format,omitempty"`
+	MaxOutputTokens *int   `json:"max_output_tokens,omitempty"`
+}
+
+func geminiMaxOutputTokens(config *GeminiConfig) int {
+	if config.MaxOutputTokens != nil {
+		return *config.MaxOutputTokens
+	}
+	return 8192
 }
 
 func executeGemini(ctx context.Context, e Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
@@ -104,7 +112,7 @@ func geminiSettings(e Experiment) ([]byte, error) {
 		return nil, fmt.Errorf("gemini config is required")
 	}
 	generation := map[string]any{
-		"maxOutputTokens": 8192,
+		"maxOutputTokens": geminiMaxOutputTokens(e.Gemini),
 		"thinkingConfig":  map[string]any{"thinkingLevel": strings.ToUpper(e.Gemini.Reasoning), "includeThoughts": false},
 	}
 	if e.Gemini.OutputFormat == "json-schema" {

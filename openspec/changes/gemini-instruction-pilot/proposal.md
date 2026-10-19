@@ -11,3 +11,7 @@ Add frozen minimal/ATeam-subset instruction bundles, a predeclared experiment pr
 ## Scope and stop boundary
 
 Run canary, inspect evidence, then A/A, inspect calibration, then A/B if gates pass, with a combined $2 target and explicit token/time limits. Stop within a phase on native execution/accounting failure or exhausted budget; grading infrastructure errors block later phases after inspection. Preserve evidence and do not retry automatically. Deliver reviewed configurations/protocol/results in a PR, without merging. No runner, native skill/hook, routing or UI changes. No raw traces or secrets are published.
+
+## Owner-authorized v2 amendment
+
+After the v1 canary failure, the owner raised the combined target to $5. `gemini-output-budget` adds the minimal explicit shared output control in this PR. The v2 protocol preserves the treatment text and sample size, uses fresh evidence, and advances only after new gates. V1 files and results stay frozen; the original no-runtime-change scope applied to v1.
