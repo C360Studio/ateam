@@ -57,4 +57,21 @@ Installation reported six existing UI dependency audit advisories (three low, on
 
 At `8775c08eedbdcbbf2aca56519abbbca4ba0968b1`, `task verify` exited 0 on a clean tree, including fmt/spec/tidy/vet/lint, all Go race/unit tests, benchmark self-tests, UI type checks/tests/build and the final clean-tree check. `task doctor` exited 0 with no violations and 177 MCP schema tokens; its one hook sample was 5,038 microseconds, so the passing doctor result is not a separate proof of the advertised 5ms threshold. Generated checks at this commit logged 649 comparisons and 1,024 history assertions, plus all four fuzz seed replays.
 
-Subsequent changes merge main's `.env` ignore and reconcile/archive these documentation artifacts; runtime sources are unchanged. The final exact-commit independent reviewer run and verdict belong to PR #15. The reviewer is the requested Astra run and wrote none of the deliverable; model superiority against every contributor was not independently authenticated. This repository has no installed governing model policy, so the new strict routing gate itself is not claimed as satisfied by this feature's review. Project model comparisons and approved posting accounts must be configured before enabling that gate.
+Changes through `e3c8c4eb525f93c5cb58744d96f8b086332ba30a` merge main's `.env` ignore and reconcile/archive these documentation artifacts; runtime sources were unchanged at that checkpoint. The final exact-commit independent reviewer run and verdict belong to PR #15. The reviewer is the requested Astra run and wrote none of the deliverable; model superiority against every contributor was not independently authenticated. This repository has no installed governing model policy, so the new strict routing gate itself is not claimed as satisfied by this feature's review. Project model comparisons and approved posting accounts must be configured before enabling that gate.
+
+## Requested review follow-up
+
+[The independent Gemini review](https://github.com/C360Studio/ateam/pull/15#issuecomment-6271003100) identified inactive provider pointers, missing no-policy contract checks, and token normalization/fallback gaps. Each was reproduced by failing tests before implementation. Setup now refuses inactive reserved paths before writing, doctor checks canonical contracts even without policy and reports orphan cards/pointers, and CLI credentials trim whitespace and fall back to `ATEAM_GITEA_TOKEN`. A separate failing compatibility regression prevented rejecting an unrelated linked provider directory without a reserved role pointer.
+
+`go test -race ./internal/bootstrap ./cmd/ateam -run 'TestConfigureReview|TestReview' -count=1` passed. Generated checks exercise all nine provider pairs and explicitly assert 24 stale-pointer/reconciliation histories, using expected reserved paths independent of production enumeration. Examples cover each contract deletion/drift, orphan/dangling pointer and token precedence boundary; arbitrary token fuzzing adds no useful oracle beyond these normalization cases.
+
+Four additional non-destructive overlay mutations each produced `detection`, with passing baseline and after-run checks. Reproduce using the command above and these source-relative changes:
+
+| Package / source | Test | Wrong change | Assertion | Outcome |
+| --- | --- | --- | --- | --- |
+| `./internal/bootstrap`, `review.go` | `TestConfigureReviewConflictNoWrites` | Disable the inactive-path conflict condition | `conflict must fail before writes` | detection |
+| `./internal/bootstrap`, `review.go` | `TestReviewInactivePointers` | Initialize doctor violations without `unexpectedReviewFiles` | `expected violation containing` | detection |
+| `./internal/bootstrap`, `review.go` | `TestReviewUnconfiguredArtifacts` | Return early when policy is nil | `expected violation containing` | detection |
+| `./cmd/ateam`, `review.go` | `TestReviewTokenEnvironment` | Return an empty token instead of the Gitea fallback | `token normalization/fallback mismatch` | detection |
+
+These follow-up mutations used `internal/bootstrap/review.go` SHA-256 `2c46aa59406e98583f6067a4ae8368a2beaf199249896eef94eac134180c202c` and `cmd/ateam/review.go` SHA-256 `805b5b56ba924cd408fb7e0c25a318451048af541c94bf053e165ee97d77835d`. Final clean-commit gates and refreshed independent approval are recorded on PR #15. Earlier evidence above remains attributed to its original source bytes.

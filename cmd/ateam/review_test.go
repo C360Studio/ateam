@@ -182,3 +182,29 @@ func TestReviewTokenDoesNotReadDefaultAccountForCustomAPI(t *testing.T) {
 		t.Fatal(fmt.Sprintf("unexpected credential fallback: %q %v", token, err))
 	}
 }
+
+func TestReviewTokenEnvironment(t *testing.T) {
+	for _, tc := range []struct {
+		name                               string
+		provider                           state.ForgeProvider
+		gitea, alternate, gh, github, want string
+	}{
+		{name: "gitea fallback", provider: state.ForgeGitea, alternate: " fallback \n", want: "fallback"},
+		{name: "gitea whitespace fallback", provider: state.ForgeGitea, gitea: " \t", alternate: " fallback ", want: "fallback"},
+		{name: "gitea primary", provider: state.ForgeGitea, gitea: " primary \n", alternate: "fallback", want: "primary"},
+		{name: "gh primary", provider: state.ForgeGitHub, gh: " primary \n", github: "fallback", want: "primary"},
+		{name: "github fallback", provider: state.ForgeGitHub, gh: " \t", github: " fallback \n", want: "fallback"},
+		{name: "no token", provider: state.ForgeGitea},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GITEA_TOKEN", tc.gitea)
+			t.Setenv("ATEAM_GITEA_TOKEN", tc.alternate)
+			t.Setenv("GH_TOKEN", tc.gh)
+			t.Setenv("GITHUB_TOKEN", tc.github)
+			got, err := reviewToken(context.Background(), state.ForgeConfig{Provider: tc.provider, BaseURL: "https://custom.example.invalid"})
+			if err != nil || got != tc.want {
+				t.Fatalf("token normalization/fallback mismatch: got %q want %q, err=%v", got, tc.want, err)
+			}
+		})
+	}
+}

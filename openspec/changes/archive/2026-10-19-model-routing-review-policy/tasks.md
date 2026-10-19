@@ -25,3 +25,10 @@
 - [x] 4.2 Run required verification, doctor/parity and benchmark self-tests on the implementation commit.
 - [x] 4.3 Obtain independent code review and resolve high findings; final-commit reviewer evidence is recorded on PR #15.
 - [x] 4.4 Reconcile specs/tasks and prepare the completed PR to close #14 on merge; the issue stays open until merge.
+
+## 5. Requested review follow-up
+
+- [x] 5.1 Reject and diagnose inactive reserved provider pointers without modifying custom files or links.
+- [x] 5.2 Check canonical contracts and orphan review instructions when policy is absent.
+- [x] 5.3 Normalize forge environment tokens and restore the Gitea fallback.
+- [x] 5.4 Demonstrate failing regressions, provider-transition histories and four mutation detections; record final-commit gates and independent review on PR #15 before merge.

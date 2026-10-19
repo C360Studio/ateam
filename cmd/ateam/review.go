@@ -236,12 +236,15 @@ func reviewCommentPayload(body, marker string) ([]byte, error) {
 
 func reviewToken(ctx context.Context, cfg state.ForgeConfig) (string, error) {
 	if cfg.Provider == state.ForgeGitea {
-		return os.Getenv("GITEA_TOKEN"), nil
+		if token := strings.TrimSpace(os.Getenv("GITEA_TOKEN")); token != "" {
+			return token, nil
+		}
+		return strings.TrimSpace(os.Getenv("ATEAM_GITEA_TOKEN")), nil
 	}
-	if token := os.Getenv("GH_TOKEN"); token != "" {
+	if token := strings.TrimSpace(os.Getenv("GH_TOKEN")); token != "" {
 		return token, nil
 	}
-	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
 		return token, nil
 	}
 	// Never send credentials from the default gh account to a configured endpoint.

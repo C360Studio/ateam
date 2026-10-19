@@ -44,7 +44,10 @@ func ConfigureReview(root string, policyData []byte) ([]string, error) {
 	if err := supportedReviewProviders(policy); err != nil {
 		return nil, err
 	}
-	files := reviewFiles(policy)
+	if conflicts := unexpectedReviewFiles(root, &policy); len(conflicts) != 0 {
+		return nil, fmt.Errorf("%s", strings.Join(conflicts, "; "))
+	}
+	files := reviewFiles(&policy)
 	files[reviewPolicyPath] = string(policyData)
 	paths := make([]string, 0, len(files))
 	for rel := range files {
@@ -109,10 +112,13 @@ func rejectReviewSymlinks(root, rel string) error {
 	return nil
 }
 
-func reviewFiles(policy review.Policy) map[string]string {
+func reviewFiles(policy *review.Policy) map[string]string {
 	files := map[string]string{
 		".agents/contracts/developer.md": developerContract,
 		".agents/contracts/reviewer.md":  reviewerContract,
+	}
+	if policy == nil {
+		return files
 	}
 	for _, item := range []struct {
 		role  string
@@ -136,20 +142,21 @@ func checkReviewSetup(root string) []string {
 		return []string{err.Error()}
 	}
 	data, err := os.ReadFile(filepath.Join(root, reviewPolicyPath))
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
 	}
-	policy, err := review.ParsePolicy(data)
-	if err != nil {
-		return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
+	var policy *review.Policy
+	if err == nil {
+		parsed, err := review.ParsePolicy(data)
+		if err != nil {
+			return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
+		}
+		if err := supportedReviewProviders(parsed); err != nil {
+			return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
+		}
+		policy = &parsed
 	}
-	if err := supportedReviewProviders(policy); err != nil {
-		return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
-	}
-	var out []string
+	out := unexpectedReviewFiles(root, policy)
 	for rel, expected := range reviewFiles(policy) {
 		if err := rejectReviewSymlinks(root, rel); err != nil {
 			out = append(out, err.Error())
@@ -161,6 +168,32 @@ func checkReviewSetup(root string) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// Inspect every reserved role path, including pointers for providers that are
+// no longer selected and orphan cards left after policy removal. Never delete
+// these files: an owner must reconcile stale or custom instructions explicitly.
+func unexpectedReviewFiles(root string, policy *review.Policy) []string {
+	expected := reviewFiles(policy)
+	var out []string
+	for _, role := range []string{"developer", "reviewer"} {
+		for _, rel := range []string{
+			".agents/routes/" + role + ".md",
+			".claude/skills/ateam-" + role + "/SKILL.md",
+			".gemini/commands/ateam-" + role + ".toml",
+		} {
+			if _, selected := expected[rel]; selected {
+				continue
+			}
+			_, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
+			if err == nil {
+				out = append(out, rel+": unexpected review instructions for the current policy; reconcile explicitly")
+			} else if !os.IsNotExist(err) {
+				out = append(out, fmt.Sprintf("inspect %s: %v", rel, err))
+			}
+		}
+	}
 	return out
 }
 

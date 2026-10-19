@@ -43,7 +43,7 @@ func TestConfigureReviewLifecycle(t *testing.T) {
 }
 
 func TestConfigureReviewConflictNoWrites(t *testing.T) {
-	for _, conflict := range []string{".agents/review-policy.json", ".agents/contracts/reviewer.md", ".agents/routes/reviewer.md", ".claude/skills/ateam-reviewer/SKILL.md"} {
+	for _, conflict := range []string{".agents/review-policy.json", ".agents/contracts/reviewer.md", ".agents/routes/reviewer.md", ".claude/skills/ateam-reviewer/SKILL.md", ".gemini/commands/ateam-reviewer.toml", ".claude/skills/ateam-developer/SKILL.md", ".gemini/commands/ateam-developer.toml"} {
 		t.Run(conflict, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, conflict)
@@ -112,6 +112,9 @@ func TestReviewSetupDrift(t *testing.T) {
 		})
 	}
 	root := t.TempDir()
+	if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
+		t.Fatal(err)
+	}
 	if violations := checkReviewSetup(root); len(violations) != 0 {
 		t.Fatalf("unconfigured repo must remain compatible: %v", violations)
 	}
@@ -154,6 +157,7 @@ func TestConfigureReviewUnsupportedProvider(t *testing.T) {
 }
 
 func TestConfigureReviewProviderMatrix(t *testing.T) {
+	checked := 0
 	for _, developer := range []string{"codex", "claude", "gemini"} {
 		for _, reviewer := range []string{"codex", "claude", "gemini"} {
 			t.Run(developer+"/"+reviewer, func(t *testing.T) {
@@ -175,6 +179,24 @@ func TestConfigureReviewProviderMatrix(t *testing.T) {
 						if provider != candidate.name && !os.IsNotExist(err) {
 							t.Fatalf("unexpected pointer %s: %v", candidate.path, err)
 						}
+						if provider != candidate.name {
+							// Model a stale pointer left by a provider switch.
+							path := filepath.Join(root, candidate.path)
+							if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+								t.Fatal(err)
+							}
+							if err := os.WriteFile(path, []byte("previous provider pointer"), 0600); err != nil {
+								t.Fatal(err)
+							}
+							requireViolation(t, checkReviewSetup(root), candidate.path)
+							if written, err := ConfigureReview(root, []byte(policy)); err == nil || len(written) != 0 {
+								t.Fatalf("stale provider pointer must block setup: %v %v", written, err)
+							}
+							if err := os.Remove(path); err != nil {
+								t.Fatal(err)
+							}
+							checked++
+						}
 					}
 				}
 				if written, err := ConfigureReview(root, []byte(policy)); err != nil || len(written) != 0 {
@@ -185,5 +207,100 @@ func TestConfigureReviewProviderMatrix(t *testing.T) {
 				}
 			})
 		}
+	}
+	if checked != 24 {
+		t.Fatalf("inactive-pointer assertions ran %d times, want 24", checked)
+	}
+	t.Logf("completed %d inactive-pointer install/reject/reconcile histories across nine provider pairs", checked)
+}
+
+// The listed paths come from the supported provider/role contract, independent
+// of reviewFiles. Existing inactive pointers must never be silently accepted.
+func TestReviewInactivePointers(t *testing.T) {
+	for _, rel := range []string{".claude/skills/ateam-developer/SKILL.md", ".gemini/commands/ateam-developer.toml", ".gemini/commands/ateam-reviewer.toml"} {
+		for _, kind := range []string{"file", "dangling-symlink"} {
+			t.Run(rel+"/"+kind, func(t *testing.T) {
+				root := t.TempDir()
+				if _, err := ConfigureReview(root, []byte(testReviewPolicy)); err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(root, rel)
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if kind == "file" {
+					if err := os.WriteFile(path, []byte("custom inactive pointer"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					if err := os.Symlink("missing-target", path); err != nil {
+						t.Fatal(err)
+					}
+				}
+				requireViolation(t, checkReviewSetup(root), rel)
+				if written, err := ConfigureReview(root, []byte(testReviewPolicy)); err == nil || len(written) != 0 {
+					t.Fatalf("inactive pointer must block setup without writes: %v %v", written, err)
+				}
+				if _, err := os.Lstat(path); err != nil {
+					t.Fatalf("inactive pointer was removed: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestReviewUnconfiguredArtifacts(t *testing.T) {
+	for _, role := range []string{"developer", "reviewer"} {
+		for _, operation := range []string{"delete", "drift"} {
+			t.Run(role+"/"+operation, func(t *testing.T) {
+				root := t.TempDir()
+				if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
+					t.Fatal(err)
+				}
+				rel := ".agents/contracts/" + role + ".md"
+				path := filepath.Join(root, rel)
+				if operation == "delete" {
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					if err := os.WriteFile(path, []byte("drift"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				requireViolation(t, CheckParity(root), rel)
+			})
+		}
+		for _, rel := range []string{".agents/routes/" + role + ".md", ".claude/skills/ateam-" + role + "/SKILL.md", ".gemini/commands/ateam-" + role + ".toml"} {
+			t.Run(rel, func(t *testing.T) {
+				root := t.TempDir()
+				if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(root, rel)
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("missing-policy", path); err != nil {
+					t.Fatal(err)
+				}
+				requireViolation(t, CheckParity(root), rel)
+			})
+		}
+	}
+}
+
+func TestReviewAbsentInactivePointerUnderLinkedDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Symlink(t.TempDir(), filepath.Join(root, ".gemini")); err != nil {
+		t.Fatal(err)
+	}
+	// Neither role uses Gemini. A shared directory without reserved role
+	// pointers is unrelated configuration and must not become a conflict.
+	if _, err := ConfigureReview(root, []byte(testReviewPolicy)); err != nil {
+		t.Fatalf("unrelated linked provider directory blocked setup: %v", err)
+	}
+	if violations := checkReviewSetup(root); len(violations) != 0 {
+		t.Fatalf("unrelated linked provider directory caused drift: %v", violations)
 	}
 }

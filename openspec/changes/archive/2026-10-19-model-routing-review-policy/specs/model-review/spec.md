@@ -95,6 +95,16 @@ ATeam SHALL install owner-approved model policy and portable role instructions o
 - **WHEN** generated role instructions no longer match the policy
 - **THEN** doctor reports drift without overwriting custom configuration
 
+#### Scenario: Reserved pointer belongs to an inactive provider
+
+- **WHEN** a reserved role pointer exists for a provider not selected by the policy, including a dangling symbolic link
+- **THEN** setup refuses before writing and doctor reports the exact path without deleting it; unrelated linked provider directories without a role pointer remain compatible
+
+#### Scenario: Canonical contracts without configured policy
+
+- **WHEN** no review policy is installed and a canonical contract is missing or drifted, or reserved route cards or provider pointers remain
+- **THEN** doctor reports each invalid artifact while a freshly initialized repository remains valid
+
 #### Scenario: Known edited owner exception
 
 - **WHEN** a comment lacks valid creation/update timestamps, has unequal timestamps, or changes while validation runs
