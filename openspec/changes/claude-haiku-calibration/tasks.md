@@ -13,8 +13,7 @@
 
 ## Live calibration
 - [x] Run and report Haiku A/A with immutable artifacts and offline replay (30/30 passed; 15 evaluable pairs).
-- [ ] After Haiku is complete, apply the workflow to Codex Luna.
-  Hold: Haiku is complete; the separate Codex Luna native adapter, exact API model contract and credential preflight remain to be delivered. No automatic model fallback.
+- [x] After Haiku is complete, apply the workflow to Codex Luna (separate native adapter and 30-attempt pilot delivered).
 
 ## Structured reply correction
 - [x] Reproduce fenced-text rejection and absent-structured-output fallback with failing regressions.

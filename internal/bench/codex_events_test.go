@@ -3,6 +3,7 @@ package bench
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -56,6 +57,34 @@ func TestCodexOutputNativeEvidenceAndAccounting(t *testing.T) {
 	}
 	if !reflect.DeepEqual(n.ObservedItemTypes, []string{"agentMessage", "reasoning"}) || !reflect.DeepEqual(n.CompletedItemTypes, n.ObservedItemTypes) || *n.Codex.Last.TotalTokens != 130 {
 		t.Fatalf("native item or last-request evidence lost: %+v", n)
+	}
+}
+
+func TestCodexRecordedAppServerSuccess(t *testing.T) {
+	data, err := os.ReadFile("testdata/codex/luna-app-server-success.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := parseCodexOutput(string(data))
+	if err != nil || r.Source != "package fixture\n" || r.Usage == nil {
+		t.Fatalf("recorded native success rejected: %+v %v", r, err)
+	}
+	if r.Usage.InputTokens != 7374 || r.Usage.OutputTokens != 738 || r.Usage.CachedInputTokens == nil || *r.Usage.CachedInputTokens != 0 || r.Usage.ReasoningOutputTokens == nil || *r.Usage.ReasoningOutputTokens != 442 {
+		t.Fatalf("recorded token counts changed or subsets added: %+v", r.Usage)
+	}
+	n := r.Native
+	if n == nil || n.Codex == nil || n.Terminal != "completed" || n.UsageStatus != "reported" || n.EventCount != 19 || n.SessionID != "fixture-session" || n.Codex.TurnID != "fixture-turn" {
+		t.Fatalf("recorded lifecycle evidence changed: %+v", n)
+	}
+	if n.Codex.IdentitySource != "cli-thread-start" || n.ResolvedModel == nil || *n.ResolvedModel != "gpt-6-luna" || n.ResolvedReasoning == nil || *n.ResolvedReasoning != "low" || n.Codex.ModelProvider == nil || *n.Codex.ModelProvider != "benchmark_openai" || n.ReportedModels != nil {
+		t.Fatalf("CLI configuration lost or promoted to backend identity: %+v", n)
+	}
+	if total := n.Codex.Total; total == nil || total.TotalTokens == nil || *total.TotalTokens != 8112 || total.CacheWriteInputTokens == nil || *total.CacheWriteInputTokens != 7371 || !reflect.DeepEqual(total, n.Codex.Last) {
+		t.Fatalf("recorded raw token snapshots changed: %+v", n.Codex)
+	}
+	wantItems := []string{"agentMessage", "reasoning", "userMessage"}
+	if !reflect.DeepEqual(n.ObservedItemTypes, wantItems) || !reflect.DeepEqual(n.CompletedItemTypes, wantItems) {
+		t.Fatalf("recorded native item lifecycle changed: %+v", n)
 	}
 }
 

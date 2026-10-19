@@ -8,9 +8,8 @@
 
 ## Verification and delivery
 - [x] Add independent parser/accounting/process/history oracles and detect critical mutations.
-- [ ] Complete read-only change review, parity/self-tests and clean-tree full verification.
-- [ ] Publish implementation and evidence through draft PR #13.
+- [x] Complete read-only change review, parity/self-tests and clean-tree full verification.
+- [x] Publish implementation and evidence through draft PR #13.
 
 ## Live pilot
-- [ ] Run and report a separate Luna A/A pilot with immutable offline replay.
-  Hold: User reports OPENAI_API_KEY is ready in main's ignored .env; live execution depends on verified implementation and a bounded canary before the full pilot.
+- [x] Run and report a separate Luna A/A pilot with immutable offline replay (30 attempts, 26 passes, four quality failures, 15 evaluable pairs).

@@ -128,11 +128,11 @@ bin/ateam bench rescore benchmarks/runs/experiment-.../run.json
 
 `mode: aa` requires identical instructions; omitted mode or `ab` requires different instructions. Reports preserve terminal statuses and known/unknown usage denominators, and show descriptive mean/min/max/population-SD over the task mix. Only complete pairs contribute paired comparisons. Different stochastic answers are expected; a small difference or nonsignificance does not establish equivalence. Calibrate A/A first, investigate discrepancies, then run the same-model harness A/B.
 
-Use [the calibration report checklist](calibration-report.md) to link immutable run/configuration, self-test, comparison and replay evidence. Synthetic fixtures establish parser/runner behavior, not provider billing accuracy. No successful live calibration has been completed; see [the first pilot startup report](calibration-pilot-2026-10-19.md).
+Use [the calibration report checklist](calibration-report.md) to link immutable run/configuration, self-test, comparison and replay evidence. Synthetic fixtures establish parser/runner behavior, not provider billing accuracy. No successful Gemini live calibration has been completed; see [the first pilot startup report](calibration-pilot-2026-10-19.md).
 
 ## Claude Haiku API calibration
 
-The second native adapter uses **Claude Code 2.1.292**, **claude-haiku-5-5**, and API-key authentication. This is a separate same-model calibration; Gemini and Claude results are not mixed into a harness A/B comparison. Codex Luna follows Haiku calibration and is not yet a native adapter.
+The second native adapter uses **Claude Code 2.1.292**, **claude-haiku-5-5**, and API-key authentication. This is a separate same-model calibration; Gemini and Claude results are not mixed into a harness A/B comparison. Codex Luna uses the separate native adapter described below.
 
 ```sh
 bin/ateam bench run benchmarks/examples/claude-aa.json --dry-run
@@ -169,3 +169,5 @@ A fixed `benchmark_openai` provider points to `https://api.openai.com/v1`, reads
 The examples schedule 30 attempts with a 100,000 reported-token threshold, 120 seconds per attempt and one hour overall. Codex has no verified per-request output or model-turn cap in this adapter. Token limits stop between attempts, and elapsed-time cancellation does not prove a provider request was unbilled; the $2 pilot policy is a target, not a hard guarantee. A bounded canary must validate installed native behavior before the full live pilot.
 
 Native thread usage contains cumulative `total` and per-request `last` snapshots. The latest complete cumulative total is normalized once; cached input and reasoning output are subsets and are not added again. Missing or invalid accounting stays unknown, and native failures remain visible during replay. Resolved settings, native events, usage and observed item types do not prove that a skill or tool was used. See the [official app-server contract](https://learn.chatgpt.com/docs/app-server) and [Luna model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
+
+The [Luna A/A pilot](luna-calibration-pilot-2026-10-19.md) completed 30 attempts with 26 passes, four retained quality failures and complete usage. Both identical arms passed 13/15; this is calibration evidence, not a harness improvement. Its explicitly revised 275,536-token threshold accommodates the observed native context size; the example's illustrative 100,000-token threshold may stop before 30 attempts.
