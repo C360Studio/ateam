@@ -13,6 +13,7 @@ Read [the shared protocol](../../protocol.md) first. One `Taskfile.yml` entrypoi
 
 Inspect `git status --short` and `git diff --stat` before choosing gates:
 
+- **Test or specification changes:** `task test:spec`; review whether each reference matches the assertions, since the gate proves syntax and target existence only.
 - **Docs or skill definitions only:** `task fmt:check`, `ateam doctor` (`ateam init --check`), and `git diff --check`
 - **Go packages (`cmd/`, `internal/`):** `task fmt:check`, `task vet`, `task lint`, `task test:unit`, `task bench:selftest`, and `task mutate:check` for non-trivial refusals/branches
 - **SvelteKit UI (`ui/`):** `task ui:check`, `task ui:test`, `task ui:build`

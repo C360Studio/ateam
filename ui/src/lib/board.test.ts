@@ -37,6 +37,7 @@ const sampleCards: BoardCard[] = [
 ];
 
 describe('board helpers', () => {
+	// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
 	it('groups cards across all 6 canonical columns', () => {
 		const grouped = groupCardsByColumn(sampleCards);
 		expect(Object.keys(grouped)).toHaveLength(BOARD_COLUMNS.length);
@@ -46,6 +47,7 @@ describe('board helpers', () => {
 		expect(grouped['backlog']).toHaveLength(0);
 	});
 
+	// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
 	it('filters cards by query, agent, forge, and column', () => {
 		expect(
 			filterCards(sampleCards, { query: 'gitea', agent: 'all', forge: 'all', column: 'all' })
@@ -66,6 +68,7 @@ describe('board helpers', () => {
 		).toHaveLength(1);
 	});
 
+	// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
 	it('formats the 5-field SemEngine pickup prompt deterministically', () => {
 		const out = formatFiveFieldPrompt({
 			goal: 'Ship SvelteKit UI',

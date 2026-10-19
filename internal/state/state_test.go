@@ -14,6 +14,7 @@ import (
 	"time"
 )
 
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 func TestHandoffPickupRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	st, err := Load(dir)
@@ -69,6 +70,7 @@ func TestHandoffPickupRoundTrip(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Inline shortcut inventory
 func TestScanShortcuts(t *testing.T) {
 	dir := t.TempDir()
 	src := `package sample
@@ -96,6 +98,7 @@ func compute() int {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 func TestConcurrentUpdateAndCorruptCachePreservation(t *testing.T) {
 	dir := t.TempDir()
 
@@ -152,6 +155,7 @@ func TestConcurrentUpdateAndCorruptCachePreservation(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Fast Git identity across worktrees
 func TestReadFastGitHeadLinkedWorktree(t *testing.T) {
 	base := t.TempDir()
 	mainGit := filepath.Join(base, "main-repo", ".git")
@@ -199,6 +203,8 @@ func TestReadFastGitHeadLinkedWorktree(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 func TestPostPRHandoffCommentAndDecisionsInPickup(t *testing.T) {
 	var postedComment string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

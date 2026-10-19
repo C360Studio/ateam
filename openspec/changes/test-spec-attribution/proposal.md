@@ -2,7 +2,8 @@
 
 Issue: https://github.com/C360Studio/ateam/issues/18
 Owner: Codex (`codex/test-spec-attribution`)
-Status: Claimed; implementation pending.
+implemented-by: codex
+Status: Implementation and verification in progress.
 
 ## Why
 
@@ -24,4 +25,4 @@ Comment attachment, nested tests, fixture source strings, duplicate requirement 
 
 ## Stop Boundary
 
-This claim delivers the issue, draft PR, and OpenSpec plan only. Implementation, full completion evidence, independent review, merge, and issue closure remain pending.
+The owner authorized driving PR #19 to completion. Implement the contract, verify it, obtain independent review, and land the PR when acceptance and repository merge gates pass.

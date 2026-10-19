@@ -1,6 +1,6 @@
 # Design: Test-to-spec attribution
 
-## Proposed contract
+## Contract
 
 Use one or more source comments of the form:
 
@@ -22,3 +22,11 @@ Backfill real requirement citations. Add missing behavioral requirements where t
 ## Verification design
 
 Use fixtures with hand-authored expected diagnostics for missing comments, multiple references, malformed syntax, ambiguous headings, nested cases, fixture text, and escaping paths. Establish failing regressions before checker implementation. Because attachment and reference parsing interact, use generated inputs where they exercise grammar boundaries; otherwise record why a finite fixture matrix covers the relevant combinations. Prove the missing-attribution and unresolved-reference refusals with non-destructive mutations. Validate full verification wiring and parity before marking implementation complete.
+
+## Final discovery and execution boundaries
+
+Canonical behavior is specified in `openspec/specs/test-attribution/spec.md`. Node and the existing TypeScript dependency are used only when JS/TS test files exist; the scanner is embedded in the Go binary and resolves TypeScript at the target repository's `ui/node_modules/typescript`. No dependency was added. Scanner regression tests are Vitest `.test.js` files, so they are themselves subject to attribution and run explicitly in `task test:spec`.
+
+Go AST parsing includes all build tags and generated `_test.go` files. Source strings, TestMain, benchmarks, helpers, and non-executable examples are excluded. Vitest aliases and direct namespace/global calls are supported; dynamic escape of recognized test bindings fails closed. Arbitrary wrapper modules and runtime expansion counts are not claimed. Directory symlinks are not traversed; symlink test files fail. Exact discovery exclusions, attachment behavior, and exit codes are in the canonical spec and protocol.
+
+The independent plan review found no architectural blocker and requested explicit discovery, unsafe-path, comment-gap, fixture, alias, and verification-wiring tests. These are acceptance cases, not optional follow-up work.

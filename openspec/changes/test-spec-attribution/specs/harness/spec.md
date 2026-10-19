@@ -2,9 +2,7 @@
 
 ### Requirement: Deterministic test-to-spec attribution
 
-ATeam SHALL provide an offline deterministic verification gate requiring every supported test declaration to cite one or more specification requirements through attached machine-readable source comments. The gate SHALL cover repository Go tests, fuzz targets, executable examples, and TypeScript Vitest tests, with documented nested-case inheritance and narrowly defined fixture/generated-source handling. Benchmarks and unsupported languages SHALL be explicitly identified as outside the gate's scope.
-
-References SHALL resolve repository-relative specification paths and exact requirement headings. The checker SHALL reject missing or malformed citations, unsafe paths, missing targets, ambiguous headings, and source parse failures with sorted file-and-line diagnostics and nonzero exit status. `task verify` SHALL invoke this gate. Citation validity SHALL NOT be presented as proof of semantic test coverage.
+ATeam SHALL enforce attached machine-readable requirement citations for supported Go and Vitest tests through an offline deterministic gate in `task verify`. Missing, malformed, unsafe, or unresolved citations and parse failures SHALL fail verification. Attribution SHALL NOT be presented as semantic coverage proof. Detailed discovery, syntax, and resolution rules are specified by the test-attribution capability.
 
 #### Scenario: Valid multiple requirement citations
 

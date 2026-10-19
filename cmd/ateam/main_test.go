@@ -4,6 +4,9 @@ import (
 	"testing"
 )
 
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestCLISubcommands(t *testing.T) {
 	if code := run([]string{"--help"}); code != 0 {
 		t.Fatalf("run(--help) = %d, want 0", code)

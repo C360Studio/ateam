@@ -56,6 +56,7 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Non-destructive Go -overlay mutation checks and PBT discipline
 func TestValidateRefusals(t *testing.T) {
 	repo, target := setupTinyGoMod(t)
 	outsideDir := t.TempDir()
@@ -123,6 +124,7 @@ func TestValidateRefusals(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Non-destructive Go -overlay mutation checks and PBT discipline
 func TestRunOutcomes(t *testing.T) {
 	repo, target := setupTinyGoMod(t)
 	outsideDir := t.TempDir()

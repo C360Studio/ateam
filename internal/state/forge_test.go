@@ -10,6 +10,7 @@ import (
 	"testing"
 )
 
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 func TestForgeGitHubAndGitea(t *testing.T) {
 	host, owner, repo := ParseGitRemote("ssh://git@github.com/C360Studio/ateam.git")
 	if host != "github.com" || owner != "C360Studio" || repo != "ateam" {
@@ -101,6 +102,7 @@ func TestForgeGitHubAndGitea(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 	binDir := t.TempDir()
 	fakeGH := filepath.Join(binDir, "gh")
