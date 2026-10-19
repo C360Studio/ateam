@@ -28,4 +28,4 @@ The owner requires a stronger reviewer model as the default; cross-provider revi
 
 ## Delivery boundary
 
-This draft claim contains planning artifacts only. Implementation, independent review and merge remain open tasks. It must not close #14 merely because the plan merges.
+The initial claim was planning-only. Implementation now includes explicit policy setup, portable routing cards, the independent review contract, a default-branch-authorized evidence gate and verification. No universal model ranking or native launcher is bundled. PR #15 closes #14 on merge; model policy adoption in a project still requires explicit owner-approved configuration.

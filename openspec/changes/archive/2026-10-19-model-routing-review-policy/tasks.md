@@ -22,6 +22,6 @@
 ## 4. Verification and completion
 
 - [x] 4.1 Prove refusal tests with non-destructive mutations and generated combinations/histories against an independent model.
-- [ ] 4.2 Run required verification, doctor/parity and benchmark self-tests on the implementation commit.
-- [ ] 4.3 Obtain independent review, resolve findings and record current-commit evidence.
-- [ ] 4.4 Reconcile specs/tasks, then explicitly close #14 only when implementation is complete.
+- [x] 4.2 Run required verification, doctor/parity and benchmark self-tests on the implementation commit.
+- [x] 4.3 Obtain independent code review and resolve high findings; final-commit reviewer evidence is recorded on PR #15.
+- [x] 4.4 Reconcile specs/tasks and prepare the completed PR to close #14 on merge; the issue stays open until merge.
