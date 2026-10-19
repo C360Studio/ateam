@@ -49,7 +49,15 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 ### Requirement: Constant-time forge webhook verification and rate limiting
 
-`ateam serve` SHALL default to loopback (`127.0.0.1:8420`), enforce same-origin and `Content-Type: application/json` on browser POST mutation endpoints, and expose `POST /api/webhooks/gitea` and `POST /api/webhooks/github` protected by a 60 req/min per-IP fixed-window rate limiter and fail-closed constant-time `hmac.Equal` HMAC-SHA256 verification (`X-Gitea-Signature` and `X-Hub-Signature-256`) requiring `ATEAM_WEBHOOK_SECRET` by default (unless `ATEAM_ALLOW_UNSIGNED_WEBHOOKS=1` is explicitly set).
+`ateam serve` SHALL default to loopback, enforce same-origin and JSON content type on browser mutations, and authenticate GitHub/Gitea webhook requests with constant-time HMAC-SHA256 verification and per-IP fixed-window rate limiting. Authentication SHALL fail closed unless unsigned webhooks are explicitly enabled.
+
+#### Scenario: Webhook defaults and explicit override
+
+- **WHEN** the server starts with default configuration
+- **THEN** it binds to `127.0.0.1:8420`, requires `Content-Type: application/json` and same-origin for browser POST mutations, and limits webhook requests to 60 per minute per IP
+- **AND** `/api/webhooks/gitea` verifies `X-Gitea-Signature` and `/api/webhooks/github` verifies `X-Hub-Signature-256` using `hmac.Equal` with `ATEAM_WEBHOOK_SECRET`
+- **AND** unsigned requests are refused unless `ATEAM_ALLOW_UNSIGNED_WEBHOOKS=1`
+
 
 #### Scenario: Valid signed Gitea webhook payload
 

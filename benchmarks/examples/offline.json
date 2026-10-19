@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "offline-protocol-smoke",
+  "command": ["node", "./reference-adapter.cjs"],
+  "agent": "offline-reference-adapter",
+  "agent_version": "1",
+  "model": "none",
+  "baseline": "Return a correct implementation.",
+  "candidate": "Return a correct implementation and check boundary cases.",
+  "tasks": ["safe-path", "sql-user", "gitea-webhook"],
+  "repetitions": 2,
+  "seed": 42,
+  "timeout_seconds": 10
+}
