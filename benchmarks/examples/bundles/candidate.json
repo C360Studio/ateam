@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "name": "boundary-review-v1",
+  "files": [
+    "instructions.md",
+    "boundaries.md"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "session_id": "simulated-session",
+  "response": "{\"source\": \"package safepath\\n\"}",
+  "stats": {
+    "models": {
+      "gemini-3-flash-preview": {
+        "api": {
+          "totalRequests": 2,
+          "totalErrors": 1,
+          "totalLatencyMs": 10
+        },
+        "tokens": {
+          "prompt": 100,
+          "candidates": 10,
+          "total": 128,
+          "cached": 80,
+          "thoughts": 15,
+          "tool": 3,
+          "input": 20
+        }
+      }
+    },
+    "tools": {
+      "totalCalls": 1,
+      "byName": {
+        "read_file": {
+          "count": 1,
+          "success": 1,
+          "fail": 0
+        }
+      }
+    }
+  }
+}

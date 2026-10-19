@@ -41,16 +41,32 @@ func InitRepo(ctx context.Context, root string, opts Options) ([]string, error) 
 	files := defaultTemplateFiles()
 	for rel, content := range files {
 		abs := filepath.Join(root, filepath.FromSlash(rel))
-		if !opts.Force {
-			if _, err := os.Stat(abs); err == nil {
+		preserve := !opts.Force || isClientConfig(rel)
+		if preserve {
+			if _, err := os.Lstat(abs); err == nil {
 				continue
+			} else if !os.IsNotExist(err) {
+				return written, fmt.Errorf("inspect %s: %w", rel, err)
 			}
 		}
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			return written, fmt.Errorf("mkdir %s: %w", rel, err)
 		}
-		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
-			return written, fmt.Errorf("write %s: %w", rel, err)
+		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		if preserve {
+			flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
+		}
+		f, err := os.OpenFile(abs, flags, 0o644)
+		if err != nil {
+			return written, fmt.Errorf("create %s: %w", rel, err)
+		}
+		_, writeErr := f.WriteString(content)
+		closeErr := f.Close()
+		if writeErr != nil {
+			return written, fmt.Errorf("write %s: %w", rel, writeErr)
+		}
+		if closeErr != nil {
+			return written, fmt.Errorf("close %s: %w", rel, closeErr)
 		}
 		written = append(written, rel)
 	}
@@ -101,6 +117,8 @@ func CheckParity(root string) []string {
 	out = append(out, checkRulesAndSizeParity(root)...)
 	out = append(out, checkSkillAdapters(root)...)
 	out = append(out, checkHookConfigs(root)...)
+	out = append(out, checkMCPConfigs(root)...)
+	out = append(out, checkReviewSetup(root)...)
 	return out
 }
 
@@ -319,9 +337,7 @@ func checkHookConfigs(root string) []string {
 		if !strings.Contains(text, "--agent "+cfg.agent) {
 			out = append(out, fmt.Sprintf("%s: missing --agent %s in hook commands", rel, cfg.agent))
 		}
-		if !strings.Contains(text, `"ateam"`) || !strings.Contains(text, `"mcp"`) {
-			out = append(out, fmt.Sprintf("%s: missing ateam mcp server entry", rel))
-		}
+
 		if rel == ".gemini/settings.json" && !strings.Contains(text, `"contextFileName": "AGENTS.md"`) {
 			out = append(out, fmt.Sprintf("%s: missing contextFileName AGENTS.md", rel))
 		}

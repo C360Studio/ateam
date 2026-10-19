@@ -1,0 +1,3 @@
+[mcp_servers.ateam]
+command = "ateam"
+args = ["mcp"]

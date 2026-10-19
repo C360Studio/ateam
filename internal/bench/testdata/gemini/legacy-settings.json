@@ -1,0 +1,84 @@
+{
+  "advanced": {
+    "ignoreLocalEnv": true
+  },
+  "context": {
+    "fileName": "ATEAM_BENCHMARK_CONTEXT_DISABLED",
+    "includeDirectoryTree": false,
+    "loadMemoryFromIncludeDirectories": false,
+    "memoryBoundaryMarkers": []
+  },
+  "experimental": {
+    "contextManagement": false,
+    "enableAgents": false,
+    "extensionManagement": false
+  },
+  "general": {
+    "checkpointing": {
+      "enabled": false
+    }
+  },
+  "hooksConfig": {
+    "enabled": false
+  },
+  "model": {
+    "compressionThreshold": 1,
+    "disableLoopDetection": true,
+    "maxSessionTurns": 4,
+    "name": "gemini-3.8-flash",
+    "skipNextSpeakerCheck": true
+  },
+  "modelConfigs": {
+    "customOverrides": [
+      {
+        "match": {
+          "overrideScope": "core"
+        },
+        "modelConfig": {
+          "generateContentConfig": {
+            "maxOutputTokens": 8192,
+            "thinkingConfig": {
+              "includeThoughts": false,
+              "thinkingLevel": "LOW"
+            }
+          },
+          "model": "gemini-3.8-flash"
+        }
+      },
+      {
+        "match": {
+          "model": "gemini-3.8-flash"
+        },
+        "modelConfig": {
+          "generateContentConfig": {
+            "maxOutputTokens": 8192,
+            "thinkingConfig": {
+              "includeThoughts": false,
+              "thinkingLevel": "LOW"
+            }
+          },
+          "model": "gemini-3.8-flash"
+        }
+      }
+    ]
+  },
+  "security": {
+    "auth": {
+      "selectedType": "gemini-api-key"
+    }
+  },
+  "skills": {
+    "enabled": false
+  },
+  "telemetry": {
+    "enabled": false
+  },
+  "tools": {
+    "core": [
+      "list_directory",
+      "read_file",
+      "grep_search",
+      "glob"
+    ]
+  }
+}

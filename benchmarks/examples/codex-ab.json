@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "codex-luna-ab-calibration-pilot",
+  "mode": "ab",
+  "command": [
+    "codex"
+  ],
+  "agent": "codex",
+  "model": "gpt-6-luna",
+  "baseline": "Solve the task carefully and check boundary conditions.",
+  "candidate": "Solve the task carefully. Explicitly consider hostile inputs and boundary conditions, then check your implementation against the task requirements.",
+  "tasks": [
+    "safe-path",
+    "sql-user",
+    "gitea-webhook"
+  ],
+  "repetitions": 5,
+  "seed": 42,
+  "timeout_seconds": 120,
+  "max_run_seconds": 3600,
+  "max_total_tokens": 100000,
+  "codex": {
+    "auth": "api-key-env",
+    "reasoning": "low"
+  }
+}

@@ -35,6 +35,7 @@ task spec:queue     # Show in-flight OpenSpec changes with their holds and cavea
 task tidy:check     # Fail if go.mod or go.sum is not tidy
 task vet            # Run go vet
 task lint           # Run revive with revive.toml
+task test:spec      # Validate attached Go/Vitest test-to-spec references
 task test:unit      # Run Go unit and parity tests with race detector
 task mutate:check   # -- -pkg -test -file -mutant -expect/-expect-text: non-destructive Go -overlay mutation check
 task bench:selftest # Run offline benchmark self-tests and mutation checks (0 API calls)
@@ -57,6 +58,7 @@ Domain-grouped reference. `.agents/rules-index.md` carries the matching 3-column
 | `verify+review` | Every intentional deferral uses `// shortcut: <the limit>, <when to upgrade>`, scanned by `ateam state debt` | `internal/state`; `.agents/skills/ponytail/SKILL.md` |
 | `verify+review` | Non-trivial logic ships with a test using an independent oracle and proven able to fail via non-destructive mutation check (`task mutate:check` or `cp` + SHA-256; never `git checkout`/`restore`/`stash`/`reset`), reporting `detection`, `survivor`, `invalid`, or `inconclusive` | `internal/mutate`; `internal/bench`; `.agents/protocol.md` |
 | `verify+review` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (`testing.F` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | `internal/state`; `.agents/protocol.md`; `.agents/skills/preflight/SKILL.md` |
+| `verify+review` | Every Go Test/Fuzz/executable Example and Vitest test carries attached spec references resolved by `task test:spec`; syntactic attribution does not prove semantic coverage | `ateam test-spec`; `.agents/protocol.md` |
 | `verify` | Go packages pass `gofmt`, `go vet`, and `revive` with zero warnings | `Taskfile.yml`; `revive.toml` |
 | `review` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | `.agents/skills/ponytail/SKILL.md` |
 
@@ -78,7 +80,8 @@ Domain-grouped reference. `.agents/rules-index.md` carries the matching 3-column
 | `verify+review` | Shared state syncs with GitHub (`gh`/API) or Gitea (`tea`/API v1) and git worktrees, cached in gitignored `.ateam/state.json` | `internal/state`; `.agents/protocol.md` |
 | `verify` | OpenSpec changes/specs validate via `spec:check`, and `Hold:` / caveats (`HALT`, `RED`, `BLOCKED`, `WONTDO`, `OPEN-Q`) are parsed by `spec:queue` | `internal/state`; `openspec/specs/harness/spec.md` |
 | `verify` | `ateam bench --selftest` verifies good/bad reference fixtures and mutation detection before any live benchmark run | `internal/bench` |
-| `verify` | `task verify` runs formatting, OpenSpec check, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | `Taskfile.yml`; `.agents/skills/preflight/SKILL.md` |
+| `verify` | `task verify` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | `Taskfile.yml`; `.agents/skills/preflight/SKILL.md` |
+| `verify+review` | Configured model review requires an independent stronger reviewer, current evidence, and explicit owner exceptions at the model ceiling; effort and provider are not model rank | `internal/review`; `internal/bootstrap/review.go`; `docs/model-review.md` |
 
 ## Four inline workflow gates
 

@@ -26,6 +26,8 @@ type OpenSpecCaveat struct {
 	Marker string `json:"marker"` // WONTDO, HALT, RED, BLOCKED, OPEN-Q
 	Line   int    `json:"line"`
 	Text   string `json:"text"`
+	// Full is the normalized, untruncated task text, for stable identity (Text is for display).
+	Full string `json:"-"`
 }
 
 // OpenSpecChange summarizes an in-flight OpenSpec change under openspec/changes/<name>.
@@ -35,6 +37,29 @@ type OpenSpecChange struct {
 	TotalTasks     int              `json:"total_tasks"`
 	Caveats        []OpenSpecCaveat `json:"caveats,omitempty"`
 	StrayHolds     []int            `json:"stray_holds,omitempty"`
+}
+
+// OpenSpecScenario represents a scenario block (#### Scenario: <Name>) under a requirement.
+type OpenSpecScenario struct {
+	Name  string   `json:"name"`
+	Steps []string `json:"steps,omitempty"`
+}
+
+// OpenSpecRequirement represents a normative requirement (### Requirement: <Name>) in a spec.md.
+type OpenSpecRequirement struct {
+	ID        string             `json:"id"`
+	Name      string             `json:"name"`
+	Spec      string             `json:"spec"`
+	Statement string             `json:"statement"`
+	Scenarios []OpenSpecScenario `json:"scenarios,omitempty"`
+}
+
+// OpenSpecSpec represents a canonical specification file under openspec/specs/<name>/spec.md.
+type OpenSpecSpec struct {
+	Name         string                `json:"name"`
+	Path         string                `json:"path"`
+	Purpose      string                `json:"purpose"`
+	Requirements []OpenSpecRequirement `json:"requirements,omitempty"`
 }
 
 var (
@@ -160,6 +185,7 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 				Marker: firstMarker,
 				Line:   t.line,
 				Text:   cleanTaskText(t.first),
+				Full:   normalizeTaskText(t.first),
 			})
 		}
 		if t.holdLine > 0 {
@@ -172,6 +198,7 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 				Marker: "BLOCKED",
 				Line:   t.holdLine,
 				Text:   cleaned,
+				Full:   normalizeTaskText(joined),
 			})
 			holds = append(holds, HoldItem{
 				File:       relPath,
@@ -185,13 +212,21 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 }
 
 func cleanTaskText(s string) string {
-	s = taskLineRe.ReplaceAllString(s, "$3")
-	s = strings.ReplaceAll(s, "**", "")
-	s = multiSpaceRe.ReplaceAllString(strings.TrimSpace(s), " ")
+	s = normalizeTaskText(s)
 	if len(s) > 104 {
-		s = s[:104]
+		i := 104
+		for i > 0 && !utf8.RuneStart(s[i]) {
+			i--
+		}
+		s = s[:i]
 	}
 	return s
+}
+
+func normalizeTaskText(s string) string {
+	s = taskLineRe.ReplaceAllString(s, "$3")
+	s = strings.ReplaceAll(s, "**", "")
+	return multiSpaceRe.ReplaceAllString(strings.TrimSpace(s), " ")
 }
 
 // ScanOpenSpecQueue scans openspec/changes/*/tasks.md in deterministic order.
@@ -366,4 +401,136 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	}
 	fmt.Fprintf(&out, "holds: ok (%d tasks.md read)\n", readCount)
 	return out.String(), 0, nil
+}
+
+// ParseSpecMarkdown parses a canonical openspec/specs/<name>/spec.md file into Purpose, Requirements, and Scenarios.
+func ParseSpecMarkdown(specName, relPath string, data []byte) (OpenSpecSpec, error) {
+	if !utf8.Valid(data) {
+		return OpenSpecSpec{}, fmt.Errorf("cannot read %s: invalid UTF-8", relPath)
+	}
+	spec := OpenSpecSpec{
+		Name: specName,
+		Path: relPath,
+	}
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	section := ""
+	var purposeLines []string
+	var curReq *OpenSpecRequirement
+	var curScen *OpenSpecScenario
+
+	flushScenario := func() {
+		if curReq != nil && curScen != nil {
+			curReq.Scenarios = append(curReq.Scenarios, *curScen)
+			curScen = nil
+		}
+	}
+	flushReq := func() {
+		flushScenario()
+		if curReq != nil {
+			curReq.Statement = strings.TrimSpace(curReq.Statement)
+			spec.Requirements = append(spec.Requirements, *curReq)
+			curReq = nil
+		}
+	}
+
+	for _, raw := range lines {
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasPrefix(trimmed, "## ") {
+			flushReq()
+			heading := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(trimmed, "## ")))
+			switch {
+			case strings.HasPrefix(heading, "purpose"):
+				section = "purpose"
+			case strings.HasPrefix(heading, "requirements"):
+				section = "requirements"
+			default:
+				section = heading
+			}
+			continue
+		}
+		if section == "purpose" {
+			if trimmed != "" {
+				purposeLines = append(purposeLines, trimmed)
+			}
+			continue
+		}
+		if section != "requirements" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "### ") {
+			flushReq()
+			reqTitle := strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))
+			reqTitle = strings.TrimSpace(strings.TrimPrefix(reqTitle, "Requirement:"))
+			curReq = &OpenSpecRequirement{
+				ID:   fmt.Sprintf("%s:%d", specName, len(spec.Requirements)+1),
+				Name: reqTitle,
+				Spec: specName,
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#### ") && curReq != nil {
+			flushScenario()
+			scenTitle := strings.TrimSpace(strings.TrimPrefix(trimmed, "#### "))
+			scenTitle = strings.TrimSpace(strings.TrimPrefix(scenTitle, "Scenario:"))
+			curScen = &OpenSpecScenario{
+				Name: scenTitle,
+			}
+			continue
+		}
+		if curScen != nil {
+			if step, ok := strings.CutPrefix(trimmed, "- "); ok {
+				step = strings.ReplaceAll(strings.TrimSpace(step), "**", "")
+				curScen.Steps = append(curScen.Steps, step)
+			}
+			continue
+		}
+		if curReq != nil && trimmed != "" {
+			if curReq.Statement != "" {
+				curReq.Statement += " "
+			}
+			curReq.Statement += trimmed
+		}
+	}
+	flushReq()
+	spec.Purpose = strings.Join(purposeLines, " ")
+	return spec, nil
+}
+
+// ScanOpenSpecSpecs scans openspec/specs/*/spec.md in deterministic order.
+func ScanOpenSpecSpecs(root string) ([]OpenSpecSpec, error) {
+	specsDir := filepath.Join(root, "openspec", "specs")
+	entries, err := os.ReadDir(specsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read openspec specs: %w", err)
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+
+	var out []OpenSpecSpec
+	for _, name := range names {
+		rel := filepath.ToSlash(filepath.Join("openspec", "specs", name, "spec.md"))
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read %s: %w", rel, err)
+		}
+		sp, err := ParseSpecMarkdown(name, rel, data)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sp)
+	}
+	return out, nil
 }

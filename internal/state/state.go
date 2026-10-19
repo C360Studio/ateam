@@ -75,10 +75,11 @@ func FormatFiveFieldPrompt(h Handoff) string {
 
 // Worktree describes an active git worktree.
 type Worktree struct {
-	Path   string `json:"path"`
-	Head   string `json:"head"`
-	Branch string `json:"branch"`
-	Agent  string `json:"agent,omitempty"`
+	Path    string `json:"path"`
+	Head    string `json:"head"`
+	Branch  string `json:"branch"`
+	Agent   string `json:"agent,omitempty"`
+	Subject string `json:"subject,omitempty"`
 }
 
 // GitStatus captures the deterministic git and worktree state of a repository.
@@ -88,6 +89,8 @@ type GitStatus struct {
 	Dirty      bool       `json:"dirty"`
 	DirtyFiles []string   `json:"dirty_files,omitempty"`
 	RemoteURL  string     `json:"remote_url,omitempty"`
+	UserName   string     `json:"user_name,omitempty"`
+	UserEmail  string     `json:"user_email,omitempty"`
 	Worktrees  []Worktree `json:"worktrees,omitempty"`
 }
 
@@ -101,6 +104,7 @@ type BoardCard struct {
 	Labels     []string  `json:"labels,omitempty"`
 	Agent      string    `json:"agent,omitempty"`
 	Branch     string    `json:"branch,omitempty"`
+	Spec       string    `json:"spec,omitempty"`
 	Milestone  string    `json:"milestone,omitempty"`
 	HoldReason string    `json:"hold_reason,omitempty"`
 	Decision   string    `json:"decision,omitempty"`
@@ -115,12 +119,18 @@ type WriterLease struct {
 	SessionID string    `json:"session_id,omitempty"`
 	PID       int       `json:"pid"`
 	LastSeen  time.Time `json:"last_seen"`
+	// Herdr IDs are recorded only inside a herdr pane (HERDR_ENV=1); they name a
+	// live pane, unlike the short-lived hook PID.
+	HerdrPaneID      string `json:"herdr_pane_id,omitempty"`
+	HerdrWorkspaceID string `json:"herdr_workspace_id,omitempty"`
 }
 
 // State is the cached local state stored in gitignored .ateam/state.json.
 type State struct {
 	Mode             DisciplineMode   `json:"mode"`
 	Forge            ForgeConfig      `json:"forge"`
+	Forges           []ForgeConfig    `json:"forges,omitempty"`
+	ForgesConfigured bool             `json:"forges_configured,omitempty"`
 	LastHandoff      *Handoff         `json:"last_handoff,omitempty"`
 	Writer           *WriterLease     `json:"writer,omitempty"`
 	CurrentSessionID string           `json:"-"`
@@ -130,6 +140,7 @@ type State struct {
 	Holds            []HoldItem       `json:"holds,omitempty"`
 	HoldScanError    string           `json:"hold_scan_error,omitempty"`
 	OpenSpecQueue    []OpenSpecChange `json:"openspec_queue,omitempty"`
+	OpenSpecSpecs    []OpenSpecSpec   `json:"openspec_specs,omitempty"`
 	UpdatedAt        time.Time        `json:"updated_at"`
 }
 
@@ -190,6 +201,10 @@ func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
 		SessionID: strings.TrimSpace(sessionID),
 		PID:       os.Getpid(),
 		LastSeen:  time.Now().UTC(),
+	}
+	if os.Getenv("HERDR_ENV") == "1" {
+		wl.HerdrPaneID = strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
+		wl.HerdrWorkspaceID = strings.TrimSpace(os.Getenv("HERDR_WORKSPACE_ID"))
 	}
 	data, err := json.MarshalIndent(wl, "", "  ")
 	if err != nil {
@@ -436,11 +451,14 @@ func (st *State) MoveCard(id, column, agent string) (BoardCard, error) {
 
 // Refresh inspects live git worktrees, shortcuts, OpenSpec queue, and optional forge state.
 func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) {
-	if _, err := Load(root); err != nil {
+	cached, err := Load(root)
+	if err != nil {
 		return nil, err
 	}
 	gs := SnapshotGit(ctx, root)
-	forgeCfg := DetectForge(ctx, root, gs.RemoteURL)
+	detectedForge := DetectForge(ctx, root, gs.RemoteURL)
+	cached.refreshForgeConfig(detectedForge)
+	forgeCfg := cached.Forge
 	shortcuts, err := ScanShortcuts(root)
 	if err != nil {
 		return nil, err
@@ -450,6 +468,10 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 		return nil, err
 	}
 	queue, err := ScanOpenSpecQueue(root)
+	if err != nil {
+		return nil, err
+	}
+	specs, err := ScanOpenSpecSpecs(root)
 	if err != nil {
 		return nil, err
 	}
@@ -463,16 +485,96 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 	}
 	return Update(root, func(st *State) error {
 		st.Git = gs
-		st.Forge = forgeCfg
+		st.refreshForgeConfig(detectedForge)
 		st.Shortcuts = shortcuts
 		st.Holds = holds
 		st.HoldScanError = ""
 		st.OpenSpecQueue = queue
+		st.OpenSpecSpecs = specs
 		if syncRemote {
 			st.MergeForgeCards(syncedCards, forgeCfg.Provider)
 		}
 		return nil
 	})
+}
+
+// refreshForgeConfig seeds automatic detection until the user explicitly edits settings.
+func (st *State) refreshForgeConfig(detected ForgeConfig) {
+	if st.ForgesConfigured {
+		return
+	}
+	// In automatic mode, the current origin replaces its previously detected target.
+	st.Forges = MergeConfiguredForges(ForgeConfig{}, append(st.Forges, detected))
+	st.Forge = ForgeConfig{Provider: ForgeLocal}
+	for _, cfg := range st.Forges {
+		if cfg.Provider == detected.Provider {
+			st.Forge = cfg
+			break
+		}
+	}
+}
+
+// UpsertForge adds or updates a configured forge provider on the state.
+func (st *State) UpsertForge(cfg ForgeConfig) error {
+	var err error
+	cfg, err = normalizeForgeConfig(cfg)
+	if err != nil {
+		return err
+	}
+	st.Forges = MergeConfiguredForges(st.Forge, st.Forges)
+	st.ForgesConfigured = true
+	updated := false
+	for i := range st.Forges {
+		if st.Forges[i].Provider == cfg.Provider {
+			st.Forges[i] = cfg
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		st.Forges = append(st.Forges, cfg)
+	}
+	if st.Forge.Provider == "" || st.Forge.Provider == ForgeLocal || st.Forge.Provider == cfg.Provider {
+		st.Forge = cfg
+	}
+	return nil
+}
+
+// RemoveForge removes a configured forge provider from the state.
+func (st *State) RemoveForge(provider ForgeProvider) {
+	p := ForgeProvider(strings.ToLower(strings.TrimSpace(string(provider))))
+	if p != ForgeGitHub && p != ForgeGitea {
+		return
+	}
+	st.ForgesConfigured = true
+	var kept []ForgeConfig
+	for _, f := range MergeConfiguredForges(st.Forge, st.Forges) {
+		if f.Provider != p {
+			kept = append(kept, f)
+		}
+	}
+	st.Forges = kept
+	if st.Forge.Provider == p {
+		if len(st.Forges) > 0 {
+			st.Forge = st.Forges[0]
+		} else {
+			st.Forge = ForgeConfig{Provider: ForgeLocal}
+		}
+	}
+}
+
+// ResolveForge returns the ForgeConfig for provider from st.Forges, or falls back to st.Forge.
+func (st *State) ResolveForge(provider ForgeProvider) ForgeConfig {
+	p := ForgeProvider(strings.ToLower(strings.TrimSpace(string(provider))))
+	for _, f := range st.Forges {
+		if f.Provider == p {
+			return f
+		}
+	}
+	if p == "" || p == st.Forge.Provider {
+		return st.Forge
+	}
+	return ForgeConfig{}
 }
 
 // SnapshotGit collects current branch, HEAD SHA, dirty files, remote URL, and worktree list.
@@ -487,6 +589,11 @@ func SnapshotGit(ctx context.Context, root string) GitStatus {
 		gs.HeadSHA = "uncommitted"
 	}
 	gs.RemoteURL = runGitLine(ctx, root, "remote", "get-url", "origin")
+	gs.UserName, gs.UserEmail = resolveGitUser(
+		runGitLine(ctx, root, "config", "user.name"),
+		runGitLine(ctx, root, "config", "user.email"),
+		currentOSUser(),
+	)
 
 	porcelain := runGitOutput(ctx, root, "status", "--porcelain")
 	if strings.TrimSpace(porcelain) != "" {
@@ -498,7 +605,36 @@ func SnapshotGit(ctx context.Context, root string) GitStatus {
 		}
 	}
 	gs.Worktrees = parseWorktrees(runGitOutput(ctx, root, "worktree", "list", "--porcelain"))
+	for i := range gs.Worktrees {
+		if gs.Worktrees[i].Head != "" {
+			gs.Worktrees[i].Subject = runGitLine(ctx, root, "log", "-1", "--format=%s", gs.Worktrees[i].Head)
+		}
+	}
 	return gs
+}
+
+func currentOSUser() string {
+	if u := strings.TrimSpace(os.Getenv("USER")); u != "" {
+		return u
+	}
+	return strings.TrimSpace(os.Getenv("USERNAME"))
+}
+
+func resolveGitUser(gitName, gitEmail, osUser string) (name, email string) {
+	name = strings.TrimSpace(gitName)
+	email = strings.TrimSpace(gitEmail)
+	if name == "" && email != "" {
+		if prefix, _, ok := strings.Cut(email, "@"); ok && strings.TrimSpace(prefix) != "" {
+			name = strings.TrimSpace(prefix)
+		}
+	}
+	if name == "" {
+		name = strings.TrimSpace(osUser)
+	}
+	if name == "" {
+		name = "Local User"
+	}
+	return name, email
 }
 
 func parseWorktrees(porcelain string) []Worktree {
@@ -602,6 +738,13 @@ func ReadFastGitHead(root string) (branch, shortSHA string) {
 	return "", ""
 }
 
+// GitCommonDir returns the git common dir shared by root and all its linked worktrees,
+// reading .git, gitdir:, and commondir files only (no git subprocess).
+func GitCommonDir(root string) (string, bool) {
+	_, commonDir, ok := resolveGitDirs(root)
+	return commonDir, ok
+}
+
 func resolveGitDirs(root string) (gitDir, commonDir string, ok bool) {
 	dotGit := filepath.Join(root, ".git")
 	info, err := os.Stat(dotGit)
@@ -655,16 +798,20 @@ func BuildPickupSummary(st *State) string {
 		if age < 0 {
 			age = 0
 		}
-		fmt.Fprintf(&b, "Writer lease: agent=%s session=%s pid=%d last_seen=%s ago\n",
-			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age)
+		pane := ""
+		if st.Writer.HerdrPaneID != "" {
+			pane = fmt.Sprintf(" (herdr pane %s)", st.Writer.HerdrPaneID)
+		}
+		fmt.Fprintf(&b, "Writer lease: agent=%s session=%s pid=%d last_seen=%s ago%s\n",
+			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		curSession := strings.TrimSpace(st.CurrentSessionID)
 		if curSession == "" {
 			curSession = strings.TrimSpace(os.Getenv("ATEAM_SESSION_ID"))
 		}
 		leaseSession := strings.TrimSpace(st.Writer.SessionID)
 		if time.Since(st.Writer.LastSeen) < 10*time.Minute && leaseSession != "" && leaseSession != curSession {
-			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)\n",
-				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age)
+			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)%s\n",
+				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		}
 	}
 	if len(st.OpenSpecQueue) > 0 {
