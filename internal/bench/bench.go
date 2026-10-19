@@ -835,7 +835,7 @@ func FormatMarkdown(rep SuiteReport) string {
 	fmt.Fprintf(&b, "- **Self-Test Status:** `PASS=%v` (%d/%d evaluated reference checks passed; %d unsupported tasks skipped)\n", rep.SelfTestPassed, rep.PassedTasks, rep.EvaluatedTasks, rep.SkippedTasks)
 	fmt.Fprintf(&b, "- **Good + Bad Fixture Gate Pass Rate:** `%d%%` (behavioral coding tasks only)\n", rep.SafetyPassRatePct)
 	fmt.Fprintf(&b, "- **Injected Bug Mutation Catch Rate:** `%d%%` (behavioral coding tasks only)\n", rep.MutationCatchPct)
-	fmt.Fprintf(&b, "- **MCP 2-Tool Schema Budget:** `%d tokens` (limit: < 300)\n", rep.MCPTokenTax)
+	fmt.Fprintf(&b, "- **MCP 2-Tool Schema Budget:** `%d estimated tokens` (limit: < 300)\n", rep.MCPTokenTax)
 	fmt.Fprintf(&b, "- **Hook Execution Latency:** `%d µs` (one local observation; not a latency distribution)\n\n", rep.HookLatencyUs)
 	b.WriteString("These offline reference checks validate graders and local continuity behavior; they do not measure agent time, tokens, or quality.\n\n")
 	b.WriteString("| Task | Evaluation | Fixture LOC | Gzip Bytes | Safety Gate | Mutant Caught | Passed |\n")

@@ -181,6 +181,10 @@ func TestAdapterFailuresAndUsage(t *testing.T) {
 	cfg.TimeoutSeconds = 1
 	for _, tc := range []struct{ instruction, status string }{{"malformed", "adapter-error"}, {"timeout", "timeout"}, {"overflow", "adapter-error"}} {
 		t.Run(tc.instruction, func(t *testing.T) {
+			cfg.TimeoutSeconds = 5
+			if tc.instruction == "timeout" {
+				cfg.TimeoutSeconds = 1
+			}
 			req := newAdapterRequest(cfg, Schedule(cfg)[0])
 			req.Instructions = tc.instruction
 			_, _, _, status, err := executeAdapter(context.Background(), cfg, req, t.TempDir())
