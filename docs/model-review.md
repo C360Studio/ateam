@@ -48,6 +48,21 @@ ateam review route --developer-models approved-dev-id,approved-escalated-id
 
 The operator starts the native client with the indicated exact model and effort. Cards and pointers do not launch agents, pin a running client's model, enforce a sandbox or prove its identity. Report an unavailable route and stop; do not silently downgrade. Native runtime pinning and cryptographic model attestation are not implemented.
 
+## Upgrade and troubleshooting
+
+After installing a newer ATeam binary, run `ateam init` without `--force` and inspect its diff, then run `ateam doctor --check`. Initialization adds missing canonical contracts and preserves existing files; it does not migrate custom instructions or enable model review. Do not use `--force` as a general repair command: it overwrites generated files.
+
+| Symptom | Resolution |
+| --- | --- |
+| Missing or drifted canonical contract, even without policy | Use `ateam init` to add missing contracts. For existing customized contracts, reconcile the canonical obligations explicitly while retaining project additions; doctor does not repair them. |
+| Unexpected reserved provider pointer | Inspect the reported `.claude/skills/ateam-{developer,reviewer}/SKILL.md` or `.gemini/commands/ateam-{developer,reviewer}.toml`. Reconcile stale pointers from the previous provider as a reviewed change, preserving any custom content elsewhere before removing an obsolete pointer. Setup refuses existing inactive pointers, including dangling links, before writing. |
+| Orphan route card or pointer after policy removal | Decide whether to restore the approved policy or retire the obsolete instructions in the same reviewed change. Doctor checks these paths even without policy. |
+| Setup conflicts while changing policy | Review the policy, role cards, and selected provider pointers together. Setup preserves existing conflicting files; explicitly reconcile them before retrying. |
+| Route rejects a ceiling model | Do not downgrade the developer silently. Arrange the explicit owner exception described below; `route` itself has no exception flag, and the commit-bound waiver is evaluated by `review check`. |
+| Check reports missing baseline policy or stale scope | Land initial policy separately, ensure the checkout contains the current default-branch base, and use fresh evidence for the current head and governing policy. Candidate policy cannot grant its own approval. |
+
+Doctor checks files and parity, not approval or runtime identity. A linked provider directory without a reserved role pointer is not itself an inactive-pointer conflict; selected generated destinations still refuse symbolic links.
+
 ## Review and record evidence
 
 Follow [the developer contract](../.agents/contracts/developer.md) and [the independent reviewer contract](../.agents/contracts/reviewer.md). The reviewer examines the complete diff and affected callers, tries to refute findings, and reports concrete mechanisms and corrections. Only the author changes the deliverable. Use native read-only controls when available and disclose any enforcement gap.
@@ -75,6 +90,22 @@ A schematic record follows; replace every placeholder with the actual full commi
 
 An authorized reviewer posts a PR issue comment whose exact first line is `ateam-review`, followed by the record JSON. If superiority needs a waiver, a login in the trusted policy's `owners` posts a separate comment beginning `ateam-review-exception`, followed by an exception JSON object with `version`, `repository`, `head`, `reviewer_model`, `policy_digest` and nonempty `reason`. An exception is specific to that head, reviewer model and policy revision; it is not a permanent exemption.
 
+For example, the owner posts the following comment body after replacing every placeholder with the reviewed values. The first line must be the marker shown; do not include the surrounding Markdown code fence in the posted comment. Owner identity comes from the authenticated comment author, not a JSON field.
+
+```text
+ateam-review-exception
+{
+  "version": 1,
+  "repository": "github:https://api.github.com/owner/repo",
+  "head": "FULL_REVIEWED_HEAD_SHA",
+  "reviewer_model": "APPROVED-REVIEWER-ID",
+  "policy_digest": "SHA256_OF_EXACT_BASELINE_POLICY_BYTES",
+  "reason": "Implementation used the highest approved model; I authorize this independent reviewer for this commit only."
+}
+```
+
+This waiver does not replace the review record or waive independence, configured provider separation, required checks, or a passing verdict. New commits require fresh scoped evidence.
+
 ```sh
 ateam review check --pr 15 --record-comment 12345
 ateam review check --pr 15 --record-comment 12345 --exception-comment 12346
@@ -86,6 +117,5 @@ These commands fetch evidence; they do not post comments or grant approvals on t
 Repository identities use `github:https://api.github.com/owner/repo` or `gitea:https://host/owner/repo`. Forge timestamps may have only second-level precision: equal creation/update timestamps cannot prove that no same-tick edit occurred before validation. Original comment authorship is authenticated, but current body authorship is not proven against every malicious writer. A shared forge login and self-reported model metadata remain attestations. They cannot prove who controlled the original model run, that every implementer was disclosed, that the reviewer never wrote implementation, or that a shared owner login represents a separate human. State these limits in the review. A successful eligibility result alone is never substantive code approval.
 
 Every changed head or governing policy invalidates old evidence and exceptions. The gate applies to every PR without a docs-only relaxation or filename classifier. Review instructions, policy, executable Markdown and both sides of renames receive substantive review; a `.md` suffix does not create an exemption. Hooks do no network/model work and the existing two-tool MCP interface remains unchanged.
-
 
 Review evidence uses trimmed `GITEA_TOKEN`, falling back to trimmed `ATEAM_GITEA_TOKEN`. GitHub uses trimmed `GH_TOKEN`, then `GITHUB_TOKEN`; whitespace-only values do not suppress the fallback.
