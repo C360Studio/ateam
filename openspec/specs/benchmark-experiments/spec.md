@@ -50,15 +50,19 @@ Comparison SHALL reject incompatible artifacts and incomplete histories without 
 - **THEN** comparison preserves that attempt in arm summaries without manufacturing its paired comparison
 
 ### Requirement: Native agent evidence
-The harness SHALL provide one Codex CLI adapter with independent ephemeral sessions, explicit credential inheritance, bounded redacted evidence, actual CLI identity, requested configuration, and unknown resolved configuration where unavailable. Missing or partial usage SHALL remain unknown and failures SHALL retain available evidence.
+The harness SHALL provide a Gemini CLI adapter with explicit API-key authentication, isolated attempts, bounded redacted output, CLI identity and inspectable execution settings. It SHALL normalize complete CLI-reported input, candidate and thought counts without double-counting cache. Incomplete accounting SHALL remain unknown, failures SHALL retain evidence, and unavailable backend-resolved settings SHALL remain unknown.
 
 #### Scenario: Provider reports cached tokens
-- **WHEN** a completed turn reports input, output and cached-input tokens
-- **THEN** cached tokens are a subset of input and are not counted twice
+- **WHEN** Gemini reports prompt, cached prompt, candidate and thought counts
+- **THEN** normalized input includes cached input once and normalized output includes candidate plus thought tokens once
 
 #### Scenario: Failed or interrupted execution
-- **WHEN** a native attempt fails or times out
-- **THEN** its status and available bounded native evidence remain visible without treating absent usage as zero
+- **WHEN** a native attempt cannot return a complete accounting record
+- **THEN** its failure and retained output remain visible and no further native attempt starts with unknown usage
+
+#### Scenario: Failed API requests lack complete accounting
+- **WHEN** API request/error counters are absent or any request failed
+- **THEN** normalized usage remains unknown even if a later request succeeds, and no further attempt starts
 
 ### Requirement: A/A calibration
 The harness SHALL accept explicitly selected A/A experiments only with identical treatment configurations, execute independent arms in counterbalanced order, and report descriptive outcome/time/usage variation without claiming equivalence. Default A/B SHALL reject identical treatments.
@@ -73,3 +77,10 @@ Native pilots SHALL expose attempt counts, time limits, authentication policy an
 #### Scenario: Unknown usage
 - **WHEN** a native attempt omits complete usage
 - **THEN** no subsequent native attempt starts and retained evidence identifies the stop reason
+
+### Requirement: Fixed-model harness treatments
+The native pilot SHALL use gemini-3.8-flash with the same requested model and generation settings for both arms. A/B SHALL vary explicit harness instruction treatment; A/A SHALL hold that treatment identical. Observed usage from an unexpected model or missing per-model identity SHALL stop the pilot and SHALL NOT contribute a valid same-model quality result. Model routing and role-to-model defaults SHALL remain outside this benchmark change.
+
+#### Scenario: Provider silently changes a model
+- **WHEN** native per-model statistics include a model other than the configured model
+- **THEN** the attempt retains its accounting evidence but is marked an execution error and further calls stop

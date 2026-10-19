@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Native agent evidence
-The harness SHALL provide its first native benchmark adapter through Gemini CLI with explicit API-key authentication, isolated attempts, bounded redacted native output, actual CLI identity and inspectable requested execution settings. It SHALL normalize available CLI-reported input, candidate-output and thought counts without double-counting cache input. Missing/partial usage and accounting with missing API request/error counters or failed API requests SHALL remain unknown, failed attempts SHALL retain available native evidence, and backend-resolved settings unavailable in the CLI output SHALL remain unknown.
+The harness SHALL provide a Gemini CLI adapter with explicit API-key authentication, isolated attempts, bounded redacted output, CLI identity and inspectable execution settings. It SHALL normalize complete CLI-reported input, candidate and thought counts without double-counting cache. Incomplete accounting SHALL remain unknown, failures SHALL retain evidence, and unavailable backend-resolved settings SHALL remain unknown.
 
 #### Scenario: Provider reports cached tokens
 - **WHEN** Gemini reports prompt, cached prompt, candidate and thought counts
@@ -10,6 +10,10 @@ The harness SHALL provide its first native benchmark adapter through Gemini CLI 
 #### Scenario: Failed or interrupted execution
 - **WHEN** a native attempt cannot return a complete accounting record
 - **THEN** its failure and retained output remain visible and no further native attempt starts with unknown usage
+
+#### Scenario: Failed API requests lack complete accounting
+- **WHEN** API request/error counters are absent or any request failed
+- **THEN** normalized usage remains unknown even if a later request succeeds, and no further attempt starts
 
 ## ADDED Requirements
 

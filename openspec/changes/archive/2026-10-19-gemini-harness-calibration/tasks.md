@@ -7,5 +7,5 @@
 
 ## 2. Verification
 - [x] Prove accounting/refusal and isolation tests with mutation evidence.
-- [ ] Complete independent review and clean-tree preflight.
-- [ ] Archive specification change and publish the updated PR.
+- [x] Complete independent review and clean-tree preflight.
+- [x] Archive specification change and prepare the verified PR update.
