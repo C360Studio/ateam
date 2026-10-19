@@ -15,6 +15,7 @@ func testExperiment() Experiment {
 	return Experiment{Version: 1, Name: "pilot", Command: []string{"/bin/cat"}, Agent: "fake", AgentVersion: "1", Model: "none", Baseline: "plain", Candidate: "check boundaries", Tasks: []string{"safe-path", "sql-user"}, Repetitions: 2, Seed: 42, TimeoutSeconds: 5}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestExperimentValidationAndSchedule(t *testing.T) {
 	cfg := testExperiment()
 	data, _ := json.Marshal(cfg)
@@ -55,6 +56,8 @@ func TestExperimentValidationAndSchedule(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestAdapterProtocolAndIsolation(t *testing.T) {
 	if os.Getenv("ATEAM_BENCH_HELPER") == "child" {
 		return
@@ -77,6 +80,7 @@ func TestAdapterProtocolAndIsolation(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestCommandAdapterHelper(_ *testing.T) {
 	mode := ""
 	for i, arg := range os.Args {
@@ -131,6 +135,7 @@ func TestCommandAdapterHelper(_ *testing.T) {
 	os.Exit(0)
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestAdapterScriptProvenance(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "agent.sh")
@@ -155,6 +160,7 @@ func TestAdapterScriptProvenance(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func FuzzExperimentDecode(f *testing.F) {
 	boundary := testExperiment()
 	boundary.Repetitions = 100
@@ -177,6 +183,8 @@ func FuzzExperimentDecode(f *testing.F) {
 	})
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestAdapterFailuresAndUsage(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -207,6 +215,8 @@ func TestAdapterFailuresAndUsage(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Paired descriptive comparisons
 func TestExperimentEndToEndAndRescore(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -294,6 +304,7 @@ func syntheticRun(t *testing.T) ExperimentRun {
 	return r
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Paired descriptive comparisons
 func TestComparisonOracleAndRefusals(t *testing.T) {
 	run := syntheticRun(t)
 	for i := range run.Attempts {
@@ -333,6 +344,8 @@ func TestComparisonOracleAndRefusals(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestRescoreCancellationDuringFinalGrade(t *testing.T) {
 	run := syntheticRun(t)
 	dir := t.TempDir()
@@ -360,6 +373,7 @@ func TestRescoreCancellationDuringFinalGrade(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Paired descriptive comparisons
 func TestComparisonDoesNotCallInfrastructureFailureQuality(t *testing.T) {
 	run := syntheticRun(t)
 	for i := range run.Attempts {
@@ -379,6 +393,7 @@ func TestComparisonDoesNotCallInfrastructureFailureQuality(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestExperimentMaximumBoundary(t *testing.T) {
 	cfg := testExperiment()
 	cfg.Repetitions = 100

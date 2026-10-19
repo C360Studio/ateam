@@ -8,8 +8,10 @@ See [how the harness runs](hook-flow.md) for the hook lifecycle and which workfl
 
 | Feature | Current behavior |
 | --- | --- |
-| `ateam init` | Writes the same templates regardless of language. Does not inspect manifests to select a toolchain, create a Taskfile, install tools, or migrate existing configuration. Existing files are preserved unless `--force` is used; missing files are added and ignore entries are appended. |
+| `ateam init` | Writes the same templates regardless of language. Does not inspect manifests to select a toolchain, create a Taskfile, install tools, or migrate existing configuration. Existing client configuration is always preserved, including with `--force`; that flag may overwrite other generated files; missing files are added and ignore entries are appended. |
 | Hooks, modes, pickup/handoff, forge state, board | Operate on repository/session metadata rather than a language compiler. This is architectural portability, not evidence of complete support for every project or agent version. |
+| `ateam test-spec` | Validates attached `// spec:` references on Go Test/Fuzz/executable Example and Vitest declarations against exact OpenSpec requirement headings. This is syntactic attribution, not semantic coverage. Other test frameworks/languages need project-owned enforcement; initialization does not create a Taskfile gate. See [the protocol](../.agents/protocol.md#test-to-spec-attribution). |
+| `ateam review` | Optional project-approved model comparisons and independent review evidence. Requires explicit policy; does not launch models, enforce a runtime sandbox, or install branch protection. See [model review](model-review.md). |
 | `ateam mutate` | Requires a non-test `.go` target, an external mutant copy, and a working Go test environment. Rejects other source extensions before starting tests. There is no Python, Rust, or JavaScript mutation runner. |
 | `ateam state debt` | Scans only `.go`, `.ts`, `.js`, `.svelte`, `.sh`, `.yml`, `.yaml`. Skips `_test.go` and `.test.ts`, plus generated/dependency directories such as `vendor`, `node_modules`, `dist`, and `build`. Python, Rust, Java, JSX, and TSX files are skipped, not diagnosed as unsupported. |
 | Shortcut syntax | A line must begin with optional whitespace followed by `//`, `#`, or `--`, then `shortcut:`. The first comma separates the limit from its revisit trigger. This is a text scan, not a language parser; trailing code comments and HTML comments are not recognized. |
@@ -29,15 +31,18 @@ A single compiled executable does not mean every command works without external 
 | Run hooks | The `ateam` executable on the agent's PATH, readable repository files, and writable local state for events that save it. No subprocesses or network calls in the hook handler. |
 | Inspect live Git/worktree state | Git and a repository. Some hook paths read Git metadata directly; full reconciliation invokes Git. |
 | Execute project tasks | Task plus the tools used by those tasks. Go is not required merely because a project task runs a Python or JavaScript test command. |
+| Test-to-spec attribution | Go-only scanning uses the compiled binary; Vitest scanning also needs Node and TypeScript at the target repository’s `ui/node_modules/typescript`. Supported test filenames and wrapper limitations are in the protocol. |
 | Go mutation / benchmark behavioral self-tests | Go toolchain and a usable build cache. These tests spawn `go test`; offline means no model API calls, not that a toolchain can be absent. |
-| Forge operations | Network access and suitable authentication; GitHub operations use `gh`, while Gitea supports its API/token and `tea` paths. Local-only work does not require forge access. |
+| Forge state/issue operations | Network access and suitable authentication; GitHub state operations use `gh`, while Gitea supports its API/token and `tea` paths. Local-only work does not require forge access. |
+| Review setup / route | Local files and the compiled binary; no network or model launch. The owner supplies approved model identities and comparisons. |
+| Review evidence check | Git, a clean checkout matching the live PR head and containing the current default-branch base, plus network access to the forge API. GitHub accepts `GH_TOKEN`, then `GITHUB_TOKEN`, with optional `gh auth token --hostname github.com` fallback only for the default GitHub API. Gitea accepts `GITEA_TOKEN`, then `ATEAM_GITEA_TOKEN`; it does not use `tea` for review evidence. Public readable evidence may work without authentication. |
 | Serve the board | The compiled binary with embedded UI assets; Node is a build dependency, not a requirement to serve those assets. |
 | herdr plugin (optional) | herdr 0.9.5 or newer, `ateam` on the PATH herdr gives plugin commands, and a one-time `herdr plugin link "$PWD/.agents/herdr"` (absolute path). Without herdr nothing changes: every herdr behavior is gated on `HERDR_ENV=1`. |
 
 ## Adoption steps
 
 1. Build/install ATeam and make the executable available to your agents. Building ATeam is separate from building the project you want agents to edit.
-2. Review your existing agent instructions and settings. Run `ateam init` in the intended repository; review its diff before using `--force`, which overwrites generated file paths.
+2. Review your existing agent instructions and settings. Run `ateam init` in the intended repository; review its diff before using `--force`, which overwrites generated documents/adapters but preserves client settings. Follow the [MCP migration guide](mcp.md#migrating-existing-configurations) to merge registration into existing files.
 3. Adapt the instructions to your language and actual delivery policy. Generated references to Go tooling, mutation checks, and verification targets are not automatic implementations of those checks. Keep canonical instructions and adapter/rule-index parity consistent.
 4. Create a `Taskfile.yml` exposing your project's checks. For example, a Python project's `verify` task could run its existing lint/type/test commands. Do not copy ATeam's own Taskfile unchanged: it expects this repository's `cmd/`, `internal/`, `go.mod`, and Svelte `ui/` layout.
 5. Run `ateam doctor --check`, inspect `ateam task list`, and execute the project checks. Separately verify that your installed agent versions actually load the intended instructions, hooks, and MCP settings. A parity pass is not an integration certification.
@@ -55,7 +60,18 @@ When agents run inside [herdr](https://herdr.dev) panes, ATeam delegates three t
 | Worktree creation: `herdr worktree create --cwd "$PWD" --branch <agent>/<topic> --path "$PWD/.worktrees/<agent>-<topic>" --no-focus` groups the claim as a herdr workspace. | Worktree truth: `git worktree list` and the agent-prefixed branch. |
 | Toasts: the plugin runs `ateam state herdr on-event` on `worktree.created` and `pane.agent_status_changed`, toasting each new `HALT`/`RED`/`BLOCKED` caveat or Hold once. Actions open pickup and spec-queue popups. | State and Holds: `.ateam/state.json`, `openspec/` tasks, and `Hold:` lines. |
 
-Link the plugin once with `herdr plugin link "$PWD/.agents/herdr"`; `ateam` must be on herdr's PATH. `ateam doctor` does not read the manifest; herdr reports manifest problems in `herdr plugin list`. Plugin command output goes only to `herdr plugin log`, which is why pickup and spec-queue are popups. Verified against a headless herdr 0.9.5 server: event payloads, `pane get` output, popup cwd, plugin state dir, and the toast calls. A toast or popup rendering in an attached TUI has not been observed yet.
+Link the plugin once with `herdr plugin link "$PWD/.agents/herdr"`; `ateam` must be on herdr's PATH. `ateam doctor` does not read the manifest; herdr reports manifest problems in `herdr plugin list`. Plugin command output goes only to `herdr plugin log`, which is why pickup and spec-queue are popups. Verified against a headless herdr 0.9.5 server: event payloads, `pane get` output, popup cwd, plugin state dir, and the toast calls. Seeing a toast or popup render in an attached TUI was waived by the owner.
+
+## Optional model review
+
+Initialization installs canonical developer/reviewer contracts but leaves model policy unconfigured. To adopt the stronger-reviewer gate:
+
+1. Have the owner approve exact model identities, explicit stronger-than relationships, reviewer/owner forge accounts, and required checks. Provider separation is optional; it never substitutes for a stronger reviewer. At the model ceiling, approval requires an explicit scoped owner exception.
+2. Follow [model-review setup](model-review.md#configure-an-approved-policy), run `ateam review setup --policy approved-policy.json`, and inspect the generated policy, cards, and pointers. Select the specified model in each native client yourself.
+3. Land the initial configuration in a separate owner-authorized PR to the repository default branch. The checker reads policy from that trusted baseline; the adoption PR cannot authorize itself with candidate policy.
+4. For subsequent work, run `ateam review route`, including every actual implementation model after escalation. Have an independent reviewer record current verification and post fresh evidence, then run `ateam review check` on the clean current PR head. See [review evidence and exceptions](model-review.md#review-and-record-evidence).
+
+The commands validate eligibility and supplied evidence; they do not automatically enforce a forge merge restriction. Adopting projects must choose where to require the check in their delivery workflow. See [upgrade and troubleshooting](model-review.md#upgrade-and-troubleshooting) for existing installations and stale provider pointers.
 
 ## Ponytail and measurement
 

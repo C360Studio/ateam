@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 )
 
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestOpenSpecQueueAndCheck(t *testing.T) {
 	dir := t.TempDir()
 	changeDir := filepath.Join(dir, "openspec", "changes", "setup-01")

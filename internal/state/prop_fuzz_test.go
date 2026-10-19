@@ -13,6 +13,7 @@ import (
 
 // FuzzScanHoldsMarkdown exercises ScanHolds and ParseTasksMarkdown across valid, stray-hold,
 // and invalid-UTF-8 Markdown task files, comparing against an independent line-grammar oracle.
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func FuzzScanHoldsMarkdown(f *testing.F) {
 	f.Add([]byte("# Change\n\n## 1. Tasks\n- [ ] 1.1 Open task\n  Hold: waiting on #42\n"))
 	f.Add([]byte("# Change\n\n## 1. Tasks\n- [x] 1.1 Done task\n  Hold: resolved\n"))
@@ -104,6 +105,7 @@ func oracleTasksMarkdown(doc string) (openHoldTasks int, hasStrayHold bool) {
 
 // FuzzReadFastGitHeadRefs exercises ReadFastGitHead across loose refs, packed-refs, detached HEADs,
 // and linked worktrees (`gitdir:` + `commondir`).
+// spec: openspec/specs/harness/spec.md#Requirement: Fast Git identity across worktrees
 func FuzzReadFastGitHeadRefs(f *testing.F) {
 	f.Add("refs/heads/gemini/test", "0123456789abcdef0123456789abcdef01234567", true, true)
 	f.Add("refs/heads/main", "fedcba9876543210fedcba9876543210fedcba98", false, false)
@@ -216,6 +218,7 @@ func sanitizeRefName(in string) string {
 
 // TestPropMergeForgeCardsHistory checks State.MergeForgeCards across generated histories of
 // local, github, and gitea board operations against an independent test-owned reference model.
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 func TestPropMergeForgeCardsHistory(t *testing.T) {
 	var assertionsRun int
 

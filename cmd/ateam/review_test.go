@@ -1,0 +1,221 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/c360studio/ateam/internal/review"
+	"github.com/c360studio/ateam/internal/state"
+)
+
+func cliReviewPolicy() review.Policy {
+	return review.Policy{Version: 1, Models: []review.Model{{ID: "work", Provider: "codex", StrongerThan: []string{}}, {ID: "audit", Provider: "codex", StrongerThan: []string{"work"}}}, Routes: review.Routes{Developer: review.Route{Model: "work", Effort: "medium"}, Reviewer: review.Route{Model: "audit", Effort: "high"}}, Owners: []string{"owner"}, ReviewAuthors: []string{"review-account"}, RequiredChecks: []string{"task verify"}}
+}
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
+// spec: openspec/specs/model-review/spec.md#Requirement: Stronger independent reviewer
+func TestReviewCLISetupAndRouting(t *testing.T) {
+	root := t.TempDir()
+	p := cliReviewPolicy()
+	b, _ := json.Marshal(p)
+	file := filepath.Join(t.TempDir(), "policy.json")
+	if err := os.WriteFile(file, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runReview(root, []string{"setup", "--policy", file}); code != 0 {
+		t.Fatalf("setup=%d", code)
+	}
+	if code := runReview(root, []string{"route"}); code != 0 {
+		t.Fatalf("route=%d", code)
+	}
+	for _, args := range [][]string{{}, {"unknown"}, {"route", "--developer-models", "audit"}, {"route", "--developer-models", "work,unknown"}, {"route", "unexpected"}, {"check", "--pr", "1"}, {"setup", "--policy", file, "unexpected"}} {
+		if code := runReview(root, args); code == 0 {
+			t.Fatalf("invalid command accepted: %v", args)
+		}
+	}
+}
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
+// spec: openspec/specs/model-review/spec.md#Requirement: Stronger independent reviewer
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit owner exception at the model ceiling
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+// spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
+func TestReviewCLICurrentForgeEvidence(t *testing.T) {
+	for _, scenario := range []string{"pass", "untrusted-author", "stale-head", "moving-head", "same-tier", "exception", "wrong-owner", "candidate-policy", "edited-record", "moving-record", "moving-exception"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := t.TempDir()
+			git := func(args ...string) string {
+				t.Helper()
+				cmd := exec.Command("git", args...)
+				cmd.Dir = root
+				out, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("git %v: %v %s", args, err, out)
+				}
+				return strings.TrimSpace(string(out))
+			}
+			git("init", "-q")
+			git("config", "user.name", "Fixture")
+			git("config", "user.email", "fixture@example.invalid")
+			p := cliReviewPolicy()
+			data, _ := json.Marshal(p)
+			if err := os.Mkdir(filepath.Join(root, ".agents"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, ".agents", "review-policy.json"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			git("add", ".")
+			git("commit", "-qm", "trusted policy")
+			base := git("rev-parse", "HEAD")
+			if scenario == "candidate-policy" {
+				modified := p
+				modified.ReviewAuthors = []string{"attacker"}
+				b, _ := json.Marshal(modified)
+				if err := os.WriteFile(filepath.Join(root, ".agents", "review-policy.json"), b, 0600); err != nil {
+					t.Fatal(err)
+				}
+				git("add", ".")
+			}
+			git("commit", "--allow-empty", "-qm", "implementation")
+			head := git("rev-parse", "HEAD")
+			record := review.Record{Version: 1, Base: base, Head: head, PolicyDigest: review.PolicyDigest(data), Implementers: []review.Run{{ID: "dev-session", Model: "work", Provider: "codex", Effort: "medium"}}, Reviewer: review.Run{ID: "review-session", Model: "audit", Provider: "codex", Effort: "high"}, ReadOnly: true, Verdict: "approve", Findings: []review.Finding{}, Checks: []review.Check{{Name: "task verify", Commit: head, Status: "passed", Source: "reviewer"}}, Limitations: []string{"Runtime identities are attested."}}
+			author := "review-account"
+			exceptionAuthor := "owner"
+			reads := 0
+			recordReads, exceptionReads := 0, 0
+			if scenario == "untrusted-author" || scenario == "candidate-policy" {
+				author = "attacker"
+			}
+			if scenario == "stale-head" {
+				record.Head = base
+			}
+			if scenario == "same-tier" || scenario == "exception" || scenario == "wrong-owner" || scenario == "moving-exception" {
+				record.Reviewer.Model = "work"
+			}
+			if scenario == "wrong-owner" {
+				exceptionAuthor = "attacker"
+			}
+			var baseURL string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/repos/acme/project":
+					_ = json.NewEncoder(w).Encode(map[string]string{"full_name": "acme/project", "default_branch": "main"})
+				case "/api/v1/repos/acme/project/branches/main":
+					_ = json.NewEncoder(w).Encode(map[string]any{"name": "main", "commit": map[string]string{"id": base}})
+				case "/api/v1/repos/acme/project/pulls/15":
+					reads++
+					currentHead := head
+					if scenario == "moving-head" && reads > 1 {
+						currentHead = base
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"number": 15, "state": "open", "merged": false, "draft": true, "user": map[string]string{"login": "dev-account"}, "base": map[string]any{"sha": base, "ref": "main", "repo": map[string]string{"full_name": "acme/project"}}, "head": map[string]string{"sha": currentHead}})
+				case "/api/v1/repos/acme/project/issues/comments/1":
+					recordReads++
+					updated := "2026-10-19T01:00:00Z"
+					if scenario == "edited-record" {
+						updated = "2026-10-19T01:00:01Z"
+					}
+					record.Repository = "gitea:" + baseURL + "/acme/project"
+					b, _ := json.Marshal(record)
+					if scenario == "moving-record" && recordReads > 1 {
+						b = append(b, byte(32))
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"id": 1, "issue_url": "", "pull_request_url": baseURL + "/acme/project/pulls/15", "created_at": "2026-10-19T01:00:00Z", "updated_at": updated, "body": "ateam-review\n" + string(b), "user": map[string]string{"login": author}})
+				case "/api/v1/repos/acme/project/issues/comments/2":
+					exceptionReads++
+					e := review.Exception{Version: 1, Repository: "gitea:" + baseURL + "/acme/project", Head: head, ReviewerModel: "work", PolicyDigest: review.PolicyDigest(data), Reason: "Explicit test owner exception"}
+					b, _ := json.Marshal(e)
+					if scenario == "moving-exception" && exceptionReads > 1 {
+						b = append(b, byte(32))
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"id": 2, "issue_url": "", "pull_request_url": baseURL + "/acme/project/pulls/15", "created_at": "2026-10-19T01:00:00Z", "updated_at": "2026-10-19T01:00:00Z", "body": "ateam-review-exception\n" + string(b), "user": map[string]string{"login": exceptionAuthor}})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+			baseURL = srv.URL
+			git("remote", "add", "origin", srv.URL+"/acme/project.git")
+			t.Setenv("ATEAM_FORGE", "gitea")
+			t.Setenv("GITEA_URL", srv.URL)
+			t.Setenv("GITEA_TOKEN", "")
+			args := []string{"--pr", "15", "--record-comment", "1"}
+			if scenario == "exception" || scenario == "wrong-owner" || scenario == "moving-exception" {
+				args = append(args, "--exception-comment", "2")
+			}
+			err := reviewCheck(root, args)
+			wantPass := scenario == "pass" || scenario == "exception"
+			if (err == nil) != wantPass {
+				t.Fatalf("scenario %s: error=%v, want pass=%v", scenario, err, wantPass)
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Current and independently attributed review evidence
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+func TestReviewCommentAndFileBoundaries(t *testing.T) {
+	for _, body := range []string{"{}", "ateam-review {}", "```json\n{}\n```", "ateam-review-exception\n{}"} {
+		if _, err := reviewCommentPayload(body, "ateam-review"); err == nil {
+			t.Fatalf("ambiguous comment accepted: %q", body)
+		}
+	}
+	b, err := reviewCommentPayload("ateam-review\n{\"version\":1}", "ateam-review")
+	if err != nil || string(b) != "{\"version\":1}" {
+		t.Fatalf("payload=%q %v", b, err)
+	}
+	p := filepath.Join(t.TempDir(), "oversized.json")
+	if err := os.WriteFile(p, make([]byte, (1<<20)+1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readReviewFile(p); err == nil {
+		t.Fatal("oversized policy accepted")
+	}
+}
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+func TestReviewTokenDoesNotReadDefaultAccountForCustomAPI(t *testing.T) {
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("PATH", t.TempDir())
+	token, err := reviewToken(context.Background(), state.ForgeConfig{Provider: state.ForgeGitHub, BaseURL: "https://custom.example.invalid"})
+	if err != nil || token != "" {
+		t.Fatal(fmt.Sprintf("unexpected credential fallback: %q %v", token, err))
+	}
+}
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+func TestReviewTokenEnvironment(t *testing.T) {
+	for _, tc := range []struct {
+		name                               string
+		provider                           state.ForgeProvider
+		gitea, alternate, gh, github, want string
+	}{
+		{name: "gitea fallback", provider: state.ForgeGitea, alternate: " fallback \n", want: "fallback"},
+		{name: "gitea whitespace fallback", provider: state.ForgeGitea, gitea: " \t", alternate: " fallback ", want: "fallback"},
+		{name: "gitea primary", provider: state.ForgeGitea, gitea: " primary \n", alternate: "fallback", want: "primary"},
+		{name: "gh primary", provider: state.ForgeGitHub, gh: " primary \n", github: "fallback", want: "primary"},
+		{name: "github fallback", provider: state.ForgeGitHub, gh: " \t", github: " fallback \n", want: "fallback"},
+		{name: "no token", provider: state.ForgeGitea},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GITEA_TOKEN", tc.gitea)
+			t.Setenv("ATEAM_GITEA_TOKEN", tc.alternate)
+			t.Setenv("GH_TOKEN", tc.gh)
+			t.Setenv("GITHUB_TOKEN", tc.github)
+			got, err := reviewToken(context.Background(), state.ForgeConfig{Provider: tc.provider, BaseURL: "https://custom.example.invalid"})
+			if err != nil || got != tc.want {
+				t.Fatalf("token normalization/fallback mismatch: got %q want %q, err=%v", got, tc.want, err)
+			}
+		})
+	}
+}

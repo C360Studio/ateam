@@ -1,0 +1,173 @@
+// Package review validates explicitly approved model comparisons and review attestations.
+package review
+
+import (
+	"crypto/sha256"
+	"fmt"
+	"strings"
+)
+
+// Policy declares model relationships; model names and effort never imply rank.
+type Policy struct {
+	Version        int      `json:"version"`
+	Models         []Model  `json:"models"`
+	Routes         Routes   `json:"routes"`
+	Owners         []string `json:"owners"`
+	ReviewAuthors  []string `json:"review_authors"`
+	RequiredChecks []string `json:"required_checks"`
+	CrossProvider  bool     `json:"cross_provider"`
+}
+
+// Model identifies a provider model and its explicitly weaker models.
+type Model struct {
+	ID           string   `json:"id"`
+	Provider     string   `json:"provider"`
+	StrongerThan []string `json:"stronger_than,omitempty"`
+}
+
+// Routes separates implementation and review model selections.
+type Routes struct {
+	Developer Route `json:"developer"`
+	Reviewer  Route `json:"reviewer"`
+}
+
+// Route records effort separately from model strength.
+type Route struct {
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
+}
+
+// ParsePolicy strictly decodes and validates a governing policy.
+func ParsePolicy(data []byte) (Policy, error) {
+	var p Policy
+	if err := decodeJSON(data, &p); err != nil {
+		return p, err
+	}
+	return p, ValidatePolicy(p)
+}
+
+// PolicyDigest binds evidence to the exact governing policy bytes.
+func PolicyDigest(data []byte) string { return fmt.Sprintf("%x", sha256.Sum256(data)) }
+
+// Model looks up an exact model identity.
+func (p Policy) Model(id string) (Model, bool) {
+	for _, model := range p.Models {
+		if model.ID == id {
+			return model, true
+		}
+	}
+	return Model{}, false
+}
+
+// ValidatePolicy rejects incomplete, ambiguous or contradictory configuration.
+func ValidatePolicy(p Policy) error {
+	if p.Version != 1 {
+		return fmt.Errorf("unsupported policy version %d", p.Version)
+	}
+	if len(p.Models) == 0 || len(p.Models) > 256 {
+		return fmt.Errorf("policy must contain 1..256 models")
+	}
+	seen := map[string]bool{}
+	for _, model := range p.Models {
+		if !identity(model.ID) || !identity(model.Provider) || seen[model.ID] {
+			return fmt.Errorf("invalid or duplicate model %q", model.ID)
+		}
+		seen[model.ID] = true
+	}
+	for _, model := range p.Models {
+		edges := map[string]bool{}
+		for _, weaker := range model.StrongerThan {
+			if !seen[weaker] || edges[weaker] {
+				return fmt.Errorf("model %q has unknown or duplicate comparison %q", model.ID, weaker)
+			}
+			edges[weaker] = true
+		}
+	}
+	if err := p.validateAcyclic(); err != nil {
+		return err
+	}
+	for _, route := range []Route{p.Routes.Developer, p.Routes.Reviewer} {
+		if !seen[route.Model] || !identity(route.Effort) {
+			return fmt.Errorf("route has unknown model or unresolved effort")
+		}
+	}
+	if err := uniqueNames("owners", p.Owners); err != nil {
+		return err
+	}
+	if err := uniqueNames("review_authors", p.ReviewAuthors); err != nil {
+		return err
+	}
+	return uniqueNames("required_checks", p.RequiredChecks)
+}
+
+func (p Policy) validateAcyclic() error {
+	colors := map[string]int{}
+	var visit func(string) error
+	visit = func(id string) error {
+		if colors[id] == 1 {
+			return fmt.Errorf("model comparisons contain a cycle at %q", id)
+		}
+		if colors[id] == 2 {
+			return nil
+		}
+		colors[id] = 1
+		model, _ := p.Model(id)
+		for _, weaker := range model.StrongerThan {
+			if err := visit(weaker); err != nil {
+				return err
+			}
+		}
+		colors[id] = 2
+		return nil
+	}
+	for _, model := range p.Models {
+		if err := visit(model.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func uniqueNames(label string, values []string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("%s must not be empty", label)
+	}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if !identity(value) || seen[value] {
+			return fmt.Errorf("%s contains invalid or duplicate value %q", label, value)
+		}
+		seen[value] = true
+	}
+	return nil
+}
+
+func identity(s string) bool {
+	return s != "" && len(s) <= 512 && s == strings.TrimSpace(s) && !strings.EqualFold(s, "inherit") && !strings.ContainsAny(s, "\x00\r\n\t")
+}
+
+func (p Policy) stronger(reviewer, developer string) bool {
+	seen := map[string]bool{}
+	var visit func(string) bool
+	visit = func(id string) bool {
+		if seen[id] {
+			return false
+		}
+		seen[id] = true
+		model, _ := p.Model(id)
+		for _, weaker := range model.StrongerThan {
+			if weaker == developer || visit(weaker) {
+				return true
+			}
+		}
+		return false
+	}
+	return reviewer != developer && visit(reviewer)
+}
+
+// ValidateRouting checks eligibility of the configured routes before implementation.
+func (p Policy) ValidateRouting() error {
+	dev, _ := p.Model(p.Routes.Developer.Model)
+	reviewer, _ := p.Model(p.Routes.Reviewer.Model)
+	return Eligible(p, []Run{{ID: "developer", Model: dev.ID, Provider: dev.Provider, Effort: p.Routes.Developer.Effort}}, Run{ID: "reviewer", Model: reviewer.ID, Provider: reviewer.Provider, Effort: p.Routes.Reviewer.Effort})
+}

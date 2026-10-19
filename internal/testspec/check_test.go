@@ -1,0 +1,194 @@
+package testspec
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
+
+const citation = "// spec: openspec/specs/demo/spec.md#Requirement: Works\n"
+
+func fixture(t *testing.T, source, spec string) string {
+	t.Helper()
+	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, text := range map[string]string{"sample_test.go": source, "openspec/specs/demo/spec.md": spec} {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(text), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Attached test citations
+func TestGoAttribution(t *testing.T) {
+	for _, tc := range []struct{ name, source, want string }{
+		{"missing", "package p\nfunc TestWorks(t *testing.T) {}", "sample_test.go:2: TestWorks: missing spec citation"},
+		{"valid", "package p\n" + citation + "func TestWorks(t *testing.T) {}", ""},
+		{"gap", "package p\n" + citation + "\nfunc TestWorks(t *testing.T) {}", "missing spec citation"},
+		{"malformed sibling", "package p\n" + citation + "// spec: bad\nfunc TestWorks(t *testing.T) {}", "malformed spec citation"},
+		{"fixture", "package p\nvar fixture = `func TestFake(t *testing.T) {}`", ""},
+		{"main and helper", "package p\nfunc TestMain(m *testing.M) {}\nfunc Testhelper() {}", ""},
+		{"fuzz", "package p\nfunc FuzzWorks(f *testing.F) {}", "FuzzWorks: missing spec citation"},
+		{"non executable example", "package p\nfunc ExampleWorks() {}", ""},
+		{"executable example", "package p\nfunc ExampleWorks() {\n// Output: ok\n}", "ExampleWorks: missing spec citation"},
+		{"whole file example", "package p\nvar value = 1\nfunc Example() {\n// Output: ok\n}", "Example: missing spec citation"},
+		{"parse error", "package p\nfunc TestBroken(", "parse Go"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := fixture(t, tc.source, "### Requirement: Works\n")
+			ds, err := Check(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := Format(ds)
+			if tc.want == "" && got != "" || tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Fatalf("attribution verdict: got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Safe requirement resolution
+func TestReferenceRefusals(t *testing.T) {
+	for _, tc := range []struct{ name, ref, spec, want string }{
+		{"missing", "openspec/specs/demo/spec.md#Requirement: Absent", "### Requirement: Works\n", "requirement resolves 0 times"},
+		{"duplicate", "openspec/specs/demo/spec.md#Requirement: Works", "### Requirement: Works\n### Requirement: Works\n", "requirement resolves 2 times"},
+		{"traversal", "openspec/specs/../demo/spec.md#Requirement: Works", "", "unsafe spec path"},
+		{"absolute", "/tmp/spec.md#Requirement: Works", "", "unsafe spec path"},
+		{"arbitrary markdown", "README.md#Requirement: Works", "", "expected canonical or in-flight spec.md"},
+		{"long fence", "openspec/specs/demo/spec.md#Requirement: Works", "````md\n```\n### Requirement: Works\n````\n", "requirement resolves 0 times"},
+		{"fenced heading", "openspec/specs/demo/spec.md#Requirement: Works", "```md\n### Requirement: Works\n```\n", "requirement resolves 0 times"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := fixture(t, "package p\n// spec: "+tc.ref+"\nfunc TestWorks(t *testing.T) {}", tc.spec)
+			ds, err := Check(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := Format(ds); !strings.Contains(got, tc.want) {
+				t.Fatalf("reference refusal: got %q want %q", got, tc.want)
+			}
+		})
+	}
+	t.Run("symlink escape", func(t *testing.T) {
+		root := fixture(t, "package p\n"+citation+"func TestWorks(t *testing.T) {}", "### Requirement: Works\n")
+		target := filepath.Join(t.TempDir(), "spec.md")
+		if err := os.WriteFile(target, []byte("### Requirement: Works\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(root, "openspec/specs/demo/spec.md")
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, path); err != nil {
+			t.Fatal(err)
+		}
+		ds, err := Check(context.Background(), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(Format(ds), "escapes repository") {
+			t.Fatalf("escape accepted: %s", Format(ds))
+		}
+	})
+}
+
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Deterministic discovery and verification
+func TestDiscoveryAndDeterminism(t *testing.T) {
+	root := fixture(t, "package p\nfunc TestZ(t *testing.T) {}\n", "### Requirement: Works\n")
+	for path, source := range map[string]string{
+		"a_test.go":          "//go:build never\n\npackage p\nfunc TestA(t *testing.T) {}\n",
+		"testdata/b_test.go": "package p\nfunc TestB(t *testing.T) {}\n",
+		"vendor/no_test.go":  "not Go", "node_modules/no.test.ts": "not TypeScript", ".worktrees/no_test.go": "not Go",
+	} {
+		p := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(source), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := "a_test.go:4: TestA: missing spec citation\nsample_test.go:2: TestZ: missing spec citation\ntestdata/b_test.go:2: TestB: missing spec citation\n"
+	for range 2 {
+		ds, err := Check(context.Background(), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := Format(ds); got != want {
+			t.Fatalf("discovery: got %q want %q", got, want)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := Check(ctx, root); err == nil {
+		t.Fatal("cancellation ignored")
+	}
+}
+
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Safe requirement resolution
+func FuzzRequirementResolution(f *testing.F) {
+	for _, s := range []string{"Works", "Boundary # with spaces", "", "\n", "é"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, title string) {
+		// The accepted title grammar is a single nonblank UTF-8 line. Invalid titles
+		// are separately covered by explicit refusal fixtures.
+		if !utf8.ValidString(title) || strings.ContainsAny(title, "\r\n") || strings.TrimSpace(title) == "" || strings.TrimSpace(title) != title {
+			return
+		}
+		root := fixture(t, "package p\n", "### Requirement: "+title+"\n")
+		ref := "openspec/specs/demo/spec.md#Requirement: " + title
+		if err := resolve(root, ref); err != nil {
+			t.Fatalf("exact title rejected: %v", err)
+		}
+		if err := resolve(root, ref+" missing"); err == nil {
+			t.Fatal("unresolved title accepted")
+		}
+	})
+}
+
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Attached test citations
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Deterministic discovery and verification
+func TestVitestIntegration(t *testing.T) {
+	root := fixture(t, "package p\n", "### Requirement: Works\n")
+	if err := os.MkdirAll(filepath.Join(root, "ui"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	modules := filepath.Clean(filepath.Join(cwd, "../../ui/node_modules"))
+	if err := os.Symlink(modules, filepath.Join(root, "ui/node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	source := "import {it as check} from 'vitest';\n" + citation + "check('valid',()=>{});\ncheck('missing',()=>{});\n"
+	if err := os.WriteFile(filepath.Join(root, "ui/sample.test.ts"), []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ds, err := Check(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Format(ds); got != "ui/sample.test.ts:4: missing: missing spec citation\n" {
+		t.Fatalf("Vitest integration: %q", got)
+	}
+	if err := os.Remove(filepath.Join(root, "ui/node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Check(context.Background(), root); err == nil {
+		t.Fatal("missing TypeScript installation accepted")
+	}
+}
