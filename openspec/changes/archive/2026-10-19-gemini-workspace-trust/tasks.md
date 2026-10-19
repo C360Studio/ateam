@@ -2,4 +2,4 @@
 - [x] Reproduce missing child trust with a failing fake-process regression.
 - [x] Add scoped trust and dry-run/documentation disclosure.
 - [x] Prove mutation detection and obtain independent review.
-- [ ] Complete clean-tree preflight and retry the approved pilot.
+- [x] Complete clean-tree preflight and retry the approved pilot (provider 503 responses; stopped at the attempt timeout, no calibration result).

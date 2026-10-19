@@ -128,4 +128,4 @@ bin/ateam bench rescore benchmarks/runs/experiment-.../run.json
 
 `mode: aa` requires identical instructions; omitted mode or `ab` requires different instructions. Reports preserve terminal statuses and known/unknown usage denominators, and show descriptive mean/min/max/population-SD over the task mix. Only complete pairs contribute paired comparisons. Different stochastic answers are expected; a small difference or nonsignificance does not establish equivalence. Calibrate A/A first, investigate discrepancies, then run the same-model harness A/B.
 
-Use [the calibration report checklist](calibration-report.md) to link immutable run/configuration, self-test, comparison and replay evidence. Synthetic fixtures establish parser/runner behavior, not provider billing accuracy. No live calibration has been performed.
+Use [the calibration report checklist](calibration-report.md) to link immutable run/configuration, self-test, comparison and replay evidence. Synthetic fixtures establish parser/runner behavior, not provider billing accuracy. No successful live calibration has been completed; see [the first pilot startup report](calibration-pilot-2026-10-19.md).
