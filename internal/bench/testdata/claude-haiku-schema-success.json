@@ -1,0 +1,53 @@
+{
+  "stop_reason": "tool_use",
+  "total_cost_usd": 0.040086,
+  "usage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 950,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1766,
+    "output_tokens_details": {
+      "thinking_tokens": 1162
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 950
+    },
+    "inference_geo": "global",
+    "iterations": [],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 1766,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 950,
+      "webSearchRequests": 0,
+      "costUSD": 0.040086,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1162,
+      "canonicalModel": "claude-haiku-5-5",
+      "provider": "firstParty",
+      "costBasis": "unknown"
+    }
+  },
+  "terminal_reason": "completed",
+  "is_error": false,
+  "num_turns": 2,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "{\"source\":\"package safepath\\n\\nimport (\\n\\t\\\"errors\\\"\\n\\t\\\"os\\\"\\n\\t\\\"path/filepath\\\"\\n\\t\\\"strings\\\"\\n)\\n\\n// ErrEscape is returned when rel resolves to a location outside base.\\nvar ErrEscape = errors.New(\\\"safepath: path escapes base\\\")\\n\\n// Resolve returns the absolute, lexically cleaned path for rel within base.\\n// The base itself is a valid result (for rel \\\"\\\" or \\\".\\\"). Paths that escape\\n// base, including sibling-prefix traversals such as \\\"/a/foo\\\" vs \\\"/a/foobar\\\",\\n// are rejected with ErrEscape. Symbolic links are not resolved.\\nfunc Resolve(base, rel string) (string, error) {\\n\\tif strings.ContainsRune(rel, 0) {\\n\\t\\treturn \\\"\\\", errors.New(\\\"safepath: invalid NUL byte in path\\\")\\n\\t}\\n\\n\\tabsBase, err := filepath.Abs(base)\\n\\tif err != nil {\\n\\t\\treturn \\\"\\\", err\\n\\t}\\n\\tabsBase = filepath.Clean(absBase)\\n\\n\\tvar target string\\n\\tif filepath.IsAbs(rel) {\\n\\t\\t// An absolute rel is only acceptable if it already lies within base.\\n\\t\\ttarget = filepath.Clean(rel)\\n\\t} else {\\n\\t\\ttarget = filepath.Join(absBase, rel)\\n\\t}\\n\\n\\t// Build the prefix that any strict descendant must start with.\\n\\t// For the filesystem root, base already ends with a separator.\\n\\tprefix := absBase\\n\\tif !strings.HasSuffix(prefix, string(os.PathSeparator)) {\\n\\t\\tprefix += string(os.PathSeparator)\\n\\t}\\n\\n\\tif target == absBase || strings.HasPrefix(target, prefix) {\\n\\t\\treturn target, nil\\n\\t}\\n\\treturn \\\"\\\", ErrEscape\\n}\\n\"}",
+  "structured_output": {
+    "source": "package safepath\n\nimport (\n\t\"errors\"\n\t\"os\"\n\t\"path/filepath\"\n\t\"strings\"\n)\n\n// ErrEscape is returned when rel resolves to a location outside base.\nvar ErrEscape = errors.New(\"safepath: path escapes base\")\n\n// Resolve returns the absolute, lexically cleaned path for rel within base.\n// The base itself is a valid result (for rel \"\" or \".\"). Paths that escape\n// base, including sibling-prefix traversals such as \"/a/foo\" vs \"/a/foobar\",\n// are rejected with ErrEscape. Symbolic links are not resolved.\nfunc Resolve(base, rel string) (string, error) {\n\tif strings.ContainsRune(rel, 0) {\n\t\treturn \"\", errors.New(\"safepath: invalid NUL byte in path\")\n\t}\n\n\tabsBase, err := filepath.Abs(base)\n\tif err != nil {\n\t\treturn \"\", err\n\t}\n\tabsBase = filepath.Clean(absBase)\n\n\tvar target string\n\tif filepath.IsAbs(rel) {\n\t\t// An absolute rel is only acceptable if it already lies within base.\n\t\ttarget = filepath.Clean(rel)\n\t} else {\n\t\ttarget = filepath.Join(absBase, rel)\n\t}\n\n\t// Build the prefix that any strict descendant must start with.\n\t// For the filesystem root, base already ends with a separator.\n\tprefix := absBase\n\tif !strings.HasSuffix(prefix, string(os.PathSeparator)) {\n\t\tprefix += string(os.PathSeparator)\n\t}\n\n\tif target == absBase || strings.HasPrefix(target, prefix) {\n\t\treturn target, nil\n\t}\n\treturn \"\", ErrEscape\n}\n"
+  },
+  "type": "result",
+  "session_id": "fixture-session"
+}

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "claude-haiku-aa-calibration-pilot",
+  "mode": "aa",
+  "command": [
+    "claude"
+  ],
+  "agent": "claude",
+  "model": "claude-haiku-5-5",
+  "baseline": "Solve the task carefully and check boundary conditions.",
+  "candidate": "Solve the task carefully and check boundary conditions.",
+  "tasks": [
+    "safe-path",
+    "sql-user",
+    "gitea-webhook"
+  ],
+  "repetitions": 5,
+  "seed": 42,
+  "timeout_seconds": 120,
+  "max_run_seconds": 3600,
+  "max_total_tokens": 100000,
+  "claude": {
+    "auth": "api-key-env",
+    "reasoning": "low",
+    "output_format": "json-schema"
+  }
+}
