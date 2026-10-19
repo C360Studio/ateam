@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"github.com/c360studio/ateam/internal/state"
@@ -51,7 +49,7 @@ func runStateHerdr(args []string) int {
 		}
 		err = herdrOpenPane(ctx, execHerdr, args[1])
 	case "on-event":
-		err = herdrOnEvent(ctx, execHerdr, os.Stdout)
+		err = herdrOnEvent(ctx, execHerdr)
 	default:
 		err = fmt.Errorf("unknown subcommand %q", args[0])
 	}
@@ -71,12 +69,10 @@ func herdrOpenPane(ctx context.Context, run herdrRunner, id string) error {
 	if bin == "" {
 		return fmt.Errorf("not inside herdr (HERDR_ENV=1 and HERDR_BIN_PATH required); run `ateam state %s` instead", id)
 	}
-	// shortcut: placement comes from the manifest (the CLI flag has no popup) and the pane cwd
-	// is the action's pane when HERDR_PANE_ID is set; confirm both in the 3.2 manual session.
+	// Placement comes from the manifest. herdr 0.9.5 rejects --workspace for popups (they target
+	// the active pane) and runs pane commands in the plugin root unless --cwd is given, so pass
+	// the invoking pane's cwd; an action's HERDR_PANE_ID is the focused pane.
 	args := []string{"plugin", "pane", "open", "--plugin", "ateam", "--entrypoint", id, "--focus"}
-	if ws := os.Getenv("HERDR_WORKSPACE_ID"); ws != "" {
-		args = append(args, "--workspace", ws)
-	}
 	if paneID := os.Getenv("HERDR_PANE_ID"); paneID != "" {
 		if cwd := herdrPaneCWD(ctx, run, bin, paneID); cwd != "" {
 			args = append(args, "--cwd", cwd)
@@ -86,10 +82,10 @@ func herdrOpenPane(ctx context.Context, run herdrRunner, id string) error {
 	return err
 }
 
-// herdrOnEvent handles worktree.created and pane.agent_status_changed plugin events: it toasts
-// spec-queue caveats not yet notified for the repo and, on worktree.created, prints pickup.
-// It runs as a herdr plugin command, never on the synchronous hook path.
-func herdrOnEvent(ctx context.Context, run herdrRunner, out io.Writer) error {
+// herdrOnEvent handles worktree.created and pane.agent_status_changed plugin events by toasting
+// spec-queue caveats not yet notified for the repo. It runs as a herdr plugin command, never on
+// the synchronous hook path. Its stdout reaches only `herdr plugin log`, so it prints nothing.
+func herdrOnEvent(ctx context.Context, run herdrRunner) error {
 	bin := herdrBin()
 	if bin == "" {
 		return nil
@@ -100,6 +96,10 @@ func herdrOnEvent(ctx context.Context, run herdrRunner, out io.Writer) error {
 	case "worktree.created":
 		dir = data.Worktree.Path
 	case "pane.agent_status_changed":
+		// The event fires on every transition; only a stopped agent can have just written a caveat.
+		if data.AgentStatus == "working" {
+			return nil
+		}
 		dir = herdrPaneCWD(ctx, run, bin, data.PaneID)
 	default:
 		return nil
@@ -117,26 +117,20 @@ func herdrOnEvent(ctx context.Context, run herdrRunner, out io.Writer) error {
 	if info, err := os.Stat(filepath.Join(repo, "openspec")); err != nil || !info.IsDir() {
 		return nil
 	}
-	if event == "worktree.created" {
-		st, err := state.Refresh(ctx, repo, false)
-		if err != nil {
-			return fmt.Errorf("pickup %s: %w", repo, err)
-		}
-		fmt.Fprintln(out, state.BuildPickupSummary(st))
-	}
 	return toastNewCaveats(ctx, run, bin, repo)
 }
 
 type herdrEventData struct {
-	PaneID   string `json:"pane_id"`
-	Worktree struct {
+	PaneID      string `json:"pane_id"`
+	AgentStatus string `json:"agent_status"`
+	Worktree    struct {
 		Path string `json:"path"`
 	} `json:"worktree"`
 }
 
-// parseHerdrEvent accepts both the subscription envelope ({"event","data"}) and a bare payload,
-// since which one HERDR_PLUGIN_EVENT_JSON carries is unverified. A malformed payload yields an
-// empty event, which the caller ignores.
+// parseHerdrEvent reads HERDR_PLUGIN_EVENT_JSON, which herdr 0.9.5 sends as an envelope
+// ({"event":"worktree_created","data":{...}}); a bare payload is also accepted. A malformed
+// payload yields an empty event, which the caller ignores.
 func parseHerdrEvent() (string, herdrEventData) {
 	var env struct {
 		Event string          `json:"event"`
@@ -160,9 +154,8 @@ func parseHerdrEvent() (string, herdrEventData) {
 	return event, data
 }
 
-// herdrPaneCWD returns the pane's cwd from `herdr pane get`, or "" when unavailable.
-// shortcut: the CLI output shape is unverified; this takes the first "cwd" (then
-// "foreground_cwd") found at any depth. Pin the exact path after the 3.2 manual session.
+// herdrPaneCWD returns the pane's cwd from `herdr pane get` ({"result":{"pane":{"cwd":...}}} in
+// herdr 0.9.5), or "" when unavailable.
 func herdrPaneCWD(ctx context.Context, run herdrRunner, bin, paneID string) string {
 	if paneID == "" {
 		return ""
@@ -171,40 +164,17 @@ func herdrPaneCWD(ctx context.Context, run herdrRunner, bin, paneID string) stri
 	if err != nil {
 		return ""
 	}
-	var v any
-	if json.Unmarshal(raw, &v) != nil {
+	var resp struct {
+		Result struct {
+			Pane struct {
+				CWD string `json:"cwd"`
+			} `json:"pane"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(raw, &resp) != nil {
 		return ""
 	}
-	if cwd := findJSONString(v, "cwd"); cwd != "" {
-		return cwd
-	}
-	return findJSONString(v, "foreground_cwd")
-}
-
-func findJSONString(v any, key string) string {
-	switch t := v.(type) {
-	case map[string]any:
-		if s, ok := t[key].(string); ok && s != "" {
-			return s
-		}
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if s := findJSONString(t[k], key); s != "" {
-				return s
-			}
-		}
-	case []any:
-		for _, e := range t {
-			if s := findJSONString(e, key); s != "" {
-				return s
-			}
-		}
-	}
-	return ""
+	return resp.Result.Pane.CWD
 }
 
 // notifyKey identifies a repository across its spellings and linked worktrees: the git common

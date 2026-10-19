@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -74,12 +73,11 @@ func TestHerdrOnEventGateNeverInvokesHerdr(t *testing.T) {
 			t.Setenv("HERDR_ENV", tc.herdr)
 			t.Setenv("HERDR_BIN_PATH", tc.binPath)
 			f := &fakeHerdr{}
-			var out bytes.Buffer
-			if err := herdrOnEvent(context.Background(), f.run, &out); err != nil {
+			if err := herdrOnEvent(context.Background(), f.run); err != nil {
 				t.Fatalf("herdrOnEvent: %v", err)
 			}
-			if len(f.calls) != 0 || out.Len() != 0 {
-				t.Fatalf("gate leaked: calls=%v output=%q", f.calls, out.String())
+			if len(f.calls) != 0 {
+				t.Fatalf("gate leaked: calls=%v", f.calls)
 			}
 		})
 	}
@@ -90,16 +88,15 @@ func TestHerdrOnEventToastsOnlyNewCaveats(t *testing.T) {
 	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n- [ ] 1.2 Plain open task\n")
 	setHerdrEnv(t, "pane.agent_status_changed", `{"event":"pane.agent_status_changed","data":{"pane_id":"p_1","workspace_id":"w_1","agent_status":"idle"}}`)
 	f := &fakeHerdr{paneCWD: repo}
-	var out bytes.Buffer
 
-	if err := herdrOnEvent(context.Background(), f.run, &out); err != nil {
+	if err := herdrOnEvent(context.Background(), f.run); err != nil {
 		t.Fatalf("first event: %v", err)
 	}
 	if got := f.toasts(); len(got) != 1 || got[0] != "ateam: demo RED" {
 		t.Fatalf("first event toasts = %q, want [ateam: demo RED]", got)
 	}
 
-	if err := herdrOnEvent(context.Background(), f.run, &out); err != nil {
+	if err := herdrOnEvent(context.Background(), f.run); err != nil {
 		t.Fatalf("repeat event: %v", err)
 	}
 	if got := f.toasts(); len(got) != 1 {
@@ -107,14 +104,11 @@ func TestHerdrOnEventToastsOnlyNewCaveats(t *testing.T) {
 	}
 
 	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n- [ ] 1.2 Plain open task\n  Hold: waiting on owner ruling\n")
-	if err := herdrOnEvent(context.Background(), f.run, &out); err != nil {
+	if err := herdrOnEvent(context.Background(), f.run); err != nil {
 		t.Fatalf("new caveat event: %v", err)
 	}
 	if got := f.toasts(); len(got) != 2 || got[1] != "ateam: demo BLOCKED" {
 		t.Fatalf("new caveat toasts = %q, want a second toast [ateam: demo BLOCKED]", got)
-	}
-	if out.Len() != 0 {
-		t.Fatalf("agent status events should print nothing, got %q", out.String())
 	}
 }
 
@@ -122,29 +116,42 @@ func TestHerdrOnEventSkipsNonAteamDir(t *testing.T) {
 	plain := t.TempDir()
 	setHerdrEnv(t, "worktree.created", `{"worktree":{"path":"`+plain+`","branch":"x"}}`)
 	f := &fakeHerdr{}
-	var out bytes.Buffer
-	if err := herdrOnEvent(context.Background(), f.run, &out); err != nil {
+	if err := herdrOnEvent(context.Background(), f.run); err != nil {
 		t.Fatalf("herdrOnEvent: %v", err)
 	}
-	if len(f.calls) != 0 || out.Len() != 0 {
-		t.Fatalf("non-ateam dir should be ignored: calls=%v output=%q", f.calls, out.String())
+	if len(f.calls) != 0 {
+		t.Fatalf("non-ateam dir should be ignored: calls=%v", f.calls)
 	}
 }
 
-func TestHerdrOnEventWorktreeCreatedPrintsPickup(t *testing.T) {
+func TestHerdrOnEventWorktreeCreatedToastsFromWorktreePath(t *testing.T) {
 	repo := t.TempDir()
-	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Plain open task\n")
-	setHerdrEnv(t, "worktree.created", `{"worktree":{"path":"`+repo+`","branch":"claude/x"}}`)
+	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n")
+	setHerdrEnv(t, "worktree.created", `{"event":"worktree_created","data":{"worktree":{"path":"`+repo+`","branch":"claude/x"}}}`)
 	f := &fakeHerdr{}
-	var out bytes.Buffer
-	if err := herdrOnEvent(context.Background(), f.run, &out); err != nil {
+	if err := herdrOnEvent(context.Background(), f.run); err != nil {
 		t.Fatalf("herdrOnEvent: %v", err)
 	}
-	if !strings.HasPrefix(out.String(), "[ateam] mode=") || !strings.Contains(out.String(), "demo (0/1 tasks") {
-		t.Fatalf("worktree.created should print the pickup summary, got %q", out.String())
+	if got := f.toasts(); len(got) != 1 || got[0] != "ateam: demo RED" {
+		t.Fatalf("toasts = %q, want [ateam: demo RED]", got)
 	}
-	if len(f.toasts()) != 0 {
-		t.Fatalf("no caveats, no toasts; got %q", f.toasts())
+	for _, c := range f.calls {
+		if c[1] == "pane" {
+			t.Fatalf("worktree.created carries its path; pane get should not run: %v", f.calls)
+		}
+	}
+}
+
+func TestHerdrOnEventSkipsWorkingStatus(t *testing.T) {
+	repo := t.TempDir()
+	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n")
+	setHerdrEnv(t, "pane.agent_status_changed", `{"event":"pane_agent_status_changed","data":{"pane_id":"p_1","workspace_id":"w_1","agent_status":"working"}}`)
+	f := &fakeHerdr{paneCWD: repo}
+	if err := herdrOnEvent(context.Background(), f.run); err != nil {
+		t.Fatalf("herdrOnEvent: %v", err)
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("a working agent should not trigger herdr calls: %v", f.calls)
 	}
 }
 
@@ -157,7 +164,7 @@ func TestHerdrOpenPane(t *testing.T) {
 	if err := herdrOpenPane(context.Background(), f.run, "pickup"); err != nil {
 		t.Fatalf("open-pane pickup: %v", err)
 	}
-	want := "/fake/herdr plugin pane open --plugin ateam --entrypoint pickup --focus --workspace w_3"
+	want := "/fake/herdr plugin pane open --plugin ateam --entrypoint pickup --focus"
 	if len(f.calls) != 1 || strings.Join(f.calls[0], " ") != want {
 		t.Fatalf("calls = %v, want [%s]", f.calls, want)
 	}
@@ -208,7 +215,7 @@ func TestHerdrOnEventStateDirFailuresToastAtMostOnce(t *testing.T) {
 			f := &fakeHerdr{paneCWD: repo}
 			for i := 0; i < 2; i++ {
 				// The unwritable dir is expected to error; the toast count is the contract there.
-				if err := herdrOnEvent(context.Background(), f.run, &bytes.Buffer{}); err != nil && tc.wantExact {
+				if err := herdrOnEvent(context.Background(), f.run); err != nil && tc.wantExact {
 					t.Fatalf("event %d: %v", i, err)
 				}
 			}
@@ -272,7 +279,7 @@ func TestHerdrOnEventKeysByRepository(t *testing.T) {
 	f := &fakeHerdr{}
 	for _, dir := range []string{repo, repo + "/", link, wt, repo} {
 		f.paneCWD = dir
-		if err := herdrOnEvent(context.Background(), f.run, &bytes.Buffer{}); err != nil {
+		if err := herdrOnEvent(context.Background(), f.run); err != nil {
 			t.Fatalf("event from %s: %v", dir, err)
 		}
 	}
@@ -287,7 +294,7 @@ func TestHerdrOnEventDuplicateCaveatTextToastsOnce(t *testing.T) {
 	setHerdrEnv(t, "", "")
 	agentStatusEvent(t)
 	f := &fakeHerdr{paneCWD: repo}
-	if err := herdrOnEvent(context.Background(), f.run, &bytes.Buffer{}); err != nil {
+	if err := herdrOnEvent(context.Background(), f.run); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.toasts(); len(got) != 1 {
@@ -305,7 +312,7 @@ func TestHerdrOnEventCorruptRecordIsReplaced(t *testing.T) {
 	}
 	f := &fakeHerdr{paneCWD: repo}
 	for i := 0; i < 2; i++ {
-		if err := herdrOnEvent(context.Background(), f.run, &bytes.Buffer{}); err != nil {
+		if err := herdrOnEvent(context.Background(), f.run); err != nil {
 			t.Fatalf("event %d with corrupt record: %v", i, err)
 		}
 	}
