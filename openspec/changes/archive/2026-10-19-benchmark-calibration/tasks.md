@@ -9,5 +9,5 @@
 
 ## 3. Verify and deliver
 - [x] Prove boundary/history tests and mutation detection offline.
-- [ ] Complete independent review and full clean-tree preflight, doctor and selftest.
-- [ ] Publish verified implementation and document remaining live calibration decision.
+- [x] Complete independent review and full clean-tree preflight, doctor and selftest.
+- [x] Publish verified implementation and document remaining live calibration decision.

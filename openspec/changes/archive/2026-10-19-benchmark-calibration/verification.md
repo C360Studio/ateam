@@ -18,3 +18,9 @@ Read-only reviewer identified partial-prefix comparison/rescore, failure preserv
 ## Live boundary
 
 Implementation and pilot preparation are authorized. Live execution requires a selected model, explicit dollar cap/enforcement (or accepted in-flight overshoot policy), approved attempt/time limits, and credential/trace policy. Reported-token and time limits cannot guarantee a monetary cap. Use `benchmarks/calibration-report.md` after that decision; do not present simulated fixtures as a live calibration result.
+
+## Completed implementation gates
+
+At `f485857b1c7d6ca65ba2123484575f4a730e4daf`, `GOCACHE=/private/tmp/ateam-bench-audit-cache task verify` exited 0 on a clean tree: formatting, strict OpenSpec/Hold checks, tidy, vet, lint, complete Go race suite, offline self-test, Svelte check/unit/build and clean-tree check. Log retained locally as `.enjoy-logs/calibration-verify-f485857.log`. `task doctor` passed separately. Self-test evaluated six supported tasks and explicitly skipped the unsupported UI evaluator; no agent/API calls occurred.
+
+Independent read-only change review approved `f485857` with no remaining blockers. The final review also found cancellation can take precedence over a session-reuse stop; both new history cases were proven failing before the correction and passed afterward independently. Archived specification/documentation changes are validated at final publication; the PR records the final tested SHA.

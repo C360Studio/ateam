@@ -15,3 +15,5 @@ The merged paired benchmark foundation (#6, #7) grades fixed reference adapters.
 
 ## Impact
 `internal/bench`, `cmd/ateam/bench.go`, benchmark examples/docs. No UI changes, new dependencies, additional providers, or performance claims. No paid execution until the user selects model and spending/attempt/time limits.
+
+implemented-by: https://github.com/C360Studio/ateam/pull/13
