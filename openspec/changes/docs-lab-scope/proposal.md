@@ -1,5 +1,7 @@
 # Change: Clarify lab purpose and language support
 
+implemented-by: codex
+
 Issue: https://github.com/C360Studio/ateam/issues/4
 Owner: Codex (`codex/docs-lab-scope`)
 
@@ -28,4 +30,4 @@ Claims can drift between public docs and generated instructions. Verify both sur
 
 ## Stop Boundary
 
-This initial draft claims issue #4 and records the plan. Documentation implementation and its checks remain open. Do not merge or close the issue at this checkpoint.
+Deliver the documentation and verification evidence through draft PR #5. Stop before merge or issue closure; independent approval remains the reviewer’s responsibility.

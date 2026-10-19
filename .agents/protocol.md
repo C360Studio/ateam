@@ -2,6 +2,12 @@
 
 Canonical protocol for `ateam` and repositories bootstrapped with `ateam init`. `AGENTS.md` and `CLAUDE.md` point here and inline the four workflow gates (**Clarify, Claim, Merge, Close**).
 
+## Adoption scope
+
+ATeam is an opinionated experimentation lab primarily grounded in Go development. Initialization uses the same templates for all project languages; it does not detect language support or create a Taskfile. Review and adapt these instructions before adoption. Go mutation checks require non-test .go source; verification targets belong to the adopting project. Shortcut scanning covers only .go, .ts, .js, .svelte, .sh, .yml, and .yaml files (excluding Go tests and .test.ts files). Other languages are not validated as complete workflows. Ponytail modes change injected guidance, not model settings or guaranteed compliance. Benchmark self-tests validate reference fixtures, not improved agent performance.
+
+See [the adoption guide](../docs/adoption.md) for command dependencies, scanner limits, and verification setup. The Go/Svelte gates below describe this repository; adopting projects must define suitable equivalents.
+
 ## 1. Hybrid State Architecture (GitHub + Gitea + OpenSpec + Local Cache)
 
 Shared truth lives in the repository's versioned code, `openspec/` specs and changes, git worktrees, and the repository's remote forge (**GitHub** or **Gitea**), backed by a fast gitignored local cache (`.ateam/state.json`) so CLI lifecycle hooks execute in `<5ms` without blocking on network calls:
