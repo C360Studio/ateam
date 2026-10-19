@@ -19,6 +19,6 @@ implemented-by: codex
 ## 3. Verification and delivery
 
 - [x] 3.1 Record generated-check decision, boundary reach, assertion activation, and mutation verdicts.
-- [ ] 3.2 Run applicable preflight, task verify, doctor parity, and offline benchmark self-tests.
-- [ ] 3.3 Record implemented-by attribution and reproducible evidence; obtain independent change review.
-- [ ] 3.4 Mark the PR ready after checks and independent review pass; squash merge and close #18 under the owner’s drive-to-done authorization.
+- [x] 3.2 Run applicable preflight, task verify, doctor parity, and offline benchmark self-tests.
+- [x] 3.3 Record implemented-by attribution and reproducible evidence; obtain independent change review.
+- [x] 3.4 Complete acceptance checks and independent review for ready/merge delivery under the owner’s drive-to-done authorization; remote landing is recorded on PR #19.

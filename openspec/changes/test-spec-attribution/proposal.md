@@ -3,7 +3,7 @@
 Issue: https://github.com/C360Studio/ateam/issues/18
 Owner: Codex (`codex/test-spec-attribution`)
 implemented-by: codex
-Status: Implementation and verification in progress.
+Status: Implemented, verified, and independently reviewed.
 
 ## Why
 
