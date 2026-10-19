@@ -3,7 +3,7 @@
 - [x] 1.1 Inspect Semengine routing/review contracts and ATeam integration boundaries.
 - [x] 1.2 Record the owner's strict stronger-reviewer rule and explicit ceiling-exception decision.
 - [x] 1.3 File issue #14 and prepare an isolated worktree with proposal, design and spec delta.
-- [ ] 1.4 Publish the draft PR claim and record validation evidence.
+- [x] 1.4 Publish draft PR #15 (https://github.com/C360Studio/ateam/pull/15) and record validation evidence.
 
 ## 2. Policy and routing
 
