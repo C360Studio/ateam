@@ -33,3 +33,4 @@
 | `verify` | OpenSpec changes/specs validate via `spec:check`, and `Hold:` / caveats (`HALT`, `RED`, `BLOCKED`, `WONTDO`, `OPEN-Q`) are parsed by `spec:queue` | `internal/state/openspec_test.go` (`TestOpenSpecQueueAndCheck`) |
 | `verify` | `ateam bench --selftest` verifies good/bad reference fixtures and mutation detection before any live benchmark run | `internal/bench/bench_test.go` (`TestSelfTest`) |
 | `verify` | `task verify` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | `Taskfile.yml` (`verify`) |
+| `verify+review` | Configured model review requires an independent stronger reviewer, current evidence, and explicit owner exceptions at the model ceiling; effort and provider are not model rank | `internal/review` policy/evidence tests; `internal/bootstrap/review_test.go` setup/drift tests; `ateam review check`; substantive review |

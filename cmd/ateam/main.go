@@ -43,6 +43,8 @@ func run(args []string) int {
 	subArgs := args[1:]
 
 	switch cmd {
+	case "review":
+		return runReview(cwd, subArgs)
 	case "hook":
 		return runHook(cwd, subArgs)
 	case "mcp":
@@ -85,6 +87,7 @@ Commands:
   state <subcmd>      Inspect or mutate repo state (status, pickup, handoff, holds, debt, spec-queue, spec-check, sync, mode, board)
   task [name]         List or execute standardized Taskfile.yml targets
   init [flags]        Bootstrap repo with .agents, .claude, .codex, .gemini, openspec, and optional GitHub/Gitea labels
+  review <subcmd>     Configure model routes and validate commit-bound independent review
   doctor [--check]    Verify multi-agent parity, MCP schema token budget, and hook latency
   bench [flags]       Offline self-tests or paired experiments (run, rescore, compare)
   test-spec          Check Go and Vitest test-to-spec citations offline

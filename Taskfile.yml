@@ -8,6 +8,16 @@ tasks:
     cmds:
       - task --list
 
+  review:route:
+    desc: Validate and display configured developer/reviewer model routing
+    cmds:
+      - "go run ./cmd/ateam review route {{.CLI_ARGS}}"
+
+  review:check:
+    desc: Validate current PR review evidence against trusted base policy
+    cmds:
+      - "go run ./cmd/ateam review check {{.CLI_ARGS}}"
+
   doctor:
     desc: Check tool versions, OpenSpec state, and multi-agent parity
     cmds:

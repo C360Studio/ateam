@@ -158,3 +158,37 @@ func FuzzRequirementResolution(f *testing.F) {
 		}
 	})
 }
+
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Attached test citations
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Deterministic discovery and verification
+func TestVitestIntegration(t *testing.T) {
+	root := fixture(t, "package p\n", "### Requirement: Works\n")
+	if err := os.MkdirAll(filepath.Join(root, "ui"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	modules := filepath.Clean(filepath.Join(cwd, "../../ui/node_modules"))
+	if err := os.Symlink(modules, filepath.Join(root, "ui/node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	source := "import {it as check} from 'vitest';\n" + citation + "check('valid',()=>{});\ncheck('missing',()=>{});\n"
+	if err := os.WriteFile(filepath.Join(root, "ui/sample.test.ts"), []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ds, err := Check(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Format(ds); got != "ui/sample.test.ts:4: missing: missing spec citation\n" {
+		t.Fatalf("Vitest integration: %q", got)
+	}
+	if err := os.Remove(filepath.Join(root, "ui/node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Check(context.Background(), root); err == nil {
+		t.Fatal("missing TypeScript installation accepted")
+	}
+}

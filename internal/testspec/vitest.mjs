@@ -121,6 +121,8 @@ export function scanSource(file, source, root = process.cwd()) {
 
 if (process.argv[1] === '-' || (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))) {
   const [root, ...files] = process.argv.slice(2);
+  // Missing parser installation is an infrastructure failure, not a source diagnostic.
+  createRequire(path.join(root, 'ui/package.json'))('typescript');
   const records = files.flatMap(file => {
     try { return scanSource(file, readFileSync(path.join(root, file), 'utf8'), root); }
     catch (err) { return [{ file, line: 1, error: err.message }]; }
