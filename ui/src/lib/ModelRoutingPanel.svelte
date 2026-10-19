@@ -16,7 +16,7 @@
  <div class="heading">
   <div>
    <h2 id="model-routing-title">Model routing</h2>
-   <p>Configured roles for this checkout</p>
+   <p>Configured roles for the selected repository</p>
   </div>
   <strong class="status {status}" role="status">{labels[status]}</strong>
  </div>

@@ -11,6 +11,7 @@ import (
 	"testing"
 )
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeRecordedStructuredOutput(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "claude-haiku-schema-success.json"))
 	if err != nil {
@@ -57,6 +58,8 @@ func claudeGoodOutput() string {
 
 // A native schema reply supplies source in structured_output. The model's result
 // prose may contain fences and must neither override that field nor replace it.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeStructuredOutputContract(t *testing.T) {
 	fenced, _ := json.Marshal("```json\n{\"source\":\"package prose\"}\n```")
 	withStructured := strings.Replace(claudeGoodOutput(), `"type":`, `"structured_output":{"source":"package structured\n"},"type":`, 1)
@@ -132,6 +135,8 @@ func TestClaudeStructuredOutputContract(t *testing.T) {
 	})
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeStructuredOutputPreservesEnvelopeValidation(t *testing.T) {
 	good := strings.Replace(claudeGoodOutput(), `"type":`, `"structured_output":{"source":"package structured"},"type":`, 1)
 	for name, text := range map[string]string{
@@ -154,6 +159,7 @@ func TestClaudeStructuredOutputPreservesEnvelopeValidation(t *testing.T) {
 // The oracle is the native accounting definition: 100 uncached + 200 cache
 // creation + 300 cache read = 600 input; output 40 already includes thinking 10.
 // Adding main-loop usage or thinking twice must fail this assertion.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeOutputAccounting(t *testing.T) {
 	r, err := parseClaudeOutput(claudeGoodOutput())
 	if err != nil || r.Source != "package example\n" || r.Usage == nil {
@@ -174,6 +180,7 @@ func TestClaudeOutputAccounting(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeOutputWholeCallAndOptionalUsage(t *testing.T) {
 	helper := `{"inputTokens":50,"outputTokens":10,"cacheCreationInputTokens":25,"cacheReadInputTokens":25}`
 	r, err := parseClaudeOutput(claudeTestOutput(`{"z-main":` + claudeGoodModel + `,"a-helper":` + helper + `}`))
@@ -205,6 +212,7 @@ func TestClaudeOutputWholeCallAndOptionalUsage(t *testing.T) {
 
 // Exhaustively generate all presence combinations of four required whole-call
 // counters. Zero is present; absent and null are both unknown, never inferred.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeUsagePresenceMatrix(t *testing.T) {
 	fields := []string{"inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens"}
 	checked := 0
@@ -257,6 +265,7 @@ func TestClaudeUsagePresenceMatrix(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeOutputFailuresRetainEvidence(t *testing.T) {
 	for _, subtype := range []string{"error_max_turns", "error_max_budget_usd", "error_max_structured_output_retries", "error_during_execution", "future_error", "success"} {
 		t.Run(subtype, func(t *testing.T) {
@@ -288,6 +297,8 @@ func TestClaudeOutputFailuresRetainEvidence(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeOutputRejectsMalformedAccounting(t *testing.T) {
 	good := claudeGoodOutput()
 	for name, text := range map[string]string{
@@ -334,6 +345,8 @@ func TestClaudeOutputRejectsMalformedAccounting(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeOutputRejectsIncompleteSource(t *testing.T) {
 	for _, final := range []string{`{}`, `null`, `{"source":""}`, `{"source":"x","source":"y"}`, `{"source":"x","extra":true}`, "```json\n{}\n```"} {
 		encoded, _ := json.Marshal(final)

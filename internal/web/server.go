@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -24,18 +25,30 @@ import (
 //go:embed all:dist
 var embeddedDist embed.FS
 
+// RepoEntry describes a repository registered with the ATeam web server.
+type RepoEntry struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Active bool   `json:"active"`
+}
+
 // DashboardPayload aggregates the full state for the SvelteKit PM UI.
 type DashboardPayload struct {
 	ModelRouting ModelRouting        `json:"model_routing"`
 	State        *state.State        `json:"state"`
 	PickupText   string              `json:"pickup_text"`
-	Benchmarks   bench.SuiteReport   `json:"benchmarks"`
+	Benchmarks   *bench.SuiteReport  `json:"benchmarks,omitempty"`
 	Tasks        []taskrunner.Target `json:"tasks"`
+	Repos        []RepoEntry         `json:"repos"`
+	ActiveRepo   string              `json:"active_repo"`
 }
 
 // Server serves the ATeam HTTP API and embedded static UI.
 type Server struct {
 	repoRoot              string
+	activeRepo            string
+	repos                 []string
 	webhookSecret         string
 	allowUnsignedWebhooks bool
 	apiToken              string
@@ -46,8 +59,14 @@ type Server struct {
 
 // NewServer creates a new ATeam HTTP server rooted at repoRoot.
 func NewServer(repoRoot string) (*Server, error) {
+	cleanRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repository: %w", err)
+	}
 	s := &Server{
-		repoRoot:              repoRoot,
+		repoRoot:              cleanRoot,
+		activeRepo:            cleanRoot,
+		repos:                 loadRegisteredRepos(cleanRoot),
 		webhookSecret:         strings.TrimSpace(os.Getenv("ATEAM_WEBHOOK_SECRET")),
 		allowUnsignedWebhooks: strings.TrimSpace(os.Getenv("ATEAM_ALLOW_UNSIGNED_WEBHOOKS")) == "1",
 		apiToken:              strings.TrimSpace(os.Getenv("ATEAM_API_TOKEN")),
@@ -68,6 +87,8 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) registerRoutes() error {
 	s.mux.HandleFunc("/api/state", s.handleState)
 	s.mux.HandleFunc("/api/model-routing", s.handleModelRouting)
+	s.mux.HandleFunc("/api/repos", s.handleRepos)
+	s.mux.HandleFunc("/api/forges", s.handleForges)
 	s.mux.HandleFunc("/api/cards", s.handleCards)
 	s.mux.HandleFunc("/api/cards/move", s.handleCardMove)
 	s.mux.HandleFunc("/api/handoff", s.handleHandoff)
@@ -163,19 +184,102 @@ func isLoopbackRequest(remoteAddr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+func loadRegisteredRepos(primary string) []string {
+	repos := []string{primary}
+	seen := map[string]bool{primary: true}
+	p := filepath.Join(primary, ".ateam", "repos.json")
+	if data, err := os.ReadFile(p); err == nil {
+		var saved []string
+		if json.Unmarshal(data, &saved) == nil {
+			for _, item := range saved {
+				clean := filepath.Clean(strings.TrimSpace(item))
+				if clean != "" && !seen[clean] && isValidRepoDir(clean) {
+					seen[clean] = true
+					repos = append(repos, clean)
+				}
+			}
+		}
+	}
+	return repos
+}
+
+func saveRegisteredRepos(primary string, repos []string) error {
+	dir := filepath.Join(primary, ".ateam")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create repository registry: %w", err)
+	}
+	data, err := json.MarshalIndent(repos, "", "  ")
+	if err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(dir, "repos-*.json")
+	if err != nil {
+		return fmt.Errorf("create repository registry: %w", err)
+	}
+	defer os.Remove(file.Name())
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		file.Close()
+		return fmt.Errorf("write repository registry: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close repository registry: %w", err)
+	}
+	if err := os.Rename(file.Name(), filepath.Join(dir, "repos.json")); err != nil {
+		return fmt.Errorf("save repository registry: %w", err)
+	}
+	return nil
+}
+
+func isValidRepoDir(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(dir, "AGENTS.md")); err == nil {
+		return true
+	}
+	return false
+}
+
+func (s *Server) currentRepo() string {
+	if s.activeRepo != "" {
+		return s.activeRepo
+	}
+	return s.repoRoot
+}
+
+func (s *Server) repoEntries() []RepoEntry {
+	active := s.currentRepo()
+	out := make([]RepoEntry, 0, len(s.repos))
+	for _, p := range s.repos {
+		name := filepath.Base(p)
+		out = append(out, RepoEntry{
+			ID:     p,
+			Name:   name,
+			Path:   p,
+			Active: p == active,
+		})
+	}
+	return out
+}
+
 func (s *Server) buildDashboard(ctx context.Context) (*DashboardPayload, error) {
-	st, err := state.Refresh(ctx, s.repoRoot, false)
+	root := s.currentRepo()
+	st, err := state.Refresh(ctx, root, false)
 	if err != nil {
 		return nil, err
 	}
-	benchReport, _ := bench.RunSelfTest(ctx)
-	tasks, _ := taskrunner.ListTargets(s.repoRoot)
+	tasks, _ := taskrunner.ListTargets(root)
 	return &DashboardPayload{
-		ModelRouting: readModelRouting(s.repoRoot),
+		ModelRouting: readModelRouting(root),
 		State:        st,
 		PickupText:   state.BuildPickupSummary(st),
-		Benchmarks:   benchReport,
 		Tasks:        tasks,
+		Repos:        s.repoEntries(),
+		ActiveRepo:   root,
 	}, nil
 }
 
@@ -198,6 +302,161 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, payload)
 }
 
+type repoRequest struct {
+	Active     string `json:"active,omitempty"`
+	AddPath    string `json:"add_path,omitempty"`
+	RemovePath string `json:"remove_path,omitempty"`
+}
+
+func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		if !s.validateReadRequest(w, r) {
+			return
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"repos":       s.repoEntries(),
+			"active_repo": s.currentRepo(),
+		})
+		return
+	}
+	if !s.validateMutationRequest(w, r) {
+		return
+	}
+	var req repoRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid repo JSON: "+err.Error())
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if add := strings.TrimSpace(req.AddPath); add != "" {
+		clean, err := filepath.Abs(add)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid repository path")
+			return
+		}
+		if !isValidRepoDir(clean) {
+			writeError(w, http.StatusBadRequest, "directory must exist and contain .git or AGENTS.md")
+			return
+		}
+		exists := false
+		for _, p := range s.repos {
+			if p == clean {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			next := append(append([]string(nil), s.repos...), clean)
+			if err := saveRegisteredRepos(s.repoRoot, next); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.repos = next
+		}
+		s.activeRepo = clean
+	} else if rem := strings.TrimSpace(req.RemovePath); rem != "" {
+		clean := filepath.Clean(rem)
+		if clean == s.repoRoot {
+			writeError(w, http.StatusBadRequest, "cannot remove primary startup repository")
+			return
+		}
+		var kept []string
+		for _, p := range s.repos {
+			if p != clean {
+				kept = append(kept, p)
+			}
+		}
+		if err := saveRegisteredRepos(s.repoRoot, kept); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.repos = kept
+		if s.activeRepo == clean {
+			s.activeRepo = s.repoRoot
+		}
+	} else if act := strings.TrimSpace(req.Active); act != "" {
+		matched := ""
+		clean := filepath.Clean(act)
+		for _, p := range s.repos {
+			if p == clean {
+				matched = p
+				break
+			}
+		}
+		if matched == "" {
+			writeError(w, http.StatusBadRequest, "unknown repository: "+act)
+			return
+		}
+		s.activeRepo = matched
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"repos":       s.repoEntries(),
+		"active_repo": s.currentRepo(),
+	})
+}
+
+type forgeRequest struct {
+	Action   string              `json:"action,omitempty"`
+	Provider state.ForgeProvider `json:"provider"`
+	BaseURL  string              `json:"base_url,omitempty"`
+	Owner    string              `json:"owner,omitempty"`
+	Repo     string              `json:"repo,omitempty"`
+}
+
+func (s *Server) handleForges(w http.ResponseWriter, r *http.Request) {
+	if !s.validateMutationRequest(w, r) {
+		return
+	}
+	var req forgeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid forge JSON: "+err.Error())
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.validateRepoSelection(w, r) {
+		return
+	}
+
+	root := s.currentRepo()
+	var badReqErr error
+	st, err := state.Update(root, func(cur *state.State) error {
+		if strings.EqualFold(strings.TrimSpace(req.Action), "remove") {
+			cur.RemoveForge(req.Provider)
+			return nil
+		}
+		if err := cur.UpsertForge(state.ForgeConfig{
+			Provider: req.Provider,
+			BaseURL:  req.BaseURL,
+			Owner:    req.Owner,
+			Repo:     req.Repo,
+		}); err != nil {
+			badReqErr = err
+			return err
+		}
+		return nil
+	})
+	if badReqErr != nil {
+		writeError(w, http.StatusBadRequest, badReqErr.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"forge":  st.Forge,
+		"forges": st.Forges,
+	})
+}
+
 func (s *Server) handleCards(w http.ResponseWriter, r *http.Request) {
 	if !s.validateMutationRequest(w, r) {
 		return
@@ -210,10 +469,13 @@ func (s *Server) handleCards(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.validateRepoSelection(w, r) {
+		return
+	}
 
 	var updated state.BoardCard
 	var badReqErr error
-	_, err := state.Update(s.repoRoot, func(st *state.State) error {
+	_, err := state.Update(s.currentRepo(), func(st *state.State) error {
 		c, err := st.UpsertCard(card)
 		if err != nil {
 			badReqErr = err
@@ -251,10 +513,13 @@ func (s *Server) handleCardMove(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.validateRepoSelection(w, r) {
+		return
+	}
 
 	var updated state.BoardCard
 	var badReqErr error
-	_, err := state.Update(s.repoRoot, func(st *state.State) error {
+	_, err := state.Update(s.currentRepo(), func(st *state.State) error {
 		c, err := st.MoveCard(req.ID, req.Column, req.Agent)
 		if err != nil {
 			badReqErr = err
@@ -290,14 +555,18 @@ func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.validateRepoSelection(w, r) {
+		return
+	}
 
-	st, err := state.Refresh(r.Context(), s.repoRoot, false)
+	root := s.currentRepo()
+	st, err := state.Refresh(r.Context(), root, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var saved state.Handoff
-	_, err = state.Update(s.repoRoot, func(cur *state.State) error {
+	_, err = state.Update(root, func(cur *state.State) error {
 		ho.Branch = st.Git.Branch
 		ho.CheckpointSHA = st.Git.HeadSHA
 		ho.Dirty = st.Git.Dirty
@@ -337,8 +606,11 @@ func (s *Server) handleMode(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.validateRepoSelection(w, r) {
+		return
+	}
 
-	st, err := state.Update(s.repoRoot, func(st *state.State) error {
+	st, err := state.Update(s.currentRepo(), func(st *state.State) error {
 		st.Mode = mode
 		return nil
 	})
@@ -353,13 +625,18 @@ func (s *Server) handleOpenSpec(w http.ResponseWriter, r *http.Request) {
 	if !s.validateReadRequest(w, r) {
 		return
 	}
-	changes, err := state.ScanOpenSpecQueue(s.repoRoot)
+	s.mu.Lock()
+	root := s.currentRepo()
+	s.mu.Unlock()
+	changes, err := state.ScanOpenSpecQueue(root)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	specs, _ := state.ScanOpenSpecSpecs(root)
 	formatted, hasCaveats := state.FormatOpenSpecQueue(changes)
 	writeJSON(w, http.StatusOK, map[string]any{
+		"specs":       specs,
 		"changes":     changes,
 		"formatted":   formatted,
 		"has_caveats": hasCaveats,
@@ -370,7 +647,10 @@ func (s *Server) handleShortcuts(w http.ResponseWriter, r *http.Request) {
 	if !s.validateReadRequest(w, r) {
 		return
 	}
-	items, err := state.ScanShortcuts(s.repoRoot)
+	s.mu.Lock()
+	root := s.currentRepo()
+	s.mu.Unlock()
+	items, err := state.ScanShortcuts(root)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -406,25 +686,30 @@ func (s *Server) handleSyncForge(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.validateRepoSelection(w, r) {
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	st, err := state.Load(s.repoRoot)
+	root := s.currentRepo()
+	st, err := state.Load(root)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	cfg := st.Forge
-	if req.Provider != "" {
-		cfg.Provider = req.Provider
+	cfg := st.ResolveForge(req.Provider)
+	if cfg.Provider == "" || cfg.Provider == state.ForgeLocal {
+		writeError(w, http.StatusBadRequest, "forge is not configured for this repository")
+		return
 	}
-	cards, err := state.SyncForgeBoard(ctx, s.repoRoot, cfg)
+	cards, err := state.SyncForgeBoard(ctx, root, cfg)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	if _, err := state.Update(s.repoRoot, func(cur *state.State) error {
+	if _, err := state.Update(root, func(cur *state.State) error {
 		cur.MergeForgeCards(cards, cfg.Provider)
 		return nil
 	}); err != nil {
@@ -442,4 +727,16 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
+}
+
+// validateRepoSelection must run under mu before any selected-repository write.
+// Legacy single-repository clients may omit the header; multi-repository clients
+// must bind mutations to the repository they actually displayed.
+func (s *Server) validateRepoSelection(w http.ResponseWriter, r *http.Request) bool {
+	expected := r.Header.Get("X-ATeam-Repo")
+	if expected == s.currentRepo() || (expected == "" && len(s.repos) == 1) {
+		return true
+	}
+	writeError(w, http.StatusConflict, "active repository changed; refresh before making changes")
+	return false
 }

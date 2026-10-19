@@ -43,6 +43,7 @@ func fakeClaudeExperiment(t *testing.T) Experiment {
 }
 
 // Explicit API auth reaches the CLI, but ambient config/secrets and prior arm files must not.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestClaudeExecutionIsolationAndRedaction(t *testing.T) {
 	e := fakeClaudeExperiment(t)
 	t.Setenv("CLAUDE_CODE_SAFE_MODE", "parent-must-not-change")
@@ -71,6 +72,8 @@ func TestClaudeExecutionIsolationAndRedaction(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeExecutionFailureEvidence(t *testing.T) {
 	e := fakeClaudeExperiment(t)
 	for _, tc := range []struct{ instruction, status string }{{"failure", "adapter-error"}, {"timeout", "timeout"}, {"overflow", "adapter-error"}, {"stdout-cap", "adapter-error"}, {"stderr-cap", "adapter-error"}, {"malformed", "adapter-error"}} {
@@ -100,6 +103,7 @@ func TestClaudeExecutionFailureEvidence(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestClaudeExecutionCancellation(t *testing.T) {
 	e := fakeClaudeExperiment(t)
 	dir := t.TempDir()
@@ -139,6 +143,7 @@ func TestClaudeExecutionCancellation(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestClaudeCLIHelper(_ *testing.T) {
 	separator := slices.Index(os.Args, "--")
 	if separator < 0 {
@@ -255,6 +260,7 @@ func validateFakeClaudeInvocation(args []string) error {
 	return nil
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestClaudeManagedPaths(t *testing.T) {
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
@@ -287,6 +293,7 @@ func TestClaudeManagedPaths(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestClaudeMissingConfiguration(t *testing.T) {
 	e := testExperiment()
 	if _, err := claudeSettings(e); err == nil {
@@ -300,6 +307,7 @@ func TestClaudeMissingConfiguration(t *testing.T) {
 
 // Legacy provenance still derives its original arguments, but cannot launch a
 // new native run without the explicit structured-output policy.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestClaudeLegacyExecutionRefused(t *testing.T) {
 	e := fakeClaudeExperiment(t)
 	for _, format := range []string{"", "unknown"} {

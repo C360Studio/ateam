@@ -92,7 +92,36 @@ func TestServerEndpoints(t *testing.T) {
 		t.Fatalf("POST /api/mode status = %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 6. GET / (SPA static index)
+	// 6. POST /api/forges (configure Gitea forge)
+	forgeBody, _ := json.Marshal(map[string]string{
+		"provider": "gitea",
+		"base_url": "https://gitea.c360.dev",
+		"owner":    "c360",
+		"repo":     "ateam",
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/forges", bytes.NewReader(forgeBody))
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/forges status = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 7. POST /api/repos (register second repo and switch active repo)
+	repo2 := t.TempDir()
+	_ = os.WriteFile(filepath.Join(repo2, "AGENTS.md"), []byte("# repo2\n"), 0o644)
+	repoBody, _ := json.Marshal(map[string]string{"add_path": repo2})
+	req = httptest.NewRequest(http.MethodPost, "/api/repos", bytes.NewReader(repoBody))
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/repos status = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 8. GET / (SPA static index)
 	req = httptest.NewRequest(http.MethodGet, "/", nil)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

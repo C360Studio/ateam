@@ -245,3 +245,47 @@ func TestModelRoutingRefreshHistory(t *testing.T) {
 		}
 	}
 }
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Read-only dashboard model routing
+func TestModelRoutingSelectedRepository(t *testing.T) {
+	t.Setenv("ATEAM_API_TOKEN", "")
+	primary, secondary, missing := t.TempDir(), t.TempDir(), t.TempDir()
+	writeRoutingPolicy(t, primary, routingPolicyFixture)
+	writeRoutingPolicy(t, secondary, strings.ReplaceAll(strings.Replace(routingPolicyFixture, `"model":"review-model"`, `"model":"dev-model"`, 1), "dev-model", "secondary-dev"))
+	for _, root := range []string{secondary, missing} {
+		if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Fixture"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv, err := NewServer(primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct{ action, path, status, model string }{
+		{"active", primary, "eligible", "dev-model"},
+		{"add_path", secondary, "blocked", "secondary-dev"},
+		{"add_path", missing, "unconfigured", ""},
+		{"active", secondary, "blocked", "secondary-dev"},
+		{"remove_path", secondary, "eligible", "dev-model"},
+	} {
+		body, _ := json.Marshal(map[string]string{step.action: step.path})
+		req := httptest.NewRequest(http.MethodPost, "/api/repos", strings.NewReader(string(body)))
+		req.RemoteAddr = "127.0.0.1:12345"
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("select repo: %d %s", rec.Code, rec.Body.String())
+		}
+		for _, endpoint := range []string{"/api/state", "/api/model-routing"} {
+			got := requestRouting(t, srv, endpoint)
+			if got["status"] != step.status {
+				t.Errorf("%s after %s %s: routing = %v, want %s", endpoint, step.action, step.path, got, step.status)
+			}
+			dev, _ := got["developer"].(map[string]any)
+			if step.model != "" && dev["model"] != step.model {
+				t.Errorf("%s selected-repository model = %v, want %s", endpoint, dev, step.model)
+			}
+		}
+	}
+}

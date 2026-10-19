@@ -10,6 +10,7 @@ import (
 	"testing"
 )
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiRecordedOutput(t *testing.T) {
 	for _, tc := range []struct {
 		name, terminal, usage string
@@ -65,6 +66,7 @@ func geminiTestOutput(tokens string) string {
 
 const geminiGoodTokens = `{"prompt":100,"candidates":10,"total":125,"cached":80,"thoughts":15,"tool":0,"input":20}`
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiRefusesAmbiguousOutput(t *testing.T) {
 	good := geminiTestOutput(geminiGoodTokens)
 	for name, output := range map[string]string{
@@ -98,6 +100,7 @@ func TestGeminiRefusesAmbiguousOutput(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiReportedUsageMissingAndAggregation(t *testing.T) {
 	for _, field := range []string{"prompt", "candidates", "thoughts", "total", "tool"} {
 		var tokens map[string]any
@@ -138,6 +141,7 @@ func TestGeminiReportedUsageMissingAndAggregation(t *testing.T) {
 }
 
 // Object order is irrelevant, while two terminal reports are never one outcome.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiOutputFieldOrder(t *testing.T) {
 	fields := []string{`"session_id":"s"`, `"response":"{\"source\":\"package safepath\"}"`, `"stats":{"models":{"model":{"api":{"totalRequests":1,"totalErrors":0},"tokens":` + geminiGoodTokens + `}}}`}
 	checked := 0
@@ -160,6 +164,7 @@ func TestGeminiOutputFieldOrder(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiOutputSizeBoundary(t *testing.T) {
 	valid := geminiTestOutput(geminiGoodTokens)
 	exact := valid + strings.Repeat(" ", maxAdapterBytes-len(valid))
@@ -175,6 +180,7 @@ func TestGeminiOutputSizeBoundary(t *testing.T) {
 }
 
 // Generated count/presence combinations check native limits without inferring absent fields.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func FuzzGeminiNativeUsage(f *testing.F) {
 	f.Add(int64(100), int64(10), int64(80), int64(15), int64(3), uint8(127))
 	f.Add(int64(1e12), int64(0), int64(1e12), int64(0), int64(0), uint8(127))
@@ -217,6 +223,7 @@ func FuzzGeminiNativeUsage(f *testing.F) {
 	})
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiMalformedModelEvidenceDeterministic(t *testing.T) {
 	output := strings.Replace(geminiTestOutput(geminiGoodTokens), `"models":{`, `"models":{"broken":{"tokens":{"prompt":-1}},`, 1)
 	first, firstErr := parseGeminiOutput(output)
@@ -231,6 +238,8 @@ func TestGeminiMalformedModelEvidenceDeterministic(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Paired descriptive comparisons
 func TestGeminiToolEvidenceRequiresNativeCounters(t *testing.T) {
 	good := geminiTestOutput(geminiGoodTokens)
 	for _, tc := range []struct {
@@ -250,6 +259,7 @@ func TestGeminiToolEvidenceRequiresNativeCounters(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiAPIErrorUsageIsUnknown(t *testing.T) {
 	for _, tc := range []struct{ name, api, tokens string }{
 		{"successful retry", `{"totalRequests":2,"totalErrors":1}`, geminiGoodTokens},
@@ -275,6 +285,7 @@ func TestGeminiAPIErrorUsageIsUnknown(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiInvalidAPICounters(t *testing.T) {
 	for _, api := range []string{
 		`{"totalRequests":1,"totalErrors":2}`,
@@ -291,6 +302,7 @@ func TestGeminiInvalidAPICounters(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiAPICounterBoundaries(t *testing.T) {
 	values := []int64{-1, 0, 1, 2, 1e12, 1e12 + 1}
 	checked := 0

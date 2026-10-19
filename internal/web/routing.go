@@ -69,7 +69,10 @@ func (s *Server) handleModelRouting(w http.ResponseWriter, r *http.Request) {
 	if !s.validateReadRequest(w, r) {
 		return
 	}
-	writeJSON(w, http.StatusOK, readModelRouting(s.repoRoot))
+	s.mu.Lock()
+	root := s.currentRepo()
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, readModelRouting(root))
 }
 
 // readRoutingFile validates the opened descriptor because the path can change

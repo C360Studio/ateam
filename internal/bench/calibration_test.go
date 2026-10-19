@@ -9,6 +9,7 @@ import (
 
 // The report must keep failed attempts and unknown usage visible; a plausible
 // regression drops failures or interprets missing usage as zero tokens.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Paired descriptive comparisons
 func TestCalibrationArmAccounting(t *testing.T) {
 	zero, cached, reasoning := int64(0), int64(8), int64(3)
 	var attempts []Attempt
@@ -50,6 +51,7 @@ func TestCalibrationArmAccounting(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Paired descriptive comparisons
 func TestCalibrationUnknownAndZero(t *testing.T) {
 	if got := describeValues(nil); got != nil {
 		t.Fatalf("missing measurements became zero: %+v", got)
@@ -65,6 +67,7 @@ func TestCalibrationUnknownAndZero(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Paired descriptive comparisons
 func TestCalibrationEveryOutcomeHasUsageDenominator(t *testing.T) {
 	for _, arm := range []string{"baseline", "candidate"} {
 		for _, status := range []string{"passed", "failed", "grading-error", "adapter-error", "timeout", "cancelled"} {
@@ -92,6 +95,8 @@ func TestCalibrationEveryOutcomeHasUsageDenominator(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: A/A calibration
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Paired descriptive comparisons
 func TestCalibrationAAComparison(t *testing.T) {
 	run := syntheticRun(t)
 	run.Resolved.Original.Mode = "aa"
@@ -137,6 +142,7 @@ func TestCalibrationAAComparison(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Paired descriptive comparisons
 func TestCalibrationPartialSchedule(t *testing.T) {
 	for _, retained := range []int{0, 1, 2, 3} {
 		run := syntheticRun(t)

@@ -18,6 +18,7 @@ func codexTestExperiment() Experiment {
 	return e
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestCodexExperimentValidation(t *testing.T) {
 	good := codexTestExperiment()
 	data, _ := json.Marshal(good)
@@ -52,6 +53,7 @@ func TestCodexExperimentValidation(t *testing.T) {
 
 // The independent oracle is a native response matching all three selections.
 // Merely knowing the request, or a different provider's model usage, is insufficient.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexIdentityRequiresNativeResolvedEvidence(t *testing.T) {
 	e := codexTestExperiment()
 	for _, tc := range []struct {
@@ -98,6 +100,8 @@ func TestCodexIdentityRequiresNativeResolvedEvidence(t *testing.T) {
 
 // The test-owned history table specifies the number of allowed attempts and
 // terminal state. Replay must not launch the helper or overwrite old evidence.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexRunStopsAndReplay(t *testing.T) {
 	for _, tc := range []struct {
 		name, scenario, reason, status string
