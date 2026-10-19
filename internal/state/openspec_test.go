@@ -91,6 +91,7 @@ This header explains Hold: markers above the first section heading.
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestCleanTaskTextKeepsUTF8AtTheCut(t *testing.T) {
 	got := cleanTaskText("- [ ] 1.1 RED: " + strings.Repeat("é", 60))
 	if !utf8.ValidString(got) || len(got) > 104 {

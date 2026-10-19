@@ -277,6 +277,7 @@ func TestPostPRHandoffCommentAndDecisionsInPickup(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr pane identity in the writer lease
 func TestWriterLeaseHerdrIdentity(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -326,6 +327,7 @@ func TestWriterLeaseHerdrIdentity(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr pane identity in the writer lease
 func TestPickupWarningNamesHerdrPane(t *testing.T) {
 	t.Setenv("ATEAM_SESSION_ID", "")
 	base := WriterLease{Agent: "codex", SessionID: "other", PID: 42, LastSeen: time.Now().UTC()}

@@ -64,6 +64,7 @@ func setHerdrEnv(t *testing.T, event, payload string) {
 	t.Setenv("HERDR_PLUGIN_EVENT_JSON", payload)
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventGateNeverInvokesHerdr(t *testing.T) {
 	repo := t.TempDir()
 	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n")
@@ -93,6 +94,7 @@ func TestHerdrOnEventGateNeverInvokesHerdr(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventToastsOnlyNewCaveats(t *testing.T) {
 	repo := t.TempDir()
 	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n- [ ] 1.2 Plain open task\n")
@@ -122,6 +124,7 @@ func TestHerdrOnEventToastsOnlyNewCaveats(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventSkipsNonAteamDir(t *testing.T) {
 	plain := t.TempDir()
 	setHerdrEnv(t, "worktree.created", `{"worktree":{"path":"`+plain+`","branch":"x"}}`)
@@ -134,6 +137,7 @@ func TestHerdrOnEventSkipsNonAteamDir(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventWorktreeCreatedToastsFromWorktreePath(t *testing.T) {
 	repo := t.TempDir()
 	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n")
@@ -152,6 +156,7 @@ func TestHerdrOnEventWorktreeCreatedToastsFromWorktreePath(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventSkipsWorkingStatus(t *testing.T) {
 	repo := t.TempDir()
 	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n")
@@ -165,6 +170,7 @@ func TestHerdrOnEventSkipsWorkingStatus(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: herdr plugin panes
 func TestHerdrOpenPane(t *testing.T) {
 	t.Setenv("HERDR_ENV", "1")
 	t.Setenv("HERDR_BIN_PATH", "/fake/herdr")
@@ -193,6 +199,7 @@ func agentStatusEvent(t *testing.T) {
 	t.Setenv("HERDR_PLUGIN_EVENT_JSON", `{"pane_id":"p_1","workspace_id":"w_1","agent_status":"idle"}`)
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventStateDirFailuresToastAtMostOnce(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -276,6 +283,7 @@ func linkedWorktree(t *testing.T, repo string) string {
 	return wt
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventKeysByRepository(t *testing.T) {
 	repo := t.TempDir()
 	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n")
@@ -298,6 +306,7 @@ func TestHerdrOnEventKeysByRepository(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventDuplicateCaveatTextToastsOnce(t *testing.T) {
 	repo := t.TempDir()
 	writeTasks(t, repo, "# Tasks\n\n- [ ] Build is RED\n- [ ] Build is RED\n")
@@ -312,6 +321,7 @@ func TestHerdrOnEventDuplicateCaveatTextToastsOnce(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventCorruptRecordIsReplaced(t *testing.T) {
 	repo := t.TempDir()
 	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n")
@@ -331,6 +341,7 @@ func TestHerdrOnEventCorruptRecordIsReplaced(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: herdr plugin panes
 func TestHerdrOpenPaneUsesPaneCWD(t *testing.T) {
 	t.Setenv("HERDR_ENV", "1")
 	t.Setenv("HERDR_BIN_PATH", "/fake/herdr")
@@ -346,6 +357,7 @@ func TestHerdrOpenPaneUsesPaneCWD(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventConcurrentEventsToastOnce(t *testing.T) {
 	repo := t.TempDir()
 	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n")
@@ -376,6 +388,7 @@ func TestHerdrOnEventConcurrentEventsToastOnce(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventLongCaveatIdentity(t *testing.T) {
 	prefix := "- [ ] 1.1 Ship the migration. Hold: " + strings.Repeat("long unchanged reason ", 6)
 	tests := []struct {
@@ -406,6 +419,7 @@ func TestHerdrOnEventLongCaveatIdentity(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications
 func TestHerdrOnEventFailedToastDoesNotDropTheRest(t *testing.T) {
 	repo := t.TempDir()
 	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n- [ ] 1.2 Ship it. Hold: waiting on owner\n")
