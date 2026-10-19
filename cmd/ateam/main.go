@@ -16,6 +16,7 @@ import (
 	"github.com/c360studio/ateam/internal/bootstrap"
 	"github.com/c360studio/ateam/internal/hook"
 	"github.com/c360studio/ateam/internal/mcpserver"
+	"github.com/c360studio/ateam/internal/mutate"
 	"github.com/c360studio/ateam/internal/state"
 	"github.com/c360studio/ateam/internal/taskrunner"
 	"github.com/c360studio/ateam/internal/web"
@@ -56,6 +57,8 @@ func run(args []string) int {
 		return runDoctor(cwd, subArgs)
 	case "bench":
 		return runBench(cwd, subArgs)
+	case "mutate":
+		return runMutate(cwd, subArgs)
 	case "serve":
 		return runServe(cwd, subArgs)
 	case "version", "--version", "-v":
@@ -82,6 +85,7 @@ Commands:
   init [flags]        Bootstrap repo with .agents, .claude, .codex, .gemini, openspec, and optional GitHub/Gitea labels
   doctor [--check]    Verify multi-agent parity, MCP schema token budget, and hook latency
   bench [flags]       Run Ponytail + Handoff benchmark suite (--selftest, --rescore)
+  mutate [flags]      Run non-destructive Go -overlay mutation check (-pkg, -test, -file, -mutant, -expect/-expect-text)
   serve [flags]       Start embedded SvelteKit PM Board HTTP server (default 127.0.0.1:8420)`)
 }
 
@@ -445,6 +449,16 @@ func runBench(repoRoot string, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func runMutate(repoRoot string, args []string) int {
+	opts, err := mutate.ParseArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam mutate: %v\n", err)
+		return 2
+	}
+	_, code := mutate.Run(context.Background(), repoRoot, opts, os.Stdout, os.Stderr)
+	return code
 }
 
 func runServe(repoRoot string, args []string) int {

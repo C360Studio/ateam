@@ -50,3 +50,13 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 - **WHEN** `POST /api/webhooks/gitea` receives a payload signed with `ATEAM_WEBHOOK_SECRET`
 - **THEN** the matching `BoardCard` column and labels update atomically in `.ateam/state.json` under `.ateam/state.lock` and the response reports `merge_allowed` based on fail-closed OpenSpec `Hold:` scanning
+
+### Requirement: Non-destructive Go -overlay mutation checks and PBT discipline
+
+`ateam mutate` (`task mutate:check`) SHALL execute baseline, mutant (`go test -overlay`), after-run, and coverage-reach checks without modifying any file in the repository tree, classifying outcomes strictly as `detection` (exit 0), `survivor` (exit 1), `invalid` (exit 1), or `inconclusive` (exit 1), and refusing invalid inputs (`_test.go`, in-repo mutant, identical mutant, missing `-expect`/`-expect-text`, or `-seed 0`) with exit code 2.
+
+#### Scenario: Mutant detected via Go -overlay without modifying repository tree
+
+- **WHEN** `ateam mutate` runs against a non-test `.go` file and an out-of-tree mutant that causes the named test to fail with the expected assertion
+- **THEN** it prints `verdict: detection`, leaves the target file's SHA-256 unchanged, and exits with status 0
+

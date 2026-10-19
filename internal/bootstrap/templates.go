@@ -128,7 +128,8 @@ You are a lazy senior developer. The best code is the code never written. Solve 
 | --- | --- | --- |
 | ` + "`verify+review`" + ` | Follow the 6-step Ponytail decision ladder; no unrequested abstractions, wrappers, or dependencies | ` + "`.agents/skills/ponytail/SKILL.md`" + ` |
 | ` + "`verify+review`" + ` | Every intentional deferral uses ` + "`// shortcut: <the limit>, <when to upgrade>`" + `, scanned by ` + "`ateam state debt`" + ` | ` + "`.agents/skills/ponytail/SKILL.md`" + ` |
-| ` + "`verify+review`" + ` | Non-trivial logic (branches, parsers, state transitions, boundaries) ships with a test proven able to fail | ` + "`.agents/protocol.md`" + ` |
+| ` + "`verify+review`" + ` | Non-trivial logic ships with a test using an independent oracle and proven able to fail via non-destructive mutation check (` + "`task mutate:check`" + ` or ` + "`cp`" + ` + SHA-256; never ` + "`git checkout`" + `/` + "`restore`" + `/` + "`stash`" + `/` + "`reset`" + `), reporting ` + "`detection`" + `, ` + "`survivor`" + `, ` + "`invalid`" + `, or ` + "`inconclusive`" + ` | ` + "`.agents/protocol.md`" + ` |
+| ` + "`verify+review`" + ` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (` + "`testing.F`" + ` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | ` + "`.agents/protocol.md`" + ` |
 | ` + "`verify`" + ` | Go packages pass ` + "`gofmt`" + `, ` + "`go vet`" + `, and ` + "`revive`" + ` with zero warnings | ` + "`Taskfile.yml`" + ` |
 | ` + "`review`" + ` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | ` + "`.agents/skills/ponytail/SKILL.md`" + ` |
 
@@ -161,7 +162,8 @@ const defaultRulesIndexMD = `# Rules Enforcement Index
 | --- | --- | --- |
 | ` + "`verify+review`" + ` | Follow the 6-step Ponytail decision ladder; no unrequested abstractions, wrappers, or dependencies | ` + "`ateam hook`" + ` |
 | ` + "`verify+review`" + ` | Every intentional deferral uses ` + "`// shortcut: <the limit>, <when to upgrade>`" + `, scanned by ` + "`ateam state debt`" + ` | ` + "`ateam state debt`" + ` |
-| ` + "`verify+review`" + ` | Non-trivial logic (branches, parsers, state transitions, boundaries) ships with a test proven able to fail | ` + "`ateam bench --selftest`" + ` |
+| ` + "`verify+review`" + ` | Non-trivial logic ships with a test using an independent oracle and proven able to fail via non-destructive mutation check (` + "`task mutate:check`" + ` or ` + "`cp`" + ` + SHA-256; never ` + "`git checkout`" + `/` + "`restore`" + `/` + "`stash`" + `/` + "`reset`" + `), reporting ` + "`detection`" + `, ` + "`survivor`" + `, ` + "`invalid`" + `, or ` + "`inconclusive`" + ` | ` + "`ateam mutate`" + `; ` + "`ateam bench --selftest`" + ` |
+| ` + "`verify+review`" + ` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (` + "`testing.F`" + ` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | ` + "`task test:unit`" + `; review |
 | ` + "`verify`" + ` | Go packages pass ` + "`gofmt`" + `, ` + "`go vet`" + `, and ` + "`revive`" + ` with zero warnings | ` + "`Taskfile.yml`" + ` |
 | ` + "`review`" + ` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | review |
 
@@ -204,9 +206,15 @@ Shared truth lives in the repository's versioned code, ` + "`openspec/`" + ` spe
 
 1. **Clarify:** Before mutating state on an underspecified request, inspect the tree first, then confirm Deliverable, Scope/non-goals, Definition of Done, and Stop boundary.
 2. **Claim:** Create or switch to an isolated worktree on an agent-prefixed branch (` + "`claude/…`" + `, ` + "`codex/…`" + `, ` + "`gemini/…`" + `), backed by a draft PR on GitHub or Gitea.
-3. **Execute (Ponytail Decision Ladder):** Take the smallest complete change that solves the task, reuse stdlib/existing code, add a focused test for every non-trivial branch/parser, and tag deliberate limits with ` + "`// shortcut: <the limit>, <when to upgrade>`" + `.
+3. **Execute (Ponytail Decision Ladder):** Take the smallest complete change that solves the task, reuse stdlib/existing code, add a focused test using an independent oracle for every non-trivial branch/parser, and tag deliberate limits with ` + "`// shortcut: <the limit>, <when to upgrade>`" + `.
 4. **Verify (4-Gate Definition of Done):** ` + "`task verify`" + ` green, ` + "`ateam doctor`" + ` parity green, ` + "`ateam bench --selftest`" + ` green, and Ponytail exit summary stated.
 5. **Handoff or Land:** At a session boundary or before context compaction, run ` + "`ateam state handoff`" + ` to record the 5-field pickup prompt.
+
+## 3. Mutation & Property-Based Testing (PBT) Discipline
+
+1. **Independent oracle & wrong behavior first:** State the correct behavior and one plausible wrong behavior; compute expected outcomes from an independent oracle or reference model, never by repeating production logic.
+2. **Non-destructive mutation check (` + "`task mutate:check`" + ` / ` + "`ateam mutate`" + `):** Never run ` + "`git checkout --`" + `, ` + "`git restore`" + `, ` + "`git stash`" + `, ` + "`git clean`" + `, or ` + "`git reset --hard`" + ` to undo a mutant. Use ` + "`task mutate:check`" + ` (` + "`go test -overlay`" + ` on a copy outside the repo) or ` + "`cp`" + ` + ` + "`shasum -a 256`" + ` before/after, and report ` + "`detection`" + `, ` + "`survivor`" + `, ` + "`invalid`" + `, or ` + "`inconclusive`" + `.
+3. **Generated checks (Fuzz targets & PBT):** When touching interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories, record whether ` + "`testing.F`" + ` / PBT is used or why named examples suffice, verify boundary reach and assertion activation, and compare histories against a test-owned reference model.
 `
 
 var canonicalSkillBodies = map[string]string{
@@ -289,7 +297,7 @@ Read the task and the code it touches. List callers, tests, fixtures, config, an
 3. **Standard library or platform feature?** Prefer Go stdlib or native browser capabilities.
 4. **An installed dependency?** Use what is already installed; never add a dependency for a few lines.
 5. **Can it be one clear line?** Write flat, readable code.
-6. **Otherwise:** Write the minimum complete change, test every non-trivial branch, and mark deliberate limits with ` + "`// shortcut: <the limit>, <when to upgrade>`" + `.
+6. **Otherwise:** Write the minimum complete change, test every non-trivial branch with an independent oracle proven via ` + "`task mutate:check`" + ` (or ` + "`cp`" + ` + SHA-256), use generated checks (` + "`testing.F`" + ` / PBT) when touching interacting inputs/laws/histories, and mark deliberate limits with ` + "`// shortcut: <the limit>, <when to upgrade>`" + `.
 `,
 	"preflight": `---
 name: preflight
@@ -304,11 +312,11 @@ Read [the shared protocol](../../protocol.md) first. One ` + "`Taskfile.yml`" + 
 
 ## 1. Select Gates by Diff Scope
 
-Inspect ` + "`git status --short`" + ` and ` + "`git diff --stat`" + ` and run ` + "`task verify`" + ` (via ` + "`ateam_task`" + ` or CLI) before any push or completion.
+Inspect ` + "`git status --short`" + ` and ` + "`git diff --stat`" + `, run ` + "`task mutate:check`" + ` for non-trivial refusals/branches, and run ` + "`task verify`" + ` (via ` + "`ateam_task`" + ` or CLI) before any push or completion.
 
 ## 2. Record Evidence
 
-Record the exact command, exit status, and tested ` + "`HEAD`" + ` SHA, and end with Ponytail's 1–2 line skipped/risk summary.
+Record the exact command, exit status, tested ` + "`HEAD`" + ` SHA, and the 6-line testing block (` + "`Decision`" + `, ` + "`Rule`" + `, ` + "`Inputs`" + `, ` + "`Run`" + `, ` + "`Mutation`" + `, ` + "`Not covered`" + `) when touching parsers/laws/histories, ending with Ponytail's 1–2 line skipped/risk summary.
 `,
 }
 

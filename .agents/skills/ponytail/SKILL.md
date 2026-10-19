@@ -30,7 +30,8 @@ Take the first option that fully works:
 ## 3. Non-Negotiable Guardrails
 
 - Finish every caller, test, and fixture your change touches.
-- New non-trivial logic (a branch, loop, parser, state transition, or boundary check) ships with a focused test proven able to fail.
+- New non-trivial logic (a branch, loop, parser, state transition, or boundary check) ships with a focused test using an independent oracle and proven able to fail via `task mutate:check` (`ateam mutate` with `-overlay`) or `cp` + `shasum -a 256` backup/restore (never use `git checkout --`, `git restore`, `git stash`, or `git reset --hard`).
+- When a change touches interacting input cases, a stated law (round-trip, idempotence), or an order-dependent history, record whether generated checks (`testing.F` fuzzing or PBT) are used or why named examples suffice, verify boundary reach and assertion activation, and check histories against a test-owned reference model.
 - Any deliberate shortcut with a known limit carries an inline comment: `// shortcut: <the limit>, <when to upgrade>`.
 - Never cut: validation at trust boundaries, error handling that prevents data loss, context cancellation, security, or accessibility.
 
