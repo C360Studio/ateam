@@ -17,7 +17,7 @@ Read [how the harness runs](../docs/hook-flow.md) for event effects, injected co
 | Instructions | `CLAUDE.md` (`@AGENTS.md`) | `AGENTS.md` | `.gemini/settings.json` (`contextFileName: "AGENTS.md"`) | `AGENTS.md` |
 | Canonical Skills | `.agents/skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` |
 | Skill Adapters | `.claude/skills/<name>/SKILL.md` | Reads `.agents/skills/` directly | `.gemini/commands/<name>.toml` | Reads `.agents/skills/` directly |
-| Hook & MCP Config | `.claude/settings.json` | `.codex/hooks.json` | `.gemini/settings.json` | `.agents/hooks.json` |
+| Hook & MCP Config | `.claude/settings.json` | `.codex/hooks.json` | `.gemini/settings.json` | `.agents/hooks.json`, `.agents/plugins/ateam/` |
 | Session Start | `SessionStart` -> `ateam hook --event session-start --agent claude` | `SessionStart` -> `ateam hook --event session-start --agent codex` | `SessionStart` -> `ateam hook --event session-start --agent gemini` | `SessionStart` -> `ateam hook --event session-start --agent agy` |
 | Before Prompt | `UserPromptSubmit` -> `ateam hook --event before-prompt --agent claude` | `UserPromptSubmit` -> `ateam hook --event before-prompt --agent codex` | `BeforeAgent` -> `ateam hook --event before-prompt --agent gemini` | `PreInvocation` -> `ateam hook --event before-prompt --agent agy` |
 | Pre-Compaction | `PreCompact` -> `ateam hook --event pre-compact --agent claude` | `PreCompact` -> `ateam hook --event pre-compact --agent codex` | `PreCompress` -> `ateam hook --event pre-compact --agent gemini` | N/A (not exposed by `.agents/hooks.json`) |
@@ -38,4 +38,4 @@ Canonical skills live in `.agents/skills/<name>/SKILL.md`:
 2. `CLAUDE.md` imports `@AGENTS.md`, stays within 10 lines, and does not define its own section headings or rule tables.
 3. `AGENTS.md` stays strictly under 24,000 bytes and matches `.agents/rules-index.md` in numbered rule sections and row counts.
 4. Every canonical skill in `.agents/skills/<name>/SKILL.md` has a matching thin pointer in `.claude/skills/<name>/SKILL.md` and `.gemini/commands/<name>.toml`.
-5. `.claude/settings.json`, `.codex/hooks.json`, and `.gemini/settings.json` wire all four lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) with `--agent claude|codex|gemini` and register the `ateam mcp` server, and `.agents/hooks.json` wires `session-start`, `before-prompt`, and `turn-end` with `--agent agy`.
+5. `.claude/settings.json`, `.codex/hooks.json`, and `.gemini/settings.json` wire all four lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) with `--agent claude|codex|gemini` and register the `ateam mcp` server, and `.agents/hooks.json` plus `.agents/plugins/ateam/` wire `session-start`, `before-prompt`, `turn-end` (`--agent agy`) and `ateam mcp` for Antigravity.

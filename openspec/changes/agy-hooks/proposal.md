@@ -12,10 +12,9 @@ Owner: Gemini (`gemini/agy-hooks`)
 ## What Changes
 
 - Update `internal/hook/hook.go` and `cmd/ateam/main.go` so `ateam hook --agent agy` (or `antigravity`) reads `conversationId` as a fallback for `session_id`, normalizes `PreInvocation` to `before-prompt`, emits `injectSteps` when context is injected, emits `{}` on no-op `PreInvocation`, and emits `{"decision":"allow"}` on `turn-end` (`Stop`).
-- Scaffold `.agents/hooks.json` in `ateam init` (`internal/bootstrap/templates.go`) and verify it in `ateam doctor` (`internal/bootstrap/bootstrap.go`).
-- Document the Antigravity hook mapping in `.agents/README.md`, `AGENTS.md`, and `.agents/rules-index.md`, and record the platform limitation (`PreCompact` and prompt-bearing `PreInvocation` are not exposed by Antigravity `hooks.json`) via `// shortcut:`.
+- Scaffold `.agents/hooks.json` and `.agents/plugins/ateam/{plugin.json,mcp_config.json}` in `ateam init` (`internal/bootstrap/templates.go`) and verify them in `ateam doctor` (`internal/bootstrap/bootstrap.go`).
+- Document the Antigravity hook and MCP plugin mapping in `.agents/README.md`, `AGENTS.md`, and `.agents/rules-index.md`, and record the platform limitation (`PreCompact` and prompt-bearing `PreInvocation` are not exposed by Antigravity `hooks.json`) via `// shortcut:`.
 
 ## Impact
 
-- Scope: `cmd/ateam/main.go`, `internal/hook/`, `internal/bootstrap/`, `internal/state/state.go`, `.agents/hooks.json`, `.agents/README.md`, `AGENTS.md`, `.agents/rules-index.md`, and `openspec/`.
-- Non-goals: Workspace MCP plugin bundling under `.agents/plugins/`.
+- Scope: `cmd/ateam/main.go`, `internal/hook/`, `internal/bootstrap/`, `internal/state/state.go`, `.agents/hooks.json`, `.agents/plugins/ateam/`, `.agents/README.md`, `AGENTS.md`, `.agents/rules-index.md`, and `openspec/`.

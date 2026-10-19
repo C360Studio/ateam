@@ -104,6 +104,14 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 		_ = os.WriteFile(p, []byte(edited), 0o644)
 		requireViolation(t, CheckParity(sub), ".agents/hooks.json", "--agent agy")
 	})
+
+	t.Run("Antigravity plugin mcp_config.json missing mcp entry", func(t *testing.T) {
+		sub := t.TempDir()
+		_, _ = InitRepo(context.Background(), sub, Options{})
+		p := filepath.Join(sub, ".agents", "plugins", "ateam", "mcp_config.json")
+		_ = os.WriteFile(p, []byte(`{"mcpServers":{}}`), 0o644)
+		requireViolation(t, CheckParity(sub), ".agents/plugins/ateam/mcp_config.json", "missing ateam mcp server entry")
+	})
 }
 
 func requireViolation(t *testing.T, violations []string, substrings ...string) {

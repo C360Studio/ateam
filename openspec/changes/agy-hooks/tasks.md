@@ -9,5 +9,5 @@ implemented-by: gemini
 
 ## 2. Bootstrap, doctor parity, and verification
 
-- [x] 2.1 Add `.agents/hooks.json` to `internal/bootstrap/templates.go`, this repository, and `checkHookConfigs` in `internal/bootstrap/bootstrap.go`, with sensitivity coverage in `internal/bootstrap/parity_test.go`.
+- [x] 2.1 Add `.agents/hooks.json` and `.agents/plugins/ateam/{plugin.json,mcp_config.json}` to `internal/bootstrap/templates.go`, this repository, and `checkHookConfigs` in `internal/bootstrap/bootstrap.go`, with sensitivity coverage in `internal/bootstrap/parity_test.go`.
 - [x] 2.2 Update `.agents/README.md`, `AGENTS.md`, `.agents/rules-index.md`, and `openspec/specs/harness/spec.md`, and verify with `ateam doctor --check` and `task verify`.
