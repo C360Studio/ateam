@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -328,16 +329,18 @@ func TestWriterLeaseHerdrIdentity(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Optional herdr pane identity in the writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
 func TestPickupWarningNamesHerdrPane(t *testing.T) {
 	t.Setenv("ATEAM_SESSION_ID", "")
-	base := WriterLease{Agent: "codex", SessionID: "other", PID: 42, LastSeen: time.Now().UTC()}
+	livePID := os.Getpid()
+	base := WriterLease{Agent: "codex", SessionID: "other", PID: livePID, LastSeen: time.Now().UTC()}
 
 	withPane := base
 	withPane.HerdrPaneID = "p_9"
 	out := BuildPickupSummary(&State{Writer: &withPane, CurrentSessionID: "mine"})
 	for _, want := range []string{
-		"Writer lease: agent=codex session=other pid=42 last_seen=",
-		" ago (herdr pane p_9)\nWARNING: another writer may be active (agent=codex, session=other, pid=42, last_seen=",
+		fmt.Sprintf("Writer lease: agent=codex session=other pid=%d last_seen=", livePID),
+		fmt.Sprintf(" ago (herdr pane p_9)\nWARNING: another writer may be active (agent=codex, session=other, pid=%d, last_seen=", livePID),
 		" ago) (herdr pane p_9)",
 	} {
 		if !strings.Contains(out, want) {
@@ -348,6 +351,49 @@ func TestPickupWarningNamesHerdrPane(t *testing.T) {
 	out = BuildPickupSummary(&State{Writer: &base, CurrentSessionID: "mine"})
 	if !strings.Contains(out, "WARNING: another writer may be active") || strings.Contains(out, "herdr pane") {
 		t.Fatalf("pickup summary without pane should warn but not name a pane:\n%s", out)
+	}
+
+	// #40: Dead PID must report (exited) and must NOT warn as an active competing writer.
+	exitedLease := WriterLease{Agent: "claude", SessionID: "other", PID: 999999, LastSeen: time.Now().UTC()}
+	exitedOut := BuildPickupSummary(&State{Writer: &exitedLease, CurrentSessionID: "mine"})
+	if !strings.Contains(exitedOut, "pid=999999 (exited)") || strings.Contains(exitedOut, "WARNING: another writer may be active") {
+		t.Fatalf("exited PID lease should not warn as active writer:\n%s", exitedOut)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestHandoffStaleInvalidationAndRefreshWithBestEffortSync(t *testing.T) {
+	st := &State{
+		Mode: ModeFull,
+		Git:  GitStatus{Branch: "main", HeadSHA: "9f11a42"},
+		Cards: []BoardCard{
+			{ID: "GH-PR-2", Number: 2, Title: "Merged Astra PR", Type: "pr", Column: "done", Forge: "github"},
+		},
+		LastHandoff: &Handoff{
+			Goal:          "Review and merge PR #2 remediating all 8 Astra findings",
+			Addresses:     "PR #2 (https://github.com/C360Studio/ateam/pull/2)",
+			DoneWhen:      "PR #2 merged into main",
+			ChecksToRun:   "task verify",
+			Branch:        "main",
+			CheckpointSHA: "02e913f",
+		},
+	}
+	st.RefreshHandoffStaleness()
+	if !st.LastHandoff.Stale {
+		t.Fatalf("expected drifted/merged-PR handoff to be marked stale, got %+v", st.LastHandoff)
+	}
+	for _, wantReason := range []string{"HEAD drifted from 02e913f -> 9f11a42", "PR #2 is closed/merged"} {
+		if !strings.Contains(st.LastHandoff.StaleReason, wantReason) {
+			t.Fatalf("StaleReason = %q, missing %q", st.LastHandoff.StaleReason, wantReason)
+		}
+	}
+	summary := BuildPickupSummary(st)
+	if !strings.Contains(summary, "Last Handoff (HEAD drifted from 02e913f -> 9f11a42): STALE — handoff omitted (") {
+		t.Fatalf("expected STALE handoff omitted line in summary, got:\n%s", summary)
+	}
+	if strings.Contains(summary, "Goal: Review and merge PR #2") {
+		t.Fatalf("stale handoff Goal should not be injected in pickup summary:\n%s", summary)
 	}
 }
 

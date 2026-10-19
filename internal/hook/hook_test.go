@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,36 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	if st.LastHandoff == nil || !st.LastHandoff.AutoCompacted {
 		t.Errorf("expected AutoCompacted handoff in state, got: %+v", st.LastHandoff)
 	}
+
+	// #40: Stale or foreign-session handoff must be replaced on pre-compact rather than re-emitted.
+	headsDir := filepath.Join(dir, ".git", "refs", "heads")
+	_ = os.MkdirAll(headsDir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(headsDir, "main"), []byte("9f11a42000000000000000000000000000000000\n"), 0o644)
+
+	st.Cards = []state.BoardCard{{ID: "PR-38", Title: "PR #38", Column: "done"}}
+	st.LastHandoff = &state.Handoff{
+		Goal:          "Old merged PR #38 goal",
+		Addresses:     "PR #38",
+		DoneWhen:      "merged",
+		Branch:        "codex/model-routing-ui",
+		CheckpointSHA: "6c32197",
+		SessionID:     "sess-old",
+	}
+	if err := state.Save(dir, st); err != nil {
+		t.Fatalf("state.Save stale handoff: %v", err)
+	}
+
+	outReplaced, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"sess-new"}`))
+	if err != nil {
+		t.Fatalf("Handle pre-compact on stale handoff: %v", err)
+	}
+	if strings.Contains(outReplaced.AdditionalContext, "Old merged PR #38 goal") {
+		t.Fatalf("pre-compact re-emitted stale handoff:\n%s", outReplaced.AdditionalContext)
+	}
+	if !strings.Contains(outReplaced.AdditionalContext, "Goal: Auto-saved before context compaction") || !strings.Contains(outReplaced.AdditionalContext, "Addresses: branch main, SHA 9f11a42") {
+		t.Fatalf("expected fresh current-HEAD auto-compacted handoff, got:\n%s", outReplaced.AdditionalContext)
+	}
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
@@ -106,6 +137,7 @@ func TestHookLatencyBudget(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
 // spec: openspec/specs/harness/spec.md#Requirement: Fast Git identity across worktrees
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 func TestSessionStartDetectsHeadDrift(t *testing.T) {
 	dir := t.TempDir()
 	headsDir := filepath.Join(dir, ".git", "refs", "heads")
@@ -140,9 +172,12 @@ func TestSessionStartDetectsHeadDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle session-start: %v", err)
 	}
-	wantDrift := "Last Handoff (HEAD drifted from 148420d -> cd8ea79):"
+	wantDrift := "Last Handoff (HEAD drifted from 148420d -> cd8ea79): STALE — handoff omitted"
 	if !strings.Contains(out.AdditionalContext, wantDrift) {
 		t.Errorf("expected %q in SessionStart AdditionalContext, got:\n%s", wantDrift, out.AdditionalContext)
+	}
+	if strings.Contains(out.AdditionalContext, "Complete dual-forge webhook receiver") {
+		t.Errorf("expected stale handoff 5-field block to be omitted, got:\n%s", out.AdditionalContext)
 	}
 }
 
@@ -160,9 +195,23 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 		t.Fatalf("expected empty Output for unknown event, got: %+v", unknownOut)
 	}
 
-	// F-06: Active writer lease from another session must be surfaced in session-start pickup summary.
-	leaseData := []byte(`{"agent":"claude","session_id":"sess-other","pid":999999,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"}`)
+	// #42: Dead PID (999999) in writer lease must report (exited) and NOT trigger competing-writer warning.
+	deadLease := []byte(`{"agent":"claude","session_id":"sess-dead","pid":999999,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"}`)
 	_ = os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755)
+	if err := os.WriteFile(state.WriterLeasePath(dir), deadLease, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deadOut, err := Handle(dir, "session-start", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("Handle session-start with dead PID lease: %v", err)
+	}
+	if !strings.Contains(deadOut.AdditionalContext, "pid=999999 (exited)") || strings.Contains(deadOut.AdditionalContext, "WARNING: another writer may be active") {
+		t.Fatalf("expected dead PID lease to report (exited) without warning, got:\n%s", deadOut.AdditionalContext)
+	}
+
+	// F-06: Active writer lease from another live session must be surfaced in session-start pickup summary.
+	livePID := strconv.Itoa(os.Getpid())
+	leaseData := []byte(`{"agent":"claude","session_id":"sess-other","pid":` + livePID + `,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"}`)
 	if err := os.WriteFile(state.WriterLeasePath(dir), leaseData, 0o644); err != nil {
 		t.Fatal(err)
 	}

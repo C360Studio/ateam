@@ -368,14 +368,14 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 	var cards []BoardCard
 
 	// G-06: Attempt issue fetch with comments under a bounded sub-timeout; on timeout/error, fall back to comment-free card sync.
-	issueCtx, issueCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	issueCtx, issueCancel := context.WithTimeout(ctx, 5*time.Second)
 	issueCmd := exec.CommandContext(issueCtx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body,comments")
 	issueCmd.Args = append(issueCmd.Args, repoArgs...)
 	issueCmd.Dir = root
 	issueOut, err := issueCmd.Output()
 	issueCancel()
 	if err != nil {
-		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 3*time.Second)
+		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 5*time.Second)
 		fallbackCmd := exec.CommandContext(fallbackCtx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body")
 		fallbackCmd.Args = append(fallbackCmd.Args, repoArgs...)
 		fallbackCmd.Dir = root
@@ -386,7 +386,7 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 		}
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	var issues []forgeIssuePayload

@@ -4,14 +4,65 @@ package state
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 )
+
+// BuildCommit can be stamped at link time via -ldflags "-X github.com/c360studio/ateam/internal/state.BuildCommit=<sha>".
+var BuildCommit string
+
+// BuildRevision returns the short and full VCS commit revision embedded in the binary and whether the build tree was dirty.
+func BuildRevision() (shortRev, fullRev string, modified bool) {
+	if raw := strings.TrimSpace(BuildCommit); raw != "" {
+		fullRev = raw
+		shortRev = raw
+		if len(shortRev) > 7 {
+			shortRev = shortRev[:7]
+		}
+		return shortRev, fullRev, false
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				fullRev = strings.TrimSpace(s.Value)
+			case "vcs.modified":
+				modified = strings.TrimSpace(s.Value) == "true"
+			}
+		}
+		if fullRev != "" {
+			shortRev = fullRev
+			if len(shortRev) > 7 {
+				shortRev = shortRev[:7]
+			}
+			return shortRev, fullRev, modified
+		}
+	}
+	return "dev", "", false
+}
+
+// BuildLabel returns a compact build provenance identifier (e.g. "9f11a42", "9f11a42-dirty", or "dev").
+func BuildLabel() string {
+	shortRev, _, modified := BuildRevision()
+	if modified && shortRev != "dev" {
+		return shortRev + "-dirty"
+	}
+	return shortRev
+}
+
+// VersionString formats the human-readable CLI version including build provenance.
+func VersionString() string {
+	return fmt.Sprintf("ateam v0.1.0 (%s)", BuildLabel())
+}
 
 // DisciplineMode represents the active Ponytail decision-ladder level.
 type DisciplineMode string
@@ -48,12 +99,27 @@ type Handoff struct {
 	DoneWhen      string    `json:"done_when"`
 	ChecksToRun   string    `json:"checks_to_run"`
 	Agent         string    `json:"agent,omitempty"`
+	SessionID     string    `json:"session_id,omitempty"`
 	Branch        string    `json:"branch"`
 	CheckpointSHA string    `json:"checkpoint_sha"`
 	Dirty         bool      `json:"dirty"`
 	AutoCompacted bool      `json:"auto_compacted,omitempty"`
+	Stale         bool      `json:"stale,omitempty"`
+	StaleReason   string    `json:"stale_reason,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
+
+// SameCommitSHA reports whether two commit SHA prefixes refer to the same commit.
+func SameCommitSHA(a, b string) bool {
+	a = strings.ToLower(strings.TrimSpace(a))
+	b = strings.ToLower(strings.TrimSpace(b))
+	if a == "" || b == "" || a == "uncommitted" || b == "uncommitted" {
+		return a == b
+	}
+	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+}
+
+var handoffPRRefRe = regexp.MustCompile(`(?i)(?:\bpr\s*#|\bpull[s]?/)([1-9][0-9]*)\b`)
 
 // FormatFiveFieldPrompt formats the canonical 5-field SemEngine pickup block.
 func FormatFiveFieldPrompt(h Handoff) string {
@@ -136,12 +202,101 @@ type State struct {
 	CurrentSessionID string           `json:"-"`
 	Git              GitStatus        `json:"git"`
 	Cards            []BoardCard      `json:"cards"`
+	BoardSyncedAt    time.Time        `json:"board_synced_at,omitempty"`
 	Shortcuts        []ShortcutItem   `json:"shortcuts,omitempty"`
 	Holds            []HoldItem       `json:"holds,omitempty"`
 	HoldScanError    string           `json:"hold_scan_error,omitempty"`
 	OpenSpecQueue    []OpenSpecChange `json:"openspec_queue,omitempty"`
 	OpenSpecSpecs    []OpenSpecSpec   `json:"openspec_specs,omitempty"`
 	UpdatedAt        time.Time        `json:"updated_at"`
+}
+
+// HandoffStaleReasons returns human-readable reasons why st.LastHandoff is stale, or nil if fresh.
+func (st *State) HandoffStaleReasons() []string {
+	if st == nil || st.LastHandoff == nil {
+		return nil
+	}
+	h := st.LastHandoff
+	var reasons []string
+	if h.CheckpointSHA != "" && st.Git.HeadSHA != "" && !SameCommitSHA(h.CheckpointSHA, st.Git.HeadSHA) {
+		reasons = append(reasons, fmt.Sprintf("HEAD drifted from %s -> %s", h.CheckpointSHA, st.Git.HeadSHA))
+	}
+	if h.Branch != "" && st.Git.Branch != "" && h.Branch != st.Git.Branch {
+		reasons = append(reasons, fmt.Sprintf("branch changed from %s -> %s", h.Branch, st.Git.Branch))
+	}
+	combined := h.Goal + " " + h.Addresses + " " + h.DoneWhen
+	seenPRs := make(map[int]bool)
+	for _, m := range handoffPRRefRe.FindAllStringSubmatch(combined, -1) {
+		if len(m) < 2 {
+			continue
+		}
+		prNum, err := strconv.Atoi(m[1])
+		if err != nil || prNum <= 0 || seenPRs[prNum] {
+			continue
+		}
+		seenPRs[prNum] = true
+		for _, c := range st.Cards {
+			if (c.Type == "pr" || strings.Contains(c.ID, "-PR-")) && c.Number == prNum && c.Column == "done" {
+				reasons = append(reasons, fmt.Sprintf("PR #%d is closed/merged", prNum))
+				break
+			}
+		}
+	}
+	if len(reasons) == 0 && h.Stale {
+		if strings.TrimSpace(h.StaleReason) != "" {
+			reasons = append(reasons, strings.TrimSpace(h.StaleReason))
+		} else {
+			reasons = append(reasons, "marked stale")
+		}
+	}
+	return reasons
+}
+
+// IsHandoffStale reports whether st.LastHandoff has drifted or references completed work.
+func (st *State) IsHandoffStale() bool {
+	return len(st.HandoffStaleReasons()) > 0
+}
+
+// RefreshHandoffStaleness updates Stale and StaleReason on st.LastHandoff from live git and board state.
+func (st *State) RefreshHandoffStaleness() {
+	if st == nil || st.LastHandoff == nil {
+		return
+	}
+	h := st.LastHandoff
+	wasExplicitlyStale := h.Stale && h.CheckpointSHA == "" && h.Branch == ""
+	prevReason := h.StaleReason
+	h.Stale = false
+	h.StaleReason = ""
+	reasons := st.HandoffStaleReasons()
+	if len(reasons) > 0 {
+		h.Stale = true
+		h.StaleReason = strings.Join(reasons, "; ")
+	} else if wasExplicitlyStale {
+		h.Stale = true
+		h.StaleReason = prevReason
+	}
+}
+
+// ResolveClientPID returns a long-lived client process PID that outlives ephemeral hook subprocesses.
+func ResolveClientPID() int {
+	if raw := strings.TrimSpace(os.Getenv("ATEAM_CLIENT_PID")); raw != "" {
+		if pid, err := strconv.Atoi(raw); err == nil && pid > 0 {
+			return pid
+		}
+	}
+	if ppid := os.Getppid(); ppid > 1 {
+		return ppid
+	}
+	return os.Getpid()
+}
+
+// IsProcessAlive reports whether pid refers to a currently running OS process.
+func IsProcessAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // CacheFilePath returns the path to .ateam/state.json under root.
@@ -199,7 +354,7 @@ func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
 	wl := &WriterLease{
 		Agent:     agent,
 		SessionID: strings.TrimSpace(sessionID),
-		PID:       os.Getpid(),
+		PID:       ResolveClientPID(),
 		LastSeen:  time.Now().UTC(),
 	}
 	if os.Getenv("HERDR_ENV") == "1" {
@@ -392,16 +547,19 @@ func (st *State) UpsertCard(card BoardCard) (BoardCard, error) {
 	return card, nil
 }
 
-// MergeForgeCards merges newly fetched remote cards for provider while preserving local and other-forge cards.
-func (st *State) MergeForgeCards(synced []BoardCard, provider ForgeProvider) {
-	syncedByID := make(map[string]BoardCard, len(synced))
-	for _, c := range synced {
-		syncedByID[c.ID] = c
-	}
-	var merged []BoardCard
-	seen := make(map[string]bool, len(st.Cards)+len(synced))
+// MergeForgeCards replaces the board with newly fetched remote cards for provider, dropping cards with no forge counterpart while preserving hold reasons and decision summaries on matching IDs.
+func (st *State) MergeForgeCards(synced []BoardCard, _ ForgeProvider) {
+	existingByID := make(map[string]BoardCard, len(st.Cards))
 	for _, existing := range st.Cards {
-		if updated, ok := syncedByID[existing.ID]; ok {
+		existingByID[existing.ID] = existing
+	}
+	merged := make([]BoardCard, 0, len(synced))
+	seen := make(map[string]bool, len(synced))
+	for _, updated := range synced {
+		if seen[updated.ID] {
+			continue
+		}
+		if existing, ok := existingByID[updated.ID]; ok {
 			if updated.HoldReason == "" && existing.HoldReason != "" {
 				updated.HoldReason = existing.HoldReason
 			}
@@ -411,22 +569,13 @@ func (st *State) MergeForgeCards(synced []BoardCard, provider ForgeProvider) {
 			if updated.Decision == "" && existing.Decision != "" {
 				updated.Decision = existing.Decision
 			}
-			merged = append(merged, updated)
-			seen[existing.ID] = true
-			continue
 		}
-		if existing.Forge != string(provider) || strings.HasPrefix(existing.ID, "ATEAM-") {
-			merged = append(merged, existing)
-			seen[existing.ID] = true
-		}
-	}
-	for _, c := range synced {
-		if !seen[c.ID] {
-			merged = append(merged, c)
-			seen[c.ID] = true
-		}
+		merged = append(merged, updated)
+		seen[updated.ID] = true
 	}
 	st.Cards = merged
+	st.BoardSyncedAt = time.Now().UTC()
+	st.RefreshHandoffStaleness()
 }
 
 // MoveCard moves an existing card by ID to a new column and optional agent assignee.
@@ -494,8 +643,38 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 		if syncRemote {
 			st.MergeForgeCards(syncedCards, forgeCfg.Provider)
 		}
+		st.RefreshHandoffStaleness()
 		return nil
 	})
+}
+
+// RefreshWithBestEffortSync refreshes local state and attempts a bounded remote forge sync when a remote forge is configured and the board cache is older than maxAge (falling back to cached cards on sync failure).
+func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Duration) (*State, error) {
+	st, err := Refresh(ctx, root, false)
+	if err != nil {
+		return nil, err
+	}
+	if st.Forge.Provider != ForgeGitHub && st.Forge.Provider != ForgeGitea {
+		return st, nil
+	}
+	if maxAge > 0 && !st.BoardSyncedAt.IsZero() && time.Since(st.BoardSyncedAt) < maxAge {
+		return st, nil
+	}
+	sctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	cards, syncErr := SyncForgeBoard(sctx, root, st.Forge)
+	if syncErr != nil {
+		return st, nil
+	}
+	updated, err := Update(root, func(cur *State) error {
+		cur.MergeForgeCards(cards, st.Forge.Provider)
+		return nil
+	})
+	if err != nil {
+		return st, nil
+	}
+	updated.CurrentSessionID = st.CurrentSessionID
+	return updated, nil
 }
 
 // refreshForgeConfig seeds automatic detection until the user explicitly edits settings.
@@ -788,8 +967,12 @@ func BuildPickupSummary(st *State) string {
 	if st.HoldScanError != "" {
 		holdsDisplay = "unavailable"
 	}
-	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%s\n",
-		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay)
+	syncedDisplay := "never"
+	if !st.BoardSyncedAt.IsZero() {
+		syncedDisplay = st.BoardSyncedAt.UTC().Format(time.RFC3339)
+	}
+	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%s | build=%s | synced=%s\n",
+		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay, BuildLabel(), syncedDisplay)
 	if st.HoldScanError != "" {
 		fmt.Fprintf(&b, "WARNING: Hold/OpenSpec scan failed (%s) — hold status unavailable\n", st.HoldScanError)
 	}
@@ -802,14 +985,25 @@ func BuildPickupSummary(st *State) string {
 		if st.Writer.HerdrPaneID != "" {
 			pane = fmt.Sprintf(" (herdr pane %s)", st.Writer.HerdrPaneID)
 		}
-		fmt.Fprintf(&b, "Writer lease: agent=%s session=%s pid=%d last_seen=%s ago%s\n",
-			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
+		pidAlive := IsProcessAlive(st.Writer.PID)
+		pidSuffix := ""
+		if st.Writer.PID > 0 && !pidAlive {
+			pidSuffix = " (exited)"
+		}
+		fmt.Fprintf(&b, "Writer lease: agent=%s session=%s pid=%d%s last_seen=%s ago%s\n",
+			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, pidSuffix, age, pane)
 		curSession := strings.TrimSpace(st.CurrentSessionID)
 		if curSession == "" {
 			curSession = strings.TrimSpace(os.Getenv("ATEAM_SESSION_ID"))
 		}
+		if curSession == "" {
+			curSession = strings.TrimSpace(os.Getenv("CLAUDE_SESSION_ID"))
+		}
 		leaseSession := strings.TrimSpace(st.Writer.SessionID)
-		if time.Since(st.Writer.LastSeen) < 10*time.Minute && leaseSession != "" && leaseSession != curSession {
+		sameSession := curSession != "" && leaseSession == curSession
+		sameClientPID := curSession == "" && st.Writer.PID > 0 && (st.Writer.PID == ResolveClientPID() || st.Writer.PID == os.Getpid())
+		sameHerdrPane := os.Getenv("HERDR_ENV") == "1" && st.Writer.HerdrPaneID != "" && st.Writer.HerdrPaneID == strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
+		if time.Since(st.Writer.LastSeen) < 10*time.Minute && pidAlive && leaseSession != "" && !sameSession && !sameClientPID && !sameHerdrPane {
 			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)%s\n",
 				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		}
@@ -842,11 +1036,12 @@ func BuildPickupSummary(st *State) string {
 		}
 	}
 	if st.LastHandoff != nil {
-		drift := ""
-		if st.LastHandoff.CheckpointSHA != "" && st.Git.HeadSHA != "" && st.LastHandoff.CheckpointSHA != st.Git.HeadSHA {
-			drift = fmt.Sprintf(" (HEAD drifted from %s -> %s)", st.LastHandoff.CheckpointSHA, st.Git.HeadSHA)
+		reasons := st.HandoffStaleReasons()
+		if len(reasons) > 0 {
+			fmt.Fprintf(&b, "Last Handoff (%s): STALE — handoff omitted (%s)\n", reasons[0], strings.Join(reasons, "; "))
+		} else {
+			fmt.Fprintf(&b, "Last Handoff:\n%s", FormatFiveFieldPrompt(*st.LastHandoff))
 		}
-		fmt.Fprintf(&b, "Last Handoff%s:\n%s", drift, FormatFiveFieldPrompt(*st.LastHandoff))
 	}
 	return strings.TrimSpace(b.String())
 }

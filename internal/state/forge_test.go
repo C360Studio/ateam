@@ -131,28 +131,26 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 	st := &State{
 		Cards: []BoardCard{
 			{ID: "LOCAL-1", Title: "Local task card", Column: "backlog", Forge: "local"},
+			{ID: "GH-99", Number: 99, Title: "Remote Issue", Column: "backlog", Forge: "github", HoldReason: "Hold: waiting on schema", Decision: "Decision: keep hold"},
 		},
 	}
-	// Astra #2: Dashboard-created card (UpsertCard with Forge: "github") gets ATEAM-* ID and must survive empty and non-empty GitHub sync.
-	uiCard, err := st.UpsertCard(BoardCard{Title: "Created in dashboard", Forge: "github", Column: "backlog"})
+	uiCard, err := st.UpsertCard(BoardCard{Title: "Demo ATEAM card", Forge: "github", Column: "backlog"})
 	if err != nil {
 		t.Fatalf("UpsertCard: %v", err)
 	}
-	st.MergeForgeCards(nil, ForgeGitHub)
-	if len(st.Cards) != 2 {
-		t.Fatalf("expected 2 local/dashboard cards after empty GitHub sync, got %d: %+v", len(st.Cards), st.Cards)
-	}
 	st.MergeForgeCards(synced, ForgeGitHub)
-	if len(st.Cards) != 4 {
-		t.Fatalf("expected 4 cards after MergeForgeCards (1 local + 1 dashboard ATEAM + 2 github), got %d: %+v", len(st.Cards), st.Cards)
+	if st.BoardSyncedAt.IsZero() {
+		t.Fatal("expected BoardSyncedAt to be recorded after MergeForgeCards")
 	}
-	foundUI := false
+	if len(st.Cards) != 2 {
+		t.Fatalf("expected 2 live github cards after MergeForgeCards (unbacked LOCAL-1 and %s pruned), got %d: %+v", uiCard.ID, len(st.Cards), st.Cards)
+	}
 	for _, c := range st.Cards {
-		if c.ID == uiCard.ID {
-			foundUI = true
+		if c.ID == uiCard.ID || c.ID == "LOCAL-1" {
+			t.Fatalf("unbacked card %s survived MergeForgeCards: %+v", c.ID, st.Cards)
 		}
-	}
-	if !foundUI {
-		t.Fatalf("dashboard card %s lost after MergeForgeCards", uiCard.ID)
+		if c.ID == "GH-99" && (c.HoldReason != "Hold: waiting on schema" || c.Decision != "Decision: keep hold") {
+			t.Fatalf("matching card GH-99 lost HoldReason or Decision: %+v", c)
+		}
 	}
 }

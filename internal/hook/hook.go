@@ -122,7 +122,11 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 			scanErrs = append(scanErrs, err.Error())
 		}
 		st.HoldScanError = strings.Join(scanErrs, "; ")
+		st.RefreshHandoffStaleness()
 		ctxText := state.BuildPickupSummary(st)
+		if sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active") {
+			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
+		}
 		if st.Mode != state.ModeOff {
 			ctxText += "\n\n" + LadderPrompt(st.Mode)
 		}
@@ -165,13 +169,16 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 			cur.Shortcuts = shortcuts
 			cur.Holds = holds
 			cur.HoldScanError = ""
-			if cur.LastHandoff == nil {
+			cur.RefreshHandoffStaleness()
+			foreignSession := sessionID != "" && cur.LastHandoff != nil && cur.LastHandoff.SessionID != "" && cur.LastHandoff.SessionID != sessionID
+			if cur.LastHandoff == nil || cur.LastHandoff.Stale || foreignSession {
 				cur.LastHandoff = &state.Handoff{
 					Goal:          "Auto-saved before context compaction",
 					Addresses:     fmt.Sprintf("branch %s, SHA %s", cur.Git.Branch, cur.Git.HeadSHA),
 					Constraints:   fmt.Sprintf("%d active holds, %d shortcuts", len(cur.Holds), len(cur.Shortcuts)),
 					DoneWhen:      "Run task verify and reconcile via /pickup",
 					ChecksToRun:   "ateam state pickup && task verify",
+					SessionID:     sessionID,
 					Branch:        cur.Git.Branch,
 					CheckpointSHA: cur.Git.HeadSHA,
 					Dirty:         cur.Git.Dirty,
@@ -180,6 +187,9 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 				}
 			} else {
 				cur.LastHandoff.AutoCompacted = true
+				if cur.LastHandoff.SessionID == "" && sessionID != "" {
+					cur.LastHandoff.SessionID = sessionID
+				}
 				cur.LastHandoff.UpdatedAt = time.Now().UTC()
 			}
 			return nil

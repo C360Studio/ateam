@@ -217,7 +217,7 @@ func sanitizeRefName(in string) string {
 }
 
 // TestPropMergeForgeCardsHistory checks State.MergeForgeCards across generated histories of
-// local, github, and gitea board operations against an independent test-owned reference model.
+// demo/local card insertions and remote forge syncs against an independent reference model.
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 func TestPropMergeForgeCardsHistory(t *testing.T) {
 	var assertionsRun int
@@ -227,62 +227,67 @@ func TestPropMergeForgeCardsHistory(t *testing.T) {
 		numSteps := int(steps%12) + 3 // 3..14 steps per history
 
 		var st State
-		// Independent reference model: forge -> ordered slice of cards
-		refModel := map[string][]BoardCard{
-			"local":  {},
-			"github": {},
-			"gitea":  {},
-		}
+		var refCards []BoardCard
 
 		for step := 0; step < numSteps; step++ {
 			op := rng.Intn(3)
 			switch op {
-			case 0: // Add or replace local cards
-				id := fmt.Sprintf("local-%d", rng.Intn(5)+1)
-				card := BoardCard{ID: id, Title: fmt.Sprintf("Local %d", step), Column: "backlog", Forge: "local"}
-				st.Cards = append(filterOutForgeAndID(st.Cards, "local", id), card)
-				refModel["local"] = append(filterOutForgeAndID(refModel["local"], "local", id), card)
-			case 1: // Sync GitHub batch
+			case 0: // Insert unbacked ATEAM-* demo card
+				id := fmt.Sprintf("ATEAM-%d", rng.Intn(5)+1)
+				card := BoardCard{ID: id, Title: fmt.Sprintf("Demo %d", step), Column: "backlog", Forge: "github"}
+				st.Cards = append(filterOutID(st.Cards, id), card)
+				refCards = append(filterOutID(refCards, id), card)
+			case 1, 2: // Sync remote forge batch (replaces board snapshot while preserving HoldReason/Decision on matching IDs)
+				forgeName := "github"
+				prefix := "gh"
+				if op == 2 {
+					forgeName = "gitea"
+					prefix = "gt"
+				}
 				batchSize := rng.Intn(4)
 				var batch []BoardCard
 				for i := 0; i < batchSize; i++ {
+					col := "in-progress"
+					if rng.Intn(2) == 1 {
+						col = "needs-decision"
+					}
 					batch = append(batch, BoardCard{
-						ID:     fmt.Sprintf("gh-%d", i+1),
-						Title:  fmt.Sprintf("GH step %d item %d", step, i+1),
-						Column: "in-progress",
-						Forge:  "github",
+						ID:         fmt.Sprintf("%s-%d", prefix, i+1),
+						Title:      fmt.Sprintf("%s step %d item %d", forgeName, step, i+1),
+						Column:     col,
+						Forge:      forgeName,
+						HoldReason: fmt.Sprintf("hold-%d", step%2),
 					})
 				}
-				st.MergeForgeCards(batch, ForgeGitHub)
-				refModel["github"] = append([]BoardCard(nil), batch...)
-			case 2: // Sync Gitea batch
-				batchSize := rng.Intn(4)
-				var batch []BoardCard
-				for i := 0; i < batchSize; i++ {
-					batch = append(batch, BoardCard{
-						ID:     fmt.Sprintf("gt-%d", i+1),
-						Title:  fmt.Sprintf("Gitea step %d item %d", step, i+1),
-						Column: "in-review",
-						Forge:  "gitea",
-					})
+				refByID := make(map[string]BoardCard, len(refCards))
+				for _, c := range refCards {
+					refByID[c.ID] = c
 				}
-				st.MergeForgeCards(batch, ForgeGitea)
-				refModel["gitea"] = append([]BoardCard(nil), batch...)
+				var nextRef []BoardCard
+				for _, b := range batch {
+					if prev, ok := refByID[b.ID]; ok {
+						if b.HoldReason == "" && prev.HoldReason != "" {
+							b.HoldReason = prev.HoldReason
+						}
+						if prev.Column == "needs-decision" && b.Column != "needs-decision" && b.Decision == "" {
+							b.Decision = fmt.Sprintf("resolved -> %s", b.Column)
+						}
+						if b.Decision == "" && prev.Decision != "" {
+							b.Decision = prev.Decision
+						}
+					}
+					nextRef = append(nextRef, b)
+				}
+				st.MergeForgeCards(batch, ForgeProvider(forgeName))
+				refCards = nextRef
 			}
 
-			// Compare state against independent reference model
-			want := make(map[string]BoardCard)
-			for _, cards := range refModel {
-				for _, c := range cards {
-					want[c.Forge+":"+c.ID] = c
-				}
-			}
-			if len(st.Cards) != len(want) {
+			if len(st.Cards) != len(refCards) {
 				return false
 			}
-			for _, gotCard := range st.Cards {
-				w, ok := want[gotCard.Forge+":"+gotCard.ID]
-				if !ok || w.Title != gotCard.Title || w.Column != gotCard.Column {
+			for i, gotCard := range st.Cards {
+				w := refCards[i]
+				if w.ID != gotCard.ID || w.Title != gotCard.Title || w.Column != gotCard.Column || w.HoldReason != gotCard.HoldReason || w.Decision != gotCard.Decision {
 					return false
 				}
 			}
@@ -303,10 +308,10 @@ func TestPropMergeForgeCardsHistory(t *testing.T) {
 	}
 }
 
-func filterOutForgeAndID(cards []BoardCard, forge, id string) []BoardCard {
+func filterOutID(cards []BoardCard, id string) []BoardCard {
 	var out []BoardCard
 	for _, c := range cards {
-		if c.Forge == forge && c.ID == id {
+		if c.ID == id {
 			continue
 		}
 		out = append(out, c)

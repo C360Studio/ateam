@@ -99,6 +99,7 @@ func Serve(ctx context.Context, root string, in io.Reader, out io.Writer) error 
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	enc := json.NewEncoder(out)
+	sessionID := resolveEnvSessionID()
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -116,7 +117,7 @@ func Serve(ctx context.Context, root string, in io.Reader, out io.Writer) error 
 		if req.ID == nil && strings.HasPrefix(req.Method, "notifications/") {
 			continue
 		}
-		resp := handleRPC(ctx, root, req)
+		resp := handleRPC(ctx, root, req, &sessionID)
 		if err := enc.Encode(resp); err != nil {
 			return err
 		}
@@ -124,15 +125,69 @@ func Serve(ctx context.Context, root string, in io.Reader, out io.Writer) error 
 	return scanner.Err()
 }
 
-func handleRPC(ctx context.Context, root string, req rpcRequest) rpcResponse {
+func resolveEnvSessionID() string {
+	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func extractInitSessionID(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var p struct {
+		SessionID      string `json:"sessionId"`
+		SessionIDSnake string `json:"session_id"`
+		ConversationID string `json:"conversationId"`
+		Meta           struct {
+			SessionID      string `json:"sessionId"`
+			SessionIDSnake string `json:"session_id"`
+			ConversationID string `json:"conversationId"`
+		} `json:"_meta"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return ""
+	}
+	for _, candidate := range []string{p.SessionID, p.SessionIDSnake, p.ConversationID, p.Meta.SessionID, p.Meta.SessionIDSnake, p.Meta.ConversationID} {
+		if s := strings.TrimSpace(candidate); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func resolveEffectiveSessionID(st *state.State, explicit ...string) string {
+	for _, s := range explicit {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			return trimmed
+		}
+	}
+	if envID := resolveEnvSessionID(); envID != "" {
+		return envID
+	}
+	if st != nil && st.Writer != nil && st.Writer.PID > 0 {
+		if st.Writer.PID == state.ResolveClientPID() || st.Writer.PID == os.Getpid() {
+			return strings.TrimSpace(st.Writer.SessionID)
+		}
+	}
+	return ""
+}
+
+func handleRPC(ctx context.Context, root string, req rpcRequest, sessionID *string) rpcResponse {
 	switch req.Method {
 	case "initialize":
+		if initSess := extractInitSessionID(req.Params); initSess != "" && sessionID != nil {
+			*sessionID = initSess
+		}
 		return rpcResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result: map[string]any{
 				"protocolVersion": "2024-11-05",
-				"serverInfo":      map[string]any{"name": "ateam", "version": "0.1.0"},
+				"serverInfo":      map[string]any{"name": "ateam", "version": "0.1.0 (" + state.BuildLabel() + ")"},
 				"capabilities": map[string]any{
 					"tools":     map[string]any{},
 					"prompts":   map[string]any{},
@@ -145,7 +200,11 @@ func handleRPC(ctx context.Context, root string, req rpcRequest) rpcResponse {
 	case "tools/list":
 		return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": Tools()}}
 	case "tools/call":
-		return handleToolCall(ctx, root, req)
+		curSess := ""
+		if sessionID != nil {
+			curSess = *sessionID
+		}
+		return handleToolCall(ctx, root, req, curSess)
 	case "prompts/list":
 		return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"prompts": listPrompts()}}
 	case "prompts/get":
@@ -153,7 +212,11 @@ func handleRPC(ctx context.Context, root string, req rpcRequest) rpcResponse {
 	case "resources/list":
 		return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"resources": listResources()}}
 	case "resources/read":
-		return handleResourceRead(ctx, root, req)
+		curSess := ""
+		if sessionID != nil {
+			curSess = *sessionID
+		}
+		return handleResourceRead(ctx, root, req, curSess)
 	default:
 		return rpcResponse{
 			JSONRPC: "2.0",
@@ -163,7 +226,7 @@ func handleRPC(ctx context.Context, root string, req rpcRequest) rpcResponse {
 	}
 }
 
-func handleToolCall(ctx context.Context, root string, req rpcRequest) rpcResponse {
+func handleToolCall(ctx context.Context, root string, req rpcRequest, sessionID string) rpcResponse {
 	var call struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -174,7 +237,7 @@ func handleToolCall(ctx context.Context, root string, req rpcRequest) rpcRespons
 
 	switch call.Name {
 	case "ateam_state":
-		text, isErr := execStateTool(ctx, root, call.Arguments)
+		text, isErr := execStateTool(ctx, root, call.Arguments, sessionID)
 		return toolTextResp(req.ID, text, isErr)
 	case "ateam_task":
 		text, isErr := execTaskTool(ctx, root, call.Arguments)
@@ -184,23 +247,34 @@ func handleToolCall(ctx context.Context, root string, req rpcRequest) rpcRespons
 	}
 }
 
-func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage) (string, bool) {
+func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, connSessionID string) (string, bool) {
 	var args struct {
-		Action      string `json:"action"`
-		Mode        string `json:"mode"`
-		Goal        string `json:"goal"`
-		Addresses   string `json:"addresses"`
-		Constraints string `json:"constraints"`
-		DoneWhen    string `json:"done_when"`
-		ChecksToRun string `json:"checks_to_run"`
-		Post        *bool  `json:"post"`
+		Action         string `json:"action"`
+		Mode           string `json:"mode"`
+		Goal           string `json:"goal"`
+		Addresses      string `json:"addresses"`
+		Constraints    string `json:"constraints"`
+		DoneWhen       string `json:"done_when"`
+		ChecksToRun    string `json:"checks_to_run"`
+		Post           *bool  `json:"post"`
+		SessionID      string `json:"session_id"`
+		ConversationID string `json:"conversationId"`
 	}
 	_ = json.Unmarshal(rawArgs, &args)
 
-	st, err := state.Refresh(ctx, root, false)
+	var (
+		st  *state.State
+		err error
+	)
+	if args.Action == "pickup" || args.Action == "board" {
+		st, err = state.RefreshWithBestEffortSync(ctx, root, 30*time.Second)
+	} else {
+		st, err = state.Refresh(ctx, root, false)
+	}
 	if err != nil {
 		return err.Error(), true
 	}
+	st.CurrentSessionID = resolveEffectiveSessionID(st, args.SessionID, args.ConversationID, connSessionID)
 
 	switch args.Action {
 	case "pickup":
@@ -212,6 +286,7 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage) (s
 			Constraints:   args.Constraints,
 			DoneWhen:      args.DoneWhen,
 			ChecksToRun:   args.ChecksToRun,
+			SessionID:     st.CurrentSessionID,
 			Branch:        st.Git.Branch,
 			CheckpointSHA: st.Git.HeadSHA,
 			Dirty:         st.Git.Dirty,
@@ -346,15 +421,24 @@ func listResources() []map[string]any {
 	}
 }
 
-func handleResourceRead(ctx context.Context, root string, req rpcRequest) rpcResponse {
+func handleResourceRead(ctx context.Context, root string, req rpcRequest, connSessionID string) rpcResponse {
 	var r struct {
 		URI string `json:"uri"`
 	}
 	_ = json.Unmarshal(req.Params, &r)
-	st, err := state.Refresh(ctx, root, false)
+	var (
+		st  *state.State
+		err error
+	)
+	if r.URI == "ateam://state/pickup" || r.URI == "ateam://state/board" {
+		st, err = state.RefreshWithBestEffortSync(ctx, root, 30*time.Second)
+	} else {
+		st, err = state.Refresh(ctx, root, false)
+	}
 	if err != nil {
 		return rpcErrorResp(req.ID, -32603, err.Error())
 	}
+	st.CurrentSessionID = resolveEffectiveSessionID(st, connSessionID)
 	var text string
 	switch r.URI {
 	case "ateam://state/pickup":

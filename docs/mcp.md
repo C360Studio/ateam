@@ -72,16 +72,16 @@ Expect initialization followed by exactly two tool definitions. EOF stops this t
 
 ## Tool reference
 
-`ateam_state` requires `action`. Every action first refreshes local repository state and saves `.ateam/state.json`; it does not perform a remote board sync. Use the CLI `ateam state sync` for that—there is no MCP `sync` action.
+`ateam_state` requires `action`. Every action first refreshes local repository state and saves `.ateam/state.json`; `pickup` and `board` also attempt a bounded remote forge sync when a remote forge is configured (falling back to cached cards on failure), and `ateam state sync` performs an explicit CLI sync.
 
 | Action | Arguments and result | Additional effects |
 | --- | --- | --- |
-| `pickup` | `{"action":"pickup"}` returns a human-readable reconciliation summary. | Local refresh only. |
+| `pickup` | `{"action":"pickup"}` returns a human-readable reconciliation summary including `build` and `synced` timestamps. | Refreshes local state and attempts a bounded remote sync when stale. |
 | `debt` | Returns scanned shortcuts as JSON text. | Limited to [supported extensions](adoption.md#feature-and-language-boundaries). |
 | `mode` | Without `mode`, reads current mode; with `"mode":"lite"`, `"full"`, `"ultra"`, or `"off"`, changes it and returns mode/ladder text. | Saves mode when supplied; does not change provider/model settings. |
 | `spec_queue` | Returns in-flight OpenSpec task/caveat summary. | Local refresh only. |
 | `spec_check` | Validates OpenSpec and reports tool error on invalid specs. | May invoke installed OpenSpec CLI. |
-| `board` | Returns cached board cards as JSON text. | Does not fetch fresh forge cards. |
+| `board` | Returns board cards as JSON text. | Attempts a bounded remote forge sync when stale, falling back to cache on failure. |
 | `handoff` | Accepts `goal`, `addresses`, `constraints`, `done_when`, `checks_to_run`, and optional boolean `post`. Returns the five-field checkpoint and posting status. | Saves checkpoint, attempts to clear the writer lease, and **defaults to attempting a PR comment** when a forge is configured. Set `post:false` for local-only use. |
 
 Example local-only handoff:
