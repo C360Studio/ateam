@@ -109,6 +109,40 @@ func ParseGitRemote(remoteURL string) (host, owner, repo string) {
 	return u.Host, parts[len(parts)-2], strings.TrimSuffix(parts[len(parts)-1], ".git")
 }
 
+// MergeConfiguredForges combines the primary detected forge with any saved forge configs without duplicating providers.
+func MergeConfiguredForges(primary ForgeConfig, saved []ForgeConfig) []ForgeConfig {
+	var out []ForgeConfig
+	seen := make(map[ForgeProvider]int)
+
+	add := func(cfg ForgeConfig) {
+		p := ForgeProvider(strings.ToLower(strings.TrimSpace(string(cfg.Provider))))
+		if p != ForgeGitHub && p != ForgeGitea {
+			return
+		}
+		cfg.Provider = p
+		cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+		cfg.Owner = strings.TrimSpace(cfg.Owner)
+		cfg.Repo = strings.TrimSpace(cfg.Repo)
+		if cfg.Provider == ForgeGitHub && cfg.BaseURL == "" {
+			cfg.BaseURL = "https://api.github.com"
+		}
+		if idx, ok := seen[p]; ok {
+			if cfg.Owner != "" && cfg.Repo != "" {
+				out[idx] = cfg
+			}
+			return
+		}
+		seen[p] = len(out)
+		out = append(out, cfg)
+	}
+
+	add(primary)
+	for _, s := range saved {
+		add(s)
+	}
+	return out
+}
+
 // SyncForgeBoard fetches issues and PR claims from GitHub or Gitea and converts them into BoardCards.
 func SyncForgeBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
 	switch cfg.Provider {

@@ -180,7 +180,7 @@ From the web board you can:
 - View and manage work items in a **Kanban board** (`Backlog`, `In Progress`, `Review`, `Done`) or **Table view**.
 - Sync issues and PRs from **GitHub** or **Gitea** (`Sync Forge` button or `ateam state sync`).
 - Inspect active **OpenSpec changes**, **`Hold:` blockers**, and **`// shortcut:` items**.
-- Switch the repository's discipline level (`lite`, `full`, `ultra`, `off`).
+- Open the top-right **User Profile & Settings** menu (auto-detected from `git config user.name` / `user.email`) to switch the repository's **Agent Discipline Mode** (`lite`, `full`, `ultra`, `off`) or configure `ATEAM_API_TOKEN`.
 - Receive live issue and pull request webhooks at `/api/webhooks/github` (`X-Hub-Signature-256`) and `/api/webhooks/gitea` (`X-Gitea-Signature`) when `ATEAM_WEBHOOK_SECRET` is set.
 
 ---
@@ -253,3 +253,11 @@ From the web board you can:
 │   └── web/                   # HTTP server, REST API, webhook handlers, and embedded UI
 └── ui/                        # Svelte 5 + SvelteKit source for the web board
 ```
+
+---
+
+## Acknowledgments
+
+- **Ponytail:** Inspired the "lazy senior developer" 6-step decision ladder, agent discipline modes (`lite`, `full`, `ultra`, `off`), and inline `// shortcut:` technical debt tracking, ported and adapted natively in Go for `ateam`.
+- **SemEngine:** Inspired the 5-field session handoff, pickup, and live git/worktree reconciliation protocol.
+- **OpenSpec:** Inspired the spec-driven `openspec/` change queue and inline `Hold:` blocker discipline.

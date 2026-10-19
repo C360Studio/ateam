@@ -75,10 +75,11 @@ func FormatFiveFieldPrompt(h Handoff) string {
 
 // Worktree describes an active git worktree.
 type Worktree struct {
-	Path   string `json:"path"`
-	Head   string `json:"head"`
-	Branch string `json:"branch"`
-	Agent  string `json:"agent,omitempty"`
+	Path    string `json:"path"`
+	Head    string `json:"head"`
+	Branch  string `json:"branch"`
+	Agent   string `json:"agent,omitempty"`
+	Subject string `json:"subject,omitempty"`
 }
 
 // GitStatus captures the deterministic git and worktree state of a repository.
@@ -88,6 +89,8 @@ type GitStatus struct {
 	Dirty      bool       `json:"dirty"`
 	DirtyFiles []string   `json:"dirty_files,omitempty"`
 	RemoteURL  string     `json:"remote_url,omitempty"`
+	UserName   string     `json:"user_name,omitempty"`
+	UserEmail  string     `json:"user_email,omitempty"`
 	Worktrees  []Worktree `json:"worktrees,omitempty"`
 }
 
@@ -101,6 +104,7 @@ type BoardCard struct {
 	Labels     []string  `json:"labels,omitempty"`
 	Agent      string    `json:"agent,omitempty"`
 	Branch     string    `json:"branch,omitempty"`
+	Spec       string    `json:"spec,omitempty"`
 	Milestone  string    `json:"milestone,omitempty"`
 	HoldReason string    `json:"hold_reason,omitempty"`
 	Decision   string    `json:"decision,omitempty"`
@@ -121,6 +125,7 @@ type WriterLease struct {
 type State struct {
 	Mode             DisciplineMode   `json:"mode"`
 	Forge            ForgeConfig      `json:"forge"`
+	Forges           []ForgeConfig    `json:"forges,omitempty"`
 	LastHandoff      *Handoff         `json:"last_handoff,omitempty"`
 	Writer           *WriterLease     `json:"writer,omitempty"`
 	CurrentSessionID string           `json:"-"`
@@ -130,6 +135,7 @@ type State struct {
 	Holds            []HoldItem       `json:"holds,omitempty"`
 	HoldScanError    string           `json:"hold_scan_error,omitempty"`
 	OpenSpecQueue    []OpenSpecChange `json:"openspec_queue,omitempty"`
+	OpenSpecSpecs    []OpenSpecSpec   `json:"openspec_specs,omitempty"`
 	UpdatedAt        time.Time        `json:"updated_at"`
 }
 
@@ -453,6 +459,10 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 	if err != nil {
 		return nil, err
 	}
+	specs, err := ScanOpenSpecSpecs(root)
+	if err != nil {
+		return nil, err
+	}
 	var syncedCards []BoardCard
 	if syncRemote {
 		cards, err := SyncForgeBoard(ctx, root, forgeCfg)
@@ -463,16 +473,91 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 	}
 	return Update(root, func(st *State) error {
 		st.Git = gs
+		st.Forges = MergeConfiguredForges(forgeCfg, st.Forges)
 		st.Forge = forgeCfg
+		if len(st.Forges) > 0 && (st.Forge.Provider == "" || st.Forge.Provider == ForgeLocal) {
+			st.Forge = st.Forges[0]
+		}
 		st.Shortcuts = shortcuts
 		st.Holds = holds
 		st.HoldScanError = ""
 		st.OpenSpecQueue = queue
+		st.OpenSpecSpecs = specs
 		if syncRemote {
 			st.MergeForgeCards(syncedCards, forgeCfg.Provider)
 		}
 		return nil
 	})
+}
+
+// UpsertForge adds or updates a configured forge provider on the state.
+func (st *State) UpsertForge(cfg ForgeConfig) error {
+	p := ForgeProvider(strings.ToLower(strings.TrimSpace(string(cfg.Provider))))
+	if p != ForgeGitHub && p != ForgeGitea {
+		return fmt.Errorf("forge provider must be github or gitea")
+	}
+	cfg.Provider = p
+	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	cfg.Owner = strings.TrimSpace(cfg.Owner)
+	cfg.Repo = strings.TrimSpace(cfg.Repo)
+	if cfg.Owner == "" || cfg.Repo == "" {
+		return fmt.Errorf("forge owner and repo are required")
+	}
+	if cfg.Provider == ForgeGitHub && cfg.BaseURL == "" {
+		cfg.BaseURL = "https://api.github.com"
+	}
+	if cfg.Provider == ForgeGitea && cfg.BaseURL == "" {
+		return fmt.Errorf("gitea base_url is required")
+	}
+	updated := false
+	for i := range st.Forges {
+		if st.Forges[i].Provider == cfg.Provider {
+			st.Forges[i] = cfg
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		st.Forges = append(st.Forges, cfg)
+	}
+	if st.Forge.Provider == "" || st.Forge.Provider == ForgeLocal || st.Forge.Provider == cfg.Provider {
+		st.Forge = cfg
+	}
+	return nil
+}
+
+// RemoveForge removes a configured forge provider from the state.
+func (st *State) RemoveForge(provider ForgeProvider) {
+	p := ForgeProvider(strings.ToLower(strings.TrimSpace(string(provider))))
+	var kept []ForgeConfig
+	for _, f := range st.Forges {
+		if f.Provider != p {
+			kept = append(kept, f)
+		}
+	}
+	st.Forges = kept
+	if st.Forge.Provider == p {
+		if len(st.Forges) > 0 {
+			st.Forge = st.Forges[0]
+		} else {
+			st.Forge = ForgeConfig{Provider: ForgeLocal}
+		}
+	}
+}
+
+// ResolveForge returns the ForgeConfig for provider from st.Forges, or falls back to st.Forge.
+func (st *State) ResolveForge(provider ForgeProvider) ForgeConfig {
+	p := ForgeProvider(strings.ToLower(strings.TrimSpace(string(provider))))
+	for _, f := range st.Forges {
+		if f.Provider == p {
+			return f
+		}
+	}
+	cfg := st.Forge
+	if p != "" {
+		cfg.Provider = p
+	}
+	return cfg
 }
 
 // SnapshotGit collects current branch, HEAD SHA, dirty files, remote URL, and worktree list.
@@ -487,6 +572,11 @@ func SnapshotGit(ctx context.Context, root string) GitStatus {
 		gs.HeadSHA = "uncommitted"
 	}
 	gs.RemoteURL = runGitLine(ctx, root, "remote", "get-url", "origin")
+	gs.UserName, gs.UserEmail = resolveGitUser(
+		runGitLine(ctx, root, "config", "user.name"),
+		runGitLine(ctx, root, "config", "user.email"),
+		currentOSUser(),
+	)
 
 	porcelain := runGitOutput(ctx, root, "status", "--porcelain")
 	if strings.TrimSpace(porcelain) != "" {
@@ -498,7 +588,36 @@ func SnapshotGit(ctx context.Context, root string) GitStatus {
 		}
 	}
 	gs.Worktrees = parseWorktrees(runGitOutput(ctx, root, "worktree", "list", "--porcelain"))
+	for i := range gs.Worktrees {
+		if gs.Worktrees[i].Head != "" {
+			gs.Worktrees[i].Subject = runGitLine(ctx, root, "log", "-1", "--format=%s", gs.Worktrees[i].Head)
+		}
+	}
 	return gs
+}
+
+func currentOSUser() string {
+	if u := strings.TrimSpace(os.Getenv("USER")); u != "" {
+		return u
+	}
+	return strings.TrimSpace(os.Getenv("USERNAME"))
+}
+
+func resolveGitUser(gitName, gitEmail, osUser string) (name, email string) {
+	name = strings.TrimSpace(gitName)
+	email = strings.TrimSpace(gitEmail)
+	if name == "" && email != "" {
+		if prefix, _, ok := strings.Cut(email, "@"); ok && strings.TrimSpace(prefix) != "" {
+			name = strings.TrimSpace(prefix)
+		}
+	}
+	if name == "" {
+		name = strings.TrimSpace(osUser)
+	}
+	if name == "" {
+		name = "Local User"
+	}
+	return name, email
 }
 
 func parseWorktrees(porcelain string) []Worktree {
