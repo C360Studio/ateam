@@ -33,7 +33,7 @@ func fakeClaudeExperiment(t *testing.T) Experiment {
 	e := testExperiment()
 	e.Command = []string{launcher}
 	e.Model = "explicit-test-model"
-	e.Claude = &ClaudeConfig{Reasoning: "low", Auth: "api-key-env"}
+	e.Claude = &ClaudeConfig{Reasoning: "low", Auth: "api-key-env", OutputFormat: "json-schema"}
 	t.Setenv("ANTHROPIC_API_KEY", claudeTestKey)
 	t.Setenv("ATEAM_SECRET_PROBE", "must-not-inherit")
 	for _, name := range []string{"OPENAI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_GENAI_USE_VERTEXAI", "NODE_OPTIONS", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "HTTP_PROXY", "HTTPS_PROXY"} {
@@ -171,7 +171,7 @@ func TestClaudeCLIHelper(_ *testing.T) {
 	answer, _ := json.Marshal(map[string]string{"source": "package safepath // key=" + os.Getenv("ANTHROPIC_API_KEY")})
 	usage := map[string]int{"input_tokens": 100, "output_tokens": 25, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
 	modelUsage := map[string]int{"inputTokens": 100, "outputTokens": 25, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0}
-	root := map[string]any{"type": "result", "subtype": "success", "is_error": false, "result": string(answer), "session_id": filepath.Base(cwd), "num_turns": 1, "total_cost_usd": 0.001, "usage": usage, "modelUsage": map[string]any{"explicit-test-model": modelUsage}}
+	root := map[string]any{"type": "result", "subtype": "success", "is_error": false, "result": "```json\n" + string(answer) + "\n```", "structured_output": map[string]string{"source": "package safepath // key=" + os.Getenv("ANTHROPIC_API_KEY")}, "session_id": filepath.Base(cwd), "num_turns": 1, "total_cost_usd": 0.001, "usage": usage, "modelUsage": map[string]any{"explicit-test-model": modelUsage}}
 	if strings.Contains(string(prompt), "failure") {
 		usage["input_tokens"], modelUsage["inputTokens"] = 41, 41
 		root["subtype"], root["is_error"] = "error_during_execution", true
@@ -195,7 +195,7 @@ func validateFakeClaudeInvocation(args []string) error {
 		}
 	}
 	allowedEnv := map[string]bool{}
-	for _, name := range []string{"PATH", "HOME", "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "TMPDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "GOWORK", "GOENV", "CLAUDE_CODE_MAX_OUTPUT_TOKENS", "CLAUDE_CODE_MAX_RETRIES", "DISABLE_AUTOUPDATER", "DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "PWD", "SHLVL", "_"} {
+	for _, name := range []string{"PATH", "HOME", "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "TMPDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "GOWORK", "GOENV", "CLAUDE_CODE_MAX_OUTPUT_TOKENS", "CLAUDE_CODE_MAX_RETRIES", "MAX_STRUCTURED_OUTPUT_RETRIES", "DISABLE_AUTOUPDATER", "DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "PWD", "SHLVL", "_"} {
 		allowedEnv[name] = true
 	}
 	for _, assignment := range os.Environ() {
@@ -222,11 +222,14 @@ func validateFakeClaudeInvocation(args []string) error {
 		return err
 	}
 	// This literal policy is the oracle, independent of claudeArguments.
-	expected := []string{"--model", "explicit-test-model", "--effort", "low", "--print", "--output-format", "json", "--bare", "--safe-mode", "--restricted", "--setting-sources", "", "--settings", ".claude/benchmark-settings.json", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--disable-slash-commands", "--no-chrome", "--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--max-turns", "4", "--no-session-persistence"}
+	expected := []string{"--model", "explicit-test-model", "--effort", "low", "--print", "--output-format", "json", "--bare", "--safe-mode", "--restricted", "--setting-sources", "", "--settings", ".claude/benchmark-settings.json", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--disable-slash-commands", "--no-chrome", "--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--max-turns", "4", "--no-session-persistence", "--json-schema", `{"type":"object","properties":{"source":{"type":"string"}},"required":["source"],"additionalProperties":false}`}
+	if !slices.Contains(args, "--json-schema") {
+		return fmt.Errorf("native JSON schema constraint missing")
+	}
 	if !slices.Equal(args, expected) {
 		return fmt.Errorf("execution policy arguments differ")
 	}
-	for key, want := range map[string]string{"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192", "CLAUDE_CODE_MAX_RETRIES": "0", "DISABLE_AUTOUPDATER": "1", "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1"} {
+	for key, want := range map[string]string{"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192", "CLAUDE_CODE_MAX_RETRIES": "0", "MAX_STRUCTURED_OUTPUT_RETRIES": "1", "DISABLE_AUTOUPDATER": "1", "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1"} {
 		if os.Getenv(key) != want {
 			return fmt.Errorf("execution limit missing: %s", key)
 		}
@@ -292,5 +295,25 @@ func TestClaudeMissingConfiguration(t *testing.T) {
 	_, _, _, status, err := executeClaude(context.Background(), e, AdapterRequest{}, t.TempDir())
 	if err == nil || status != "adapter-error" {
 		t.Fatal("invalid authentication config was accepted")
+	}
+}
+
+// Legacy provenance still derives its original arguments, but cannot launch a
+// new native run without the explicit structured-output policy.
+func TestClaudeLegacyExecutionRefused(t *testing.T) {
+	e := fakeClaudeExperiment(t)
+	for _, format := range []string{"", "unknown"} {
+		e.Claude.OutputFormat = format
+		if slices.Contains(claudeArguments(e), "--json-schema") {
+			t.Fatal("legacy provenance arguments changed")
+		}
+		dir := t.TempDir()
+		_, stdout, _, status, err := executeClaude(context.Background(), e, AdapterRequest{}, dir)
+		if err == nil || status != "adapter-error" || stdout != "" || !strings.Contains(err.Error(), "output_format json-schema") {
+			t.Fatalf("legacy execution not refused: %s %v", status, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".claude")); !os.IsNotExist(err) {
+			t.Fatal("legacy execution reached workspace preparation")
+		}
 	}
 }

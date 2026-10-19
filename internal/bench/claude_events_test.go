@@ -18,6 +18,102 @@ func claudeGoodOutput() string {
 	return claudeTestOutput(`{"claude-haiku-4-5-20251001":` + claudeGoodModel + `}`)
 }
 
+// A native schema reply supplies source in structured_output. The model's result
+// prose may contain fences and must neither override that field nor replace it.
+func TestClaudeStructuredOutputContract(t *testing.T) {
+	fenced, _ := json.Marshal("```json\n{\"source\":\"package prose\"}\n```")
+	withStructured := strings.Replace(claudeGoodOutput(), `"type":`, `"structured_output":{"source":"package structured\n"},"type":`, 1)
+	withStructured = strings.Replace(withStructured, `"{\"source\":\"package example\\n\"}"`, string(fenced), 1)
+	t.Run("native structured reply accepts fenced result", func(t *testing.T) {
+		r, err := parseClaudeStructuredOutput(withStructured)
+		if err != nil || r.Source != "package structured\n" || r.Usage == nil || r.Usage.InputTokens != 600 {
+			t.Fatalf("native structured reply was rejected or result prose was used: %+v %v", r, err)
+		}
+	})
+	t.Run("native StructuredOutput tool ends turn", func(t *testing.T) {
+		text := strings.Replace(withStructured, `"stop_reason":"end_turn"`, `"stop_reason":"tool_use"`, 1)
+		r, err := parseClaudeStructuredOutput(text)
+		if err != nil || r.Source != "package structured\n" || r.Native.Terminal != "completed" {
+			t.Fatalf("completed StructuredOutput tool rejected: %+v %v", r, err)
+		}
+		text = strings.Replace(claudeGoodOutput(), `"stop_reason":"end_turn"`, `"stop_reason":"tool_use"`, 1)
+		if r, err = parseClaudeStructuredOutput(text); err == nil || r.Source != "" {
+			t.Fatalf("tool_use without structured output accepted: %+v %v", r, err)
+		}
+		if r, err = parseClaudeOutput(text); err == nil || r.Source != "" {
+			t.Fatalf("legacy tool_use result was reinterpreted: %+v %v", r, err)
+		}
+	})
+	t.Run("missing structured field cannot use valid result", func(t *testing.T) {
+		r, err := parseClaudeStructuredOutput(claudeGoodOutput())
+		if err == nil || r.Source != "" || r.Usage == nil {
+			t.Fatalf("missing structured output fell back to result: %+v %v", r, err)
+		}
+	})
+	for name, value := range map[string]string{
+		"null":                   `null`,
+		"missing source":         `{}`,
+		"empty source":           `{"source":""}`,
+		"blank source":           `{"source":" \n\t"}`,
+		"null source":            `{"source":null}`,
+		"wrong source type":      `{"source":42}`,
+		"wrong source casing":    `{"Source":"package structured"}`,
+		"case alias extra field": `{"source":"package structured","Source":"package alias"}`,
+		"extra field":            `{"source":"package structured","extra":true}`,
+		"array":                  `[{"source":"package structured"}]`,
+		"number":                 `42`,
+		"string JSON":            `"{\"source\":\"package structured\"}"`,
+	} {
+		t.Run(name+" cannot fall back to valid result", func(t *testing.T) {
+			text := strings.Replace(claudeGoodOutput(), `"type":`, `"structured_output":`+value+`,"type":`, 1)
+			r, err := parseClaudeStructuredOutput(text)
+			if err == nil || r.Source != "" || r.Usage == nil || r.Usage.InputTokens != 600 {
+				t.Fatalf("invalid structured output fell back or lost usage: %+v %v", r, err)
+			}
+		})
+	}
+	t.Run("result optional and ignored", func(t *testing.T) {
+		for _, result := range []string{"", `,"result":null`, `,"result":"ordinary model prose"`, `,"result":"{\"source\":\"package conflicting\"}"`} {
+			text := strings.Replace(claudeGoodOutput(), `,"result":"{\"source\":\"package example\\n\"}"`, result, 1)
+			text = strings.Replace(text, `"type":`, `"structured_output":{"source":"package structured"},"type":`, 1)
+			r, err := parseClaudeStructuredOutput(text)
+			if err != nil || r.Source != "package structured" {
+				t.Fatalf("structured source depended on result text: %+v %v", r, err)
+			}
+		}
+	})
+	t.Run("legacy replay preserves exact contract", func(t *testing.T) {
+		r, err := parseClaudeOutput(withStructured)
+		if err == nil || r.Source != "" || r.Usage == nil {
+			t.Fatalf("legacy fenced response was reinterpreted: %+v %v", r, err)
+		}
+		text := strings.Replace(claudeGoodOutput(), `"type":`, `"structured_output":{"source":"package structured"},"type":`, 1)
+		r, err = parseClaudeOutput(text)
+		if err != nil || r.Source != "package example\n" {
+			t.Fatalf("legacy result overridden by structured source: %+v %v", r, err)
+		}
+	})
+}
+
+func TestClaudeStructuredOutputPreservesEnvelopeValidation(t *testing.T) {
+	good := strings.Replace(claudeGoodOutput(), `"type":`, `"structured_output":{"source":"package structured"},"type":`, 1)
+	for name, text := range map[string]string{
+		"duplicate source":           strings.Replace(good, `"source":"package structured"`, `"source":"package structured","source":"package other"`, 1),
+		"duplicate structured field": strings.Replace(good, `"type":`, `"structured_output":{"source":"package other"},"type":`, 1),
+		"failed envelope":            strings.Replace(good, `"is_error":false`, `"is_error":true`, 1),
+		"missing session":            strings.Replace(good, `"session_id":"test-session"`, `"session_id":""`, 1),
+		"truncated":                  strings.Replace(good, `"stop_reason":"end_turn"`, `"stop_reason":"max_tokens"`, 1),
+		"interrupted":                strings.Replace(good, `"terminal_reason":"completed"`, `"terminal_reason":"aborted_streaming"`, 1),
+		"invalid accounting":         strings.Replace(good, `"inputTokens":100`, `"inputTokens":-1`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if r, err := parseClaudeStructuredOutput(text); err == nil || r.Source != "" {
+				t.Fatalf("structured source bypassed envelope validation: %+v %v", r, err)
+			}
+		})
+	}
+}
+
 // The oracle is the native accounting definition: 100 uncached + 200 cache
 // creation + 300 cache read = 600 input; output 40 already includes thinking 10.
 // Adding main-loop usage or thinking twice must fail this assertion.

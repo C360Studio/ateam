@@ -35,12 +35,18 @@ func nativeArguments(e Experiment) []string {
 
 func parseNativeOutput(e Experiment, output string) (AdapterResponse, error) {
 	if e.Claude != nil {
+		if e.Claude.OutputFormat == "json-schema" {
+			return parseClaudeStructuredOutput(output)
+		}
 		return parseClaudeOutput(output)
 	}
 	return parseGeminiOutput(output)
 }
 
 func resolveNative(r *ResolvedExperiment, e Experiment) error {
+	if e.Claude != nil && e.Claude.OutputFormat != "json-schema" {
+		return fmt.Errorf("claude new execution requires output_format json-schema; legacy text format is replay-only")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, e.Command[0], "--version")
@@ -62,7 +68,7 @@ func resolveNative(r *ResolvedExperiment, e Experiment) error {
 	}
 	if e.Claude != nil {
 		r.ClaudeVersion = version
-		r.BudgetPolicy = "ANTHROPIC_API_KEY only via bare mode; local managed configuration refused; remote policy remains enforced and requires live preflight; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported whole-call modelUsage; 4 agentic turns/attempt and requested 8192 output tokens/request; no fallback accepted; native cost is a client estimate, not billing"
+		r.BudgetPolicy = "ANTHROPIC_API_KEY only via bare mode; local managed configuration refused; remote policy remains enforced and requires live preflight; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported whole-call modelUsage; 4 agentic turns/attempt, requested 8192 output tokens/request, MAX_STRUCTURED_OUTPUT_RETRIES=1 (one structured-output attempt) and 0 transport retries; no fallback accepted; native cost is a client estimate, not billing"
 	} else {
 		r.GeminiVersion = version
 		r.BudgetPolicy = "GEMINI_API_KEY only; GEMINI_CLI_TRUST_WORKSPACE=true only in the generated workspace child process; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported usage; 4 model turns/attempt and 8192 output tokens/turn; no fallback accepted; cost unknown"

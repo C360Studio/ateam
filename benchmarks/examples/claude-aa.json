@@ -21,6 +21,7 @@
   "max_total_tokens": 100000,
   "claude": {
     "auth": "api-key-env",
-    "reasoning": "low"
+    "reasoning": "low",
+    "output_format": "json-schema"
   }
 }

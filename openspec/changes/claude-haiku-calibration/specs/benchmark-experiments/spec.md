@@ -17,3 +17,8 @@ The benchmark runner SHALL support Claude Code API-key authentication with a fix
 - **WHEN** Claude runs on a managed installation or without the required API credential
 - **THEN** managed policy is never bypassed and missing credentials never fall back to a subscription
 - **AND** the live calibration requires recorded policy preflight
+
+#### Scenario: Structured replies and legacy replay
+- **WHEN** a new Claude experiment executes
+- **THEN** its explicit json-schema contract requires a nonempty source in native structured_output without prose fallback
+- **AND** legacy text-output artifacts remain replayable with unchanged failure outcomes but cannot launch new model calls

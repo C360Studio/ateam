@@ -15,14 +15,18 @@ import (
 
 // ClaudeConfig opts into the built-in, API-key-only Claude Code adapter.
 type ClaudeConfig struct {
-	Reasoning string `json:"reasoning"`
-	Auth      string `json:"auth"`
+	Reasoning    string `json:"reasoning"`
+	Auth         string `json:"auth"`
+	OutputFormat string `json:"output_format,omitempty"`
 }
 
 func executeClaude(ctx context.Context, e Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
 	empty, _ := parseClaudeOutput("")
 	if e.Claude == nil || e.Claude.Auth != "api-key-env" || len(e.Command) != 1 {
 		return empty, "", "", "adapter-error", fmt.Errorf("claude requires api-key-env authentication and one executable")
+	}
+	if e.Claude.OutputFormat != "json-schema" {
+		return empty, "", "", "adapter-error", fmt.Errorf("claude execution requires output_format json-schema; legacy artifacts support offline replay only")
 	}
 	key := os.Getenv("ANTHROPIC_API_KEY")
 	if key == "" {
@@ -52,13 +56,13 @@ func executeClaude(ctx context.Context, e Experiment, request AdapterRequest, di
 	// providers, API endpoints, proxy settings, helpers, and inherited sessions.
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "CLAUDE_CONFIG_DIR=" + configDir, "ANTHROPIC_API_KEY=" + key,
 		"TMPDIR=" + dir, "XDG_CONFIG_HOME=" + dir, "XDG_CACHE_HOME=" + dir, "GOWORK=off", "GOENV=off",
-		"CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192", "CLAUDE_CODE_MAX_RETRIES=0", "DISABLE_AUTOUPDATER=1", "DISABLE_TELEMETRY=1", "DISABLE_ERROR_REPORTING=1"}
+		"CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192", "CLAUDE_CODE_MAX_RETRIES=0", "MAX_STRUCTURED_OUTPUT_RETRIES=1", "DISABLE_AUTOUPDATER=1", "DISABLE_TELEMETRY=1", "DISABLE_ERROR_REPORTING=1"}
 	cmd.Stdin = strings.NewReader("Instructions:\n" + request.Instructions + "\n\nTask:\n" + request.Prompt + "\n\nReturn a JSON object with source containing the complete Go source file.")
 	var stdout, stderr limitedBuffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
 	out, diagnostic := redactGeminiOutput(stdout.String(), key), redactGeminiOutput(stderr.String(), key)
-	response, parseErr := parseClaudeOutput(out)
+	response, parseErr := parseNativeOutput(e, out)
 	if stdout.overflow || stderr.overflow {
 		markGeminiTruncated(&response)
 		return response, out, diagnostic, "adapter-error", fmt.Errorf("claude output exceeded 1 MiB per stream")
@@ -86,11 +90,15 @@ func claudeArguments(e Experiment) []string {
 	if e.Claude != nil {
 		reasoning = e.Claude.Reasoning
 	}
-	return []string{"--model", e.Model, "--effort", reasoning, "--print", "--output-format", "json",
+	args := []string{"--model", e.Model, "--effort", reasoning, "--print", "--output-format", "json",
 		"--bare", "--safe-mode", "--restricted", "--setting-sources", "", "--settings", ".claude/benchmark-settings.json",
 		"--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--disable-slash-commands", "--no-chrome",
 		"--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none",
 		"--max-turns", "4", "--no-session-persistence"}
+	if e.Claude != nil && e.Claude.OutputFormat == "json-schema" {
+		args = append(args, "--json-schema", `{"type":"object","properties":{"source":{"type":"string"}},"required":["source"],"additionalProperties":false}`)
+	}
+	return args
 }
 
 func claudeSettings(e Experiment) ([]byte, error) {

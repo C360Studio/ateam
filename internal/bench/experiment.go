@@ -166,6 +166,11 @@ func validateExperiment(e Experiment) error {
 		}
 	}
 	if e.Claude != nil {
+		// Empty format is retained solely for reading artifacts from the first
+		// text-output pilot. Native resolution/execution refuses to launch it.
+		if e.Claude.OutputFormat != "" && e.Claude.OutputFormat != "json-schema" {
+			return fmt.Errorf("claude output_format must be json-schema")
+		}
 		if e.Model != "claude-haiku-5-5" || e.Agent != "claude" || len(e.Command) != 1 {
 			return fmt.Errorf("claude requires fixed model claude-haiku-5-5, agent claude and a single executable")
 		}

@@ -10,28 +10,37 @@ import (
 )
 
 type claudeOutput struct {
-	Type           string                       `json:"type"`
-	Subtype        string                       `json:"subtype"`
-	IsError        *bool                        `json:"is_error"`
-	SessionID      string                       `json:"session_id"`
-	Result         *string                      `json:"result"`
-	Usage          *ClaudeTokens                `json:"usage"`
-	Models         map[string]*ClaudeModelUsage `json:"modelUsage"`
-	TotalCostUSD   *float64                     `json:"total_cost_usd"`
-	NumTurns       *int64                       `json:"num_turns"`
-	StopReason     *string                      `json:"stop_reason"`
-	TerminalReason *string                      `json:"terminal_reason"`
-	Errors         []string                     `json:"errors"`
-	Error          json.RawMessage              `json:"error"`
-	APIError       json.RawMessage              `json:"api_error"`
-	APIErrorStatus *int64                       `json:"api_error_status"`
-	DeferredTool   json.RawMessage              `json:"deferred_tool_use"`
+	Type             string                       `json:"type"`
+	Subtype          string                       `json:"subtype"`
+	IsError          *bool                        `json:"is_error"`
+	SessionID        string                       `json:"session_id"`
+	Result           *string                      `json:"result"`
+	StructuredOutput json.RawMessage              `json:"structured_output"`
+	Usage            *ClaudeTokens                `json:"usage"`
+	Models           map[string]*ClaudeModelUsage `json:"modelUsage"`
+	TotalCostUSD     *float64                     `json:"total_cost_usd"`
+	NumTurns         *int64                       `json:"num_turns"`
+	StopReason       *string                      `json:"stop_reason"`
+	TerminalReason   *string                      `json:"terminal_reason"`
+	Errors           []string                     `json:"errors"`
+	Error            json.RawMessage              `json:"error"`
+	APIError         json.RawMessage              `json:"api_error"`
+	APIErrorStatus   *int64                       `json:"api_error_status"`
+	DeferredTool     json.RawMessage              `json:"deferred_tool_use"`
+}
+
+func parseClaudeStructuredOutput(stdout string) (AdapterResponse, error) {
+	return parseClaudeResult(stdout, true)
 }
 
 // parseClaudeOutput consumes one --print --output-format json result, not a stream.
 // Native schema: Claude Code 2.1.292 and the official Agent SDK ResultMessage.
 // Accounting scopes: https://code.claude.com/docs/en/agent-sdk/cost-tracking
 func parseClaudeOutput(stdout string) (AdapterResponse, error) {
+	return parseClaudeResult(stdout, false)
+}
+
+func parseClaudeResult(stdout string, structured bool) (AdapterResponse, error) {
 	r := AdapterResponse{Version: 1, Native: &NativeEvidence{Terminal: "incomplete", UsageStatus: "missing"}}
 	if len(stdout) > maxAdapterBytes {
 		return r, fmt.Errorf("claude output exceeds 1 MiB")
@@ -77,20 +86,38 @@ func parseClaudeOutput(stdout string) (AdapterResponse, error) {
 	if (output.TerminalReason != nil && *output.TerminalReason != "completed") || claudePresent(output.DeferredTool) {
 		return r, fmt.Errorf("claude result ended without completing the task")
 	}
-	if output.StopReason != nil && *output.StopReason != "end_turn" && *output.StopReason != "stop_sequence" {
+	// Claude's StructuredOutput tool ends the turn with stop_reason=tool_use.
+	// Only schema mode can accept that; its validated native object is required below.
+	structuredTool := structured && output.StopReason != nil && *output.StopReason == "tool_use"
+	if output.StopReason != nil && *output.StopReason != "end_turn" && *output.StopReason != "stop_sequence" && !structuredTool {
 		return r, fmt.Errorf("claude result has an incomplete stop reason")
 	}
-	if output.Result == nil {
-		return r, fmt.Errorf("claude result requires final response text")
+	var finalJSON []byte
+	if structured {
+		if !claudePresent(output.StructuredOutput) {
+			return r, fmt.Errorf("claude result requires structured_output")
+		}
+		finalJSON = output.StructuredOutput
+		// JSON Schema property names are case-sensitive; decoding straight into a
+		// Go struct would also accept Source or SOURCE and overwrite source aliases.
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(finalJSON, &fields); err != nil || len(fields) != 1 || fields["source"] == nil {
+			return r, fmt.Errorf("claude structured_output requires only the source property")
+		}
+	} else {
+		if output.Result == nil {
+			return r, fmt.Errorf("claude result requires final response text")
+		}
+		finalJSON = []byte(*output.Result)
 	}
 	n.Terminal = "completed"
 	var final struct {
 		Source string `json:"source"`
 	}
-	if err := uniqueJSON([]byte(*output.Result)); err != nil {
+	if err := uniqueJSON(finalJSON); err != nil {
 		return r, fmt.Errorf("claude final message: %w", err)
 	}
-	if err := strictJSON([]byte(*output.Result), &final); err != nil {
+	if err := strictJSON(finalJSON, &final); err != nil {
 		return r, fmt.Errorf("claude final message: %w", err)
 	}
 	if strings.TrimSpace(final.Source) == "" {

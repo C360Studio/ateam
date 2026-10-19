@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func claudeRunFixture(t *testing.T, scenario string) Experiment {
@@ -18,7 +19,7 @@ func claudeRunFixture(t *testing.T, scenario string) Experiment {
 	e := testExperiment()
 	e.Agent, e.AgentVersion, e.Model, e.Mode = "claude", "", "claude-haiku-5-5", "aa"
 	e.Candidate = e.Baseline
-	e.Claude = &ClaudeConfig{Auth: "api-key-env", Reasoning: "low"}
+	e.Claude = &ClaudeConfig{Auth: "api-key-env", Reasoning: "low", OutputFormat: "json-schema"}
 	e.Tasks, e.Repetitions, e.MaxTotalTokens, e.MaxRunSeconds = []string{"safe-path"}, 1, 1000, 60
 	var source string
 	for _, task := range Tasks() {
@@ -29,7 +30,7 @@ func claudeRunFixture(t *testing.T, scenario string) Experiment {
 	answer, _ := json.Marshal(map[string]string{"source": source})
 	counts := map[string]int{"inputTokens": 10, "outputTokens": 5, "cacheReadInputTokens": 3, "cacheCreationInputTokens": 2}
 	models := map[string]any{e.Model: counts}
-	result := map[string]any{"type": "result", "subtype": "success", "is_error": false, "num_turns": 1, "result": string(answer), "modelUsage": models}
+	result := map[string]any{"type": "result", "subtype": "success", "is_error": false, "num_turns": 1, "result": string(answer), "structured_output": map[string]string{"source": source}, "modelUsage": models}
 	switch scenario {
 	case "unknown":
 		delete(counts, "outputTokens")
@@ -126,6 +127,9 @@ func TestClaudeExperimentValidation(t *testing.T) {
 		func(e *Experiment) { e.Agent = "gemini" },
 		func(e *Experiment) { e.Claude = &ClaudeConfig{Auth: "subscription", Reasoning: "low"} },
 		func(e *Experiment) { e.Claude = &ClaudeConfig{Auth: "api-key-env"} },
+		func(e *Experiment) {
+			e.Claude = &ClaudeConfig{Auth: "api-key-env", Reasoning: "low", OutputFormat: "text"}
+		},
 		func(e *Experiment) { e.MaxTotalTokens = 0 },
 		func(e *Experiment) { e.MaxRunSeconds = 0 },
 		func(e *Experiment) { e.Command = append(e.Command, "--resume") },
@@ -135,5 +139,54 @@ func TestClaudeExperimentValidation(t *testing.T) {
 		if validateExperiment(bad) == nil {
 			t.Fatal("accepted invalid Claude experiment")
 		}
+	}
+}
+
+func TestClaudeLegacyReplayCannotExecute(t *testing.T) {
+	e := claudeRunFixture(t, "complete")
+	resolved, err := ResolveExperiment(e, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Model the first pilot's exact text-output contract. This config remains
+	// readable, but must never start a new native process after the schema fix.
+	e.Claude.OutputFormat = ""
+	if err := validateExperiment(e); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveExperiment(e, "."); err == nil || !strings.Contains(err.Error(), "replay-only") {
+		t.Fatal("legacy text contract was executable")
+	}
+	resolved.Original.Claude.OutputFormat = ""
+	resolved.Experiment.Claude.OutputFormat = ""
+	resolved.ConfigSHA = jsonDigest(resolved.Original)
+	resolved.NativeArguments = claudeArguments(e)
+	raw := strings.ReplaceAll(claudeGoodOutput(), "claude-haiku-4-5-20251001", e.Model)
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	envelope["result"] = "```json\n{\"source\":\"package legacy\"}\n```"
+	data, _ := json.Marshal(envelope)
+	response, parseErr := parseNativeOutput(e, string(data))
+	if parseErr == nil {
+		t.Fatal("legacy fenced reply was reinterpreted as success")
+	}
+	run := ExperimentRun{Version: 1, Created: time.Now().UTC(), Resolved: resolved, StopReason: "cancelled",
+		Attempts: []Attempt{{Request: newAdapterRequest(e, resolved.Schedule[0]), Status: "adapter-error", Response: &response, Stdout: string(data), Diagnostic: parseErr.Error()}}}
+	run.Digest = runDigest(run)
+	path := filepath.Join(t.TempDir(), "legacy.json")
+	if err := writeExclusiveJSON(path, run); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	rescored, err := rescoreExperiment(context.Background(), path, func(context.Context, *Attempt) { t.Fatal("legacy failure was graded") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	got, err := LoadExperimentRun(rescored)
+	if err != nil || got.Attempts[0].Status != "adapter-error" || string(before) != string(after) {
+		t.Fatalf("legacy evidence changed: %v", err)
 	}
 }
