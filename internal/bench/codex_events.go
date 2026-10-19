@@ -81,6 +81,19 @@ type codexTurn struct {
 	Error  json.RawMessage `json:"error"`
 }
 
+func validateCodexRateLimits(raw json.RawMessage) error {
+	var params struct {
+		RateLimits map[string]json.RawMessage `json:"rateLimits"`
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return fmt.Errorf("codex account rate limits: %w", err)
+	}
+	if params.RateLimits == nil {
+		return fmt.Errorf("codex account rate limits lack a snapshot object")
+	}
+	return nil
+}
+
 type codexNotification struct {
 	ThreadID string          `json:"threadId"`
 	TurnID   string          `json:"turnId"`
@@ -238,6 +251,11 @@ func (h *codexHistory) consumeNotification(rpc codexRPC) error {
 	}
 	if !h.initialized {
 		return fmt.Errorf("codex notification arrived before initialization")
+	}
+	if rpc.Method == "account/rateLimits/updated" {
+		// This account-scoped diagnostic is retained only in raw stdout. It
+		// supplies no benchmark identity, billing attribution or token usage.
+		return validateCodexRateLimits(rpc.Params)
 	}
 	if rpc.Method == "remoteControl/status/changed" {
 		var status string

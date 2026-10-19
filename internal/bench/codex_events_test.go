@@ -114,6 +114,70 @@ func TestCodexThreadWarningDoesNotRequireActiveTurn(t *testing.T) {
 	})
 }
 
+func TestCodexAccountRateLimitsDiagnostic(t *testing.T) {
+	// Allowlisted native event from the second Luna canary; timestamp omitted.
+	captured := `{"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":"codex","limitName":null,"normalModelSlug":null,"primary":null,"secondary":null,"credits":null,"individualLimit":null,"spendControlReached":null,"planType":null,"rateLimitReachedType":null}}}`
+	full := `{"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":"codex","limitName":"fixture","normalModelSlug":"not-model-proof","primary":{"usedPercent":100,"windowDurationMins":60,"resetsAt":123},"secondary":{"usedPercent":0},"credits":{"balance":"1.25","hasCredits":true,"unlimited":false},"individualLimit":{"limit":"2","remainingPercent":50,"resetsAt":123,"used":"1"},"spendControlReached":false,"planType":"unknown","rateLimitReachedType":"rate_limit_reached"}}}`
+	baseline, err := parseCodexOutput(strings.Join(codexTestTranscript(), "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline.Native.EventCount++
+	for _, event := range []string{captured, full, `{"method":"account/rateLimits/updated","params":{"rateLimits":{}}}`} {
+		for _, position := range []int{2, 4, 13, 15, 16} {
+			lines := codexTestTranscript()
+			lines = append(append(append([]string{}, lines[:position]...), event), lines[position:]...)
+			got, err := parseCodexOutput(strings.Join(lines, "\n"))
+			if err != nil || !reflect.DeepEqual(got, baseline) {
+				t.Fatalf("account diagnostic changed native evidence at %d: %+v %v", position, got, err)
+			}
+		}
+	}
+	// The failed canary stopped after usage and the diagnostic, before terminal
+	// completion. Its persisted incomplete response must remain replayable.
+	prefix := codexTestTranscript()[:14]
+	before, err := parseCodexOutput(strings.Join(prefix, "\n"))
+	if err == nil {
+		t.Fatal("truncated baseline unexpectedly complete")
+	}
+	before.Native.EventCount++
+	after, err := parseCodexOutput(strings.Join(append(prefix, captured), "\n"))
+	if err == nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("account diagnostic changed archived incomplete evidence: %+v %v", after, err)
+	}
+	for name, params := range map[string]string{
+		"missing snapshot": `{}`, "null snapshot": `{"rateLimits":null}`, "array snapshot": `{"rateLimits":[]}`,
+		"string snapshot": `{"rateLimits":"unknown"}`, "number snapshot": `{"rateLimits":0}`, "boolean snapshot": `{"rateLimits":false}`,
+		"duplicate nested key": `{"rateLimits":{"primary":null,"primary":{}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			lines := append(codexTestTranscript(), `{"method":"account/rateLimits/updated","params":`+params+`}`)
+			if got, err := parseCodexOutput(strings.Join(lines, "\n")); err == nil || got.Source != "" {
+				t.Fatalf("malformed account diagnostic accepted: %+v %v", got, err)
+			}
+		})
+	}
+	// Optional nested quota metadata is opaque: it never influences the run.
+	// These examples cover the complete outer JSON type boundary; a generated
+	// nested schema matrix would test fields deliberately excluded from evidence.
+	opaque := `{"method":"account/rateLimits/updated","params":{"rateLimits":{"newField":{"model":"untrusted-model","usage":{"inputTokens":999}},"credits":"future-metadata"}}}`
+	got, err := parseCodexOutput(strings.Join(append(codexTestTranscript(), opaque), "\n"))
+	if err != nil || !reflect.DeepEqual(got, baseline) {
+		t.Fatalf("opaque quota metadata affected benchmark evidence: %+v %v", got, err)
+	}
+	h := newCodexHistory()
+	if err := h.consume([]byte(captured)); err == nil {
+		t.Fatal("account diagnostic accepted before initialization")
+	}
+	h = newCodexHistory()
+	if err := h.consume([]byte(codexTestTranscript()[0])); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.consume([]byte(captured)); err != nil || h.response.Native.Codex.ThreadID != "" || h.response.Native.ResolvedModel != nil || h.response.Usage != nil {
+		t.Fatalf("account diagnostic established benchmark identity or usage: %+v %v", h.response, err)
+	}
+}
+
 func TestCodexThreadStartValidatedBeforeInference(t *testing.T) {
 	id, err := validateCodexThreadStart([]byte(codexTestThread), "gpt-6-luna", "low")
 	if err != nil || id != "thread-1" {
