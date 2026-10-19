@@ -97,7 +97,7 @@ func runExperimentCLI(ctx context.Context, root string, args []string) int {
 			printJSON(resolved)
 			return 0
 		}
-		if config.Gemini != nil {
+		if config.IsNative() {
 			report, checkErr := bench.RunSelfTest(ctx)
 			evidence, saveErr := bench.SaveSelfTestRun(root, report)
 			if saveErr != nil {

@@ -2,7 +2,6 @@ package bench
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 )
 
 const experimentVersion = 1
@@ -24,6 +22,7 @@ type Experiment struct {
 	Version        int           `json:"version"`
 	Mode           string        `json:"mode,omitempty"`
 	Gemini         *GeminiConfig `json:"gemini,omitempty"`
+	Claude         *ClaudeConfig `json:"claude,omitempty"`
 	MaxTotalTokens int64         `json:"max_total_tokens,omitempty"`
 	MaxRunSeconds  int           `json:"max_run_seconds,omitempty"`
 	Name           string        `json:"name"`
@@ -51,6 +50,7 @@ type ResolvedExperiment struct {
 	NativeSettings  json.RawMessage   `json:"native_settings,omitempty"`
 	NativeArguments []string          `json:"native_arguments,omitempty"`
 	GeminiVersion   string            `json:"gemini_version,omitempty"`
+	ClaudeVersion   string            `json:"claude_version,omitempty"`
 	BudgetPolicy    string            `json:"budget_policy,omitempty"`
 	Original        Experiment        `json:"original_experiment"`
 	Grader          GraderIdentity    `json:"grader"`
@@ -81,7 +81,7 @@ type Usage struct {
 
 // AdapterResponse is the explicit command-adapter protocol; missing usage stays unknown.
 type AdapterResponse struct {
-	Native  *GeminiEvidence `json:"native,omitempty"`
+	Native  *NativeEvidence `json:"native,omitempty"`
 	Version int             `json:"version"`
 	Source  string          `json:"source"`
 	Usage   *Usage          `json:"usage"`
@@ -115,7 +115,7 @@ func validateExperiment(e Experiment) error {
 	if e.Version != experimentVersion {
 		return fmt.Errorf("experiment version must be %d", experimentVersion)
 	}
-	if strings.TrimSpace(e.Name) == "" || strings.TrimSpace(e.Agent) == "" || (e.Gemini == nil && strings.TrimSpace(e.AgentVersion) == "") || strings.TrimSpace(e.Model) == "" {
+	if strings.TrimSpace(e.Name) == "" || strings.TrimSpace(e.Agent) == "" || (!e.IsNative() && strings.TrimSpace(e.AgentVersion) == "") || strings.TrimSpace(e.Model) == "" {
 		return fmt.Errorf("name, agent, agent_version and model are required")
 	}
 	if len(e.Command) == 0 || strings.TrimSpace(e.Command[0]) == "" {
@@ -146,6 +146,9 @@ func validateExperiment(e Experiment) error {
 	default:
 		return fmt.Errorf("mode must be aa or ab")
 	}
+	if e.Gemini != nil && e.Claude != nil {
+		return fmt.Errorf("select exactly one native provider")
+	}
 	if e.Gemini != nil {
 		if e.Model != "gemini-3.8-flash" {
 			return fmt.Errorf("first native benchmark requires fixed model gemini-3.8-flash")
@@ -161,11 +164,26 @@ func validateExperiment(e Experiment) error {
 		default:
 			return fmt.Errorf("gemini reasoning must be explicitly selected")
 		}
+	}
+	if e.Claude != nil {
+		if e.Model != "claude-haiku-5-5" || e.Agent != "claude" || len(e.Command) != 1 {
+			return fmt.Errorf("claude requires fixed model claude-haiku-5-5, agent claude and a single executable")
+		}
+		if e.Claude.Auth != "api-key-env" {
+			return fmt.Errorf("claude auth must explicitly select api-key-env (ANTHROPIC_API_KEY)")
+		}
+		switch e.Claude.Reasoning {
+		case "low", "medium", "high":
+		default:
+			return fmt.Errorf("claude reasoning must be explicitly selected")
+		}
+	}
+	if e.IsNative() {
 		if e.MaxTotalTokens < 1 || e.MaxTotalTokens > 1000000000000 || e.MaxRunSeconds < 1 || e.MaxRunSeconds > 86400 {
-			return fmt.Errorf("gemini requires max_total_tokens 1..1e12 and max_run_seconds 1..86400")
+			return fmt.Errorf("native execution requires max_total_tokens 1..1e12 and max_run_seconds 1..86400")
 		}
 	} else if e.MaxTotalTokens != 0 || e.MaxRunSeconds != 0 {
-		return fmt.Errorf("native budget fields require gemini configuration")
+		return fmt.Errorf("native budget fields require native provider configuration")
 	}
 	return nil
 }
@@ -287,29 +305,10 @@ func ResolveExperiment(e Experiment, base string) (ResolvedExperiment, error) {
 		r.CommandFiles[path] = hex.EncodeToString(hash.Sum(nil))
 		e.Command[i] = path
 	}
-	if e.Gemini != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, e.Command[0], "--version")
-		configureBenchmarkProcess(cmd)
-		defer cleanupBenchmarkProcess(cmd)
-		var out limitedBuffer
-		cmd.Stdout = &out
-		cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
-		if err := cmd.Run(); err != nil {
-			return r, fmt.Errorf("probe gemini version: %w", err)
-		}
-		if out.overflow || strings.TrimSpace(out.String()) != "0.43.0" {
-			return r, fmt.Errorf("Gemini CLI 0.43.0 is required for the verified native telemetry/config contract")
-		}
-		r.GeminiVersion = strings.TrimSpace(out.String())
-		settings, err := geminiSettings(e)
-		if err != nil {
+	if e.IsNative() {
+		if err := resolveNative(&r, e); err != nil {
 			return r, err
 		}
-		r.NativeSettings = settings
-		r.NativeArguments = geminiArguments(e)
-		r.BudgetPolicy = "GEMINI_API_KEY only; GEMINI_CLI_TRUST_WORKSPACE=true only in the generated workspace child process; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported usage; 4 model turns/attempt and 8192 output tokens/turn; no fallback accepted; cost unknown"
 	}
 	grader, err := currentGrader()
 	if err != nil {

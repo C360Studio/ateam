@@ -59,6 +59,9 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 }
 
 func executeAdapter(ctx context.Context, e Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
+	if e.Claude != nil {
+		return executeClaude(ctx, e, request, dir)
+	}
 	if e.Gemini != nil {
 		return executeGemini(ctx, e, request, dir)
 	}
@@ -111,7 +114,7 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err != nil {
 		return "", err
 	}
-	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.GeminiVersion != resolved.GeminiVersion || (current.Experiment.Gemini != nil && !jsonEquivalent(current.NativeSettings, resolved.NativeSettings)) || !reflect.DeepEqual(current.NativeArguments, resolved.NativeArguments) || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
+	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.GeminiVersion != resolved.GeminiVersion || current.ClaudeVersion != resolved.ClaudeVersion || (current.Experiment.IsNative() && !jsonEquivalent(current.NativeSettings, resolved.NativeSettings)) || !reflect.DeepEqual(current.NativeArguments, resolved.NativeArguments) || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
 		return "", fmt.Errorf("resolved experiment changed before execution")
 	}
 	if err := os.MkdirAll(outputRoot, 0700); err != nil {
@@ -121,9 +124,10 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err != nil {
 		return "", err
 	}
-	if resolved.Experiment.Gemini != nil {
-		if os.Getenv("GEMINI_API_KEY") == "" {
-			return dir, fmt.Errorf("GEMINI_API_KEY is required for explicitly selected API authentication")
+	if resolved.Experiment.IsNative() {
+		keyName := nativeKeyName(resolved.Experiment)
+		if os.Getenv(keyName) == "" {
+			return dir, fmt.Errorf("%s is required for explicitly selected API authentication", keyName)
 		}
 		bounded, cancel := context.WithTimeout(ctx, time.Duration(resolved.Experiment.MaxRunSeconds)*time.Second)
 		defer cancel()
@@ -153,7 +157,7 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 		start := time.Now()
 		response, stdout, stderr, status, runErr := executeAdapter(ctx, resolved.Experiment, a.Request, workspace)
 		a.AgentNanos = time.Since(start).Nanoseconds()
-		if resolved.Experiment.Gemini != nil && runErr == nil {
+		if resolved.Experiment.IsNative() && runErr == nil {
 			if reason := nativeModelStatus(response.Native, resolved.Experiment.Model); reason != "" {
 				status = "adapter-error"
 				runErr = fmt.Errorf("%s: native accounting does not confirm the configured model", reason)
@@ -214,7 +218,7 @@ func nativeStop(ctx context.Context, e Experiment, a Attempt, used *int64, last 
 		}
 		return "cancelled", ctx.Err()
 	}
-	if e.Gemini == nil {
+	if !e.IsNative() {
 		return "", nil
 	}
 	if a.Diagnostic == "native session ID reused across attempts" {
@@ -325,18 +329,18 @@ func validateRun(r ExperimentRun) error {
 	switch r.StopReason {
 	case "", "cancelled", "run-timeout":
 	case "unknown-usage", "token-limit", "session-reuse", "model-mismatch", "model-unverified":
-		if cfg.Gemini == nil {
+		if !cfg.IsNative() {
 			return fmt.Errorf("native stop reason on command adapter")
 		}
 	default:
 		return fmt.Errorf("unknown run stop reason")
 	}
-	if cfg.Gemini != nil && (r.Resolved.GeminiVersion == "" || r.Resolved.BudgetPolicy == "" || len(r.Resolved.NativeSettings) == 0 || len(r.Resolved.NativeArguments) == 0) {
+	if cfg.IsNative() && (((cfg.Gemini != nil && r.Resolved.GeminiVersion == "") || (cfg.Claude != nil && r.Resolved.ClaudeVersion == "")) || r.Resolved.BudgetPolicy == "" || len(r.Resolved.NativeSettings) == 0 || len(r.Resolved.NativeArguments) == 0) {
 		return fmt.Errorf("missing native provenance")
 	}
-	if cfg.Gemini != nil {
-		expected, err := geminiSettings(cfg)
-		if err != nil || !jsonEquivalent(expected, r.Resolved.NativeSettings) || !reflect.DeepEqual(geminiArguments(cfg), r.Resolved.NativeArguments) {
+	if cfg.IsNative() {
+		expected, err := nativeSettings(cfg)
+		if err != nil || !jsonEquivalent(expected, r.Resolved.NativeSettings) || !reflect.DeepEqual(nativeArguments(cfg), r.Resolved.NativeArguments) {
 			return fmt.Errorf("native execution settings provenance mismatch")
 		}
 	}
@@ -348,10 +352,10 @@ func validateRun(r ExperimentRun) error {
 		if !reflect.DeepEqual(a.Request, newAdapterRequest(cfg, schedule[i])) || a.AgentNanos < 0 || a.GradeNanos < 0 || a.AgentNanos > int64(24*time.Hour) || a.GradeNanos > int64(24*time.Hour) {
 			return fmt.Errorf("attempt %d: request/timing mismatch", i)
 		}
-		if cfg.Gemini != nil {
-			parsed, parseErr := parseGeminiOutput(a.Stdout)
+		if cfg.IsNative() {
+			parsed, parseErr := parseNativeOutput(cfg, a.Stdout)
 			if a.Response != nil && a.Response.Native != nil && a.Response.Native.OutputTruncated {
-				if a.Status != "adapter-error" || a.Diagnostic != "gemini output exceeded 1 MiB per stream" {
+				if a.Status != "adapter-error" || a.Diagnostic != cfg.Agent+" output exceeded 1 MiB per stream" {
 					return fmt.Errorf("attempt %d: invalid truncation outcome", i)
 				}
 				markGeminiTruncated(&parsed)
@@ -379,7 +383,7 @@ func validateRun(r ExperimentRun) error {
 				return fmt.Errorf("attempt %d: missing or corrupt candidate", i)
 			}
 			var parsed AdapterResponse
-			if err := strictJSON([]byte(a.Stdout), &parsed); cfg.Gemini == nil && (err != nil || !reflect.DeepEqual(&parsed, a.Response)) {
+			if err := strictJSON([]byte(a.Stdout), &parsed); !cfg.IsNative() && (err != nil || !reflect.DeepEqual(&parsed, a.Response)) {
 				return fmt.Errorf("attempt %d: response differs from raw output", i)
 			}
 			if err := validateUsage(a.Response.Usage); err != nil {
@@ -395,7 +399,7 @@ func validateRun(r ExperimentRun) error {
 				return fmt.Errorf("attempt %d: missing grading diagnostic", i)
 			}
 		case "adapter-error", "timeout", "cancelled":
-			if (cfg.Gemini == nil && (a.Response != nil || a.SourceSHA != "")) || a.Grade.Passed || a.Diagnostic == "" {
+			if (!cfg.IsNative() && (a.Response != nil || a.SourceSHA != "")) || a.Grade.Passed || a.Diagnostic == "" {
 				return fmt.Errorf("attempt %d: invalid execution failure", i)
 			}
 		default:
@@ -406,7 +410,7 @@ func validateRun(r ExperimentRun) error {
 }
 
 func validateNativeStop(r ExperimentRun) error {
-	if r.Resolved.Experiment.Gemini == nil {
+	if !r.Resolved.Experiment.IsNative() {
 		return nil
 	}
 	var used int64
@@ -453,7 +457,7 @@ func validateNativeStop(r ExperimentRun) error {
 	return nil
 }
 
-func nativeModelStatus(evidence *GeminiEvidence, model string) string {
+func nativeModelStatus(evidence *NativeEvidence, model string) string {
 	if evidence == nil || len(evidence.ReportedModels) == 0 {
 		return "model-unverified"
 	}

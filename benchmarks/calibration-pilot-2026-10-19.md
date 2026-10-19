@@ -16,8 +16,9 @@ The pilot has **no evaluable pairs or quality result**. The first launch exposed
 | --- | --- | --- | --- | --- |
 | Before trust fix | 1 / 30 | Adapter error after 0.866 seconds | Exit 55: untrusted workspace | 0 |
 | With approved scoped trust | 1 / 30 | Timeout after 120.007 seconds | Six explicit 503 retry messages in stderr; no stdout report | 0 |
+| User-requested capacity retry | 1 / 30 | Timeout after 120.018 seconds | Six explicit 503 retry messages in stderr; no stdout report | 0 |
 
-These are separate startup runs, not combined A/A samples. The second run's provider errors establish a service-availability failure, not a task-quality regression. Six logged retry failures are observed stderr evidence, not an authoritative billing/request ledger. No further native attempt or model fallback was launched after the runner stopped. Both runs have stop reason `model-unverified` because model identity was unavailable; the terminal attempt status and stderr retain the underlying cause.
+These are separate startup runs, not combined A/A samples. The third launch reused the same config and runner hashes below, again stopped after the first attempt, and produced no evaluable pairs. The second run's provider errors establish a service-availability failure, not a task-quality regression. Six logged retry failures are observed stderr evidence, not an authoritative billing/request ledger. No further native attempt or model fallback was launched after the runner stopped. All three runs have stop reason `model-unverified` because model identity was unavailable; the terminal attempt status and stderr retain the underlying cause.
 
 The local environment also reported missing ripgrep and a GrepTool fallback. No tool execution was observed; make tool availability consistent before interpreting later tool-heavy comparisons.
 
@@ -28,6 +29,7 @@ Raw artifacts below are deliberately gitignored; paths are relative to the repos
 - Initial run: `benchmarks/runs/experiment-4112803625/run.json`; SHA-256 `091c2f4eb7ed240923bc59c69d66733e98e87dd5708e9a0cc6ea02def805d56a`.
 - Scoped-trust run: `benchmarks/runs/experiment-2084156922/run.json`; SHA-256 `42cac56e87601df713b17b1b816011bb05d1253579dea8962ddc953de26bc11f`.
 - Scoped-trust rescore: `benchmarks/runs/experiment-2084156922/rescore-4243026740/run.json`. Offline replay preserved the timeout/stop reason and original run bytes, with no model calls.
+- Capacity retry: `benchmarks/runs/experiment-2759323729/run.json`; SHA-256 `430c300cd87e07c532dc583b2ebf20bd67ff6bf2c120ff2da6bfc10b8301d1a5`. Offline replay at `rescore-674700380/run.json` preserved the timeout and original bytes.
 - Config SHA-256: `9a225cb9162fbbed35d9313687c3c9adf0fc4d2b237238e80fd100ce7496adb6`.
 - Runner SHA-256: `382ae2e4fb808cb6a7066743f42f90ef5daf14fd21a79db873b2585435d2b757`.
 - Evaluator SHA-256: `1fc34706a7149b708d56f51371cef95f71eb1ffa985bac5c0c324a4095398c39`.
@@ -39,3 +41,5 @@ Raw artifacts below are deliberately gitignored; paths are relative to the repos
 The trust regression failed before the fix. Fake-child tests confirm explicit session trust, unchanged parent environment, fresh sessions, credential redaction and retained managed-policy/tool restrictions. Removing the child trust assignment through a Go overlay was detected; baseline/after tests passed and the original source hash remained unchanged. Independent read-only review approved the fix. Full clean-tree `task verify` passed at `d6470a4537d6d971a0a2701f41ce3e2272986032`; doctor reported parity passed and 177 schema tokens. Its single session-start timing was 5,076 microseconds, above the advertised 5 ms target while below doctor's current 50 ms threshold; no latency guarantee is established.
 
 Retry the same fixed-model configuration when provider capacity is available, retain the existing failures, and reconcile available provider usage before treating calibration as complete. Do not switch models silently, count service failures as task-quality regressions, or claim harness improvements from these startup runs.
+
+The user subsequently selected Claude Haiku through API authentication for a separate calibration, followed by Codex Luna. The Claude adapter is being verified independently; its future results will not be combined with these Gemini startup failures.

@@ -52,7 +52,7 @@ On stdout it must return exactly one JSON object:
 
 Usage may be `null` or omitted. If supplied, both primary counts are required. Input includes cached tokens and output includes reasoning tokens; subset counts are never added again. Normalize provider semantics in the adapter. Counts are adapter-reported, not independently audited. The runner does not estimate dollars or count output characters as tokens. Stdout/stderr each have a 1 MiB retained-output limit; exceeding it makes the adapter attempt an error.
 
-A real adapter must invoke its agent, apply `instructions`, capture provider usage, and return the resulting source. The native Gemini adapter described below is the first built-in integration; Claude and Codex can use the generic protocol until dedicated adapters are added. The saved request proves which treatment was requested; it does not prove a skill or tool was actually used. Retain provider-native traces externally before making such claims.
+A real adapter must invoke its agent, apply `instructions`, capture provider usage, and return the resulting source. The native Gemini and Claude adapters described below are built-in integrations; Codex can use the generic protocol until its dedicated adapter is added. The saved request proves which treatment was requested; it does not prove a skill or tool was actually used. Retain provider-native traces externally before making such claims.
 
 ## Isolation, grading, and evidence
 
@@ -129,3 +129,22 @@ bin/ateam bench rescore benchmarks/runs/experiment-.../run.json
 `mode: aa` requires identical instructions; omitted mode or `ab` requires different instructions. Reports preserve terminal statuses and known/unknown usage denominators, and show descriptive mean/min/max/population-SD over the task mix. Only complete pairs contribute paired comparisons. Different stochastic answers are expected; a small difference or nonsignificance does not establish equivalence. Calibrate A/A first, investigate discrepancies, then run the same-model harness A/B.
 
 Use [the calibration report checklist](calibration-report.md) to link immutable run/configuration, self-test, comparison and replay evidence. Synthetic fixtures establish parser/runner behavior, not provider billing accuracy. No successful live calibration has been completed; see [the first pilot startup report](calibration-pilot-2026-10-19.md).
+
+## Claude Haiku API calibration
+
+The second native adapter uses **Claude Code 2.1.292**, **claude-haiku-5-5**, and API-key authentication. This is a separate same-model calibration; Gemini and Claude results are not mixed into a harness A/B comparison. Codex Luna follows Haiku calibration and is not yet a native adapter.
+
+```sh
+bin/ateam bench run benchmarks/examples/claude-aa.json --dry-run
+bin/ateam bench run benchmarks/examples/claude-ab.json --dry-run
+```
+
+The `claude` configuration object explicitly selects `auth: api-key-env` and shared `reasoning: low`. Select exactly one native provider per experiment. The examples retain the 30-attempt, 100,000-token, 120-second/attempt and one-hour/run limits. Dry runs need no API key and invoke only the installed CLI version probe, not a model.
+
+Supply `ANTHROPIC_API_KEY` through the environment/secret manager, never the experiment JSON. Bare mode prevents subscription/OAuth/keychain fallback and ambient instruction, hook, skill, plugin and MCP discovery. Each attempt has a fresh HOME and CLAUDE_CONFIG_DIR; no session persistence or resume. Restricted mode exposes only Read/Glob/Grep with explicit read-only permission rules. Generated settings and arguments are recorded. The child requests four agentic turns, 8192 output tokens per request and zero configured API retries; the CLI documents the output setting as applying to most requests, so it is not a hard total budget. Credentials and escaped representations are redacted as for Gemini. CLI stdout/stderr are bounded; these controls are not an OS sandbox.
+
+Local managed settings/drop-ins/MCP and macOS managed preferences refuse execution. Windows Claude execution is refused until registry-policy inspection is supported. Remote managed settings remain enforced by Claude Code. **Before a live pilot, record an isolated `claude doctor` remote-policy result with the same API credential, and review any applied policy; local checks and bare mode alone do not prove absence of remote configuration.** Do not disable policy fetching to manufacture isolation. [Claude bare mode](https://code.claude.com/docs/en/headless) and [server-managed settings](https://code.claude.com/docs/en/server-managed-settings) document these boundaries.
+
+Claude accounting differs from Gemini: the whole-call `modelUsage` map includes auxiliary requests, whereas top-level `usage` covers the main agent loop. Normalize each model's **inputTokens + cacheCreationInputTokens + cacheReadInputTokens** as input and **outputTokens** as output. Never add the overlapping top-level totals. Cache reads and reported thinking are subsets; absent thinking stays unknown. Missing primary model counters leave normalized usage unknown; execution-crash/API-error outcomes cannot claim complete accounting. A success requires clean terminal status and nonempty source JSON, and every reported model must match the configured model. Raw counters and the optional `total_cost_usd` are retained; the latter is a **client-side estimate**, not provider billing or a spending guarantee. [Official accounting semantics](https://code.claude.com/docs/en/agent-sdk/cost-tracking).
+
+The common stop rules, self-test gate, comparison and offline immutable replay apply unchanged. API credential availability, policy preflight and a successful live A/A remain required before declaring Haiku calibrated. The $2 target is an operator-approved pilot policy, not a new automatic spending authorization embedded in the example.

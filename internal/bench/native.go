@@ -1,0 +1,77 @@
+package bench
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+// IsNative distinguishes built-in provider execution from the command protocol.
+func (e Experiment) IsNative() bool { return e.Gemini != nil || e.Claude != nil }
+
+func nativeKeyName(e Experiment) string {
+	if e.Claude != nil {
+		return "ANTHROPIC_API_KEY"
+	}
+	return "GEMINI_API_KEY"
+}
+
+func nativeSettings(e Experiment) ([]byte, error) {
+	if e.Claude != nil {
+		return claudeSettings(e)
+	}
+	return geminiSettings(e)
+}
+
+func nativeArguments(e Experiment) []string {
+	if e.Claude != nil {
+		return claudeArguments(e)
+	}
+	return geminiArguments(e)
+}
+
+func parseNativeOutput(e Experiment, output string) (AdapterResponse, error) {
+	if e.Claude != nil {
+		return parseClaudeOutput(output)
+	}
+	return parseGeminiOutput(output)
+}
+
+func resolveNative(r *ResolvedExperiment, e Experiment) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, e.Command[0], "--version")
+	configureBenchmarkProcess(cmd)
+	defer cleanupBenchmarkProcess(cmd)
+	var out limitedBuffer
+	cmd.Stdout = &out
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("probe %s version: %w", e.Agent, err)
+	}
+	version := strings.TrimSpace(out.String())
+	want := "0.43.0"
+	if e.Claude != nil {
+		want = "2.1.292 (Claude Code)"
+	}
+	if out.overflow || version != want {
+		return fmt.Errorf("%s CLI %s is required for the verified native telemetry/config contract", e.Agent, want)
+	}
+	if e.Claude != nil {
+		r.ClaudeVersion = version
+		r.BudgetPolicy = "ANTHROPIC_API_KEY only via bare mode; local managed configuration refused; remote policy remains enforced and requires live preflight; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported whole-call modelUsage; 4 agentic turns/attempt and requested 8192 output tokens/request; no fallback accepted; native cost is a client estimate, not billing"
+	} else {
+		r.GeminiVersion = version
+		r.BudgetPolicy = "GEMINI_API_KEY only; GEMINI_CLI_TRUST_WORKSPACE=true only in the generated workspace child process; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported usage; 4 model turns/attempt and 8192 output tokens/turn; no fallback accepted; cost unknown"
+	}
+	settings, err := nativeSettings(e)
+	if err != nil {
+		return err
+	}
+	r.NativeSettings = settings
+	r.NativeArguments = nativeArguments(e)
+	return nil
+}
