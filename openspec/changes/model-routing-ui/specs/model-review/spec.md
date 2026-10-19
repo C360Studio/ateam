@@ -6,7 +6,7 @@ The authenticated dashboard API SHALL expose configured developer and reviewer m
 
 #### Scenario: Configured eligible and blocked routes
 
-- **WHEN** the served checkout contains a valid review policy
+- **WHEN** the selected repository contains a valid review policy
 - **THEN** API and UI display exact developer/reviewer model, provider and effort, with eligibility determined by the existing policy validator and a reason when blocked
 
 #### Scenario: Absent or unusable policy

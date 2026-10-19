@@ -8,4 +8,4 @@
 - [x] Restore the confirmed preserved UI history and merge current main.
 - [x] Integrate routing with selected repository; guard stale writes and dashboard responses.
 - [x] Repair restored forge persistence/target handling, worktree status attribution and modal accessibility.
-- [ ] Complete combined independent review, browser validation and clean-commit preflight; update draft PR #22.
+- [x] Complete combined independent review, browser validation and clean-commit preflight.
