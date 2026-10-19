@@ -1,7 +1,0 @@
-{"type":"thread.started","thread_id":"simulated-success"}
-{"type":"turn.started"}
-{"type":"item.started","item":{"id":"reason","type":"reasoning","text":"Check path boundaries."}}
-{"type":"item.started","item":{"id":"tool","type":"command_execution","command":"go version","status":"in_progress"}}
-{"type":"item.completed","item":{"id":"tool","type":"command_execution","command":"go version","status":"completed","exit_code":0,"aggregated_output":"simulated Go version"}}
-{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"{\"source\":\"package safepath\\n\"}"}}
-{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":80,"cache_write_input_tokens":2,"output_tokens":25,"reasoning_output_tokens":15}}

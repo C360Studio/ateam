@@ -1,3 +1,0 @@
-These JSONL fixtures are **simulated native events**, not billed model runs. They follow the documented Codex `exec --json` event protocol and deliberately include malformed, incomplete, and partial-usage cases. The failure fixture adds usage to a failed terminal to exercise retention if a CLI/provider reports it; current documented `turn.failed` events normally omit usage.
-
-Protocol references: https://developers.openai.com/codex/noninteractive and https://github.com/openai/codex/blob/main/sdk/typescript/src/events.ts (reviewed 2026-10-19). The installed CLI inspected during implementation was 0.160.1. Fixtures do not establish live provider compatibility or billing completeness.

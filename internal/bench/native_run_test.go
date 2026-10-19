@@ -16,9 +16,10 @@ func nativeTestExperiment(t *testing.T, usage string) Experiment {
 		t.Skip("shell fixture requires Unix")
 	}
 	cfg := testExperiment()
-	cfg.Agent, cfg.AgentVersion, cfg.Mode = "codex", "", "aa"
+	cfg.Agent, cfg.AgentVersion, cfg.Mode = "gemini", "", "aa"
 	cfg.Candidate = cfg.Baseline
-	cfg.Codex = &CodexConfig{Auth: "api-key-env", Reasoning: "low"}
+	cfg.Model = "gemini-3.8-flash"
+	cfg.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low"}
 	cfg.MaxTotalTokens, cfg.MaxRunSeconds = 1000, 60
 	cfg.Tasks, cfg.Repetitions = []string{"safe-path"}, 1
 	var source string
@@ -28,14 +29,23 @@ func nativeTestExperiment(t *testing.T, usage string) Experiment {
 		}
 	}
 	final, _ := json.Marshal(map[string]string{"source": source})
-	event, _ := json.Marshal(map[string]any{"type": "item.completed", "item": map[string]string{"id": "answer", "type": "agent_message", "text": string(final)}})
-	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'codex-cli fixture'; exit 0; fi\ncat >/dev/null\nprintf '{\"type\":\"thread.started\",\"thread_id\":\"%s\"}\\n' \"$PWD\"\necho '{\"type\":\"turn.started\"}'\n" + "printf '%s\\n' '" + strings.ReplaceAll(string(event), "'", "'\\''") + "'\nprintf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":" + usage + "}'\n"
-	executable := filepath.Join(t.TempDir(), "codex-fixture")
+	var counts map[string]int64
+	if err := json.Unmarshal([]byte(usage), &counts); err != nil {
+		t.Fatal(err)
+	}
+	tokens := map[string]int64{}
+	if counts != nil {
+		tokens = map[string]int64{"prompt": counts["input_tokens"], "candidates": counts["output_tokens"], "thoughts": 0, "cached": counts["cached_input_tokens"], "total": counts["input_tokens"] + counts["output_tokens"], "tool": 0, "input": counts["input_tokens"] - counts["cached_input_tokens"]}
+	}
+	output, _ := json.Marshal(map[string]any{"response": string(final), "stats": map[string]any{"models": map[string]any{cfg.Model: map[string]any{"tokens": tokens, "api": map[string]int{"totalRequests": 1, "totalErrors": 0}}}}})
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '0.43.0'; exit 0; fi\ncat >/dev/null\nprintf '{\"session_id\":\"%s\",' \"$PWD\"\nprintf '%s\\n' '" + strings.ReplaceAll(string(output[1:]), "'", "'\\''") + "'\n"
+
+	executable := filepath.Join(t.TempDir(), "gemini-fixture")
 	if err := os.WriteFile(executable, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
 	cfg.Command = []string{executable}
-	t.Setenv("CODEX_API_KEY", "fixture-key-not-real")
+	t.Setenv("GEMINI_API_KEY", "fixture-key-not-real")
 	return cfg
 }
 
@@ -48,9 +58,20 @@ func TestNativeBudgetStopsAndRescoresPartialHistory(t *testing.T) {
 	}{
 		{"tokens", `{"input_tokens":10,"output_tokens":5,"cached_input_tokens":3}`, "token-limit", 10},
 		{"unknown", `null`, "unknown-usage", 1000},
+		{"retry", `{"input_tokens":10,"output_tokens":5}`, "unknown-usage", 1000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := nativeTestExperiment(t, tc.usage)
+			if tc.name == "retry" {
+				script, err := os.ReadFile(cfg.Command[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				script = []byte(strings.ReplaceAll(string(script), `"totalErrors":0,"totalRequests":1`, `"totalErrors":1,"totalRequests":2`))
+				if err := os.WriteFile(cfg.Command[0], script, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
 			cfg.MaxTotalTokens = tc.ceiling
 			resolved, err := ResolveExperiment(cfg, ".")
 			if err != nil {
@@ -137,9 +158,10 @@ func TestExperimentModeAndNativeBudgetValidation(t *testing.T) {
 	for _, change := range []func(*Experiment){
 		func(e *Experiment) { e.MaxTotalTokens = 0 }, func(e *Experiment) { e.MaxTotalTokens = 1000000000001 },
 		func(e *Experiment) { e.MaxRunSeconds = 0 }, func(e *Experiment) { e.MaxRunSeconds = 86401 },
-		func(e *Experiment) { e.Codex = &CodexConfig{Auth: "ambient", Reasoning: "low"} },
-		func(e *Experiment) { e.Codex = &CodexConfig{Auth: "api-key-env", Reasoning: ""} },
+		func(e *Experiment) { e.Gemini = &GeminiConfig{Auth: "ambient", Reasoning: "low"} },
+		func(e *Experiment) { e.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: ""} },
 		func(e *Experiment) { e.Command = append(e.Command, "exec") }, func(e *Experiment) { e.Agent = "unknown" },
+		func(e *Experiment) { e.Model = "gemini-flash-latest" },
 	} {
 		bad := cfg
 		change(&bad)
@@ -190,10 +212,11 @@ func TestNativeFailureRescorePreservesOutcome(t *testing.T) {
 
 func TestNativeStopHistoryConsistency(t *testing.T) {
 	cfg := testExperiment()
-	cfg.Codex = &CodexConfig{Auth: "api-key-env", Reasoning: "low"}
+	cfg.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low"}
 	cfg.MaxTotalTokens = 20
+	cfg.Model = "gemini-3.8-flash"
 	response := func(session string, tokens int64) *AdapterResponse {
-		return &AdapterResponse{Native: &CodexEvidence{SessionID: session}, Usage: &Usage{InputTokens: tokens}}
+		return &AdapterResponse{Native: &GeminiEvidence{SessionID: session, ReportedModels: []string{cfg.Model}}, Usage: &Usage{InputTokens: tokens}}
 	}
 	for _, tc := range []struct {
 		name, reason string
@@ -204,7 +227,7 @@ func TestNativeStopHistoryConsistency(t *testing.T) {
 		{"at ceiling", "token-limit", []Attempt{{Response: response("a", 20)}}, true},
 		{"continued past ceiling", "cancelled", []Attempt{{Response: response("a", 20)}, {Response: response("b", 1)}}, false},
 		{"claimed missing but known", "unknown-usage", []Attempt{{Response: response("a", 1)}}, false},
-		{"genuinely missing", "unknown-usage", []Attempt{{Response: &AdapterResponse{Native: &CodexEvidence{SessionID: "a"}}}}, true},
+		{"genuinely missing", "unknown-usage", []Attempt{{Response: &AdapterResponse{Native: &GeminiEvidence{SessionID: "a", ReportedModels: []string{cfg.Model}}}}}, true},
 		{"no invented reuse", "session-reuse", []Attempt{{Response: response("a", 1)}}, false},
 		{"reuse stop", "session-reuse", []Attempt{{Response: response("a", 1)}, {Response: response("a", 1), Diagnostic: "native session ID reused across attempts"}}, true},
 		{"reuse cancelled", "cancelled", []Attempt{{Response: response("a", 1)}, {Response: response("a", 1), Diagnostic: "native session ID reused across attempts"}}, true},
@@ -245,5 +268,54 @@ func TestNativeReusedSessionStops(t *testing.T) {
 	}
 	if len(run.Attempts) != 2 || run.StopReason != "session-reuse" || run.Attempts[1].Status != "adapter-error" {
 		t.Fatal("session reuse was hidden")
+	}
+}
+
+func TestNativeModelIdentityStopsAndRescores(t *testing.T) {
+	for _, tc := range []struct{ name, replacement, reason string }{
+		{"changed", "gemini-other-model", "model-mismatch"},
+		{"missing", "", "model-unverified"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := nativeTestExperiment(t, `{"input_tokens":10,"output_tokens":5}`)
+			script, err := os.ReadFile(cfg.Command[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Change only the CLI's observed model identity, leaving the requested model fixed.
+			changed := strings.ReplaceAll(string(script), cfg.Model, tc.replacement)
+			if tc.replacement == "" {
+				changed = strings.ReplaceAll(changed, `"models":{"":{"api":{"totalErrors":0,"totalRequests":1},"tokens":{"cached":0,"candidates":5,"input":10,"prompt":10,"thoughts":0,"tool":0,"total":15}}}`, `"models":{}`)
+			}
+			if err := os.WriteFile(cfg.Command[0], []byte(changed), 0700); err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := ResolveExperiment(cfg, ".")
+			if err != nil {
+				t.Fatal(err)
+			}
+			path, err := RunExperiment(context.Background(), resolved, t.TempDir())
+			if err == nil {
+				t.Fatal("model uncertainty must stop run")
+			}
+			run, err := LoadExperimentRun(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.StopReason != tc.reason || len(run.Attempts) != 1 || run.Attempts[0].Status != "adapter-error" || run.Attempts[0].Grade.Passed {
+				t.Fatalf("wrong model was graded or run continued: %+v", run)
+			}
+			replay, err := RescoreExperiment(context.Background(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rescored, err := LoadExperimentRun(replay)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rescored.StopReason != tc.reason || rescored.Attempts[0].Status != "adapter-error" {
+				t.Fatal("replay lost model refusal")
+			}
+		})
 	}
 }

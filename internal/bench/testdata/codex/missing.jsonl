@@ -1,4 +1,0 @@
-{"type":"thread.started","thread_id":"simulated-missing"}
-{"type":"turn.started"}
-{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"{\"source\":\"package safepath\"}"}}
-{"type":"turn.completed"}

@@ -1,5 +1,0 @@
-{"type":"thread.started","thread_id":"simulated-failure"}
-{"type":"turn.started"}
-{"type":"item.started","item":{"id":"tool","type":"command_execution","command":"go version","status":"in_progress"}}
-{"type":"error","message":"simulated provider interruption"}
-{"type":"turn.failed","error":{"message":"simulated failure"},"usage":{"input_tokens":41,"output_tokens":7,"reasoning_output_tokens":3}}

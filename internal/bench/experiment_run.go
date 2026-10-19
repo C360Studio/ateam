@@ -59,8 +59,8 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 }
 
 func executeAdapter(ctx context.Context, e Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
-	if e.Codex != nil {
-		return executeCodex(ctx, e, request, dir)
+	if e.Gemini != nil {
+		return executeGemini(ctx, e, request, dir)
 	}
 	var response AdapterResponse
 	payload, err := json.Marshal(request)
@@ -111,7 +111,7 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err != nil {
 		return "", err
 	}
-	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.CodexVersion != resolved.CodexVersion || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
+	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.GeminiVersion != resolved.GeminiVersion || (current.Experiment.Gemini != nil && !jsonEquivalent(current.NativeSettings, resolved.NativeSettings)) || !reflect.DeepEqual(current.NativeArguments, resolved.NativeArguments) || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
 		return "", fmt.Errorf("resolved experiment changed before execution")
 	}
 	if err := os.MkdirAll(outputRoot, 0700); err != nil {
@@ -121,12 +121,9 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err != nil {
 		return "", err
 	}
-	if resolved.Experiment.Codex != nil {
-		if resolved.Experiment.Model == "MODEL_TO_SELECT" {
-			return dir, fmt.Errorf("select an approved model before native execution")
-		}
-		if os.Getenv("CODEX_API_KEY") == "" {
-			return dir, fmt.Errorf("CODEX_API_KEY is required for explicitly selected API authentication")
+	if resolved.Experiment.Gemini != nil {
+		if os.Getenv("GEMINI_API_KEY") == "" {
+			return dir, fmt.Errorf("GEMINI_API_KEY is required for explicitly selected API authentication")
 		}
 		bounded, cancel := context.WithTimeout(ctx, time.Duration(resolved.Experiment.MaxRunSeconds)*time.Second)
 		defer cancel()
@@ -156,6 +153,12 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 		start := time.Now()
 		response, stdout, stderr, status, runErr := executeAdapter(ctx, resolved.Experiment, a.Request, workspace)
 		a.AgentNanos = time.Since(start).Nanoseconds()
+		if resolved.Experiment.Gemini != nil && runErr == nil {
+			if reason := nativeModelStatus(response.Native, resolved.Experiment.Model); reason != "" {
+				status = "adapter-error"
+				runErr = fmt.Errorf("%s: native accounting does not confirm the configured model", reason)
+			}
+		}
 		a.Stdout = stdout
 		a.Stderr = stderr
 		a.Status = status
@@ -211,11 +214,16 @@ func nativeStop(ctx context.Context, e Experiment, a Attempt, used *int64, last 
 		}
 		return "cancelled", ctx.Err()
 	}
-	if e.Codex == nil {
+	if e.Gemini == nil {
 		return "", nil
 	}
 	if a.Diagnostic == "native session ID reused across attempts" {
 		return "session-reuse", fmt.Errorf("native session reused; stopped before further calls")
+	}
+	if a.Response != nil {
+		if reason := nativeModelStatus(a.Response.Native, e.Model); reason != "" {
+			return reason, fmt.Errorf("native model accounting invalid; stopped before further calls")
+		}
 	}
 	if a.Response == nil || a.Response.Usage == nil {
 		return "unknown-usage", fmt.Errorf("native usage unknown; stopped before further calls")
@@ -316,15 +324,21 @@ func validateRun(r ExperimentRun) error {
 	}
 	switch r.StopReason {
 	case "", "cancelled", "run-timeout":
-	case "unknown-usage", "token-limit", "session-reuse":
-		if cfg.Codex == nil {
+	case "unknown-usage", "token-limit", "session-reuse", "model-mismatch", "model-unverified":
+		if cfg.Gemini == nil {
 			return fmt.Errorf("native stop reason on command adapter")
 		}
 	default:
 		return fmt.Errorf("unknown run stop reason")
 	}
-	if cfg.Codex != nil && (r.Resolved.CodexVersion == "" || r.Resolved.BudgetPolicy == "") {
+	if cfg.Gemini != nil && (r.Resolved.GeminiVersion == "" || r.Resolved.BudgetPolicy == "" || len(r.Resolved.NativeSettings) == 0 || len(r.Resolved.NativeArguments) == 0) {
 		return fmt.Errorf("missing native provenance")
+	}
+	if cfg.Gemini != nil {
+		expected, err := geminiSettings(cfg)
+		if err != nil || !jsonEquivalent(expected, r.Resolved.NativeSettings) || !reflect.DeepEqual(geminiArguments(cfg), r.Resolved.NativeArguments) {
+			return fmt.Errorf("native execution settings provenance mismatch")
+		}
 	}
 	if len(r.Resolved.CommandFiles) == 0 || r.Resolved.ConfigSHA == "" || r.Resolved.Runtime == "" || r.Resolved.RunnerSHA == "" || r.Resolved.Grader.Path == "" || r.Resolved.Grader.SHA == "" || r.Resolved.Grader.Version == "" {
 		return fmt.Errorf("missing provenance")
@@ -334,16 +348,16 @@ func validateRun(r ExperimentRun) error {
 		if !reflect.DeepEqual(a.Request, newAdapterRequest(cfg, schedule[i])) || a.AgentNanos < 0 || a.GradeNanos < 0 || a.AgentNanos > int64(24*time.Hour) || a.GradeNanos > int64(24*time.Hour) {
 			return fmt.Errorf("attempt %d: request/timing mismatch", i)
 		}
-		if cfg.Codex != nil {
-			parsed, parseErr := parseCodexEvents(a.Stdout)
+		if cfg.Gemini != nil {
+			parsed, parseErr := parseGeminiOutput(a.Stdout)
 			if a.Response != nil && a.Response.Native != nil && a.Response.Native.OutputTruncated {
-				if a.Status != "adapter-error" || a.Diagnostic != "codex output exceeded 1 MiB per stream" {
+				if a.Status != "adapter-error" || a.Diagnostic != "gemini output exceeded 1 MiB per stream" {
 					return fmt.Errorf("attempt %d: invalid truncation outcome", i)
 				}
-				markCodexTruncated(&parsed)
+				markGeminiTruncated(&parsed)
 			}
 			if a.Response == nil || !reflect.DeepEqual(&parsed, a.Response) {
-				return fmt.Errorf("attempt %d: native response differs from raw events", i)
+				return fmt.Errorf("attempt %d: native response differs from raw output", i)
 			}
 			if err := validateUsage(a.Response.Usage); err != nil {
 				return err
@@ -353,7 +367,7 @@ func validateRun(r ExperimentRun) error {
 			}
 			session := a.Response.Native.SessionID
 			if a.Status == "passed" || a.Status == "failed" || a.Status == "grading-error" {
-				if parseErr != nil || (session != "" && sessions[session]) {
+				if parseErr != nil || nativeModelStatus(a.Response.Native, cfg.Model) != "" || (session != "" && sessions[session]) {
 					return fmt.Errorf("attempt %d: incomplete or reused native session", i)
 				}
 			}
@@ -365,7 +379,7 @@ func validateRun(r ExperimentRun) error {
 				return fmt.Errorf("attempt %d: missing or corrupt candidate", i)
 			}
 			var parsed AdapterResponse
-			if err := strictJSON([]byte(a.Stdout), &parsed); cfg.Codex == nil && (err != nil || !reflect.DeepEqual(&parsed, a.Response)) {
+			if err := strictJSON([]byte(a.Stdout), &parsed); cfg.Gemini == nil && (err != nil || !reflect.DeepEqual(&parsed, a.Response)) {
 				return fmt.Errorf("attempt %d: response differs from raw output", i)
 			}
 			if err := validateUsage(a.Response.Usage); err != nil {
@@ -381,7 +395,7 @@ func validateRun(r ExperimentRun) error {
 				return fmt.Errorf("attempt %d: missing grading diagnostic", i)
 			}
 		case "adapter-error", "timeout", "cancelled":
-			if (cfg.Codex == nil && (a.Response != nil || a.SourceSHA != "")) || a.Grade.Passed || a.Diagnostic == "" {
+			if (cfg.Gemini == nil && (a.Response != nil || a.SourceSHA != "")) || a.Grade.Passed || a.Diagnostic == "" {
 				return fmt.Errorf("attempt %d: invalid execution failure", i)
 			}
 		default:
@@ -392,7 +406,7 @@ func validateRun(r ExperimentRun) error {
 }
 
 func validateNativeStop(r ExperimentRun) error {
-	if r.Resolved.Experiment.Codex == nil {
+	if r.Resolved.Experiment.Gemini == nil {
 		return nil
 	}
 	var used int64
@@ -408,6 +422,12 @@ func validateNativeStop(r ExperimentRun) error {
 		if reused {
 			if !last || (r.StopReason != "session-reuse" && r.StopReason != "cancelled" && r.StopReason != "run-timeout") || a.Diagnostic != "native session ID reused across attempts" {
 				return fmt.Errorf("invalid session reuse stop")
+			}
+			return nil
+		}
+		if reason := nativeModelStatus(a.Response.Native, r.Resolved.Experiment.Model); reason != "" {
+			if !last || (r.StopReason != reason && r.StopReason != "cancelled" && r.StopReason != "run-timeout") {
+				return fmt.Errorf("native execution continued with unverified or changed model")
 			}
 			return nil
 		}
@@ -427,10 +447,28 @@ func validateNativeStop(r ExperimentRun) error {
 		if len(r.Attempts) == len(r.Resolved.Schedule) || used < r.Resolved.Experiment.MaxTotalTokens {
 			return fmt.Errorf("unsubstantiated token stop")
 		}
-	case "unknown-usage", "session-reuse":
+	case "unknown-usage", "session-reuse", "model-mismatch", "model-unverified":
 		return fmt.Errorf("unsubstantiated native stop")
 	}
 	return nil
+}
+
+func nativeModelStatus(evidence *GeminiEvidence, model string) string {
+	if evidence == nil || len(evidence.ReportedModels) == 0 {
+		return "model-unverified"
+	}
+	if len(evidence.ReportedModels) != 1 || evidence.ReportedModels[0] != model {
+		return "model-mismatch"
+	}
+	return ""
+}
+
+func jsonEquivalent(a, b []byte) bool {
+	var left, right any
+	if uniqueJSON(a) != nil || uniqueJSON(b) != nil || json.Unmarshal(a, &left) != nil || json.Unmarshal(b, &right) != nil {
+		return false
+	}
+	return reflect.DeepEqual(left, right)
 }
 
 // RescoreExperiment re-evaluates retained source without executing any adapter or overwriting evidence.
