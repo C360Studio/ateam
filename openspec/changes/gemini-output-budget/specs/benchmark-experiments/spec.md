@@ -18,4 +18,3 @@ Gemini experiments MAY set shared `gemini.max_output_tokens` to an integer from 
 #### Scenario: Retained allowance disagrees with configuration
 - **WHEN** saved native generation settings or original configuration have been altered to a different output allowance
 - **THEN** execution and retained-evidence validation refuse the inconsistent provenance rather than silently accepting the new allowance
-
