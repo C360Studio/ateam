@@ -15,6 +15,6 @@
 - [x] 3.4 Wire CLI, offline example, and benchmark-specific usage documentation.
 
 ## 4. Verification and delivery
-- [ ] 4.1 Exercise failures, boundaries, generated checks and non-destructive mutations.
-- [ ] 4.2 Run Taskfile verification, parity and offline self-tests; record reproducible evidence.
-- [ ] 4.3 Record implemented-by, sync final specifications, update draft PR and report remaining limitations.
+- [x] 4.1 Exercise failures, boundaries, generated checks and non-destructive mutations.
+- [x] 4.2 Run Taskfile verification, parity and offline self-tests; record reproducible evidence.
+- [x] 4.3 Record implemented-by, sync final specifications, update draft PR and report remaining limitations.

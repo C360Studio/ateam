@@ -2,6 +2,8 @@
 
 Issue: https://github.com/C360Studio/ateam/issues/6
 
+implemented-by: codex
+
 ## Why
 ATeam needs evidence about what prompt and skill changes do to agent outcomes. Existing reference-fixture checks cannot support agent performance claims, and some report fields overstate what was tested.
 

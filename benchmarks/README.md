@@ -87,7 +87,7 @@ Repository OpenSpec tooling is pinned locally:
 ```sh
 npm ci
 npm run spec:check
-node_modules/.bin/openspec status --change benchmark-experiments
+node_modules/.bin/openspec show benchmark-experiments --type spec
 ```
 
 `task spec:check` prefers this local installation. Existing shared agent skill adapters are unchanged.
