@@ -2,6 +2,8 @@
 
 ATeam is a Go-first lab for testing agent harness configuration. Its portable coordination mechanisms can be useful in other projects, but it does not provide a validated end-to-end workflow for every language. Choose its workflow intentionally: the generated instructions favor Ponytail’s smallest-complete-change discipline, OpenSpec, worktrees, issue-linked draft PRs, and explicit handoffs.
 
+See [how the harness runs](hook-flow.md) for the hook lifecycle and which workflow rules rely on agent cooperation.
+
 ## Feature and language boundaries
 
 | Feature | Current behavior |
