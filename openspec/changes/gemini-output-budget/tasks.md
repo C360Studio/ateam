@@ -6,6 +6,6 @@
 - [x] Prove explicit propagation, provenance/replay compatibility and validation with independent tests and mutations.
 
 ## Delivery
-- [ ] Independently review the implementation and pass full clean-tree gates before paid sampling.
-- [ ] Execute the revised bounded pilot only after each advancement gate; retain old and new failures separately.
-- [ ] Review and publish final evidence, limitations and current held work without merging.
+- [x] Independently review the implementation and pass full clean-tree gates before paid sampling.
+- [x] Execute the revised bounded pilot only after each advancement gate; retain old and new failures separately. V2 stopped at canary acceptance after a turn-limit failure with unknown usage; no A/A or A/B was launched.
+- [x] Review and publish final evidence, limitations and current held work without merging.
