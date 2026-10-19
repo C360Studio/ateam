@@ -49,4 +49,4 @@ bin/ateam bench compare <retained-run.json> --json
 bin/ateam bench rescore <retained-run.json>
 ```
 
-Repeat with aa/ab only after the gates above; any budget-adjusted local configuration and its digest must be retained alongside original predeclared configuration. Automatic evaluator self-tests run before each native launch. Preserve historical Gemini failures separately. Results will be linked here after execution or a concrete stop boundary.
+Repeat with aa/ab only after the gates above; any budget-adjusted local configuration and its digest must be retained alongside original predeclared configuration. Automatic evaluator self-tests run before each native launch. Preserve historical Gemini failures separately. The [retained canary result](results.md) records an incomplete JSON response and the stop before A/A or A/B.
