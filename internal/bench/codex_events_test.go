@@ -59,6 +59,61 @@ func TestCodexOutputNativeEvidenceAndAccounting(t *testing.T) {
 	}
 }
 
+func TestCodexThreadWarningDoesNotRequireActiveTurn(t *testing.T) {
+	// Allowlisted warning envelope/message from the first Luna canary, with
+	// thread ID and generated config path anonymized; timestamp is omitted.
+	warning := `{"method":"warning","params":{"threadId":"thread-1","message":"Under-development features enabled: skip_host_skill_discovery. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set \u0060suppress_unstable_features_warning = true\u0060 in /generated-workspace/.codex/config.toml."}}`
+	for _, position := range []int{4, 13, 15} {
+		t.Run(fmt.Sprintf("position-%d", position), func(t *testing.T) {
+			lines := codexTestTranscript()
+			withWarning := append([]string{}, lines[:position]...)
+			withWarning = append(withWarning, warning)
+			withWarning = append(withWarning, lines[position:]...)
+			r, err := parseCodexOutput(strings.Join(withWarning, "\n"))
+			if err != nil || r.Source != "package fixture\n" || r.Usage == nil || r.Usage.InputTokens != 200 || len(r.Native.Warnings) != 0 {
+				t.Fatalf("native thread warning rejected or changed accounting: %+v %v", r, err)
+			}
+		})
+	}
+	for name, warning := range map[string]string{
+		"foreign thread":     `{"method":"warning","params":{"threadId":"other-thread","message":"warning"}}`,
+		"missing thread":     `{"method":"warning","params":{"message":"warning"}}`,
+		"null thread":        `{"method":"warning","params":{"threadId":null,"message":"warning"}}`,
+		"missing message":    `{"method":"warning","params":{"threadId":"thread-1"}}`,
+		"null message":       `{"method":"warning","params":{"threadId":"thread-1","message":null}}`,
+		"wrong message type": `{"method":"warning","params":{"threadId":"thread-1","message":7}}`,
+		"empty message":      `{"method":"warning","params":{"threadId":"thread-1","message":" "}}`,
+		"foreign turn":       `{"method":"warning","params":{"threadId":"thread-1","turnId":"other-turn","message":"warning"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			lines := codexTestTranscript()
+			lines = append(append(append([]string{}, lines[:13]...), warning), lines[13:]...)
+			if r, err := parseCodexOutput(strings.Join(lines, "\n")); err == nil || r.Source != "" {
+				t.Fatalf("unscoped or malformed warning accepted: %+v %v", r, err)
+			}
+		})
+	}
+	t.Run("incomplete warning retains archived evidence", func(t *testing.T) {
+		lines := codexTestTranscript()[:4]
+		before, err := parseCodexOutput(strings.Join(lines, "\n"))
+		if err == nil {
+			t.Fatal("truncated baseline unexpectedly complete")
+		}
+		before.Native.EventCount++
+		after, err := parseCodexOutput(strings.Join(append(lines, warning), "\n"))
+		if err == nil || !reflect.DeepEqual(before, after) {
+			t.Fatalf("warning changed archived incomplete response evidence: before=%+v after=%+v err=%v", before, after, err)
+		}
+	})
+	t.Run("warning cannot establish thread identity", func(t *testing.T) {
+		lines := codexTestTranscript()
+		lines = append(append(append([]string{}, lines[:2]...), warning), lines[2:]...)
+		if r, err := parseCodexOutput(strings.Join(lines, "\n")); err == nil || r.Source != "" || r.Native.Codex.ThreadID != "" {
+			t.Fatalf("warning established unvalidated thread identity: %+v %v", r, err)
+		}
+	})
+}
+
 func TestCodexThreadStartValidatedBeforeInference(t *testing.T) {
 	id, err := validateCodexThreadStart([]byte(codexTestThread), "gpt-6-luna", "low")
 	if err != nil || id != "thread-1" {

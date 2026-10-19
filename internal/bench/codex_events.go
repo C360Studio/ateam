@@ -85,6 +85,7 @@ type codexNotification struct {
 	ThreadID string          `json:"threadId"`
 	TurnID   string          `json:"turnId"`
 	ItemID   string          `json:"itemId"`
+	Message  *string         `json:"message"`
 	Status   json.RawMessage `json:"status"`
 	Thread   struct {
 		ID string `json:"id"`
@@ -255,6 +256,18 @@ func (h *codexHistory) consumeNotification(rpc codexRPC) error {
 	if rpc.Method == "model/rerouted" || rpc.Method == "error" {
 		h.response.Native.Terminal = "failed"
 		return fmt.Errorf("codex reported a model reroute or execution error")
+	}
+	if rpc.Method == "warning" {
+		// Thread warnings can precede turn/start acknowledgement. They cannot
+		// establish identity; the original text remains in retained raw stdout.
+		native := h.response.Native.Codex
+		if !h.threadAck || native.ThreadID == "" || p.ThreadID != native.ThreadID || p.Message == nil || strings.TrimSpace(*p.Message) == "" {
+			return fmt.Errorf("codex warning lacks a validated thread or message")
+		}
+		if p.TurnID != "" && p.TurnID != native.TurnID {
+			return fmt.Errorf("codex warning has a mismatched turn id")
+		}
+		return nil
 	}
 	if err := h.matchThread(p.ThreadID); err != nil {
 		return err
