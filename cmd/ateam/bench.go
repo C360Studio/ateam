@@ -97,6 +97,17 @@ func runExperimentCLI(ctx context.Context, root string, args []string) int {
 			printJSON(resolved)
 			return 0
 		}
+		if config.Codex != nil {
+			report, checkErr := bench.RunSelfTest(ctx)
+			evidence, saveErr := bench.SaveSelfTestRun(root, report)
+			if saveErr != nil {
+				return benchError(saveErr)
+			}
+			fmt.Fprintln(os.Stderr, "Preflight self-test:", evidence)
+			if checkErr != nil {
+				return benchError(checkErr)
+			}
+		}
 		artifact, err := bench.RunExperiment(ctx, resolved, *output)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Partial evidence:", artifact)

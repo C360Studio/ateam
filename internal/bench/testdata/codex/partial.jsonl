@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"simulated-partial"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"{\"source\":\"package safepath\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":80}}

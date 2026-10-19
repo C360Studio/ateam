@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "codex-aa-calibration-pilot",
+  "mode": "aa",
+  "command": ["codex"],
+  "agent": "codex",
+  "model": "MODEL_TO_SELECT",
+  "codex": {"auth": "api-key-env", "reasoning": "medium"},
+  "baseline": "Solve the task carefully and check boundary conditions.",
+  "candidate": "Solve the task carefully and check boundary conditions.",
+  "tasks": ["safe-path", "sql-user", "gitea-webhook"],
+  "repetitions": 5,
+  "seed": 42,
+  "timeout_seconds": 120,
+  "max_run_seconds": 3600,
+  "max_total_tokens": 100000
+}

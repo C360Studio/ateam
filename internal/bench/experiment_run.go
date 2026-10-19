@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,16 +29,22 @@ type Attempt struct {
 
 // ExperimentRun is a complete immutable pilot artifact. Digest detects corruption, not forgery.
 type ExperimentRun struct {
-	Version  int                `json:"version"`
-	Created  time.Time          `json:"created"`
-	Resolved ResolvedExperiment `json:"resolved"`
-	Attempts []Attempt          `json:"attempts"`
-	Digest   string             `json:"sha256"`
+	StopReason string             `json:"stop_reason,omitempty"`
+	Version    int                `json:"version"`
+	Created    time.Time          `json:"created"`
+	Resolved   ResolvedExperiment `json:"resolved"`
+	Attempts   []Attempt          `json:"attempts"`
+	Digest     string             `json:"sha256"`
 }
 
 type limitedBuffer struct {
 	bytes.Buffer
 	overflow bool
+}
+
+// ReadFrom prevents io.Copy from bypassing Write through the embedded bytes.Buffer.
+func (b *limitedBuffer) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{b}, r)
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
@@ -52,6 +59,9 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 }
 
 func executeAdapter(ctx context.Context, e Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
+	if e.Codex != nil {
+		return executeCodex(ctx, e, request, dir)
+	}
 	var response AdapterResponse
 	payload, err := json.Marshal(request)
 	if err != nil {
@@ -101,7 +111,7 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err != nil {
 		return "", err
 	}
-	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
+	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.CodexVersion != resolved.CodexVersion || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
 		return "", fmt.Errorf("resolved experiment changed before execution")
 	}
 	if err := os.MkdirAll(outputRoot, 0700); err != nil {
@@ -111,13 +121,32 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err != nil {
 		return "", err
 	}
+	if resolved.Experiment.Codex != nil {
+		if resolved.Experiment.Model == "MODEL_TO_SELECT" {
+			return dir, fmt.Errorf("select an approved model before native execution")
+		}
+		if os.Getenv("CODEX_API_KEY") == "" {
+			return dir, fmt.Errorf("CODEX_API_KEY is required for explicitly selected API authentication")
+		}
+		bounded, cancel := context.WithTimeout(ctx, time.Duration(resolved.Experiment.MaxRunSeconds)*time.Second)
+		defer cancel()
+		ctx = bounded
+	}
 	run := ExperimentRun{Version: experimentVersion, Created: time.Now().UTC(), Resolved: resolved}
 	if err := writeExclusiveJSON(filepath.Join(dir, "resolved.json"), resolved); err != nil {
 		return dir, err
 	}
+	var usedTokens int64
+	var stopErr error
+	sessions := map[string]bool{}
 	for i, trial := range resolved.Schedule {
 		if err := ctx.Err(); err != nil {
-			return dir, err
+			run.StopReason = "cancelled"
+			if err == context.DeadlineExceeded {
+				run.StopReason = "run-timeout"
+			}
+			stopErr = err
+			break
 		}
 		a := Attempt{Request: newAdapterRequest(resolved.Experiment, trial)}
 		workspace, err := os.MkdirTemp("", "ateam-agent-*")
@@ -131,12 +160,28 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 		a.Stderr = stderr
 		a.Status = status
 		removeErr := os.RemoveAll(workspace)
+		if response.Native != nil {
+			a.Response = &response
+			if response.Source != "" {
+				a.SourceSHA = digest([]byte(response.Source))
+			}
+		}
 		if runErr != nil {
 			a.Diagnostic = runErr.Error()
 		} else {
 			a.Response = &response
 			a.SourceSHA = digest([]byte(response.Source))
 			gradeAttempt(ctx, &a)
+		}
+		if a.Response != nil && a.Response.Native != nil {
+			session := a.Response.Native.SessionID
+			if session != "" && sessions[session] {
+				a.Status = "adapter-error"
+				a.Grade = CandidateEvaluation{}
+				a.GradeNanos = 0
+				a.Diagnostic = "native session ID reused across attempts"
+			}
+			sessions[session] = true
 		}
 		if err := writeExclusiveJSON(filepath.Join(dir, fmt.Sprintf("attempt-%04d.json", i)), a); err != nil {
 			return dir, err
@@ -145,8 +190,10 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 		if removeErr != nil {
 			return dir, fmt.Errorf("remove workspace: %w", removeErr)
 		}
-		if ctx.Err() != nil {
-			return dir, ctx.Err()
+		reason, err := nativeStop(ctx, resolved.Experiment, a, &usedTokens, i+1 == len(resolved.Schedule))
+		if reason != "" {
+			run.StopReason, stopErr = reason, err
+			break
 		}
 	}
 	run.Digest = runDigest(run)
@@ -154,7 +201,30 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err := writeExclusiveJSON(path, run); err != nil {
 		return dir, err
 	}
-	return path, nil
+	return path, stopErr
+}
+
+func nativeStop(ctx context.Context, e Experiment, a Attempt, used *int64, last bool) (string, error) {
+	if ctx.Err() != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "run-timeout", ctx.Err()
+		}
+		return "cancelled", ctx.Err()
+	}
+	if e.Codex == nil {
+		return "", nil
+	}
+	if a.Diagnostic == "native session ID reused across attempts" {
+		return "session-reuse", fmt.Errorf("native session reused; stopped before further calls")
+	}
+	if a.Response == nil || a.Response.Usage == nil {
+		return "unknown-usage", fmt.Errorf("native usage unknown; stopped before further calls")
+	}
+	*used += a.Response.Usage.InputTokens + a.Response.Usage.OutputTokens
+	if *used >= e.MaxTotalTokens && !last {
+		return "token-limit", fmt.Errorf("native token ceiling reached; stopped before further calls")
+	}
+	return "", nil
 }
 
 func gradeAttempt(ctx context.Context, a *Attempt) {
@@ -199,7 +269,7 @@ func writeExclusiveJSON(path string, value any) error {
 }
 func runDigest(r ExperimentRun) string { r.Digest = ""; return jsonDigest(r) }
 
-// LoadExperimentRun verifies complete history, evidence consistency and evaluator identity.
+// LoadExperimentRun verifies complete or explicitly stopped history and evidence consistency.
 func LoadExperimentRun(path string) (ExperimentRun, error) {
 	var r ExperimentRun
 	f, err := os.Open(path)
@@ -241,15 +311,53 @@ func validateRun(r ExperimentRun) error {
 		return fmt.Errorf("evaluator mismatch: rescore with the matching task/grader version")
 	}
 	schedule := Schedule(cfg)
-	if !reflect.DeepEqual(schedule, r.Resolved.Schedule) || len(r.Attempts) != len(schedule) {
+	if !reflect.DeepEqual(schedule, r.Resolved.Schedule) || len(r.Attempts) > len(schedule) || (r.StopReason == "" && len(r.Attempts) != len(schedule)) {
 		return fmt.Errorf("incomplete or inconsistent paired schedule")
+	}
+	switch r.StopReason {
+	case "", "cancelled", "run-timeout":
+	case "unknown-usage", "token-limit", "session-reuse":
+		if cfg.Codex == nil {
+			return fmt.Errorf("native stop reason on command adapter")
+		}
+	default:
+		return fmt.Errorf("unknown run stop reason")
+	}
+	if cfg.Codex != nil && (r.Resolved.CodexVersion == "" || r.Resolved.BudgetPolicy == "") {
+		return fmt.Errorf("missing native provenance")
 	}
 	if len(r.Resolved.CommandFiles) == 0 || r.Resolved.ConfigSHA == "" || r.Resolved.Runtime == "" || r.Resolved.RunnerSHA == "" || r.Resolved.Grader.Path == "" || r.Resolved.Grader.SHA == "" || r.Resolved.Grader.Version == "" {
 		return fmt.Errorf("missing provenance")
 	}
+	sessions := map[string]bool{}
 	for i, a := range r.Attempts {
 		if !reflect.DeepEqual(a.Request, newAdapterRequest(cfg, schedule[i])) || a.AgentNanos < 0 || a.GradeNanos < 0 || a.AgentNanos > int64(24*time.Hour) || a.GradeNanos > int64(24*time.Hour) {
 			return fmt.Errorf("attempt %d: request/timing mismatch", i)
+		}
+		if cfg.Codex != nil {
+			parsed, parseErr := parseCodexEvents(a.Stdout)
+			if a.Response != nil && a.Response.Native != nil && a.Response.Native.OutputTruncated {
+				if a.Status != "adapter-error" || a.Diagnostic != "codex output exceeded 1 MiB per stream" {
+					return fmt.Errorf("attempt %d: invalid truncation outcome", i)
+				}
+				markCodexTruncated(&parsed)
+			}
+			if a.Response == nil || !reflect.DeepEqual(&parsed, a.Response) {
+				return fmt.Errorf("attempt %d: native response differs from raw events", i)
+			}
+			if err := validateUsage(a.Response.Usage); err != nil {
+				return err
+			}
+			if a.Response.Source != "" && a.SourceSHA != digest([]byte(a.Response.Source)) {
+				return fmt.Errorf("attempt %d: native source digest mismatch", i)
+			}
+			session := a.Response.Native.SessionID
+			if a.Status == "passed" || a.Status == "failed" || a.Status == "grading-error" {
+				if parseErr != nil || (session != "" && sessions[session]) {
+					return fmt.Errorf("attempt %d: incomplete or reused native session", i)
+				}
+			}
+			sessions[session] = true
 		}
 		switch a.Status {
 		case "passed", "failed", "grading-error":
@@ -257,7 +365,7 @@ func validateRun(r ExperimentRun) error {
 				return fmt.Errorf("attempt %d: missing or corrupt candidate", i)
 			}
 			var parsed AdapterResponse
-			if err := strictJSON([]byte(a.Stdout), &parsed); err != nil || !reflect.DeepEqual(&parsed, a.Response) {
+			if err := strictJSON([]byte(a.Stdout), &parsed); cfg.Codex == nil && (err != nil || !reflect.DeepEqual(&parsed, a.Response)) {
 				return fmt.Errorf("attempt %d: response differs from raw output", i)
 			}
 			if err := validateUsage(a.Response.Usage); err != nil {
@@ -273,12 +381,54 @@ func validateRun(r ExperimentRun) error {
 				return fmt.Errorf("attempt %d: missing grading diagnostic", i)
 			}
 		case "adapter-error", "timeout", "cancelled":
-			if a.Response != nil || a.SourceSHA != "" || a.Grade.Passed || a.Diagnostic == "" {
+			if (cfg.Codex == nil && (a.Response != nil || a.SourceSHA != "")) || a.Grade.Passed || a.Diagnostic == "" {
 				return fmt.Errorf("attempt %d: invalid execution failure", i)
 			}
 		default:
 			return fmt.Errorf("attempt %d: unknown status %q", i, a.Status)
 		}
+	}
+	return validateNativeStop(r)
+}
+
+func validateNativeStop(r ExperimentRun) error {
+	if r.Resolved.Experiment.Codex == nil {
+		return nil
+	}
+	var used int64
+	sessions := map[string]bool{}
+	for i, a := range r.Attempts {
+		last := i+1 == len(r.Attempts)
+		if a.Response == nil || a.Response.Native == nil {
+			return fmt.Errorf("missing native evidence")
+		}
+		session := a.Response.Native.SessionID
+		reused := session != "" && sessions[session]
+		sessions[session] = true
+		if reused {
+			if !last || r.StopReason != "session-reuse" || a.Diagnostic != "native session ID reused across attempts" {
+				return fmt.Errorf("invalid session reuse stop")
+			}
+			return nil
+		}
+		if a.Response.Usage == nil {
+			if !last || (r.StopReason != "unknown-usage" && r.StopReason != "cancelled" && r.StopReason != "run-timeout") {
+				return fmt.Errorf("native execution continued after unknown usage")
+			}
+			return nil
+		}
+		used += a.Response.Usage.InputTokens + a.Response.Usage.OutputTokens
+		if used >= r.Resolved.Experiment.MaxTotalTokens && !last {
+			return fmt.Errorf("native execution continued after token ceiling")
+		}
+	}
+	switch r.StopReason {
+	case "token-limit":
+		if len(r.Attempts) == len(r.Resolved.Schedule) || used < r.Resolved.Experiment.MaxTotalTokens {
+			return fmt.Errorf("unsubstantiated token stop")
+		}
+	case "unknown-usage", "session-reuse":
+		return fmt.Errorf("unsubstantiated native stop")
 	}
 	return nil
 }
@@ -304,7 +454,7 @@ func rescoreExperiment(ctx context.Context, path string, grade func(context.Cont
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		if run.Attempts[i].Response != nil {
+		if run.Attempts[i].Status == "passed" || run.Attempts[i].Status == "failed" || run.Attempts[i].Status == "grading-error" {
 			grade(ctx, &run.Attempts[i])
 		}
 	}

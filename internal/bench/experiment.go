@@ -2,6 +2,7 @@ package bench
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 const experimentVersion = 1
@@ -19,18 +21,22 @@ const maxAdapterBytes = 1 << 20
 
 // Experiment controls a paired pilot with one command and two instruction variants.
 type Experiment struct {
-	Version        int      `json:"version"`
-	Name           string   `json:"name"`
-	Command        []string `json:"command"`
-	Agent          string   `json:"agent"`
-	AgentVersion   string   `json:"agent_version"`
-	Model          string   `json:"model"`
-	Baseline       string   `json:"baseline"`
-	Candidate      string   `json:"candidate"`
-	Tasks          []string `json:"tasks"`
-	Repetitions    int      `json:"repetitions"`
-	Seed           int64    `json:"seed"`
-	TimeoutSeconds int      `json:"timeout_seconds"`
+	Version        int          `json:"version"`
+	Mode           string       `json:"mode,omitempty"`
+	Codex          *CodexConfig `json:"codex,omitempty"`
+	MaxTotalTokens int64        `json:"max_total_tokens,omitempty"`
+	MaxRunSeconds  int          `json:"max_run_seconds,omitempty"`
+	Name           string       `json:"name"`
+	Command        []string     `json:"command"`
+	Agent          string       `json:"agent"`
+	AgentVersion   string       `json:"agent_version"`
+	Model          string       `json:"model"`
+	Baseline       string       `json:"baseline"`
+	Candidate      string       `json:"candidate"`
+	Tasks          []string     `json:"tasks"`
+	Repetitions    int          `json:"repetitions"`
+	Seed           int64        `json:"seed"`
+	TimeoutSeconds int          `json:"timeout_seconds"`
 }
 
 // Trial identifies one arm of a task/repetition pair.
@@ -42,6 +48,8 @@ type Trial struct {
 
 // ResolvedExperiment is the reviewable dry-run output, including reproducibility metadata.
 type ResolvedExperiment struct {
+	CodexVersion string            `json:"codex_version,omitempty"`
+	BudgetPolicy string            `json:"budget_policy,omitempty"`
 	Original     Experiment        `json:"original_experiment"`
 	Grader       GraderIdentity    `json:"grader"`
 	RunnerSHA    string            `json:"runner_sha256"`
@@ -71,9 +79,10 @@ type Usage struct {
 
 // AdapterResponse is the explicit command-adapter protocol; missing usage stays unknown.
 type AdapterResponse struct {
-	Version int    `json:"version"`
-	Source  string `json:"source"`
-	Usage   *Usage `json:"usage"`
+	Native  *CodexEvidence `json:"native,omitempty"`
+	Version int            `json:"version"`
+	Source  string         `json:"source"`
+	Usage   *Usage         `json:"usage"`
 }
 
 func strictJSON(data []byte, dst any) error {
@@ -104,7 +113,7 @@ func validateExperiment(e Experiment) error {
 	if e.Version != experimentVersion {
 		return fmt.Errorf("experiment version must be %d", experimentVersion)
 	}
-	if strings.TrimSpace(e.Name) == "" || strings.TrimSpace(e.Agent) == "" || strings.TrimSpace(e.AgentVersion) == "" || strings.TrimSpace(e.Model) == "" {
+	if strings.TrimSpace(e.Name) == "" || strings.TrimSpace(e.Agent) == "" || (e.Codex == nil && strings.TrimSpace(e.AgentVersion) == "") || strings.TrimSpace(e.Model) == "" {
 		return fmt.Errorf("name, agent, agent_version and model are required")
 	}
 	if len(e.Command) == 0 || strings.TrimSpace(e.Command[0]) == "" {
@@ -123,8 +132,35 @@ func validateExperiment(e Experiment) error {
 		}
 		seen[id] = true
 	}
-	if e.Baseline == e.Candidate {
-		return fmt.Errorf("baseline and candidate instructions must differ")
+	switch e.Mode {
+	case "", "ab":
+		if e.Baseline == e.Candidate {
+			return fmt.Errorf("baseline and candidate instructions must differ in A/B mode")
+		}
+	case "aa":
+		if e.Baseline != e.Candidate {
+			return fmt.Errorf("A/A requires identical baseline and candidate instructions")
+		}
+	default:
+		return fmt.Errorf("mode must be aa or ab")
+	}
+	if e.Codex != nil {
+		if e.Agent != "codex" || len(e.Command) != 1 {
+			return fmt.Errorf("codex requires agent codex and a single executable command")
+		}
+		if e.Codex.Auth != "api-key-env" {
+			return fmt.Errorf("codex auth must explicitly select api-key-env (CODEX_API_KEY)")
+		}
+		switch e.Codex.Reasoning {
+		case "minimal", "low", "medium", "high", "xhigh":
+		default:
+			return fmt.Errorf("codex reasoning must be explicitly selected")
+		}
+		if e.MaxTotalTokens < 1 || e.MaxTotalTokens > 1000000000000 || e.MaxRunSeconds < 1 || e.MaxRunSeconds > 86400 {
+			return fmt.Errorf("codex requires max_total_tokens 1..1e12 and max_run_seconds 1..86400")
+		}
+	} else if e.MaxTotalTokens != 0 || e.MaxRunSeconds != 0 {
+		return fmt.Errorf("native budget fields require codex configuration")
 	}
 	return nil
 }
@@ -245,6 +281,24 @@ func ResolveExperiment(e Experiment, base string) (ResolvedExperiment, error) {
 		}
 		r.CommandFiles[path] = hex.EncodeToString(hash.Sum(nil))
 		e.Command[i] = path
+	}
+	if e.Codex != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, e.Command[0], "--version")
+		configureBenchmarkProcess(cmd)
+		defer cleanupBenchmarkProcess(cmd)
+		var out limitedBuffer
+		cmd.Stdout = &out
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+		if err := cmd.Run(); err != nil {
+			return r, fmt.Errorf("probe codex version: %w", err)
+		}
+		if out.overflow || !strings.HasPrefix(strings.TrimSpace(out.String()), "codex-cli ") {
+			return r, fmt.Errorf("unrecognized codex version response")
+		}
+		r.CodexVersion = strings.TrimSpace(out.String())
+		r.BudgetPolicy = "CODEX_API_KEY only; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; cost unknown"
 	}
 	grader, err := currentGrader()
 	if err != nil {

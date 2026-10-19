@@ -24,3 +24,16 @@ Native pilots SHALL expose attempt counts, time limits, authentication policy an
 #### Scenario: Unknown usage
 - **WHEN** a native attempt omits complete usage
 - **THEN** no subsequent native attempt starts and retained evidence identifies the stop reason
+
+## MODIFIED Requirements
+
+### Requirement: Paired descriptive comparisons
+Comparison SHALL reject incompatible artifacts and incomplete histories without an explicit stop reason. Complete runs and valid stopped schedule prefixes SHALL report every retained attempt, distinguish unpaired attempts, and disclose denominators for successful-pair timing and known usage. Reports SHALL NOT claim statistical significance, quality equivalence, or actual tool activation from configuration alone.
+
+#### Scenario: Faster failed candidate
+- **WHEN** the candidate fails a task that the baseline passes
+- **THEN** the regression remains visible and the failed candidate is not counted as a successful-pair speed improvement
+
+#### Scenario: Stopped after an unpaired attempt
+- **WHEN** the native pilot stops after one arm due to unknown usage or a token ceiling
+- **THEN** comparison preserves that attempt in arm summaries without manufacturing its paired comparison

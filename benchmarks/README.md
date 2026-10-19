@@ -91,3 +91,38 @@ node_modules/.bin/openspec show benchmark-experiments --type spec
 ```
 
 `task spec:check` prefers this local installation. Existing shared agent skill adapters are unchanged.
+
+## Native Codex A/A calibration
+
+`codex-aa.json` is a **pilot template**, not a live authorization or performance result:
+
+```sh
+go build -o bin/ateam ./cmd/ateam
+bin/ateam bench run benchmarks/examples/codex-aa.json --dry-run
+```
+
+It requests 30 independent attempts (three tasks × five repetitions × two arms), identical instructions, counterbalanced ordering, 120 seconds per attempt, 3,600 seconds for the entire run, and a 100,000 reported-primary-token stop threshold. Replace `MODEL_TO_SELECT` with an explicitly selected model and review these illustrative limits before execution. Native execution refuses that placeholder. The dry run probes `codex --version` locally, hashes its executable, and reports requested model/reasoning, exact schedule, authentication policy and limits; it makes no model call. The installed CLI must support `exec --json --ephemeral --ignore-user-config --ignore-rules --output-schema`; implementation was checked against CLI 0.160.1. Unsupported flags/events fail visibly rather than silently changing the treatment.
+
+For native execution, the optional `codex` object selects the built-in adapter and `command` contains only the CLI executable. Explicit `auth: api-key-env` inherits **only `CODEX_API_KEY`** alongside a small runtime environment. Supply the credential through your environment/secret manager, never in JSON, a command argument, source control or an issue. Existing ChatGPT login, `OPENAI_API_KEY`, user configuration, MCP configuration and project instructions are not imported. Each attempt receives a new workspace, `HOME`, `CODEX_HOME` and ephemeral session; the requested instruction text is sent on stdin. The same API credential is shared across attempts, but model tool shell environments do not inherit it. API-key-only authentication is an intentional first-adapter limit; subscription authentication needs a separately designed isolation policy.
+
+The adapter requests Codex's read-only sandbox and never bypasses approvals. Fresh directories are **not** a security sandbox: Codex still has its documented tool access, and the protected Go grader executes generated source locally. Use a disposable external environment for untrusted agents/tasks. No arbitrary skill bundles are imported in this first adapter; vary explicit instruction text, and distinguish configured instructions from actual observed native item events. Native `item.completed` types show reported activity, not proof that a skill was effective or that a tool action succeeded.
+
+Native JSONL stdout and stderr are bounded to 1 MiB each. Exact inherited key bytes and their JSON-escaped representation are redacted before persistence/parsing; this is not general secret discovery. Treat source, prompts and traces as sensitive. Artifacts use private directories/files (0700/0600), remain local under ignored `benchmarks/runs`, and are retained until you deliberately remove their run directory. Do not publish raw traces without reviewing them. No credential value is copied into resolved configuration.
+
+Reported primary input/output totals are normalized only when both are available and valid. Cache-read and reasoning counts are subsets, never additional tokens. Optional native cache-write counts are retained separately without assuming their billing semantics. Missing/partial or contradictory usage remains unknown. Requested settings and the actual CLI version are recorded; resolved model is unknown unless native evidence supplies it (this adapter currently leaves it unknown), and resolved reasoning is not inferred from the request. No monetary estimate is produced: cost is unknown, and tokens are not an invoice.
+
+`max_total_tokens` stops **starting another attempt** once reported primary totals reach the threshold. A single in-flight attempt can exceed it. Missing/invalid usage stops further calls; timeout/cancellation stops the current process group on Unix. `max_run_seconds` includes grading. These are execution controls, not a hard dollar cap: agree a dollar spending cap and its provider-side enforcement (or explicitly accept a bounded overshoot policy), model, attempt/time limits and trace retention **before a live pilot**. The local runner cannot guarantee a monetary cap. A stopped run exits nonzero, retains `run.json` with a stop reason and schedule prefix, and supports comparison/rescoring, including an unpaired last attempt. Usage on failed executions remains visible. A session ID reused across attempts is rejected and stops the pilot.
+
+Before native execution, the CLI automatically runs and saves the offline evaluator self-test and refuses to proceed if it fails. Dry runs do not repeat self-tests.
+
+After that separate live decision, set `CODEX_API_KEY` externally and execute the reviewed configuration with `bench run`. Use the emitted artifact path:
+
+```sh
+bin/ateam bench compare benchmarks/runs/experiment-.../run.json
+bin/ateam bench compare benchmarks/runs/experiment-.../run.json --json
+bin/ateam bench rescore benchmarks/runs/experiment-.../run.json
+```
+
+`mode: aa` requires identical instructions; omitted mode or `ab` requires different instructions. The command/model/reasoning/config are shared across both arms. Reports preserve all statuses and known/unknown usage denominators; they show descriptive mean/min/max/population-SD over the configured task mix, and compare only complete pairs. Different stochastic answers are expected. Neither a small mean difference nor nonsignificance establishes equivalence. Run A/A first to investigate accounting and harness discrepancies; separately authorize any subsequent off/full A/B experiment.
+
+Use [the calibration report checklist](calibration-report.md) to link the immutable run, configuration/provenance, self-test evidence, comparison, rescore and discrepancies. Offline synthetic event fixtures establish parser/runner behavior, not provider billing accuracy. No live calibration has been performed for this implementation.
