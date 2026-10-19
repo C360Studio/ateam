@@ -17,5 +17,5 @@ implemented-by: claude (opus)
 
 ## 3. Verification
 
-- [ ] 3.1 Mutation evidence per `.agents/protocol.md`; `task verify` green.
+- [x] 3.1 Mutation evidence per `.agents/protocol.md`; `task verify` green.
 - [ ] 3.2 Manual herdr session check recorded in the PR: pickup via action, `worktree.created` fires, a caveat toast appears; confirm the runtime-only facts deferred from 1.1.
