@@ -28,7 +28,7 @@ tasks:
   spec:check:
     desc: "Validate OpenSpec changes/specs and fail on a Hold: written outside every task"
     cmds:
-      - go run ./cmd/ateam state spec-check
+      - PATH="{{.ROOT_DIR}}/node_modules/.bin:$PATH" go run ./cmd/ateam state spec-check
 
   spec:queue:
     desc: Show each in-flight OpenSpec change with its holds and blocking conditions

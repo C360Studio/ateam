@@ -1,0 +1,10 @@
+{
+  "name": "ateam-tooling",
+  "private": true,
+  "scripts": {
+    "spec:check": "openspec validate --all --strict --no-interactive"
+  },
+  "devDependencies": {
+    "@fission-ai/openspec": "1.14.3"
+  }
+}

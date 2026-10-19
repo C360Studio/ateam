@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/c360studio/ateam/internal/bench"
 	"github.com/c360studio/ateam/internal/bootstrap"
 	"github.com/c360studio/ateam/internal/hook"
 	"github.com/c360studio/ateam/internal/mcpserver"
@@ -84,7 +83,7 @@ Commands:
   task [name]         List or execute standardized Taskfile.yml targets
   init [flags]        Bootstrap repo with .agents, .claude, .codex, .gemini, openspec, and optional GitHub/Gitea labels
   doctor [--check]    Verify multi-agent parity, MCP schema token budget, and hook latency
-  bench [flags]       Run Ponytail + Handoff benchmark suite (--selftest, --rescore)
+  bench [flags]       Offline self-tests or paired experiments (run, rescore, compare)
   mutate [flags]      Run non-destructive Go -overlay mutation check (-pkg, -test, -file, -mutant, -expect/-expect-text)
   serve [flags]       Start embedded SvelteKit PM Board HTTP server (default 127.0.0.1:8420)`)
 }
@@ -410,52 +409,6 @@ func runDoctor(repoRoot string, args []string) int {
 		"violations":        violations,
 	})
 	if !passed {
-		return 1
-	}
-	return 0
-}
-
-func runBench(repoRoot string, args []string) int {
-	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
-	selfTest := fs.Bool("selftest", false, "run offline good/bad fixture and mutation checks")
-	rescorePath := fs.String("rescore", "", "rescore an existing JSON benchmark artifact")
-	markdown := fs.Bool("markdown", false, "print human-readable markdown table")
-	save := fs.Bool("save", false, "write benchmarks/runs/latest.json")
-	if err := fs.Parse(args); err != nil {
-		return 1
-	}
-	_ = selfTest
-	if *rescorePath != "" {
-		data, err := os.ReadFile(*rescorePath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ateam bench --rescore: %v\n", err)
-			return 1
-		}
-		var rep bench.SuiteReport
-		if err := json.Unmarshal(data, &rep); err != nil {
-			fmt.Fprintf(os.Stderr, "ateam bench --rescore parse: %v\n", err)
-			return 1
-		}
-		if *markdown {
-			fmt.Print(bench.FormatMarkdown(rep))
-		} else {
-			printJSON(rep)
-		}
-		if !rep.SelfTestPassed {
-			return 1
-		}
-		return 0
-	}
-	rep, err := bench.RunSelfTest(context.Background())
-	if *save {
-		_ = bench.SaveRun(repoRoot, rep)
-	}
-	if *markdown {
-		fmt.Print(bench.FormatMarkdown(rep))
-	} else {
-		printJSON(rep)
-	}
-	if err != nil || !rep.SelfTestPassed {
 		return 1
 	}
 	return 0

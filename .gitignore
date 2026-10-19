@@ -16,3 +16,6 @@ internal/web/dist/*
 
 # OS / Editor
 .DS_Store
+
+# Repository development tooling
+/node_modules/
