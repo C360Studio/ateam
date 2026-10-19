@@ -9,11 +9,11 @@ implemented-by: claude (opus)
 
 ## 2. Implementation
 
-- [ ] 2.1 HERDR-aware writer lease and pickup warning, with tests for set and unset `HERDR_*`.
-- [ ] 2.2 Herdr claim guidance in `.agents/protocol.md` and the `pickup` skill.
-- [ ] 2.3 `.agents/herdr/herdr-plugin.toml` manifest and `ateam state herdr` (`open-pane`, `on-event`); `ateam doctor --check` passes with and without it.
-- [ ] 2.4 Toast notifications on new spec-queue caveats, off the synchronous hook path, with a test that the gate never fires when `HERDR_ENV` is unset.
-- [ ] 2.5 herdr rows in `docs/hook-flow.md` and `docs/adoption.md`.
+- [x] 2.1 HERDR-aware writer lease and pickup warning, with tests for set and unset `HERDR_*`.
+- [x] 2.2 Herdr claim guidance in `.agents/protocol.md` and the `pickup` skill.
+- [x] 2.3 `.agents/herdr/herdr-plugin.toml` manifest and `ateam state herdr` (`open-pane`, `on-event`); `ateam doctor --check` passes with and without it.
+- [x] 2.4 Toast notifications on new spec-queue caveats, off the synchronous hook path, with a test that the gate never fires when `HERDR_ENV` is unset.
+- [x] 2.5 herdr rows in `docs/hook-flow.md` and `docs/adoption.md`.
 
 ## 3. Verification
 

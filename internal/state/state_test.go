@@ -270,3 +270,75 @@ func TestPostPRHandoffCommentAndDecisionsInPickup(t *testing.T) {
 		t.Fatalf("BuildPickupSummary missing decision summary:\n%s", summary)
 	}
 }
+
+func TestWriterLeaseHerdrIdentity(t *testing.T) {
+	tests := []struct {
+		name          string
+		env           map[string]string
+		wantPane      string
+		wantWorkspace string
+	}{
+		{
+			name:          "inside herdr records pane and workspace",
+			env:           map[string]string{"HERDR_ENV": "1", "HERDR_PANE_ID": "p_7", "HERDR_WORKSPACE_ID": "w_2"},
+			wantPane:      "p_7",
+			wantWorkspace: "w_2",
+		},
+		{
+			name: "outside herdr records nothing",
+			env:  map[string]string{"HERDR_ENV": "", "HERDR_PANE_ID": "", "HERDR_WORKSPACE_ID": ""},
+		},
+		{
+			name: "stray pane id without HERDR_ENV is ignored",
+			env:  map[string]string{"HERDR_ENV": "", "HERDR_PANE_ID": "p_7", "HERDR_WORKSPACE_ID": "w_2"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			dir := t.TempDir()
+			if _, err := WriteWriterLease(dir, "claude", "s1"); err != nil {
+				t.Fatalf("WriteWriterLease: %v", err)
+			}
+			raw, err := os.ReadFile(WriterLeasePath(dir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := ReadWriterLease(dir)
+			if err != nil {
+				t.Fatalf("ReadWriterLease: %v", err)
+			}
+			if got.HerdrPaneID != tc.wantPane || got.HerdrWorkspaceID != tc.wantWorkspace {
+				t.Fatalf("lease herdr ids = (%q, %q), want (%q, %q)", got.HerdrPaneID, got.HerdrWorkspaceID, tc.wantPane, tc.wantWorkspace)
+			}
+			if tc.wantPane == "" && strings.Contains(string(raw), "herdr_") {
+				t.Fatalf("writer.json should omit herdr fields outside herdr, got:\n%s", raw)
+			}
+		})
+	}
+}
+
+func TestPickupWarningNamesHerdrPane(t *testing.T) {
+	t.Setenv("ATEAM_SESSION_ID", "")
+	base := WriterLease{Agent: "codex", SessionID: "other", PID: 42, LastSeen: time.Now().UTC()}
+
+	withPane := base
+	withPane.HerdrPaneID = "p_9"
+	out := BuildPickupSummary(&State{Writer: &withPane, CurrentSessionID: "mine"})
+	for _, want := range []string{
+		"Writer lease: agent=codex session=other pid=42 last_seen=",
+		" ago (herdr pane p_9)\nWARNING: another writer may be active (agent=codex, session=other, pid=42, last_seen=",
+		" ago) (herdr pane p_9)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("pickup summary missing %q:\n%s", want, out)
+		}
+	}
+
+	out = BuildPickupSummary(&State{Writer: &base, CurrentSessionID: "mine"})
+	if !strings.Contains(out, "WARNING: another writer may be active") || strings.Contains(out, "herdr pane") {
+		t.Fatalf("pickup summary without pane should warn but not name a pane:\n%s", out)
+	}
+}

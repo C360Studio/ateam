@@ -32,6 +32,7 @@ A single compiled executable does not mean every command works without external 
 | Go mutation / benchmark behavioral self-tests | Go toolchain and a usable build cache. These tests spawn `go test`; offline means no model API calls, not that a toolchain can be absent. |
 | Forge operations | Network access and suitable authentication; GitHub operations use `gh`, while Gitea supports its API/token and `tea` paths. Local-only work does not require forge access. |
 | Serve the board | The compiled binary with embedded UI assets; Node is a build dependency, not a requirement to serve those assets. |
+| herdr plugin (optional) | herdr 0.9.5 or newer, `ateam` on the PATH herdr gives plugin commands, and a one-time `herdr plugin link "$PWD/.agents/herdr"` (absolute path). Without herdr nothing changes: every herdr behavior is gated on `HERDR_ENV=1`. |
 
 ## Adoption steps
 
@@ -43,6 +44,18 @@ A single compiled executable does not mean every command works without external 
 6. Use pickup and handoff for continuity. Handoff can post to the open PR; use `--no-post` for a local-only checkpoint.
 
 For non-Go mutation evidence, the shared protocol describes a manual backup/checksum approach. That is a workflow responsibility, not a built-in equivalent of `ateam mutate` for another language.
+
+## Optional herdr adapter
+
+When agents run inside [herdr](https://herdr.dev) panes, ATeam delegates three things and keeps the rest local:
+
+| Delegated to herdr | Stays local and authoritative |
+| --- | --- |
+| Pane identity: the writer lease records `HERDR_PANE_ID` and `HERDR_WORKSPACE_ID`, and the different-writer warning names the pane. | Hooks: the hook path only reads env; it never calls herdr. |
+| Worktree creation: `herdr worktree create --cwd "$PWD" --branch <agent>/<topic> --path "$PWD/.worktrees/<agent>-<topic>" --no-focus` groups the claim as a herdr workspace. | Worktree truth: `git worktree list` and the agent-prefixed branch. |
+| Toasts: the plugin runs `ateam state herdr on-event` on `worktree.created` and `pane.agent_status_changed`, toasting each new `HALT`/`RED`/`BLOCKED` caveat or Hold once. Actions open pickup and spec-queue popups. | State and Holds: `.ateam/state.json`, `openspec/` tasks, and `Hold:` lines. |
+
+Link the plugin once with `herdr plugin link "$PWD/.agents/herdr"`; `ateam` must be on herdr's PATH. `ateam doctor` does not read the manifest; herdr reports manifest problems in `herdr plugin list`. The plugin's command cwd, the `herdr pane get` output shape, and the popup placement through `plugin pane open` are not yet verified against a live herdr session.
 
 ## Ponytail and measurement
 

@@ -24,6 +24,8 @@ Do not automatically checkout, rebase, reset, stash, or clean uncommitted work t
 
 A draft PR claim or branch prefix (`claude/`, `codex/`, `gemini/`) identifies who claimed the branch, not whether another session is still writing. Confirm the previous writer has handed off or stopped before mutating files in an existing worktree. For unclaimed work, follow the Claim gate in [protocol.md](../../protocol.md).
 
+Inside herdr (`HERDR_ENV=1`), the writer lease and the different-writer warning name the herdr pane (`herdr pane <id>`); check that pane before assuming the writer stopped. Claim new work with `herdr worktree create --cwd "$PWD" --branch <agent>/<topic> --path "$PWD/.worktrees/<agent>-<topic>" --no-focus`; `git worktree list` stays the source of truth.
+
 ## 3. Reconcile and Continue
 
 Report in one concise block:
