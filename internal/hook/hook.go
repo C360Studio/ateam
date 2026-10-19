@@ -54,7 +54,7 @@ func NormalizeEvent(flagEvent, payloadEvent string) string {
 	case "turn-end", "stop", "afteragent", "sessionend":
 		return "turn-end"
 	default:
-		return "session-start"
+		return ""
 	}
 }
 
@@ -67,23 +67,33 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 		}
 	}
 	ev := NormalizeEvent(flagEvent, firstNonEmpty(in.HookEventName, in.Event))
+	if ev == "" {
+		return Output{}, nil
+	}
 	st, err := state.Load(root)
 	if err != nil {
-		st = &state.State{Mode: state.ModeFull}
+		return Output{}, err
 	}
-	if br, sha := state.ReadFastGitHead(root); sha != "" {
+	br, sha := state.ReadFastGitHead(root)
+	if sha != "" {
 		st.Git.Branch = br
 		st.Git.HeadSHA = sha
 	}
 
 	switch ev {
 	case "session-start":
+		var scanErrs []string
 		if holds, err := state.ScanHolds(root); err == nil {
 			st.Holds = holds
+		} else {
+			scanErrs = append(scanErrs, err.Error())
 		}
 		if queue, err := state.ScanOpenSpecQueue(root); err == nil {
 			st.OpenSpecQueue = queue
+		} else {
+			scanErrs = append(scanErrs, err.Error())
 		}
+		st.HoldScanError = strings.Join(scanErrs, "; ")
 		ctxText := state.BuildPickupSummary(st)
 		if st.Mode != state.ModeOff {
 			ctxText += "\n\n" + LadderPrompt(st.Mode)
@@ -91,51 +101,79 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 		return buildOutput("SessionStart", ctxText), nil
 
 	case "before-prompt":
+		_, _ = state.WriteWriterLease(root, "", in.SessionID)
 		promptText := firstNonEmpty(in.Prompt, in.UserPrompt)
-		if newMode, changed := detectModeSwitch(promptText); changed {
-			st.Mode = newMode
-			_ = state.Save(root, st)
-		}
-		if st.Mode == state.ModeOff {
+		newMode, changed := detectModeSwitch(promptText)
+		if !changed {
 			return Output{}, nil
 		}
-		return buildOutput("UserPromptSubmit", LadderPrompt(st.Mode)), nil
+		updated, err := state.Update(root, func(cur *state.State) error {
+			cur.Mode = newMode
+			return nil
+		})
+		if err != nil {
+			return Output{}, err
+		}
+		if updated.Mode == state.ModeOff {
+			return Output{}, nil
+		}
+		return buildOutput("UserPromptSubmit", LadderPrompt(updated.Mode)), nil
 
 	case "pre-compact":
-		if shortcuts, err := state.ScanShortcuts(root); err == nil {
-			st.Shortcuts = shortcuts
+		shortcuts, err := state.ScanShortcuts(root)
+		if err != nil {
+			return Output{}, err
 		}
-		if holds, err := state.ScanHolds(root); err == nil {
-			st.Holds = holds
+		holds, err := state.ScanHolds(root)
+		if err != nil {
+			return Output{}, err
 		}
-		if st.LastHandoff == nil {
-			st.LastHandoff = &state.Handoff{
-				Goal:          "Auto-saved before context compaction",
-				Addresses:     fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA),
-				Constraints:   fmt.Sprintf("%d active holds, %d shortcuts", len(st.Holds), len(st.Shortcuts)),
-				DoneWhen:      "Run task verify and reconcile via /pickup",
-				ChecksToRun:   "ateam state pickup && task verify",
-				Branch:        st.Git.Branch,
-				CheckpointSHA: st.Git.HeadSHA,
-				Dirty:         st.Git.Dirty,
-				AutoCompacted: true,
-				UpdatedAt:     time.Now().UTC(),
+		updated, err := state.Update(root, func(cur *state.State) error {
+			if sha != "" {
+				cur.Git.Branch = br
+				cur.Git.HeadSHA = sha
 			}
-		} else {
-			st.LastHandoff.AutoCompacted = true
-			st.LastHandoff.UpdatedAt = time.Now().UTC()
+			cur.Shortcuts = shortcuts
+			cur.Holds = holds
+			cur.HoldScanError = ""
+			if cur.LastHandoff == nil {
+				cur.LastHandoff = &state.Handoff{
+					Goal:          "Auto-saved before context compaction",
+					Addresses:     fmt.Sprintf("branch %s, SHA %s", cur.Git.Branch, cur.Git.HeadSHA),
+					Constraints:   fmt.Sprintf("%d active holds, %d shortcuts", len(cur.Holds), len(cur.Shortcuts)),
+					DoneWhen:      "Run task verify and reconcile via /pickup",
+					ChecksToRun:   "ateam state pickup && task verify",
+					Branch:        cur.Git.Branch,
+					CheckpointSHA: cur.Git.HeadSHA,
+					Dirty:         cur.Git.Dirty,
+					AutoCompacted: true,
+					UpdatedAt:     time.Now().UTC(),
+				}
+			} else {
+				cur.LastHandoff.AutoCompacted = true
+				cur.LastHandoff.UpdatedAt = time.Now().UTC()
+			}
+			return nil
+		})
+		if err != nil {
+			return Output{}, err
 		}
-		_ = state.Save(root, st)
-		return buildOutput("PreCompact", "Auto-handoff checkpoint saved before compaction:\n"+state.FormatFiveFieldPrompt(*st.LastHandoff)), nil
+		return buildOutput("PreCompact", "Auto-handoff checkpoint saved before compaction:\n"+state.FormatFiveFieldPrompt(*updated.LastHandoff)), nil
 
 	case "turn-end":
-		if shortcuts, err := state.ScanShortcuts(root); err == nil {
-			st.Shortcuts = shortcuts
+		_, _ = state.WriteWriterLease(root, "", in.SessionID)
+		holds, holdErr := state.ScanHolds(root)
+		if _, err := state.Update(root, func(cur *state.State) error {
+			if holdErr == nil {
+				cur.Holds = holds
+				cur.HoldScanError = ""
+			} else {
+				cur.HoldScanError = holdErr.Error()
+			}
+			return nil
+		}); err != nil {
+			return Output{}, err
 		}
-		if holds, err := state.ScanHolds(root); err == nil {
-			st.Holds = holds
-		}
-		_ = state.Save(root, st)
 		return Output{}, nil
 
 	default:

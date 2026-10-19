@@ -10,8 +10,17 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
-func TestBeforePromptInjectsLadderAndSwitchesMode(t *testing.T) {
+func TestBeforePromptInjectsLadderOnlyOnModeSwitch(t *testing.T) {
 	dir := t.TempDir()
+
+	// F-01: Ordinary prompt without a mode switch must NOT re-inject the ladder.
+	normalOut, err := Handle(dir, "before-prompt", strings.NewReader(`{"hook_event_name":"UserPromptSubmit","prompt":"implement handler"}`))
+	if err != nil {
+		t.Fatalf("Handle normal prompt: %v", err)
+	}
+	if normalOut.AdditionalContext != "" {
+		t.Fatalf("expected empty AdditionalContext on normal prompt, got: %q", normalOut.AdditionalContext)
+	}
 
 	// Switch to ultra via Gemini BeforeAgent payload.
 	payload := `{"hook_event_name":"BeforeAgent","prompt":"Please run /ponytail ultra on this module"}`
@@ -29,6 +38,15 @@ func TestBeforePromptInjectsLadderAndSwitchesMode(t *testing.T) {
 	}
 	if st.Mode != state.ModeUltra {
 		t.Errorf("persisted mode = %q, want %q", st.Mode, state.ModeUltra)
+	}
+
+	// Subsequent ordinary prompt in ultra mode must also return empty output.
+	nextOut, err := Handle(dir, "before-prompt", strings.NewReader(`{"hook_event_name":"BeforeAgent","prompt":"now add tests"}`))
+	if err != nil {
+		t.Fatalf("Handle subsequent prompt: %v", err)
+	}
+	if nextOut.AdditionalContext != "" {
+		t.Errorf("expected empty AdditionalContext on subsequent prompt, got: %q", nextOut.AdditionalContext)
 	}
 
 	// Switch off and confirm 0 tokens injected.
@@ -61,19 +79,32 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 }
 
 func TestHookLatencyBudget(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(wd, "..", ".."))
+	// Measure against a realistic tree containing source packages without mutating the real repo's .ateam.
 	dir := t.TempDir()
-	// Warm up filesystem cache in temp dir.
+	for i := 0; i < 40; i++ {
+		pkgDir := filepath.Join(dir, "internal", "pkg", string(rune('a'+(i%26))))
+		_ = os.MkdirAll(pkgDir, 0o755)
+		_ = os.WriteFile(filepath.Join(pkgDir, "file.go"), []byte("package p\n// shortcut: fast path, upgrade later\nfunc F() {}\n"), 0o644)
+	}
+	_ = repoRoot
 	_, _ = Handle(dir, "session-start", strings.NewReader(`{}`))
 
 	start := time.Now()
 	const iterations = 20
 	for i := 0; i < iterations; i++ {
-		_, err := Handle(dir, "before-prompt", strings.NewReader(`{"prompt":"implement handler"}`))
-		if err != nil {
-			t.Fatalf("Handle iteration %d: %v", i, err)
+		if _, err := Handle(dir, "before-prompt", strings.NewReader(`{"prompt":"implement handler"}`)); err != nil {
+			t.Fatalf("Handle before-prompt iteration %d: %v", i, err)
+		}
+		if _, err := Handle(dir, "turn-end", strings.NewReader(`{"session_id":"s1"}`)); err != nil {
+			t.Fatalf("Handle turn-end iteration %d: %v", i, err)
 		}
 	}
-	avg := time.Since(start) / iterations
+	avg := time.Since(start) / (iterations * 2)
 	if avg > 5*time.Millisecond {
 		t.Errorf("average hook latency %v exceeds 5ms budget", avg)
 	}
@@ -116,5 +147,44 @@ func TestSessionStartDetectsHeadDrift(t *testing.T) {
 	wantDrift := "Last Handoff (HEAD drifted from 148420d -> cd8ea79):"
 	if !strings.Contains(out.AdditionalContext, wantDrift) {
 		t.Errorf("expected %q in SessionStart AdditionalContext, got:\n%s", wantDrift, out.AdditionalContext)
+	}
+}
+
+func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *testing.T) {
+	dir := t.TempDir()
+
+	// F-08: Unknown event must be a fast no-op returning empty Output{}.
+	unknownOut, err := Handle(dir, "Notification", strings.NewReader(`{"hook_event_name":"Notification"}`))
+	if err != nil {
+		t.Fatalf("Handle unknown event: %v", err)
+	}
+	if unknownOut.AdditionalContext != "" || unknownOut.HookSpecific != nil {
+		t.Fatalf("expected empty Output for unknown event, got: %+v", unknownOut)
+	}
+
+	// F-06: Active writer lease from another PID must be surfaced in session-start pickup summary.
+	leaseData := []byte(`{"agent":"claude","session_id":"sess-other","pid":999999,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"}`)
+	_ = os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755)
+	if err := os.WriteFile(state.WriterLeasePath(dir), leaseData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Astra #3: Failed Hold/OpenSpec scan (e.g. stray Hold or invalid UTF-8 tasks.md) must NOT silently report holds=0.
+	changeDir := filepath.Join(dir, "openspec", "changes", "broken-hold")
+	_ = os.MkdirAll(changeDir, 0o755)
+	_ = os.WriteFile(filepath.Join(changeDir, "tasks.md"), []byte("## 1. Work\nHold: stray hold outside task\n- [ ] 1.1 Task\n"), 0o644)
+
+	out, err := Handle(dir, "session-start", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("Handle session-start: %v", err)
+	}
+	if strings.Contains(out.AdditionalContext, "holds=0") {
+		t.Fatalf("session-start reported holds=0 on failed Hold scan:\n%s", out.AdditionalContext)
+	}
+	if !strings.Contains(out.AdditionalContext, "holds=unavailable") || !strings.Contains(out.AdditionalContext, "WARNING: Hold/OpenSpec scan failed") {
+		t.Fatalf("session-start missing Hold scan failure warning:\n%s", out.AdditionalContext)
+	}
+	if !strings.Contains(out.AdditionalContext, "WARNING: another writer may be active") {
+		t.Fatalf("session-start missing active writer lease warning:\n%s", out.AdditionalContext)
 	}
 }

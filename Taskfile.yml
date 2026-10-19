@@ -65,6 +65,11 @@ tasks:
     cmds:
       - go run ./cmd/ateam bench --selftest
 
+  mutate:check:
+    desc: "Run non-destructive Go -overlay mutation check (-- -pkg -test -file -mutant -expect or -expect-text)"
+    cmds:
+      - "go run ./cmd/ateam mutate {{.CLI_ARGS}}"
+
   ui:install:
     desc: Install UI dependencies in ui/
     dir: ui

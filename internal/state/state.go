@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -102,9 +103,18 @@ type BoardCard struct {
 	Branch     string    `json:"branch,omitempty"`
 	Milestone  string    `json:"milestone,omitempty"`
 	HoldReason string    `json:"hold_reason,omitempty"`
+	Decision   string    `json:"decision,omitempty"`
 	Forge      string    `json:"forge,omitempty"` // github, gitea, local
 	URL        string    `json:"url,omitempty"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// WriterLease tracks the most recent active agent writer in .ateam/writer.json.
+type WriterLease struct {
+	Agent     string    `json:"agent"`
+	SessionID string    `json:"session_id,omitempty"`
+	PID       int       `json:"pid"`
+	LastSeen  time.Time `json:"last_seen"`
 }
 
 // State is the cached local state stored in gitignored .ateam/state.json.
@@ -112,10 +122,12 @@ type State struct {
 	Mode          DisciplineMode   `json:"mode"`
 	Forge         ForgeConfig      `json:"forge"`
 	LastHandoff   *Handoff         `json:"last_handoff,omitempty"`
+	Writer        *WriterLease     `json:"writer,omitempty"`
 	Git           GitStatus        `json:"git"`
 	Cards         []BoardCard      `json:"cards"`
 	Shortcuts     []ShortcutItem   `json:"shortcuts,omitempty"`
 	Holds         []HoldItem       `json:"holds,omitempty"`
+	HoldScanError string           `json:"hold_scan_error,omitempty"`
 	OpenSpecQueue []OpenSpecChange `json:"openspec_queue,omitempty"`
 	UpdatedAt     time.Time        `json:"updated_at"`
 }
@@ -125,6 +137,75 @@ func CacheFilePath(root string) string {
 	return filepath.Join(root, ".ateam", "state.json")
 }
 
+// WriterLeasePath returns the path to .ateam/writer.json under root.
+func WriterLeasePath(root string) string {
+	return filepath.Join(root, ".ateam", "writer.json")
+}
+
+// ReadWriterLease reads .ateam/writer.json if present.
+func ReadWriterLease(root string) (*WriterLease, error) {
+	data, err := os.ReadFile(WriterLeasePath(root))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var wl WriterLease
+	if err := json.Unmarshal(data, &wl); err != nil {
+		return nil, err
+	}
+	return &wl, nil
+}
+
+// WriteWriterLease atomically writes the active writer lease to .ateam/writer.json.
+func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
+	dir := filepath.Join(root, ".ateam")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	agent = strings.TrimSpace(agent)
+	if agent == "" {
+		agent = strings.TrimSpace(os.Getenv("ATEAM_AGENT"))
+	}
+	if agent == "" {
+		br, _ := ReadFastGitHead(root)
+		agent = inferAgentFromBranch(br)
+	}
+	if agent == "" {
+		agent = "agent"
+	}
+	wl := &WriterLease{
+		Agent:     agent,
+		SessionID: strings.TrimSpace(sessionID),
+		PID:       os.Getpid(),
+		LastSeen:  time.Now().UTC(),
+	}
+	data, err := json.MarshalIndent(wl, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp(dir, "writer.json.*.tmp")
+	if err != nil {
+		return nil, err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return nil, err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, err
+	}
+	if err := os.Rename(tmpPath, WriterLeasePath(root)); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, err
+	}
+	return wl, nil
+}
+
 // Load reads .ateam/state.json or returns an initialized default State.
 func Load(root string) (*State, error) {
 	p := CacheFilePath(root)
@@ -132,6 +213,9 @@ func Load(root string) (*State, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			st := defaultState()
+			if wl, err := ReadWriterLease(root); err == nil && wl != nil {
+				st.Writer = wl
+			}
 			return st, nil
 		}
 		return nil, fmt.Errorf("read state cache: %w", err)
@@ -145,13 +229,16 @@ func Load(root string) (*State, error) {
 	} else {
 		st.Mode = ModeFull
 	}
-	if len(st.Cards) == 0 {
-		st.Cards = defaultBoardCards()
+	if st.Cards == nil {
+		st.Cards = []BoardCard{}
+	}
+	if wl, err := ReadWriterLease(root); err == nil && wl != nil {
+		st.Writer = wl
 	}
 	return &st, nil
 }
 
-// Save writes st atomically to .ateam/state.json.
+// Save writes st atomically to .ateam/state.json using a unique temporary file.
 func Save(root string, st *State) error {
 	dir := filepath.Join(root, ".ateam")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -162,89 +249,76 @@ func Save(root string, st *State) error {
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	tmp := filepath.Join(dir, "state.json.tmp")
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+	tmpFile, err := os.CreateTemp(dir, "state.json.*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp state: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	if _, err := tmpFile.Write(append(data, '\n')); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write temp state: %w", err)
 	}
-	return os.Rename(tmp, CacheFilePath(root))
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("close temp state: %w", err)
+	}
+	if err := os.Rename(tmpPath, CacheFilePath(root)); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("commit state cache: %w", err)
+	}
+	return nil
+}
+
+// WithLock executes fn while holding an exclusive advisory file lock on .ateam/state.lock.
+func WithLock(root string, fn func() error) error {
+	dir := filepath.Join(root, ".ateam")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create .ateam dir: %w", err)
+	}
+	lockPath := filepath.Join(dir, "state.lock")
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("open state lock: %w", err)
+	}
+	defer func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	}()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("acquire state lock: %w", err)
+	}
+	return fn()
+}
+
+// Update atomically loads, mutates, and saves .ateam/state.json under an exclusive file lock.
+func Update(root string, fn func(st *State) error) (*State, error) {
+	var out *State
+	err := WithLock(root, func() error {
+		st, err := Load(root)
+		if err != nil {
+			return err
+		}
+		if err := fn(st); err != nil {
+			return err
+		}
+		if err := Save(root, st); err != nil {
+			return err
+		}
+		out = st
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func defaultState() *State {
 	return &State{
 		Mode:      ModeFull,
-		Cards:     defaultBoardCards(),
+		Cards:     []BoardCard{},
 		UpdatedAt: time.Now().UTC(),
-	}
-}
-
-func defaultBoardCards() []BoardCard {
-	now := time.Now().UTC()
-	return []BoardCard{
-		{
-			ID:        "ATEAM-1",
-			Number:    1,
-			Title:     "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms",
-			Column:    "done",
-			Type:      "epic",
-			Labels:    []string{"type:epic", "harness"},
-			Agent:     "gemini",
-			Branch:    "gemini/universal-hooks",
-			Milestone: "v0.1 Foundation",
-			Forge:     "github",
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ATEAM-2",
-			Number:    2,
-			Title:     "2-Tool multiplexed MCP server (ateam_state, ateam_task) <300 tokens",
-			Column:    "done",
-			Type:      "issue",
-			Labels:    []string{"mcp", "ponytail"},
-			Agent:     "gemini",
-			Branch:    "gemini/mcp-server",
-			Milestone: "v0.1 Foundation",
-			Forge:     "github",
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ATEAM-3",
-			Number:    3,
-			Title:     "OpenSpec spec:queue / spec:check & Dual-Forge (GitHub + Gitea) sync",
-			Column:    "done",
-			Type:      "issue",
-			Labels:    []string{"openspec", "gitea", "github"},
-			Agent:     "gemini",
-			Branch:    "gemini/openspec-gitea",
-			Milestone: "v0.1 Foundation",
-			Forge:     "github",
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ATEAM-4",
-			Number:    4,
-			Title:     "Agentic benchmark suite (Coding Discipline + Handoff Continuity tiers)",
-			Column:    "done",
-			Type:      "issue",
-			Labels:    []string{"benchmark", "ponytail"},
-			Agent:     "claude",
-			Branch:    "claude/bench-suite",
-			Milestone: "v0.1 Foundation",
-			Forge:     "github",
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ATEAM-5",
-			Number:    5,
-			Title:     "Cross-repo automatic PR merge-check & dual-forge webhook enforcement",
-			Column:    "done",
-			Type:      "issue",
-			Labels:    []string{"webhooks", "governance"},
-			Agent:     "gemini",
-			Branch:    "gemini/dual-forge-webhooks",
-			Milestone: "v0.2 Rollout",
-			Forge:     "gitea",
-			UpdatedAt: now,
-		},
 	}
 }
 
@@ -277,6 +351,43 @@ func (st *State) UpsertCard(card BoardCard) (BoardCard, error) {
 	return card, nil
 }
 
+// MergeForgeCards merges newly fetched remote cards for provider while preserving local and other-forge cards.
+func (st *State) MergeForgeCards(synced []BoardCard, provider ForgeProvider) {
+	syncedByID := make(map[string]BoardCard, len(synced))
+	for _, c := range synced {
+		syncedByID[c.ID] = c
+	}
+	var merged []BoardCard
+	seen := make(map[string]bool, len(st.Cards)+len(synced))
+	for _, existing := range st.Cards {
+		if updated, ok := syncedByID[existing.ID]; ok {
+			if updated.HoldReason == "" && existing.HoldReason != "" {
+				updated.HoldReason = existing.HoldReason
+			}
+			if existing.Column == "needs-decision" && updated.Column != "needs-decision" && updated.Decision == "" {
+				updated.Decision = fmt.Sprintf("resolved -> %s", updated.Column)
+			}
+			if updated.Decision == "" && existing.Decision != "" {
+				updated.Decision = existing.Decision
+			}
+			merged = append(merged, updated)
+			seen[existing.ID] = true
+			continue
+		}
+		if existing.Forge != string(provider) {
+			merged = append(merged, existing)
+			seen[existing.ID] = true
+		}
+	}
+	for _, c := range synced {
+		if !seen[c.ID] {
+			merged = append(merged, c)
+			seen[c.ID] = true
+		}
+	}
+	st.Cards = merged
+}
+
 // MoveCard moves an existing card by ID to a new column and optional agent assignee.
 func (st *State) MoveCard(id, column, agent string) (BoardCard, error) {
 	id = strings.TrimSpace(id)
@@ -299,28 +410,43 @@ func (st *State) MoveCard(id, column, agent string) (BoardCard, error) {
 
 // Refresh inspects live git worktrees, shortcuts, OpenSpec queue, and optional forge state.
 func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) {
-	st, err := Load(root)
+	if _, err := Load(root); err != nil {
+		return nil, err
+	}
+	gs := SnapshotGit(ctx, root)
+	forgeCfg := DetectForge(ctx, root, gs.RemoteURL)
+	shortcuts, err := ScanShortcuts(root)
 	if err != nil {
-		st = defaultState()
+		return nil, err
 	}
-	st.Git = SnapshotGit(ctx, root)
-	st.Forge = DetectForge(ctx, root, st.Git.RemoteURL)
-	if shortcuts, err := ScanShortcuts(root); err == nil {
-		st.Shortcuts = shortcuts
+	holds, err := ScanHolds(root)
+	if err != nil {
+		return nil, err
 	}
-	if holds, err := ScanHolds(root); err == nil {
-		st.Holds = holds
+	queue, err := ScanOpenSpecQueue(root)
+	if err != nil {
+		return nil, err
 	}
-	if queue, err := ScanOpenSpecQueue(root); err == nil {
-		st.OpenSpecQueue = queue
-	}
+	var syncedCards []BoardCard
 	if syncRemote {
-		if cards, err := SyncForgeBoard(ctx, root, st.Forge); err == nil && len(cards) > 0 {
-			st.Cards = cards
+		cards, err := SyncForgeBoard(ctx, root, forgeCfg)
+		if err != nil {
+			return nil, err
 		}
+		syncedCards = cards
 	}
-	_ = Save(root, st)
-	return st, nil
+	return Update(root, func(st *State) error {
+		st.Git = gs
+		st.Forge = forgeCfg
+		st.Shortcuts = shortcuts
+		st.Holds = holds
+		st.HoldScanError = ""
+		st.OpenSpecQueue = queue
+		if syncRemote {
+			st.MergeForgeCards(syncedCards, forgeCfg.Provider)
+		}
+		return nil
+	})
 }
 
 // SnapshotGit collects current branch, HEAD SHA, dirty files, remote URL, and worktree list.
@@ -406,9 +532,12 @@ func runGitOutput(ctx context.Context, root string, args ...string) string {
 	return string(out)
 }
 
-// ReadFastGitHead reads .git/HEAD and loose/packed refs directly from disk without spawning git, keeping hook latency <5ms.
+// ReadFastGitHead reads .git/HEAD (including linked worktree .git files and commondir refs) directly from disk without spawning git, keeping hook latency <5ms.
 func ReadFastGitHead(root string) (branch, shortSHA string) {
-	gitDir := filepath.Join(root, ".git")
+	gitDir, commonDir, ok := resolveGitDirs(root)
+	if !ok {
+		return "", ""
+	}
 	headBytes, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
 	if err != nil {
 		return "", ""
@@ -417,21 +546,25 @@ func ReadFastGitHead(root string) (branch, shortSHA string) {
 	if ref, ok := strings.CutPrefix(headStr, "ref:"); ok {
 		ref = strings.TrimSpace(ref)
 		branch = strings.TrimPrefix(ref, "refs/heads/")
-		if refBytes, err := os.ReadFile(filepath.Join(gitDir, filepath.FromSlash(ref))); err == nil {
-			sha := strings.TrimSpace(string(refBytes))
-			if len(sha) >= 7 {
-				return branch, sha[:7]
+		for _, dir := range []string{gitDir, commonDir} {
+			if refBytes, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(ref))); err == nil {
+				sha := strings.TrimSpace(string(refBytes))
+				if len(sha) >= 7 {
+					return branch, sha[:7]
+				}
 			}
 		}
-		if packed, err := os.ReadFile(filepath.Join(gitDir, "packed-refs")); err == nil {
-			for _, line := range strings.Split(string(packed), "\n") {
-				line = strings.TrimSpace(line)
-				if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
-					continue
-				}
-				fields := strings.Fields(line)
-				if len(fields) == 2 && fields[1] == ref && len(fields[0]) >= 7 {
-					return branch, fields[0][:7]
+		for _, dir := range []string{gitDir, commonDir} {
+			if packed, err := os.ReadFile(filepath.Join(dir, "packed-refs")); err == nil {
+				for _, line := range strings.Split(string(packed), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+						continue
+					}
+					fields := strings.Fields(line)
+					if len(fields) == 2 && fields[1] == ref && len(fields[0]) >= 7 {
+						return branch, fields[0][:7]
+					}
 				}
 			}
 		}
@@ -443,11 +576,66 @@ func ReadFastGitHead(root string) (branch, shortSHA string) {
 	return "", ""
 }
 
+func resolveGitDirs(root string) (gitDir, commonDir string, ok bool) {
+	dotGit := filepath.Join(root, ".git")
+	info, err := os.Stat(dotGit)
+	if err != nil {
+		return "", "", false
+	}
+	if info.IsDir() {
+		return dotGit, dotGit, true
+	}
+	data, err := os.ReadFile(dotGit)
+	if err != nil {
+		return "", "", false
+	}
+	line := strings.TrimSpace(string(data))
+	rawGitDir, found := strings.CutPrefix(line, "gitdir:")
+	if !found {
+		return "", "", false
+	}
+	rawGitDir = strings.TrimSpace(rawGitDir)
+	if !filepath.IsAbs(rawGitDir) {
+		rawGitDir = filepath.Join(root, filepath.FromSlash(rawGitDir))
+	}
+	gitDir = filepath.Clean(rawGitDir)
+	commonDir = gitDir
+	if commonBytes, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+		cd := strings.TrimSpace(string(commonBytes))
+		if cd != "" {
+			if !filepath.IsAbs(cd) {
+				cd = filepath.Join(gitDir, filepath.FromSlash(cd))
+			}
+			commonDir = filepath.Clean(cd)
+		}
+	}
+	return gitDir, commonDir, true
+}
+
 // BuildPickupSummary creates a concise reconciliation report for SessionStart or pickup.
 func BuildPickupSummary(st *State) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%d\n",
-		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), len(st.Holds))
+	holdsDisplay := fmt.Sprintf("%d", len(st.Holds))
+	if st.HoldScanError != "" {
+		holdsDisplay = "unavailable"
+	}
+	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%s\n",
+		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay)
+	if st.HoldScanError != "" {
+		fmt.Fprintf(&b, "WARNING: Hold/OpenSpec scan failed (%s) — hold status unavailable\n", st.HoldScanError)
+	}
+	if st.Writer != nil && !st.Writer.LastSeen.IsZero() {
+		age := time.Since(st.Writer.LastSeen).Round(time.Second)
+		if age < 0 {
+			age = 0
+		}
+		fmt.Fprintf(&b, "Writer lease: agent=%s session=%s pid=%d last_seen=%s ago\n",
+			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age)
+		if time.Since(st.Writer.LastSeen) < 10*time.Minute && st.Writer.PID != 0 && st.Writer.PID != os.Getpid() {
+			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)\n",
+				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age)
+		}
+	}
 	if len(st.OpenSpecQueue) > 0 {
 		fmt.Fprintf(&b, "OpenSpec in-flight changes: %d\n", len(st.OpenSpecQueue))
 		for _, ch := range st.OpenSpecQueue {
@@ -458,6 +646,21 @@ func BuildPickupSummary(st *State) string {
 		fmt.Fprintf(&b, "Active Hold items:\n")
 		for _, h := range st.Holds {
 			fmt.Fprintf(&b, "  - %s:%d %s\n", h.File, h.Line, h.Text)
+		}
+	}
+	var decisions []BoardCard
+	for _, c := range st.Cards {
+		if strings.TrimSpace(c.Decision) != "" {
+			decisions = append(decisions, c)
+			if len(decisions) >= 5 {
+				break
+			}
+		}
+	}
+	if len(decisions) > 0 {
+		fmt.Fprintf(&b, "Recent decisions:\n")
+		for _, c := range decisions {
+			fmt.Fprintf(&b, "  - %s (%s): %s\n", c.ID, c.Title, c.Decision)
 		}
 	}
 	if st.LastHandoff != nil {

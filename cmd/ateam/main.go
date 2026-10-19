@@ -16,6 +16,7 @@ import (
 	"github.com/c360studio/ateam/internal/bootstrap"
 	"github.com/c360studio/ateam/internal/hook"
 	"github.com/c360studio/ateam/internal/mcpserver"
+	"github.com/c360studio/ateam/internal/mutate"
 	"github.com/c360studio/ateam/internal/state"
 	"github.com/c360studio/ateam/internal/taskrunner"
 	"github.com/c360studio/ateam/internal/web"
@@ -56,6 +57,8 @@ func run(args []string) int {
 		return runDoctor(cwd, subArgs)
 	case "bench":
 		return runBench(cwd, subArgs)
+	case "mutate":
+		return runMutate(cwd, subArgs)
 	case "serve":
 		return runServe(cwd, subArgs)
 	case "version", "--version", "-v":
@@ -82,7 +85,8 @@ Commands:
   init [flags]        Bootstrap repo with .agents, .claude, .codex, .gemini, openspec, and optional GitHub/Gitea labels
   doctor [--check]    Verify multi-agent parity, MCP schema token budget, and hook latency
   bench [flags]       Run Ponytail + Handoff benchmark suite (--selftest, --rescore)
-  serve [flags]       Start embedded SvelteKit PM Board HTTP server (default :8420)`)
+  mutate [flags]      Run non-destructive Go -overlay mutation check (-pkg, -test, -file, -mutant, -expect/-expect-text)
+  serve [flags]       Start embedded SvelteKit PM Board HTTP server (default 127.0.0.1:8420)`)
 }
 
 func runHook(repoRoot string, args []string) int {
@@ -206,6 +210,7 @@ func runStateHandoff(repoRoot string, args []string) int {
 	constraints := fs.String("constraints", "", "constraints or active holds")
 	doneWhen := fs.String("done-when", "", "definition of done")
 	checks := fs.String("checks", "task verify", "checks to run")
+	noPost := fs.Bool("no-post", false, "skip posting handoff comment to open PR on forge")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -232,26 +237,45 @@ func runStateHandoff(repoRoot string, args []string) int {
 	if strings.TrimSpace(ho.Addresses) == "" {
 		ho.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 	}
-	st.LastHandoff = &ho
-	_ = state.Save(repoRoot, st)
-	fmt.Print(state.FormatFiveFieldPrompt(ho))
+	if _, err := state.Update(repoRoot, func(cur *state.State) error {
+		cur.LastHandoff = &ho
+		return nil
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state handoff: %v\n", err)
+		return 1
+	}
+	prompt := state.FormatFiveFieldPrompt(ho)
+	if !*noPost && st.Forge.Provider != state.ForgeLocal {
+		if _, err := state.PostPRHandoffComment(context.Background(), repoRoot, st.Forge, ho.Branch, prompt); err != nil {
+			fmt.Fprintf(os.Stderr, "ateam state handoff: forge PR comment skipped: %v\n", err)
+		}
+	}
+	fmt.Print(prompt)
 	return 0
 }
 
 func runStateMode(repoRoot string, args []string) int {
-	st, err := state.Load(repoRoot)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ateam state mode: %v\n", err)
-		return 1
-	}
 	if len(args) > 0 {
 		mode, ok := state.NormalizeMode(args[0])
 		if !ok {
 			fmt.Fprintf(os.Stderr, "ateam state mode: invalid mode %q\n", args[0])
 			return 1
 		}
-		st.Mode = mode
-		_ = state.Save(repoRoot, st)
+		st, err := state.Update(repoRoot, func(cur *state.State) error {
+			cur.Mode = mode
+			return nil
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ateam state mode: %v\n", err)
+			return 1
+		}
+		printJSON(map[string]string{"mode": string(st.Mode)})
+		return 0
+	}
+	st, err := state.Load(repoRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state mode: %v\n", err)
+		return 1
 	}
 	printJSON(map[string]string{"mode": string(st.Mode)})
 	return 0
@@ -279,9 +303,12 @@ func runStateSync(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam state sync: %v\n", err)
 		return 1
 	}
-	if len(cards) > 0 {
-		st.Cards = cards
-		_ = state.Save(repoRoot, st)
+	if _, err := state.Update(repoRoot, func(cur *state.State) error {
+		cur.MergeForgeCards(cards, cfg.Provider)
+		return nil
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state sync: %v\n", err)
+		return 1
 	}
 	printJSON(map[string]any{"synced": len(cards), "forge": cfg})
 	return 0
@@ -431,9 +458,19 @@ func runBench(repoRoot string, args []string) int {
 	return 0
 }
 
+func runMutate(repoRoot string, args []string) int {
+	opts, err := mutate.ParseArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam mutate: %v\n", err)
+		return 2
+	}
+	_, code := mutate.Run(context.Background(), repoRoot, opts, os.Stdout, os.Stderr)
+	return code
+}
+
 func runServe(repoRoot string, args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	addr := fs.String("addr", ":8420", "HTTP listen address")
+	addr := fs.String("addr", "127.0.0.1:8420", "HTTP listen address (default loopback)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -447,7 +484,11 @@ func runServe(repoRoot string, args []string) int {
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	fmt.Printf("ATeam PM Board listening on http://localhost%s\n", *addr)
+	listenURL := *addr
+	if strings.HasPrefix(listenURL, ":") {
+		listenURL = "127.0.0.1" + listenURL
+	}
+	fmt.Printf("ATeam PM Board listening on http://%s\n", listenURL)
 	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintf(os.Stderr, "ateam serve: %v\n", err)
 		return 1

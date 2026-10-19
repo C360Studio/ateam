@@ -115,7 +115,12 @@ func (s *Server) handleWebhook(forge string) http.HandlerFunc {
 		if secret == "" {
 			secret = strings.TrimSpace(os.Getenv("ATEAM_WEBHOOK_SECRET"))
 		}
-		if secret != "" {
+		if secret == "" {
+			if !s.allowUnsignedWebhooks && strings.TrimSpace(os.Getenv("ATEAM_ALLOW_UNSIGNED_WEBHOOKS")) != "1" {
+				writeError(w, http.StatusUnauthorized, "webhook secret is required (set ATEAM_WEBHOOK_SECRET)")
+				return
+			}
+		} else {
 			sig := r.Header.Get("X-Gitea-Signature")
 			if sig == "" {
 				sig = r.Header.Get("X-Hub-Signature-256")
@@ -143,10 +148,16 @@ func (s *Server) handleWebhook(forge string) http.HandlerFunc {
 
 		var updated *state.BoardCard
 		if card, ok := cardFromWebhook(ev, forge); ok {
-			c, err := st.UpsertCard(card)
-			if err == nil {
+			if _, err := state.Update(s.repoRoot, func(cur *state.State) error {
+				c, err := cur.UpsertCard(card)
+				if err != nil {
+					return err
+				}
 				updated = &c
-				_ = state.Save(s.repoRoot, st)
+				return nil
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
 			}
 		}
 

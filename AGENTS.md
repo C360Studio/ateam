@@ -34,6 +34,7 @@ task tidy:check     # Fail if go.mod or go.sum is not tidy
 task vet            # Run go vet
 task lint           # Run revive with revive.toml
 task test:unit      # Run Go unit and parity tests with race detector
+task mutate:check   # -- -pkg -test -file -mutant -expect/-expect-text: non-destructive Go -overlay mutation check
 task bench:selftest # Run offline benchmark self-tests and mutation checks (0 API calls)
 task ui:check       # Run svelte-kit sync and svelte-check
 task ui:test        # Run UI unit tests with vitest
@@ -52,7 +53,8 @@ Domain-grouped reference. `.agents/rules-index.md` carries the matching 3-column
 | --- | --- | --- |
 | `verify+review` | Follow the 6-step Ponytail decision ladder; no unrequested abstractions, wrappers, or dependencies | `.agents/skills/ponytail/SKILL.md` |
 | `verify+review` | Every intentional deferral uses `// shortcut: <the limit>, <when to upgrade>`, scanned by `ateam state debt` | `internal/state`; `.agents/skills/ponytail/SKILL.md` |
-| `verify+review` | Non-trivial logic (branches, parsers, state transitions, boundaries) ships with a test proven able to fail | `internal/bench`; `.agents/protocol.md` |
+| `verify+review` | Non-trivial logic ships with a test using an independent oracle and proven able to fail via non-destructive mutation check (`task mutate:check` or `cp` + SHA-256; never `git checkout`/`restore`/`stash`/`reset`), reporting `detection`, `survivor`, `invalid`, or `inconclusive` | `internal/mutate`; `internal/bench`; `.agents/protocol.md` |
+| `verify+review` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (`testing.F` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | `internal/state`; `.agents/protocol.md`; `.agents/skills/preflight/SKILL.md` |
 | `verify` | Go packages pass `gofmt`, `go vet`, and `revive` with zero warnings | `Taskfile.yml`; `revive.toml` |
 | `review` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | `.agents/skills/ponytail/SKILL.md` |
 

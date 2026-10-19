@@ -235,22 +235,37 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 	return out, nil
 }
 
-// ScanHolds scans openspec/changes/*/tasks.md and top-level Markdown files for active Hold: lines in open tasks.
+// ScanHolds scans openspec/changes/*/tasks.md for active Hold: lines in open tasks, failing closed on read or parse errors.
 func ScanHolds(root string) ([]HoldItem, error) {
 	var all []HoldItem
 	changesDir := filepath.Join(root, "openspec", "changes")
-	if entries, err := os.ReadDir(changesDir); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() || e.Name() == "archive" {
+	entries, err := os.ReadDir(changesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read openspec changes: %w", err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == "archive" || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		rel := filepath.ToSlash(filepath.Join("openspec", "changes", e.Name(), "tasks.md"))
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			if os.IsNotExist(err) {
 				continue
 			}
-			rel := filepath.ToSlash(filepath.Join("openspec", "changes", e.Name(), "tasks.md"))
-			if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
-				if _, holds, err := ParseTasksMarkdown(rel, data); err == nil {
-					all = append(all, holds...)
-				}
-			}
+			return nil, fmt.Errorf("read %s: %w", rel, err)
 		}
+		ch, holds, err := ParseTasksMarkdown(rel, data)
+		if err != nil {
+			return nil, err
+		}
+		if len(ch.StrayHolds) > 0 {
+			return nil, fmt.Errorf("%s:%d: Hold: outside task block", rel, ch.StrayHolds[0])
+		}
+		all = append(all, holds...)
 	}
 	return all, nil
 }

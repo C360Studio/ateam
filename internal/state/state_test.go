@@ -1,9 +1,15 @@
 package state
 
 import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -16,6 +22,9 @@ func TestHandoffPickupRoundTrip(t *testing.T) {
 	}
 	if st.Mode != ModeFull {
 		t.Fatalf("default mode = %q, want %q", st.Mode, ModeFull)
+	}
+	if len(st.Cards) != 0 {
+		t.Fatalf("fresh state Cards count = %d, want 0 (no fabricated board cards)", len(st.Cards))
 	}
 
 	h := Handoff{
@@ -84,5 +93,180 @@ func compute() int {
 	}
 	if items[0].Limit != "in-memory cache only" || items[0].RevisitTrigger != "upgrade to NATS KV when multi-node is enabled" {
 		t.Errorf("unexpected parsed shortcut: %+v", items[0])
+	}
+}
+
+func TestConcurrentUpdateAndCorruptCachePreservation(t *testing.T) {
+	dir := t.TempDir()
+
+	// Probe 2: Concurrent / sequential state.Update calls must preserve both handoff and mode without clobbering.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, err := Update(dir, func(st *State) error {
+			st.LastHandoff = &Handoff{Goal: "Preserve handoff across concurrent updates"}
+			return nil
+		})
+		if err != nil {
+			t.Errorf("Update handoff: %v", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		_, err := Update(dir, func(st *State) error {
+			st.Mode = ModeUltra
+			return nil
+		})
+		if err != nil {
+			t.Errorf("Update mode: %v", err)
+		}
+	}()
+	wg.Wait()
+
+	st, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load after concurrent Update: %v", err)
+	}
+	if st.Mode != ModeUltra {
+		t.Fatalf("st.Mode = %q, want %q", st.Mode, ModeUltra)
+	}
+	if st.LastHandoff == nil || st.LastHandoff.Goal != "Preserve handoff across concurrent updates" {
+		t.Fatalf("LastHandoff lost after concurrent Update: %+v", st.LastHandoff)
+	}
+
+	// Probe 3: Malformed cache must not be overwritten by Refresh.
+	corruptRaw := []byte(`{"mode":"ultra","last_handoff":{"goal":"partialcorrupt`)
+	if err := os.WriteFile(CacheFilePath(dir), corruptRaw, 0o644); err != nil {
+		t.Fatalf("write corrupt cache: %v", err)
+	}
+	if _, err := Refresh(context.Background(), dir, false); err == nil {
+		t.Fatal("expected Refresh to fail on malformed state.json, got nil")
+	}
+	afterBytes, err := os.ReadFile(CacheFilePath(dir))
+	if err != nil {
+		t.Fatalf("read cache after failed Refresh: %v", err)
+	}
+	if string(afterBytes) != string(corruptRaw) {
+		t.Fatalf("Refresh overwrote corrupt cache: got %q, want %q", string(afterBytes), string(corruptRaw))
+	}
+}
+
+func TestReadFastGitHeadLinkedWorktree(t *testing.T) {
+	base := t.TempDir()
+	mainGit := filepath.Join(base, "main-repo", ".git")
+	wtGitDir := filepath.Join(mainGit, "worktrees", "wt-gemini")
+	wtRoot := filepath.Join(base, "wt-gemini")
+
+	if err := os.MkdirAll(filepath.Join(mainGit, "refs", "heads", "gemini"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(wtGitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(wtRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Linked worktree .git file pointing to wtGitDir, and commondir pointing to ../..
+	if err := os.WriteFile(filepath.Join(wtRoot, ".git"), []byte("gitdir: ../main-repo/.git/worktrees/wt-gemini\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtGitDir, "commondir"), []byte("../..\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtGitDir, "HEAD"), []byte("ref: refs/heads/gemini/worktree-fix\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mainGit, "refs", "heads", "gemini", "worktree-fix"), []byte("deadbeefcafe1234567890\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	br, sha := ReadFastGitHead(wtRoot)
+	if br != "gemini/worktree-fix" || sha != "deadbee" {
+		t.Fatalf("ReadFastGitHead linked worktree loose ref = (%q, %q), want (\"gemini/worktree-fix\", \"deadbee\")", br, sha)
+	}
+
+	// Also verify packed-refs fallback via commondir.
+	_ = os.Remove(filepath.Join(mainGit, "refs", "heads", "gemini", "worktree-fix"))
+	packed := "# pack-refs with: peeled fully-peeled sorted\n9876543210abcdef1234567890abcdef12345678 refs/heads/gemini/worktree-fix\n"
+	if err := os.WriteFile(filepath.Join(mainGit, "packed-refs"), []byte(packed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	br, sha = ReadFastGitHead(wtRoot)
+	if br != "gemini/worktree-fix" || sha != "9876543" {
+		t.Fatalf("ReadFastGitHead linked worktree packed-ref = (%q, %q), want (\"gemini/worktree-fix\", \"9876543\")", br, sha)
+	}
+}
+
+func TestPostPRHandoffCommentAndDecisionsInPickup(t *testing.T) {
+	var postedComment string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls"):
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"number": 12,
+					"title":  "Hardening fixes",
+					"state":  "open",
+					"draft":  true,
+					"head":   map[string]string{"ref": "gemini/hardening"},
+				},
+			})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/issues/12/comments"):
+			raw, _ := io.ReadAll(r.Body)
+			var body struct {
+				Body string `json:"body"`
+			}
+			_ = json.Unmarshal(raw, &body)
+			postedComment = body.Body
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/issues"):
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"number": 7,
+					"title":  "Auth token policy",
+					"state":  "open",
+					"body":   "Decision: require ATEAM_API_TOKEN for all non-loopback reads and writes",
+					"labels": []map[string]string{{"name": "decision:approved"}},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := ForgeConfig{
+		Provider: ForgeGitea,
+		BaseURL:  ts.URL,
+		Owner:    "c360",
+		Repo:     "ateam",
+	}
+	h := Handoff{
+		Goal:        "Land PR #12 review fixes",
+		Addresses:   "PR #12",
+		Constraints: "none",
+		DoneWhen:    "task verify green",
+		ChecksToRun: "task verify",
+	}
+	wantPrompt := strings.TrimSpace(FormatFiveFieldPrompt(h))
+	posted, err := PostPRHandoffComment(context.Background(), t.TempDir(), cfg, "gemini/hardening", wantPrompt)
+	if err != nil || !posted {
+		t.Fatalf("PostPRHandoffComment = (%v, %v), want (true, nil)", posted, err)
+	}
+	if strings.TrimSpace(postedComment) != wantPrompt {
+		t.Fatalf("posted PR comment = %q, want %q", postedComment, wantPrompt)
+	}
+
+	cards, err := SyncForgeBoard(context.Background(), t.TempDir(), cfg)
+	if err != nil {
+		t.Fatalf("SyncForgeBoard: %v", err)
+	}
+	st := defaultState()
+	st.MergeForgeCards(cards, ForgeGitea)
+	summary := BuildPickupSummary(st)
+	if !strings.Contains(summary, "Recent decisions:") || !strings.Contains(summary, "Decision: require ATEAM_API_TOKEN") {
+		t.Fatalf("BuildPickupSummary missing decision summary:\n%s", summary)
 	}
 }

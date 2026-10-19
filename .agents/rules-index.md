@@ -8,7 +8,8 @@
 | --- | --- | --- |
 | `verify+review` | Follow the 6-step Ponytail decision ladder; no unrequested abstractions, wrappers, or dependencies | `internal/hook/hook_test.go` (`TestBeforePromptInjectsLadder`); code review |
 | `verify+review` | Every intentional deferral uses `// shortcut: <the limit>, <when to upgrade>`, scanned by `ateam state debt` | `internal/state/shortcut_test.go` (`TestScanShortcuts`) |
-| `verify+review` | Non-trivial logic (branches, parsers, state transitions, boundaries) ships with a test proven able to fail | `internal/bench/bench_test.go` (`TestSelfTestAndMutation`) |
+| `verify+review` | Non-trivial logic ships with a test using an independent oracle and proven able to fail via non-destructive mutation check (`task mutate:check` or `cp` + SHA-256; never `git checkout`/`restore`/`stash`/`reset`), reporting `detection`, `survivor`, `invalid`, or `inconclusive` | `internal/mutate/mutate_test.go` (`TestRunOutcomes`, `TestValidateRefusals`); `internal/bench/bench_test.go` (`TestSelfTestAndMutation`) |
+| `verify+review` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (`testing.F` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | `internal/state/prop_fuzz_test.go` (`FuzzScanHoldsMarkdown`, `FuzzReadFastGitHeadRefs`, `TestPropMergeForgeCardsHistory`); review |
 | `verify` | Go packages pass `gofmt`, `go vet`, and `revive` with zero warnings | `Taskfile.yml` (`fmt:check`, `vet`, `lint`) |
 | `review` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | `.agents/skills/ponytail/SKILL.md`; review |
 

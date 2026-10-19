@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -82,5 +84,41 @@ func TestForgeGitHubAndGitea(t *testing.T) {
 	}
 	if len(labels) != len(StandardLabels) || len(createdLabels) != len(StandardLabels) {
 		t.Errorf("bootstrapped %d labels, want %d", len(labels), len(StandardLabels))
+	}
+}
+
+func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
+	binDir := t.TempDir()
+	fakeGH := filepath.Join(binDir, "gh")
+
+	// Probe 4a: Fake gh succeeds on issue list but fails on pr list -> SyncForgeBoard must return an error.
+	scriptPartial := "#!/bin/sh\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":1,\"title\":\"Issue 1\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\nexit 1\n"
+	if err := os.WriteFile(fakeGH, []byte(scriptPartial), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub})
+	if err == nil {
+		t.Fatal("expected partial gh failure (issues ok, prs fail) to return an error, got nil")
+	}
+
+	// Probe 4b: When both succeed, MergeForgeCards preserves local cards alongside synced GitHub cards.
+	scriptFull := "#!/bin/sh\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n"
+	if err := os.WriteFile(fakeGH, []byte(scriptFull), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	synced, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub})
+	if err != nil {
+		t.Fatalf("SyncForgeBoard full fake gh: %v", err)
+	}
+	st := &State{
+		Cards: []BoardCard{
+			{ID: "LOCAL-1", Title: "Local task card", Column: "backlog", Forge: "local"},
+		},
+	}
+	st.MergeForgeCards(synced, ForgeGitHub)
+	if len(st.Cards) != 3 {
+		t.Fatalf("expected 3 cards after MergeForgeCards (1 local + 2 github), got %d: %+v", len(st.Cards), st.Cards)
 	}
 }
