@@ -26,10 +26,11 @@ var embeddedDist embed.FS
 
 // DashboardPayload aggregates the full state for the SvelteKit PM UI.
 type DashboardPayload struct {
-	State      *state.State        `json:"state"`
-	PickupText string              `json:"pickup_text"`
-	Benchmarks bench.SuiteReport   `json:"benchmarks"`
-	Tasks      []taskrunner.Target `json:"tasks"`
+	ModelRouting ModelRouting        `json:"model_routing"`
+	State        *state.State        `json:"state"`
+	PickupText   string              `json:"pickup_text"`
+	Benchmarks   bench.SuiteReport   `json:"benchmarks"`
+	Tasks        []taskrunner.Target `json:"tasks"`
 }
 
 // Server serves the ATeam HTTP API and embedded static UI.
@@ -66,6 +67,7 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) registerRoutes() error {
 	s.mux.HandleFunc("/api/state", s.handleState)
+	s.mux.HandleFunc("/api/model-routing", s.handleModelRouting)
 	s.mux.HandleFunc("/api/cards", s.handleCards)
 	s.mux.HandleFunc("/api/cards/move", s.handleCardMove)
 	s.mux.HandleFunc("/api/handoff", s.handleHandoff)
@@ -169,14 +171,16 @@ func (s *Server) buildDashboard(ctx context.Context) (*DashboardPayload, error) 
 	benchReport, _ := bench.RunSelfTest(ctx)
 	tasks, _ := taskrunner.ListTargets(s.repoRoot)
 	return &DashboardPayload{
-		State:      st,
-		PickupText: state.BuildPickupSummary(st),
-		Benchmarks: benchReport,
-		Tasks:      tasks,
+		ModelRouting: readModelRouting(s.repoRoot),
+		State:        st,
+		PickupText:   state.BuildPickupSummary(st),
+		Benchmarks:   benchReport,
+		Tasks:        tasks,
 	}, nil
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if !s.validateReadRequest(w, r) {
 		return
 	}

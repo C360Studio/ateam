@@ -119,3 +119,11 @@ Repository identities use `github:https://api.github.com/owner/repo` or `gitea:h
 Every changed head or governing policy invalidates old evidence and exceptions. The gate applies to every PR without a docs-only relaxation or filename classifier. Review instructions, policy, executable Markdown and both sides of renames receive substantive review; a `.md` suffix does not create an exemption. Hooks do no network/model work and the existing two-tool MCP interface remains unchanged.
 
 Review evidence uses trimmed `GITEA_TOKEN`, falling back to trimmed `ATEAM_GITEA_TOKEN`. GitHub uses trimmed `GH_TOKEN`, then `GITHUB_TOKEN`; whitespace-only values do not suppress the fallback.
+
+## Dashboard routing display
+
+The PM dashboard shows the served checkout's configured developer and reviewer model IDs, providers and reasoning efforts. `GET /api/model-routing` returns the same `model_routing` summary included in `GET /api/state`; both use existing read authentication and `Cache-Control: no-store`. Refresh the page to re-read policy.
+
+Statuses are `eligible` (configured routes pass policy eligibility), `blocked` (valid policy with ineligible routes, including a reason), `unconfigured` (missing policy), `invalid` (malformed or over 1 MiB), and `unavailable` (read failure or unsafe/non-regular file). Eligible and blocked summaries include `developer`, `reviewer` and `policy_digest`; each route has `model`, `provider` and `effort`. Other states omit route metadata. The read is confined to the served repository and does not expose policy owners or review authors.
+
+This is a read-only view of local configuration, not trusted default-branch PR approval evidence or live model identity. It does not launch agents, edit policy, apply owner exceptions, or verify generated route-card drift. Effort remains separate from model strength and Ponytail mode.

@@ -110,7 +110,22 @@ export interface TaskTarget {
 	desc: string;
 }
 
+export interface ConfiguredModel {
+	model: string;
+	provider: string;
+	effort: string;
+}
+
+export interface ModelRouting {
+	status: 'eligible' | 'blocked' | 'unconfigured' | 'invalid' | 'unavailable';
+	reason?: string;
+	developer?: ConfiguredModel;
+	reviewer?: ConfiguredModel;
+	policy_digest?: string;
+}
+
 export interface DashboardPayload {
+	model_routing?: ModelRouting;
 	state: {
 		mode: string;
 		forge: ForgeConfig;

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import ModelRoutingPanel from '$lib/ModelRoutingPanel.svelte';
 	import {
 		BOARD_COLUMNS,
 		filterCards,
@@ -308,6 +309,7 @@
 	{/if}
 
 	{#if payload}
+		<ModelRoutingPanel routing={payload.model_routing} />
 		<section class="strip" aria-label="Active worktrees and handoff summary">
 			<div class="strip-card">
 				<div class="strip-header">
