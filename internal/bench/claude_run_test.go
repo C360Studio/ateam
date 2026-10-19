@@ -58,6 +58,8 @@ func claudeRunFixture(t *testing.T, scenario string) Experiment {
 
 // A test-owned history model specifies exactly how many attempts each boundary
 // permits. Replaying must neither call an adapter nor erase an execution failure.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestClaudeRunStopsAndReplay(t *testing.T) {
 	for _, tc := range []struct {
 		name, reason, finalStatus string
@@ -119,6 +121,7 @@ func TestClaudeRunStopsAndReplay(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestClaudeExperimentValidation(t *testing.T) {
 	e := claudeRunFixture(t, "complete")
 	for _, change := range []func(*Experiment){
@@ -142,6 +145,8 @@ func TestClaudeExperimentValidation(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestClaudeLegacyReplayCannotExecute(t *testing.T) {
 	e := claudeRunFixture(t, "complete")
 	resolved, err := ResolveExperiment(e, ".")

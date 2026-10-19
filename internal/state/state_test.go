@@ -276,3 +276,77 @@ func TestPostPRHandoffCommentAndDecisionsInPickup(t *testing.T) {
 		t.Fatalf("BuildPickupSummary missing decision summary:\n%s", summary)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
+func TestResolveGitUser(t *testing.T) {
+	cases := []struct {
+		gitName   string
+		gitEmail  string
+		osUser    string
+		wantName  string
+		wantEmail string
+	}{
+		{"Coby B", "coby@c360.dev", "coby", "Coby B", "coby@c360.dev"},
+		{"", "alice@example.com", "local-alice", "alice", "alice@example.com"},
+		{"", "", "coby", "coby", ""},
+		{"  ", "  ", "  ", "Local User", ""},
+	}
+	for _, tc := range cases {
+		gotName, gotEmail := resolveGitUser(tc.gitName, tc.gitEmail, tc.osUser)
+		if gotName != tc.wantName || gotEmail != tc.wantEmail {
+			t.Fatalf("resolveGitUser(%q, %q, %q) = (%q, %q), want (%q, %q)",
+				tc.gitName, tc.gitEmail, tc.osUser, gotName, gotEmail, tc.wantName, tc.wantEmail)
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
+func TestParseSpecMarkdownAndScanOpenSpecSpecs(t *testing.T) {
+	dir := t.TempDir()
+	specDir := filepath.Join(dir, "openspec", "specs", "harness")
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := `# harness Specification
+
+## Purpose
+
+Defines the behavioral contract for ateam hooks and MCP budget.
+
+## Requirements
+
+### Requirement: Lifecycle hook normalization under 5ms
+
+ateam hook SHALL normalize events in under 5ms.
+
+#### Scenario: Mode switch
+
+- **WHEN** ateam hook receives /mode ultra
+- **THEN** it updates state.json to ultra
+`
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	specs, err := ScanOpenSpecSpecs(dir)
+	if err != nil {
+		t.Fatalf("ScanOpenSpecSpecs: %v", err)
+	}
+	if len(specs) != 1 {
+		t.Fatalf("len(specs) = %d, want 1", len(specs))
+	}
+	sp := specs[0]
+	if sp.Name != "harness" || !strings.Contains(sp.Purpose, "behavioral contract") {
+		t.Fatalf("unexpected spec header: %+v", sp)
+	}
+	if len(sp.Requirements) != 1 {
+		t.Fatalf("len(Requirements) = %d, want 1", len(sp.Requirements))
+	}
+	req := sp.Requirements[0]
+	if req.ID != "harness:1" || req.Name != "Lifecycle hook normalization under 5ms" {
+		t.Fatalf("unexpected requirement: %+v", req)
+	}
+	if len(req.Scenarios) != 1 || req.Scenarios[0].Name != "Mode switch" || len(req.Scenarios[0].Steps) != 2 {
+		t.Fatalf("unexpected scenarios: %+v", req.Scenarios)
+	}
+}

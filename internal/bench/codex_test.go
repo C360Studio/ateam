@@ -49,6 +49,7 @@ func fakeCodexExperimentScenario(t *testing.T, scenario string) Experiment {
 	return e
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestCodexExecutionIsolationAndRedaction(t *testing.T) {
 	e := fakeCodexExperiment(t)
 	previous := ""
@@ -75,6 +76,7 @@ func TestCodexExecutionIsolationAndRedaction(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestCodexExecutionRejectsBeforeInference(t *testing.T) {
 	for _, scenario := range []string{"mismatchedmodel", "mismatchedeffort", "mismatchedpolicy", "approvalrequest", "unknownpreflight", "mismatchedthread"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -97,6 +99,8 @@ func TestCodexExecutionRejectsBeforeInference(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexExecutionFailureEvidence(t *testing.T) {
 	for _, scenario := range []string{"failed", "unknownusage", "timeout", "overflow", "stderr-cap", "toolrequest", "toolitem", "malformed", "secretmethod"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -131,6 +135,7 @@ func TestCodexExecutionFailureEvidence(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestCodexExecutionCancellation(t *testing.T) {
 	e := fakeCodexExperimentScenario(t, "timeout")
 	dir := t.TempDir()
@@ -168,6 +173,7 @@ func TestCodexExecutionCancellation(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestCodexCLIHelper(_ *testing.T) {
 	separator := slices.Index(os.Args, "--")
 	if separator < 0 {
@@ -385,6 +391,7 @@ func validateFakeCodexInvocation(args []string) error {
 	return os.WriteFile(marker, nil, 0600)
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestCodexManagedPaths(t *testing.T) {
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
@@ -414,6 +421,7 @@ func TestCodexManagedPaths(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestCodexMissingConfiguration(t *testing.T) {
 	e := testExperiment()
 	if _, err := codexSettings(e); err == nil {

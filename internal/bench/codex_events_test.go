@@ -38,6 +38,7 @@ func codexTestTranscript() []string {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexOutputNativeEvidenceAndAccounting(t *testing.T) {
 	r, err := parseCodexOutput(strings.Join(codexTestTranscript(), "\n") + "\n")
 	if err != nil || r.Source != "package fixture\n" || r.Usage == nil {
@@ -60,6 +61,7 @@ func TestCodexOutputNativeEvidenceAndAccounting(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexRecordedAppServerSuccess(t *testing.T) {
 	data, err := os.ReadFile("testdata/codex/luna-app-server-success.jsonl")
 	if err != nil {
@@ -88,6 +90,7 @@ func TestCodexRecordedAppServerSuccess(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexThreadWarningDoesNotRequireActiveTurn(t *testing.T) {
 	// Allowlisted warning envelope/message from the first Luna canary, with
 	// thread ID and generated config path anonymized; timestamp is omitted.
@@ -143,6 +146,7 @@ func TestCodexThreadWarningDoesNotRequireActiveTurn(t *testing.T) {
 	})
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexAccountRateLimitsDiagnostic(t *testing.T) {
 	// Allowlisted native event from the second Luna canary; timestamp omitted.
 	captured := `{"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":"codex","limitName":null,"normalModelSlug":null,"primary":null,"secondary":null,"credits":null,"individualLimit":null,"spendControlReached":null,"planType":null,"rateLimitReachedType":null}}}`
@@ -207,6 +211,8 @@ func TestCodexAccountRateLimitsDiagnostic(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexThreadStartValidatedBeforeInference(t *testing.T) {
 	id, err := validateCodexThreadStart([]byte(codexTestThread), "gpt-6-luna", "low")
 	if err != nil || id != "thread-1" {
@@ -246,6 +252,8 @@ func TestCodexThreadStartValidatedBeforeInference(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexOutputRejectsInvalidHistories(t *testing.T) {
 	for name, mutate := range map[string]func([]string) []string{
 		"missing initialize":           func(lines []string) []string { return lines[1:] },
@@ -321,6 +329,7 @@ func TestCodexOutputRejectsInvalidHistories(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexTokenPresenceAndBoundaries(t *testing.T) {
 	fields := []string{"inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens"}
 	checked := 0
@@ -380,6 +389,7 @@ func TestCodexTokenPresenceAndBoundaries(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexExactTokenBoundary(t *testing.T) {
 	usage := `{"total":{"inputTokens":1000000000000,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0,"totalTokens":1000000000000},"last":{"inputTokens":0,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0,"totalTokens":0}}`
 	lines := codexTestTranscript()
@@ -391,6 +401,7 @@ func TestCodexExactTokenBoundary(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexCumulativeUsageCannotDisappear(t *testing.T) {
 	first := `{"total":{"inputTokens":500,"cachedInputTokens":300,"cacheWriteInputTokens":0,"outputTokens":50,"reasoningOutputTokens":20,"totalTokens":550},"last":null}`
 	last := `{"total":{"inputTokens":100,"cachedInputTokens":50,"outputTokens":10,"reasoningOutputTokens":5,"totalTokens":110},"last":null}`
@@ -433,6 +444,8 @@ func TestCodexCumulativeUsageCannotDisappear(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexFinalSourceAndUnknownUsage(t *testing.T) {
 	for _, source := range []string{`{}`, `null`, `{"source":""}`, `{"Source":"package x"}`, `{"source":"x","extra":true}`, `{"source":"x","source":"y"}`, "```json\n{}\n```"} {
 		encoded, _ := json.Marshal(source)
@@ -459,6 +472,8 @@ func TestCodexFinalSourceAndUnknownUsage(t *testing.T) {
 
 // Generated histories use a test-owned state oracle: every item ID has one start
 // and one completion, and final turn completion occurs only when all are closed.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCodexGeneratedItemHistories(t *testing.T) {
 	checked := 0
 	for count := 1; count <= 5; count++ {

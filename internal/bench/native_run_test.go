@@ -49,6 +49,8 @@ func nativeTestExperiment(t *testing.T, usage string) Experiment {
 	return cfg
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestNativeBudgetStopsAndRescoresPartialHistory(t *testing.T) {
 	// Independent oracle: first 15-token attempt exhausts a 10-token ceiling;
 	// a missing-usage attempt also stops, never silently authorizing another call.
@@ -118,6 +120,7 @@ func TestNativeBudgetStopsAndRescoresPartialHistory(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: A/A calibration
 func TestNativeIndependentSessions(t *testing.T) {
 	cfg := nativeTestExperiment(t, `{"input_tokens":10,"output_tokens":5}`)
 	resolved, err := ResolveExperiment(cfg, ".")
@@ -140,6 +143,8 @@ func TestNativeIndependentSessions(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: A/A calibration
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
 func TestExperimentModeAndNativeBudgetValidation(t *testing.T) {
 	for _, mode := range []string{"", "ab", "aa", "invalid"} {
 		for _, same := range []bool{false, true} {
@@ -171,6 +176,7 @@ func TestExperimentModeAndNativeBudgetValidation(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestNativeFailureRescorePreservesOutcome(t *testing.T) {
 	cfg := nativeTestExperiment(t, `{"input_tokens":10,"output_tokens":5}`)
 	resolved, err := ResolveExperiment(cfg, ".")
@@ -210,6 +216,7 @@ func TestNativeFailureRescorePreservesOutcome(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
 func TestNativeStopHistoryConsistency(t *testing.T) {
 	cfg := testExperiment()
 	cfg.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low"}
@@ -243,6 +250,7 @@ func TestNativeStopHistoryConsistency(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestNativeReusedSessionStops(t *testing.T) {
 	cfg := nativeTestExperiment(t, `{"input_tokens":10,"output_tokens":5}`)
 	script, err := os.ReadFile(cfg.Command[0])
@@ -271,6 +279,8 @@ func TestNativeReusedSessionStops(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Fixed-model harness treatments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestNativeModelIdentityStopsAndRescores(t *testing.T) {
 	for _, tc := range []struct{ name, replacement, reason string }{
 		{"changed", "gemini-other-model", "model-mismatch"},

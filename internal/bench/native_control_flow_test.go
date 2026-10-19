@@ -12,6 +12,7 @@ import (
 
 // Execution failure is the primary cause even when the aborted process supplied
 // no identity or usage. Relabeling it model-unverified hides the failure.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
 func TestNativeFailureStopPrecedesAccounting(t *testing.T) {
 	cfg := nativeTestExperiment(t, `null`)
 	for _, tc := range []struct{ status, want string }{
@@ -36,6 +37,8 @@ func TestNativeFailureStopPrecedesAccounting(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestNativeEarlyFailureStopAndLegacyReplay(t *testing.T) {
 	cfg := nativeTestExperiment(t, `null`)
 	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '0.43.0'; exit 0; fi\ncat >/dev/null\necho provider-unavailable >&2\nexit 1\n"
@@ -84,6 +87,7 @@ func TestNativeEarlyFailureStopAndLegacyReplay(t *testing.T) {
 
 // An init side effect is the independent oracle: once per candidate evaluation.
 // Clearing Grade afterward cannot hide executing the reused session's source.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestNativeReusedSessionNeverExecutesCandidate(t *testing.T) {
 	cfg := nativeTestExperiment(t, `{"input_tokens":10,"output_tokens":5}`)
 	marker := filepath.Join(t.TempDir(), "evaluations")
@@ -134,6 +138,7 @@ func TestNativeReusedSessionNeverExecutesCandidate(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
 func TestNativeFailureStopHistoryValidation(t *testing.T) {
 	cfg := testExperiment()
 	cfg.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low"}

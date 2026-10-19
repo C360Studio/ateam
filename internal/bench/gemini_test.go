@@ -43,6 +43,8 @@ func fakeGeminiExperiment(t *testing.T) Experiment {
 }
 
 // Explicit API auth reaches the CLI, but ambient config/secrets and prior arm files must not.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Generated workspace trust
 func TestGeminiExecutionIsolationAndRedaction(t *testing.T) {
 	e := fakeGeminiExperiment(t)
 	t.Setenv("GEMINI_CLI_TRUST_WORKSPACE", "parent-must-not-change")
@@ -71,6 +73,7 @@ func TestGeminiExecutionIsolationAndRedaction(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiExecutionFailureEvidence(t *testing.T) {
 	e := fakeGeminiExperiment(t)
 	for _, tc := range []struct{ instruction, status string }{{"failure", "adapter-error"}, {"timeout", "timeout"}, {"overflow", "adapter-error"}, {"stdout-cap", "adapter-error"}, {"stderr-cap", "adapter-error"}, {"malformed", "adapter-error"}} {
@@ -100,6 +103,7 @@ func TestGeminiExecutionFailureEvidence(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiExecutionCancellation(t *testing.T) {
 	e := fakeGeminiExperiment(t)
 	dir := t.TempDir()
@@ -139,6 +143,7 @@ func TestGeminiExecutionCancellation(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiCLIHelper(_ *testing.T) {
 	separator := slices.Index(os.Args, "--")
 	if separator < 0 {
@@ -272,6 +277,7 @@ func validateFakeGeminiInvocation(args []string) error {
 	return nil
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Generated workspace trust
 func TestGeminiRejectsManagedSettings(t *testing.T) {
 	e := fakeGeminiExperiment(t)
 	for _, name := range []string{"GEMINI_CLI_SYSTEM_SETTINGS_PATH", "GEMINI_CLI_SYSTEM_DEFAULTS_PATH"} {
@@ -285,6 +291,8 @@ func TestGeminiRejectsManagedSettings(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Fixed-model harness treatments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Generated workspace trust
 func TestGeminiSettingsPinExecutionPolicy(t *testing.T) {
 	e := testExperiment()
 	e.Model = "gemini-3.8-flash"
@@ -348,6 +356,7 @@ func TestGeminiSettingsPinExecutionPolicy(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Native agent evidence
 func TestGeminiNativeSourceSchema(t *testing.T) {
 	e := testExperiment()
 	e.Model = "gemini-3.8-flash"
@@ -381,6 +390,7 @@ func TestGeminiNativeSourceSchema(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestGeminiLegacyExecutionRefused(t *testing.T) {
 	e := fakeGeminiExperiment(t)
 	e.Gemini.OutputFormat = ""
@@ -398,6 +408,7 @@ func TestGeminiLegacyExecutionRefused(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestGeminiLegacySettingsReplay(t *testing.T) {
 	e := testExperiment()
 	e.Model = "gemini-3.8-flash"
@@ -423,6 +434,7 @@ func TestGeminiLegacySettingsReplay(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestGeminiOutputFormatValidation(t *testing.T) {
 	e := testExperiment()
 	e.Agent, e.Model = "gemini", "gemini-3.8-flash"

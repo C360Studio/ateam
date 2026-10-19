@@ -199,8 +199,10 @@ From the web board you can:
 - View and manage work items in a **Kanban board** (`Backlog`, `In Progress`, `Review`, `Done`) or **Table view**.
 - Sync issues and PRs from **GitHub** or **Gitea** (`Sync Forge` button or `ateam state sync`).
 - Inspect active **OpenSpec changes**, **`Hold:` blockers**, and **`// shortcut:` items**.
-- Switch the repository's discipline level (`lite`, `full`, `ultra`, `off`).
+- Open the top-right **User Profile & Settings** menu (auto-detected from `git config user.name` / `user.email`) to switch the repository's **Agent Discipline Mode** (`lite`, `full`, `ultra`, `off`) or configure `ATEAM_API_TOKEN`.
 - Receive live issue and pull request webhooks at `/api/webhooks/github` (`X-Hub-Signature-256`) and `/api/webhooks/gitea` (`X-Gitea-Signature`) when `ATEAM_WEBHOOK_SECRET` is set.
+
+Repository selection is shared by clients of one server. Writes include `X-ATeam-Repo` to reject stale selections (optional for single-repository clients). Registered paths survive restart; the active selection resets to the served checkout. Webhooks always target the served checkout. Forge settings support GitHub.com and configured Gitea hosts; custom GitHub API URLs are currently unsupported. The read-only model routing panel follows the selected repository; [routing states and limits](docs/model-review.md#dashboard-routing-display).
 
 ---
 
