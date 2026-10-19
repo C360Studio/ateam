@@ -107,6 +107,12 @@ func herdrOnEvent(ctx context.Context, run herdrRunner, out io.Writer) error {
 	if dir == "" {
 		return nil
 	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
 	repo := findRepoRoot(dir)
 	if info, err := os.Stat(filepath.Join(repo, "openspec")); err != nil || !info.IsDir() {
 		return nil
@@ -201,9 +207,23 @@ func findJSONString(v any, key string) string {
 	return ""
 }
 
-// toastNewCaveats toasts HALT/RED/BLOCKED caveats (BLOCKED includes Hold: lines) that were not
-// present at the last notification for repo, then records the current set. Resolved caveats drop
-// out of the record, so one that later returns toasts again.
+// notifyKey identifies a repository across its spellings and linked worktrees: the git common
+// dir when repo is a git checkout, else the resolved repo path.
+func notifyKey(repo string) string {
+	key := repo
+	if common, ok := state.GitCommonDir(repo); ok {
+		key = common
+	}
+	if resolved, err := filepath.EvalSymlinks(key); err == nil {
+		key = resolved
+	}
+	return filepath.Clean(key)
+}
+
+// toastNewCaveats toasts HALT/RED/BLOCKED caveats (BLOCKED includes Hold: lines) never notified
+// for this repository. The record is additive per repository, so main and its worktrees share it
+// and do not flip-flop; a resolved caveat that later returns does not toast again. The record is
+// saved before toasting: delivery is at most once, and a failed toast is not retried.
 func toastNewCaveats(ctx context.Context, run herdrRunner, bin, repo string) error {
 	stateDir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
 	if stateDir == "" {
@@ -213,20 +233,26 @@ func toastNewCaveats(ctx context.Context, run herdrRunner, bin, repo string) err
 	if err != nil {
 		return fmt.Errorf("scan queue %s: %w", repo, err)
 	}
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return fmt.Errorf("state dir: %w", err)
+	}
 	path := filepath.Join(stateDir, "notified.json")
 	notified := map[string][]string{}
 	if data, err := os.ReadFile(path); err == nil {
-		if err := json.Unmarshal(data, &notified); err != nil {
-			return fmt.Errorf("read %s: %w", path, err)
+		if json.Unmarshal(data, &notified) != nil {
+			// A corrupt record is replaced; the cost is one repeat toast per caveat.
+			notified = map[string][]string{}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
+	key := notifyKey(repo)
 	seen := map[string]bool{}
-	for _, fp := range notified[repo] {
+	for _, fp := range notified[key] {
 		seen[fp] = true
 	}
-	var current []string
+	type toast struct{ title, body string }
+	var pending []toast
 	for _, ch := range changes {
 		for _, c := range ch.Caveats {
 			if c.Marker != "HALT" && c.Marker != "RED" && c.Marker != "BLOCKED" {
@@ -234,28 +260,50 @@ func toastNewCaveats(ctx context.Context, run herdrRunner, bin, repo string) err
 			}
 			// Line numbers are left out so edits elsewhere in tasks.md do not re-toast.
 			fp := ch.Name + "|" + c.Marker + "|" + c.Text
-			current = append(current, fp)
 			if seen[fp] {
 				continue
 			}
-			title := fmt.Sprintf("ateam: %s %s", ch.Name, c.Marker)
-			if _, err := run(ctx, bin, "notification", "show", title, "--body", c.Text, "--sound", "request"); err != nil {
-				return err
-			}
+			seen[fp] = true
+			notified[key] = append(notified[key], fp)
+			pending = append(pending, toast{fmt.Sprintf("ateam: %s %s", ch.Name, c.Marker), c.Text})
 		}
 	}
-	notified[repo] = current
+	if len(pending) == 0 {
+		return nil
+	}
+	// shortcut: concurrent events can race this read-modify-write and double-toast once;
+	// add a lock file if herdr turns out to run event commands in parallel.
+	if err := writeNotified(stateDir, path, notified); err != nil {
+		return err
+	}
+	for _, t := range pending {
+		if _, err := run(ctx, bin, "notification", "show", t.title, "--body", t.body, "--sound", "request"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeNotified(stateDir, path string, notified map[string][]string) error {
 	data, err := json.MarshalIndent(notified, "", "  ")
 	if err != nil {
 		return err
 	}
-	// shortcut: concurrent events can race this read-modify-write and double-toast once;
-	// add a lock file if herdr turns out to run event commands in parallel.
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", tmp, err)
+	tmp, err := os.CreateTemp(stateDir, "notified-*.json")
+	if err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		os.Remove(tmp.Name())
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

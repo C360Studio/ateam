@@ -610,6 +610,13 @@ func ReadFastGitHead(root string) (branch, shortSHA string) {
 	return "", ""
 }
 
+// GitCommonDir returns the git common dir shared by root and all its linked worktrees,
+// reading .git, gitdir:, and commondir files only (no git subprocess).
+func GitCommonDir(root string) (string, bool) {
+	_, commonDir, ok := resolveGitDirs(root)
+	return commonDir, ok
+}
+
 func resolveGitDirs(root string) (gitDir, commonDir string, ok bool) {
 	dotGit := filepath.Join(root, ".git")
 	info, err := os.Stat(dotGit)
