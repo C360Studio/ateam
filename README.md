@@ -4,7 +4,7 @@
 
 The aim is to test—and eventually measure—how shared instructions, agent configuration, lifecycle hooks, and verification practices affect agent behavior. The current benchmark suite checks reference fixtures and harness mechanisms; it does **not** establish that this configuration improves agent performance.
 
-For the event-by-event lifecycle, state changes, and design rationale, read [how the harness runs](docs/hook-flow.md).
+For the event-by-event lifecycle, state changes, and design rationale, read [how the harness runs](docs/hook-flow.md). For optional stronger-model review, setup, and scoped owner exceptions, read [model routing and independent review](docs/model-review.md).
 
 ## Opinions and Boundaries
 
@@ -82,6 +82,7 @@ This creates missing harness files without overwriting existing ones (pass `--fo
 
 - `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`)
 - `.agents/protocol.md`, `.agents/rules-index.md`, `.agents/README.md`, and `.agents/skills/{pickup,handoff,preflight,ponytail}/SKILL.md`
+- `.agents/contracts/developer.md` and `.agents/contracts/reviewer.md`
 - `.claude/settings.json` and `.claude/skills/*/SKILL.md`
 - `.codex/hooks.json`
 - `.gemini/settings.json` and `.gemini/commands/*.toml`
@@ -115,6 +116,8 @@ Example output:
   "violations": null
 }
 ```
+
+Model review is opt-in: `init` installs the role contracts but does not choose models or install a policy. Follow the [adoption steps](docs/adoption.md#optional-model-review) to approve model relationships, configure routes, and establish a trusted baseline before checking review evidence.
 
 ### 3. Start or resume work (`ateam state pickup`)
 
@@ -208,6 +211,9 @@ From the web board you can:
 | --- | --- |
 | `ateam init [--force] [--github\|--gitea]` | Create multi-agent instruction files, skills, hooks, MCP configs, and optional GitHub/Gitea labels |
 | `ateam doctor [--check]` | Verify multi-agent file parity, `<300` token MCP schema budget, and measured hook latency (50ms failure threshold today; <5ms target) |
+| `ateam review setup --policy FILE` | Install approved model policy and role cards/pointers, refusing existing conflicts |
+| `ateam review route [--developer-models IDS]` | Check the configured reviewer against every supplied implementation model; launch no agents |
+| `ateam review check --pr N --record-comment ID [--exception-comment ID]` | Validate current review evidence and optional scoped owner exception against trusted baseline policy |
 | `ateam state status` | Print the full `.ateam/state.json` snapshot (git, worktrees, holds, shortcuts, cards, handoff) |
 | `ateam state pickup` | Reconcile live git/worktree state with the last handoff and report drift or active holds |
 | `ateam state handoff --goal "..." [...]` | Record a 5-field checkpoint, clear the session writer lease, and optionally comment on the open PR |
@@ -228,6 +234,8 @@ From the web board you can:
 
 | Target | What it does |
 | --- | --- |
+| `task review:route -- ...` | Check configured model routing, forwarding optional CLI arguments |
+| `task review:check -- --pr N --record-comment ID [...]` | Validate current PR review evidence and an optional owner exception |
 | `task fmt` / `task fmt:check` | Format Go files / fail if any Go file is unformatted |
 | `task spec:check` | Validate `openspec/` specs and changes |
 | `task spec:queue` | Show in-flight `openspec/changes/*` progress and holds |
