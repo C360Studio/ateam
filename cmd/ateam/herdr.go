@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -231,8 +233,11 @@ func toastNewCaveats(ctx context.Context, run herdrRunner, bin, repo string) err
 				if c.Marker != "HALT" && c.Marker != "RED" && c.Marker != "BLOCKED" {
 					continue
 				}
-				// Line numbers are left out so edits elsewhere in tasks.md do not re-toast.
-				fp := ch.Name + "|" + c.Marker + "|" + c.Text
+				// Identity hashes the full caveat text (not the truncated display Text, and
+				// not the line number) so edits elsewhere in tasks.md do not re-toast and the
+				// key survives JSON round-trips whatever bytes the task line holds.
+				sum := sha256.Sum256([]byte(c.Full))
+				fp := ch.Name + "|" + c.Marker + "|" + hex.EncodeToString(sum[:])
 				if seen[fp] {
 					continue
 				}
@@ -249,12 +254,14 @@ func toastNewCaveats(ctx context.Context, run herdrRunner, bin, repo string) err
 	if err != nil {
 		return err
 	}
+	// Every claimed toast is attempted: stopping at the first failure would drop the rest forever.
+	var errs []error
 	for _, t := range pending {
 		if _, err := run(ctx, bin, "notification", "show", t.title, "--body", t.body, "--sound", "request"); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func writeNotified(stateDir, path string, notified map[string][]string) error {

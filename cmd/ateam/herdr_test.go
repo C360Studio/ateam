@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,15 +14,20 @@ import (
 
 // fakeHerdr records herdr invocations and answers `pane get` with a cwd.
 type fakeHerdr struct {
-	mu      sync.Mutex
-	calls   [][]string
-	paneCWD string
+	mu        sync.Mutex
+	calls     [][]string
+	paneCWD   string
+	failToast int // fail this many notification calls before succeeding
 }
 
 func (f *fakeHerdr) run(_ context.Context, bin string, args ...string) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, append([]string{bin}, args...))
+	if len(args) >= 2 && args[0] == "notification" && f.failToast > 0 {
+		f.failToast--
+		return nil, errors.New("herdr notification: timeout")
+	}
 	if len(args) >= 2 && args[0] == "pane" && args[1] == "get" {
 		return json.Marshal(map[string]any{"result": map[string]any{"type": "pane_info", "pane": map[string]any{"pane_id": args[2], "cwd": f.paneCWD}}})
 	}
@@ -367,5 +373,49 @@ func TestHerdrOnEventConcurrentEventsToastOnce(t *testing.T) {
 	}
 	if got := f.toasts(); len(got) != 1 {
 		t.Fatalf("%d concurrent events toasted %d times (%q), want once", n, len(got), got)
+	}
+}
+
+func TestHerdrOnEventLongCaveatIdentity(t *testing.T) {
+	prefix := "- [ ] 1.1 Ship the migration. Hold: " + strings.Repeat("long unchanged reason ", 6)
+	tests := []struct {
+		name       string
+		first      string
+		second     string
+		wantToasts int
+	}{
+		// 60 two-byte runes put the 104-byte display cut mid-rune.
+		{"multibyte text past the display cut", "- [ ] 1.1 RED: " + strings.Repeat("é", 60), "- [ ] 1.1 RED: " + strings.Repeat("é", 60), 1},
+		{"reason changed after the display cut", prefix + "waiting on security approval", prefix + "security approved; waiting on database migration", 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := t.TempDir()
+			setHerdrEnv(t, "worktree.created", `{"event":"worktree_created","data":{"worktree":{"path":"`+repo+`"}}}`)
+			f := &fakeHerdr{}
+			for i, body := range []string{tc.first, tc.second, tc.second} {
+				writeTasks(t, repo, "# Tasks\n\n"+body+"\n")
+				if err := herdrOnEvent(context.Background(), f.run); err != nil {
+					t.Fatalf("event %d: %v", i, err)
+				}
+			}
+			if got := f.toasts(); len(got) != tc.wantToasts {
+				t.Fatalf("toasts = %d (%q), want %d", len(got), got, tc.wantToasts)
+			}
+		})
+	}
+}
+
+func TestHerdrOnEventFailedToastDoesNotDropTheRest(t *testing.T) {
+	repo := t.TempDir()
+	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n- [ ] 1.2 Ship it. Hold: waiting on owner\n")
+	setHerdrEnv(t, "worktree.created", `{"event":"worktree_created","data":{"worktree":{"path":"`+repo+`"}}}`)
+	f := &fakeHerdr{failToast: 1}
+	if err := herdrOnEvent(context.Background(), f.run); err == nil {
+		t.Fatal("a failed toast should be reported")
+	}
+	want := []string{"ateam: demo RED", "ateam: demo BLOCKED"}
+	if got := f.toasts(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("attempted toasts = %q, want %q", got, want)
 	}
 }

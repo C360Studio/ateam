@@ -26,6 +26,8 @@ type OpenSpecCaveat struct {
 	Marker string `json:"marker"` // WONTDO, HALT, RED, BLOCKED, OPEN-Q
 	Line   int    `json:"line"`
 	Text   string `json:"text"`
+	// Full is the normalized, untruncated task text, for stable identity (Text is for display).
+	Full string `json:"-"`
 }
 
 // OpenSpecChange summarizes an in-flight OpenSpec change under openspec/changes/<name>.
@@ -160,6 +162,7 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 				Marker: firstMarker,
 				Line:   t.line,
 				Text:   cleanTaskText(t.first),
+				Full:   normalizeTaskText(t.first),
 			})
 		}
 		if t.holdLine > 0 {
@@ -172,6 +175,7 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 				Marker: "BLOCKED",
 				Line:   t.holdLine,
 				Text:   cleaned,
+				Full:   normalizeTaskText(joined),
 			})
 			holds = append(holds, HoldItem{
 				File:       relPath,
@@ -185,13 +189,21 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 }
 
 func cleanTaskText(s string) string {
-	s = taskLineRe.ReplaceAllString(s, "$3")
-	s = strings.ReplaceAll(s, "**", "")
-	s = multiSpaceRe.ReplaceAllString(strings.TrimSpace(s), " ")
+	s = normalizeTaskText(s)
 	if len(s) > 104 {
-		s = s[:104]
+		i := 104
+		for i > 0 && !utf8.RuneStart(s[i]) {
+			i--
+		}
+		s = s[:i]
 	}
 	return s
+}
+
+func normalizeTaskText(s string) string {
+	s = taskLineRe.ReplaceAllString(s, "$3")
+	s = strings.ReplaceAll(s, "**", "")
+	return multiSpaceRe.ReplaceAllString(strings.TrimSpace(s), " ")
 }
 
 // ScanOpenSpecQueue scans openspec/changes/*/tasks.md in deterministic order.
