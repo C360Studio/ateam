@@ -1,6 +1,6 @@
 # Gemini A/A pilot: startup evidence, 2026-10-19
 
-The pilot has **no evaluable pairs or quality result**. The first launch exposed a missing workspace-trust setting. After the user approved session-only trust and the adapter was fixed, Google's API returned repeated HTTP 503 high-demand errors. The first attempt reached its 120-second limit; the runner retained the timeout and stopped before another benchmark attempt. A later canary received a response after one 503 retry, but exposed a fenced-JSON output mismatch and incomplete accounting. Native schema output and a clean, fully accounted canary are required before the full A/A pilot.
+The pilot has **no evaluable pairs or quality result**. The first launch exposed a missing workspace-trust setting. After the user approved session-only trust and the adapter was fixed, Google's API returned repeated HTTP 503 high-demand errors. The first attempt reached its 120-second limit; the runner retained the timeout and stopped before another benchmark attempt. A later canary received a response after one 503 retry, but exposed a fenced-JSON output mismatch and incomplete accounting. Native schema output is now implemented, but its bounded canary again timed out on HTTP 503 responses. A clean, fully accounted canary is still required before the full A/A pilot.
 
 ## Configuration and authorization
 
@@ -8,7 +8,7 @@ The pilot has **no evaluable pairs or quality result**. The first launch exposed
 - User-approved $2 target with token/time bounds, not a hard dollar cap; maximum 30 scheduled attempts, 100,000 reported-token threshold, 120 seconds per attempt, one hour per run. Raw evidence remains local and ignored.
 - Gemini CLI 0.43.0, requested model `gemini-3.8-flash`, requested reasoning `low`, identical A/A instructions, seed 42, three tasks × five repetitions × two arms.
 - The retry used implementation commit `d6470a4537d6d971a0a2701f41ce3e2272986032`. Trust is literal `GEMINI_CLI_TRUST_WORKSPACE=true` in the generated workspace's isolated child environment only; no global trust records or parent environment were changed. Managed-policy refusal and restricted read-only tools remain enforced.
-- Resolved model/reasoning and normalized usage are unknown: no complete native JSON report arrived. Cost is unknown, not zero; provider billing was not independently reconciled.
+- For the timeout launches, resolved model/reasoning and normalized usage are unknown: no complete native JSON report arrived. Cost is unknown, not zero; provider billing was not independently reconciled.
 
 ## Observations
 
@@ -18,10 +18,11 @@ The pilot has **no evaluable pairs or quality result**. The first launch exposed
 | With approved scoped trust | 1 / 30 | Timeout after 120.007 seconds | Six explicit 503 retry messages in stderr; no stdout report | 0 |
 | User-requested capacity retry | 1 / 30 | Timeout after 120.018 seconds | Six explicit 503 retry messages in stderr; no stdout report | 0 |
 | Post-Luna capacity canary | 1 / 2 | Adapter error after 16.102 seconds | Fenced JSON; three native API requests with one error; partial usage | 0 |
+| Native-schema canary | 1 / 2 | Timeout after 120.022 seconds | Three explicit 503 retry messages; no stdout report | 0 |
 
 These are separate startup runs, not combined A/A samples. The third launch reused the same config and runner hashes below, again stopped after the first attempt, and produced no evaluable pairs. The second run's provider errors establish a service-availability failure, not a task-quality regression. Six logged retry failures are observed stderr evidence, not an authoritative billing/request ledger. No further native attempt or model fallback was launched after the runner stopped. The original three runs have stop reason `model-unverified` because model identity was unavailable; the terminal attempt status and stderr retain the underlying cause.
 
-The local environment also reported missing ripgrep and a GrepTool fallback. No tool execution was observed; make tool availability consistent before interpreting later tool-heavy comparisons.
+The local environment also reported missing ripgrep and a GrepTool fallback. No tool execution was observed in the original three startup runs; make tool availability consistent before interpreting later tool-heavy comparisons.
 
 ## Retained evidence
 
@@ -56,3 +57,18 @@ Google returned one explicit 503 before the CLI produced a native terminal repor
 - Native schema correction is tracked separately in `openspec/changes/gemini-structured-output/`; old configuration/evidence must stay replayable.
 
 This is evidence that at least one request returned during the retry, not proof that provider capacity is stable. Reported token counts are partial observations, not a full bill or a quality result.
+
+## Native-schema correction and bounded retry
+
+Implementation `a07af9222b2cc3992e9041cca6876a395b96c575` requires `gemini.output_format: json-schema` for new execution. Both native configuration override scopes request application/json plus a schema allowing exactly one string source property. Legacy configurations preserve their settings and are replay-only; the parser still rejects prose/fences. Installed CLI passthrough and [official structured-output support](https://ai.google.dev/gemini-api/docs/generate-content/structured-output) were reviewed, but schema with tools is preview and successful live compatibility remains unproved.
+
+After independent review and full clean-tree `task verify` (exit 0; `.enjoy-logs/gemini-schema-verify.log`), the separate schema canary scheduled one safe-path pair with the same API key policy, model, low reasoning, 100,000-token threshold and 120-second attempt limit. Its evaluator self-test passed before inference. No test suite ran concurrently. The first attempt timed out after 120.022 seconds, with three explicit HTTP 503 high-demand retry messages and no stdout. The corrected stop reason is **attempt-timeout**, rather than model-unverified. The runner stopped before a second attempt or full pilot. Usage and cost are unknown, not zero.
+
+- Artifact: `benchmarks/runs/gemini-schema-canary/experiment-312550060/run.json`; SHA-256 `750bed84eaf13c19c688e5880e0b772004e2e5e3056535b2da078233c76a1b04`.
+- Offline replay: `rescore-3026924197/run.json`; timeout and comparison remained identical and original bytes/hash unchanged, with no model calls.
+- Config SHA-256: `d958cdf978238247189d9471df3177e751b4db9e77fa0e2862ea15efcfeee4f7`; exact local file `.enjoy-logs/gemini-schema-canary.json` and resolved artifact.
+- Runner SHA-256: `d77ebd942e716f51d5b774e312ce7d73112466ba132d25778298245ad979e835`.
+- Evaluator SHA-256: `3ab0458c7210c06c5bcc5a6569631b9b0bfa2a4050e9a5ad8ae4b9caf52ff03e` (safe-path canary only).
+- Local log/policy: `.enjoy-logs/gemini-schema-canary.log`, `gemini-schema-canary-policy.json`.
+
+The retry delivered no evaluable pair, so Gemini A/A remains incomplete. No further automatic retry or fallback was launched.
