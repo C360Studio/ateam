@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// spec: openspec/changes/mcp-registration/specs/harness/spec.md#Requirement: Client-readable MCP registration
+// spec: openspec/specs/harness/spec.md#Requirement: Client-readable MCP registration
 func TestMCPRegistrationFiles(t *testing.T) {
 	root := t.TempDir()
 	if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
@@ -57,7 +57,7 @@ func TestMCPRegistrationFiles(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/mcp-registration/specs/harness/spec.md#Requirement: Client-readable MCP registration
+// spec: openspec/specs/harness/spec.md#Requirement: Client-readable MCP registration
 func TestInitPreservesClientSettings(t *testing.T) {
 	root := t.TempDir()
 	// Independent model: every pre-existing client file must remain byte-identical,
@@ -95,7 +95,7 @@ func TestInitPreservesClientSettings(t *testing.T) {
 	requireViolation(t, CheckParity(root), ".mcp.json", ".gemini/settings.json")
 }
 
-// spec: openspec/changes/mcp-registration/specs/harness/spec.md#Requirement: Client-readable MCP registration
+// spec: openspec/specs/harness/spec.md#Requirement: Client-readable MCP registration
 func TestMCPConfigValidation(t *testing.T) {
 	cases := []struct {
 		name, file, body string
@@ -151,7 +151,7 @@ func TestMCPConfigValidation(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/mcp-registration/specs/harness/spec.md#Requirement: Client-readable MCP registration
+// spec: openspec/specs/harness/spec.md#Requirement: Client-readable MCP registration
 func TestInitPreservesConfigSymlink(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(t.TempDir(), "owner.json")

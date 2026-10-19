@@ -189,3 +189,64 @@ When `HERDR_ENV=1`, the writer lease SHALL record `HERDR_PANE_ID` and `HERDR_WOR
 - **WHEN** the action runs with `HERDR_PANE_ID` set
 - **THEN** the popup opens with that pane's cwd
 
+### Requirement: Accurate lab positioning and adoption boundaries
+
+The README and adoption documentation SHALL identify ATeam as an opinionated lab primarily grounded in Go development. They SHALL distinguish language-independent coordination mechanisms from Go-specific tooling, project-owned verification tasks, and unvalidated language support. Relevant generated instructions SHALL reflect the same limitations.
+
+#### Scenario: Adopting in a non-Go repository
+
+- **WHEN** a reader evaluates ATeam for a non-Go project
+- **THEN** the documentation explains that initialization does not detect or adapt to the project language, mutation tooling requires non-test Go source, shortcut scanning uses an explicit extension allowlist, and the project must supply its own Taskfile and verification commands
+
+#### Scenario: Interpreting benchmark and discipline claims
+
+- **WHEN** a reader evaluates Ponytail modes and benchmark results
+- **THEN** the documentation distinguishes injected agent guidance from enforced behavior and describes reference-fixture self-tests without presenting them as proof of improved agent performance
+
+### Requirement: Deterministic test-to-spec attribution
+
+ATeam SHALL enforce attached machine-readable requirement citations for supported Go and Vitest tests through an offline deterministic gate in `task verify`. Missing, malformed, unsafe, or unresolved citations and parse failures SHALL fail verification. Attribution SHALL NOT be presented as semantic coverage proof. Detailed discovery, syntax, and resolution rules are specified by the test-attribution capability.
+
+#### Scenario: Valid multiple requirement citations
+
+- **WHEN** a supported test has attached valid citations to two unique requirements within the repository
+- **THEN** the checker accepts that test's attribution and produces deterministic results
+
+#### Scenario: Missing or unresolved attribution
+
+- **WHEN** a supported test has no citation or cites a missing or ambiguous requirement
+- **THEN** the checker reports the test or citation location and exits nonzero
+
+#### Scenario: Unsafe reference or malformed source
+
+- **WHEN** a citation escapes the repository or a supported source file cannot be parsed
+- **THEN** the checker refuses the input without accepting incomplete scan results
+
+#### Scenario: Verification integration
+
+- **WHEN** task verify runs on a tree with an unattributed supported test
+- **THEN** verification fails on the attribution gate
+
+### Requirement: Client-readable MCP registration
+
+ATeam initialization SHALL place MCP registration in the supported configuration surface for each supported client, preserve unrelated existing settings, and document any required migration or manual setup. Local parity checks SHALL validate the expected registration structure without representing that result as proof of a live client connection.
+
+#### Scenario: Codex MCP discovery
+
+- **WHEN** ATeam is initialized for Codex in a trusted disposable project with its executable available
+- **THEN** the registration uses Codex's supported MCP configuration surface and client discovery can identify the ATeam server without relying on an entry in a hooks file
+
+#### Scenario: Existing client configuration
+
+- **WHEN** initialization encounters existing client settings and servers
+- **THEN** unrelated configuration is preserved and any required manual migration is explained instead of silently overwriting settings
+
+### Requirement: Accurate MCP integration documentation
+
+The MCP guide SHALL document the implemented tools and actions, prompts, resources, launch requirements, repository working directory, state/task/posting side effects, and verification steps. It SHALL distinguish local configuration checks, direct protocol tests, and real-client connection evidence.
+
+#### Scenario: Following the MCP guide
+
+- **WHEN** a user follows the setup and smoke-check instructions
+- **THEN** examples match the exposed schema, do not advertise an unsupported sync action, and explain local-only handoff using post=false
+
