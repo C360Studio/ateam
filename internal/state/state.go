@@ -534,7 +534,7 @@ func parseWorktrees(porcelain string) []Worktree {
 }
 
 func inferAgentFromBranch(branch string) string {
-	for _, a := range []string{"claude", "codex", "gemini"} {
+	for _, a := range []string{"claude", "codex", "gemini", "agy"} {
 		if strings.HasPrefix(strings.ToLower(branch), a+"/") {
 			return a
 		}

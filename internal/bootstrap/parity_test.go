@@ -94,6 +94,16 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(sub, "README.md"), []byte("# Repo\n- `ateam hook <event>` (`session-start`, `pre-tool`, `post-tool`, `stop`)\n"), 0o644)
 		requireViolation(t, CheckParity(sub), "README.md", "before-prompt")
 	})
+
+	t.Run("Antigravity hooks.json missing --agent agy", func(t *testing.T) {
+		sub := t.TempDir()
+		_, _ = InitRepo(context.Background(), sub, Options{})
+		p := filepath.Join(sub, ".agents", "hooks.json")
+		data, _ := os.ReadFile(p)
+		edited := strings.ReplaceAll(string(data), "--agent agy", "--agent gemini")
+		_ = os.WriteFile(p, []byte(edited), 0o644)
+		requireViolation(t, CheckParity(sub), ".agents/hooks.json", "--agent agy")
+	})
 }
 
 func requireViolation(t *testing.T, violations []string, substrings ...string) {

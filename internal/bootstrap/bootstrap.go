@@ -326,5 +326,25 @@ func checkHookConfigs(root string) []string {
 			out = append(out, fmt.Sprintf("%s: missing contextFileName AGENTS.md", rel))
 		}
 	}
+	// shortcut: Antigravity hooks.json omits pre-compact, add pre-compact hook when Antigravity exposes a compaction event
+	agyRel := ".agents/hooks.json"
+	if agyData, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(agyRel))); err != nil {
+		out = append(out, fmt.Sprintf("%s: missing hook config file", agyRel))
+	} else {
+		var parsed map[string]any
+		if err := json.Unmarshal(agyData, &parsed); err != nil {
+			out = append(out, fmt.Sprintf("%s: invalid JSON: %v", agyRel, err))
+		} else {
+			text := string(agyData)
+			for _, ev := range []string{"session-start", "before-prompt", "turn-end"} {
+				if !strings.Contains(text, "ateam hook --event "+ev) {
+					out = append(out, fmt.Sprintf("%s: missing hook command for event %s", agyRel, ev))
+				}
+			}
+			if !strings.Contains(text, "--agent agy") {
+				out = append(out, fmt.Sprintf("%s: missing --agent agy in hook commands", agyRel))
+			}
+		}
+	}
 	return out
 }
