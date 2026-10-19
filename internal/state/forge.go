@@ -109,6 +109,69 @@ func ParseGitRemote(remoteURL string) (host, owner, repo string) {
 	return u.Host, parts[len(parts)-2], strings.TrimSuffix(parts[len(parts)-1], ".git")
 }
 
+// MergeConfiguredForges combines the primary detected forge with any saved forge configs without duplicating providers.
+func MergeConfiguredForges(primary ForgeConfig, saved []ForgeConfig) []ForgeConfig {
+	var out []ForgeConfig
+	seen := make(map[ForgeProvider]int)
+
+	add := func(cfg ForgeConfig) {
+		p := ForgeProvider(strings.ToLower(strings.TrimSpace(string(cfg.Provider))))
+		if p != ForgeGitHub && p != ForgeGitea {
+			return
+		}
+		cfg.Provider = p
+		cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+		cfg.Owner = strings.TrimSpace(cfg.Owner)
+		cfg.Repo = strings.TrimSpace(cfg.Repo)
+		if cfg.Provider == ForgeGitHub && cfg.BaseURL == "" {
+			cfg.BaseURL = "https://api.github.com"
+		}
+		if idx, ok := seen[p]; ok {
+			if cfg.Owner != "" && cfg.Repo != "" {
+				out[idx] = cfg
+			}
+			return
+		}
+		seen[p] = len(out)
+		out = append(out, cfg)
+	}
+
+	add(primary)
+	for _, s := range saved {
+		add(s)
+	}
+	return out
+}
+
+// normalizeForgeConfig validates persisted settings before they can select a remote target.
+func normalizeForgeConfig(cfg ForgeConfig) (ForgeConfig, error) {
+	cfg.Provider = ForgeProvider(strings.ToLower(strings.TrimSpace(string(cfg.Provider))))
+	if cfg.Provider != ForgeGitHub && cfg.Provider != ForgeGitea {
+		return ForgeConfig{}, fmt.Errorf("forge provider must be github or gitea")
+	}
+	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	cfg.Owner = strings.TrimSpace(cfg.Owner)
+	cfg.Repo = strings.TrimSpace(cfg.Repo)
+	for _, component := range []string{cfg.Owner, cfg.Repo} {
+		if component == "" || component == "." || component == ".." || !forgePathComponent.MatchString(component) {
+			return ForgeConfig{}, fmt.Errorf("forge owner and repo must be nonempty path components containing letters, digits, dot, underscore or hyphen")
+		}
+	}
+	if cfg.Provider == ForgeGitHub && cfg.BaseURL == "" {
+		cfg.BaseURL = "https://api.github.com"
+	}
+	u, err := url.Parse(cfg.BaseURL)
+	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(cfg.BaseURL, "#") {
+		return ForgeConfig{}, fmt.Errorf("forge base_url must be an HTTP(S) URL without credentials, query or fragment")
+	}
+	if cfg.Provider == ForgeGitHub && cfg.BaseURL != "https://api.github.com" {
+		return ForgeConfig{}, fmt.Errorf("custom GitHub API URLs are not supported")
+	}
+	return cfg, nil
+}
+
+var forgePathComponent = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
 // SyncForgeBoard fetches issues and PR claims from GitHub or Gitea and converts them into BoardCards.
 func SyncForgeBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
 	switch cfg.Provider {
@@ -171,11 +234,12 @@ func parseIssueComments(raw json.RawMessage) ([]string, int) {
 }
 
 func syncGiteaBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
-	if cfg.BaseURL != "" && cfg.Owner != "" && cfg.Repo != "" {
-		cards, err := fetchGiteaRESTCards(ctx, cfg)
-		if err == nil {
-			return cards, nil
+	if cfg.BaseURL != "" || cfg.Owner != "" || cfg.Repo != "" {
+		validated, err := normalizeForgeConfig(cfg)
+		if err != nil {
+			return nil, err
 		}
+		return fetchGiteaRESTCards(ctx, validated)
 	}
 	// Fallback to tea CLI if installed.
 	if _, err := exec.LookPath("tea"); err == nil {
@@ -289,7 +353,15 @@ func fetchTeaCLICards(ctx context.Context, root string) ([]BoardCard, error) {
 	return cards, nil
 }
 
-func syncGitHubBoard(ctx context.Context, root string, _ ForgeConfig) ([]BoardCard, error) {
+func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
+	var repoArgs []string
+	if cfg.Owner != "" || cfg.Repo != "" || cfg.BaseURL != "" {
+		validated, err := normalizeForgeConfig(cfg)
+		if err != nil {
+			return nil, err
+		}
+		repoArgs = []string{"--repo", "github.com/" + validated.Owner + "/" + validated.Repo}
+	}
 	if _, err := exec.LookPath("gh"); err != nil {
 		return nil, fmt.Errorf("gh CLI not found")
 	}
@@ -298,12 +370,14 @@ func syncGitHubBoard(ctx context.Context, root string, _ ForgeConfig) ([]BoardCa
 	// G-06: Attempt issue fetch with comments under a bounded sub-timeout; on timeout/error, fall back to comment-free card sync.
 	issueCtx, issueCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	issueCmd := exec.CommandContext(issueCtx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body,comments")
+	issueCmd.Args = append(issueCmd.Args, repoArgs...)
 	issueCmd.Dir = root
 	issueOut, err := issueCmd.Output()
 	issueCancel()
 	if err != nil {
 		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 3*time.Second)
 		fallbackCmd := exec.CommandContext(fallbackCtx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body")
+		fallbackCmd.Args = append(fallbackCmd.Args, repoArgs...)
 		fallbackCmd.Dir = root
 		issueOut, err = fallbackCmd.Output()
 		fallbackCancel()
@@ -324,6 +398,7 @@ func syncGitHubBoard(ctx context.Context, root string, _ ForgeConfig) ([]BoardCa
 	}
 
 	prCmd := exec.CommandContext(cctx, "gh", "pr", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,isDraft,headRefName,labels,url")
+	prCmd.Args = append(prCmd.Args, repoArgs...)
 	prCmd.Dir = root
 	prOut, err := prCmd.Output()
 	if err != nil {

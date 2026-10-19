@@ -118,6 +118,7 @@ func CheckParity(root string) []string {
 	out = append(out, checkSkillAdapters(root)...)
 	out = append(out, checkHookConfigs(root)...)
 	out = append(out, checkMCPConfigs(root)...)
+	out = append(out, checkReviewSetup(root)...)
 	return out
 }
 

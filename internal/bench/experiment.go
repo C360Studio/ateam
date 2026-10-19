@@ -19,18 +19,24 @@ const maxAdapterBytes = 1 << 20
 
 // Experiment controls a paired pilot with one command and two instruction variants.
 type Experiment struct {
-	Version        int      `json:"version"`
-	Name           string   `json:"name"`
-	Command        []string `json:"command"`
-	Agent          string   `json:"agent"`
-	AgentVersion   string   `json:"agent_version"`
-	Model          string   `json:"model"`
-	Baseline       string   `json:"baseline"`
-	Candidate      string   `json:"candidate"`
-	Tasks          []string `json:"tasks"`
-	Repetitions    int      `json:"repetitions"`
-	Seed           int64    `json:"seed"`
-	TimeoutSeconds int      `json:"timeout_seconds"`
+	Version        int           `json:"version"`
+	Mode           string        `json:"mode,omitempty"`
+	Gemini         *GeminiConfig `json:"gemini,omitempty"`
+	Claude         *ClaudeConfig `json:"claude,omitempty"`
+	Codex          *CodexConfig  `json:"codex,omitempty"`
+	MaxTotalTokens int64         `json:"max_total_tokens,omitempty"`
+	MaxRunSeconds  int           `json:"max_run_seconds,omitempty"`
+	Name           string        `json:"name"`
+	Command        []string      `json:"command"`
+	Agent          string        `json:"agent"`
+	AgentVersion   string        `json:"agent_version"`
+	Model          string        `json:"model"`
+	Baseline       string        `json:"baseline"`
+	Candidate      string        `json:"candidate"`
+	Tasks          []string      `json:"tasks"`
+	Repetitions    int           `json:"repetitions"`
+	Seed           int64         `json:"seed"`
+	TimeoutSeconds int           `json:"timeout_seconds"`
 }
 
 // Trial identifies one arm of a task/repetition pair.
@@ -42,15 +48,21 @@ type Trial struct {
 
 // ResolvedExperiment is the reviewable dry-run output, including reproducibility metadata.
 type ResolvedExperiment struct {
-	Original     Experiment        `json:"original_experiment"`
-	Grader       GraderIdentity    `json:"grader"`
-	RunnerSHA    string            `json:"runner_sha256"`
-	Experiment   Experiment        `json:"experiment"`
-	ConfigSHA    string            `json:"config_sha256"`
-	EvaluatorSHA string            `json:"evaluator_sha256"`
-	CommandFiles map[string]string `json:"command_files_sha256"`
-	Runtime      string            `json:"runtime"`
-	Schedule     []Trial           `json:"schedule"`
+	NativeSettings  json.RawMessage   `json:"native_settings,omitempty"`
+	NativeArguments []string          `json:"native_arguments,omitempty"`
+	GeminiVersion   string            `json:"gemini_version,omitempty"`
+	ClaudeVersion   string            `json:"claude_version,omitempty"`
+	CodexVersion    string            `json:"codex_version,omitempty"`
+	BudgetPolicy    string            `json:"budget_policy,omitempty"`
+	Original        Experiment        `json:"original_experiment"`
+	Grader          GraderIdentity    `json:"grader"`
+	RunnerSHA       string            `json:"runner_sha256"`
+	Experiment      Experiment        `json:"experiment"`
+	ConfigSHA       string            `json:"config_sha256"`
+	EvaluatorSHA    string            `json:"evaluator_sha256"`
+	CommandFiles    map[string]string `json:"command_files_sha256"`
+	Runtime         string            `json:"runtime"`
+	Schedule        []Trial           `json:"schedule"`
 }
 
 // AdapterRequest is sent to the command's stdin. No reference solution or test is exposed.
@@ -71,9 +83,10 @@ type Usage struct {
 
 // AdapterResponse is the explicit command-adapter protocol; missing usage stays unknown.
 type AdapterResponse struct {
-	Version int    `json:"version"`
-	Source  string `json:"source"`
-	Usage   *Usage `json:"usage"`
+	Native  *NativeEvidence `json:"native,omitempty"`
+	Version int             `json:"version"`
+	Source  string          `json:"source"`
+	Usage   *Usage          `json:"usage"`
 }
 
 func strictJSON(data []byte, dst any) error {
@@ -104,7 +117,7 @@ func validateExperiment(e Experiment) error {
 	if e.Version != experimentVersion {
 		return fmt.Errorf("experiment version must be %d", experimentVersion)
 	}
-	if strings.TrimSpace(e.Name) == "" || strings.TrimSpace(e.Agent) == "" || strings.TrimSpace(e.AgentVersion) == "" || strings.TrimSpace(e.Model) == "" {
+	if strings.TrimSpace(e.Name) == "" || strings.TrimSpace(e.Agent) == "" || (!e.IsNative() && strings.TrimSpace(e.AgentVersion) == "") || strings.TrimSpace(e.Model) == "" {
 		return fmt.Errorf("name, agent, agent_version and model are required")
 	}
 	if len(e.Command) == 0 || strings.TrimSpace(e.Command[0]) == "" {
@@ -123,8 +136,84 @@ func validateExperiment(e Experiment) error {
 		}
 		seen[id] = true
 	}
-	if e.Baseline == e.Candidate {
-		return fmt.Errorf("baseline and candidate instructions must differ")
+	switch e.Mode {
+	case "", "ab":
+		if e.Baseline == e.Candidate {
+			return fmt.Errorf("baseline and candidate instructions must differ in A/B mode")
+		}
+	case "aa":
+		if e.Baseline != e.Candidate {
+			return fmt.Errorf("A/A requires identical baseline and candidate instructions")
+		}
+	default:
+		return fmt.Errorf("mode must be aa or ab")
+	}
+	providers := 0
+	for _, selected := range []bool{e.Gemini != nil, e.Claude != nil, e.Codex != nil} {
+		if selected {
+			providers++
+		}
+	}
+	if providers > 1 {
+		return fmt.Errorf("select exactly one native provider")
+	}
+	if e.Gemini != nil {
+		// Empty format preserves the original prompt-only canary for offline replay.
+		if e.Gemini.OutputFormat != "" && e.Gemini.OutputFormat != "json-schema" {
+			return fmt.Errorf("gemini output_format must be json-schema")
+		}
+		if e.Model != "gemini-3.8-flash" {
+			return fmt.Errorf("first native benchmark requires fixed model gemini-3.8-flash")
+		}
+		if e.Agent != "gemini" || len(e.Command) != 1 {
+			return fmt.Errorf("gemini requires agent gemini and a single executable command")
+		}
+		if e.Gemini.Auth != "api-key-env" {
+			return fmt.Errorf("gemini auth must explicitly select api-key-env (GEMINI_API_KEY)")
+		}
+		switch e.Gemini.Reasoning {
+		case "low", "medium", "high":
+		default:
+			return fmt.Errorf("gemini reasoning must be explicitly selected")
+		}
+	}
+	if e.Claude != nil {
+		// Empty format is retained solely for reading artifacts from the first
+		// text-output pilot. Native resolution/execution refuses to launch it.
+		if e.Claude.OutputFormat != "" && e.Claude.OutputFormat != "json-schema" {
+			return fmt.Errorf("claude output_format must be json-schema")
+		}
+		if e.Model != "claude-haiku-5-5" || e.Agent != "claude" || len(e.Command) != 1 {
+			return fmt.Errorf("claude requires fixed model claude-haiku-5-5, agent claude and a single executable")
+		}
+		if e.Claude.Auth != "api-key-env" {
+			return fmt.Errorf("claude auth must explicitly select api-key-env (ANTHROPIC_API_KEY)")
+		}
+		switch e.Claude.Reasoning {
+		case "low", "medium", "high":
+		default:
+			return fmt.Errorf("claude reasoning must be explicitly selected")
+		}
+	}
+	if e.Codex != nil {
+		if e.Model != "gpt-6-luna" || e.Agent != "codex" || len(e.Command) != 1 {
+			return fmt.Errorf("codex requires fixed model gpt-6-luna, agent codex and a single executable")
+		}
+		if e.Codex.Auth != "api-key-env" {
+			return fmt.Errorf("codex auth must explicitly select api-key-env (OPENAI_API_KEY)")
+		}
+		switch e.Codex.Reasoning {
+		case "low", "medium", "high":
+		default:
+			return fmt.Errorf("codex reasoning must be explicitly selected")
+		}
+	}
+	if e.IsNative() {
+		if e.MaxTotalTokens < 1 || e.MaxTotalTokens > 1000000000000 || e.MaxRunSeconds < 1 || e.MaxRunSeconds > 86400 {
+			return fmt.Errorf("native execution requires max_total_tokens 1..1e12 and max_run_seconds 1..86400")
+		}
+	} else if e.MaxTotalTokens != 0 || e.MaxRunSeconds != 0 {
+		return fmt.Errorf("native budget fields require native provider configuration")
 	}
 	return nil
 }
@@ -245,6 +334,11 @@ func ResolveExperiment(e Experiment, base string) (ResolvedExperiment, error) {
 		}
 		r.CommandFiles[path] = hex.EncodeToString(hash.Sum(nil))
 		e.Command[i] = path
+	}
+	if e.IsNative() {
+		if err := resolveNative(&r, e); err != nil {
+			return r, err
+		}
 	}
 	grader, err := currentGrader()
 	if err != nil {

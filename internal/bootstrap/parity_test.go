@@ -17,6 +17,7 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
 func TestAgentSetupParity(t *testing.T) {
 	violations := CheckParity(repoRoot(t))
 	if len(violations) > 0 {
@@ -24,6 +25,7 @@ func TestAgentSetupParity(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
 func TestInitRepoAndParitySensitivity(t *testing.T) {
 	dir := t.TempDir()
 	written, err := InitRepo(context.Background(), dir, Options{})

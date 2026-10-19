@@ -188,6 +188,7 @@ You are a lazy senior developer. The best code is the code never written. Solve 
 | ` + "`verify+review`" + ` | Every intentional deferral uses ` + "`// shortcut: <the limit>, <when to upgrade>`" + `, scanned by ` + "`ateam state debt`" + ` | ` + "`.agents/skills/ponytail/SKILL.md`" + ` |
 | ` + "`verify+review`" + ` | Non-trivial logic ships with a test using an independent oracle and proven able to fail via non-destructive mutation check (` + "`task mutate:check`" + ` or ` + "`cp`" + ` + SHA-256; never ` + "`git checkout`" + `/` + "`restore`" + `/` + "`stash`" + `/` + "`reset`" + `), reporting ` + "`detection`" + `, ` + "`survivor`" + `, ` + "`invalid`" + `, or ` + "`inconclusive`" + ` | ` + "`.agents/protocol.md`" + ` |
 | ` + "`verify+review`" + ` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (` + "`testing.F`" + ` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | ` + "`.agents/protocol.md`" + ` |
+| ` + "`" + `verify+review` + "`" + ` | Every Go Test/Fuzz/executable Example and Vitest test carries attached spec references resolved by ` + "`" + `task test:spec` + "`" + `; syntactic attribution does not prove semantic coverage | ` + "`" + `ateam test-spec` + "`" + `; ` + "`" + `.agents/protocol.md` + "`" + ` |
 | ` + "`verify`" + ` | Go packages pass ` + "`gofmt`" + `, ` + "`go vet`" + `, and ` + "`revive`" + ` with zero warnings | ` + "`Taskfile.yml`" + ` |
 | ` + "`review`" + ` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | ` + "`.agents/skills/ponytail/SKILL.md`" + ` |
 
@@ -209,7 +210,9 @@ You are a lazy senior developer. The best code is the code never written. Solve 
 | ` + "`verify+review`" + ` | Shared state syncs with GitHub (` + "`gh`" + `/API) or Gitea (` + "`tea`" + `/API v1) and git worktrees, cached in gitignored ` + "`.ateam/state.json`" + ` | ` + "`.agents/protocol.md`" + ` |
 | ` + "`verify`" + ` | OpenSpec changes/specs validate via ` + "`spec:check`" + `, and ` + "`Hold:`" + ` / caveats (` + "`HALT`" + `, ` + "`RED`" + `, ` + "`BLOCKED`" + `, ` + "`WONTDO`" + `, ` + "`OPEN-Q`" + `) are parsed by ` + "`spec:queue`" + ` | ` + "`openspec/`" + ` |
 | ` + "`verify`" + ` | ` + "`ateam bench --selftest`" + ` verifies good/bad reference fixtures and mutation detection before any live benchmark run | ` + "`.agents/protocol.md`" + ` |
-| ` + "`verify`" + ` | ` + "`task verify`" + ` runs formatting, OpenSpec check, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | ` + "`Taskfile.yml`" + ` |
+| ` + "`verify`" + ` | ` + "`task verify`" + ` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | ` + "`Taskfile.yml`" + ` |
+| verify+review | Configured model review requires a stronger independent reviewer, explicit scoped owner ceiling exceptions, optional provider separation and current trusted-base evidence | ateam review; .agents/contracts/reviewer.md |
+
 `
 
 const defaultRulesIndexMD = `# Rules Enforcement Index
@@ -222,6 +225,7 @@ const defaultRulesIndexMD = `# Rules Enforcement Index
 | ` + "`verify+review`" + ` | Every intentional deferral uses ` + "`// shortcut: <the limit>, <when to upgrade>`" + `, scanned by ` + "`ateam state debt`" + ` | ` + "`ateam state debt`" + ` |
 | ` + "`verify+review`" + ` | Non-trivial logic ships with a test using an independent oracle and proven able to fail via non-destructive mutation check (` + "`task mutate:check`" + ` or ` + "`cp`" + ` + SHA-256; never ` + "`git checkout`" + `/` + "`restore`" + `/` + "`stash`" + `/` + "`reset`" + `), reporting ` + "`detection`" + `, ` + "`survivor`" + `, ` + "`invalid`" + `, or ` + "`inconclusive`" + ` | ` + "`ateam mutate`" + `; ` + "`ateam bench --selftest`" + ` |
 | ` + "`verify+review`" + ` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (` + "`testing.F`" + ` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | ` + "`task test:unit`" + `; review |
+| ` + "`" + `verify+review` + "`" + ` | Every Go Test/Fuzz/executable Example and Vitest test carries attached spec references resolved by ` + "`" + `task test:spec` + "`" + `; syntactic attribution does not prove semantic coverage | ` + "`" + `ateam test-spec` + "`" + `; ` + "`" + `.agents/protocol.md` + "`" + ` |
 | ` + "`verify`" + ` | Go packages pass ` + "`gofmt`" + `, ` + "`go vet`" + `, and ` + "`revive`" + ` with zero warnings | ` + "`Taskfile.yml`" + ` |
 | ` + "`review`" + ` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | review |
 
@@ -243,7 +247,9 @@ const defaultRulesIndexMD = `# Rules Enforcement Index
 | ` + "`verify+review`" + ` | Shared state syncs with GitHub (` + "`gh`" + `/API) or Gitea (` + "`tea`" + `/API v1) and git worktrees, cached in gitignored ` + "`.ateam/state.json`" + ` | ` + "`ateam state pickup`" + ` |
 | ` + "`verify`" + ` | OpenSpec changes/specs validate via ` + "`spec:check`" + `, and ` + "`Hold:`" + ` / caveats (` + "`HALT`" + `, ` + "`RED`" + `, ` + "`BLOCKED`" + `, ` + "`WONTDO`" + `, ` + "`OPEN-Q`" + `) are parsed by ` + "`spec:queue`" + ` | ` + "`ateam state spec-check`" + ` |
 | ` + "`verify`" + ` | ` + "`ateam bench --selftest`" + ` verifies good/bad reference fixtures and mutation detection before any live benchmark run | ` + "`ateam bench --selftest`" + ` |
-| ` + "`verify`" + ` | ` + "`task verify`" + ` runs formatting, OpenSpec check, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | ` + "`task verify`" + ` |
+| ` + "`verify`" + ` | ` + "`task verify`" + ` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | ` + "`task verify`" + ` |
+| verify+review | Configured model review requires a stronger independent reviewer, explicit scoped owner ceiling exceptions, optional provider separation and current trusted-base evidence | ateam review; .agents/contracts/reviewer.md |
+
 `
 
 const defaultProtocolMD = `# Shared Work Protocol (Claude, Codex, and Gemini)
@@ -275,6 +281,31 @@ Shared truth lives in the repository's versioned code, ` + "`openspec/`" + ` spe
 1. **Independent oracle & wrong behavior first:** State the correct behavior and one plausible wrong behavior; compute expected outcomes from an independent oracle or reference model, never by repeating production logic.
 2. **Non-destructive mutation check (` + "`task mutate:check`" + ` / ` + "`ateam mutate`" + `):** Never run ` + "`git checkout --`" + `, ` + "`git restore`" + `, ` + "`git stash`" + `, ` + "`git clean`" + `, or ` + "`git reset --hard`" + ` to undo a mutant. Use ` + "`task mutate:check`" + ` (` + "`go test -overlay`" + ` on a copy outside the repo) or ` + "`cp`" + ` + ` + "`shasum -a 256`" + ` before/after, and report ` + "`detection`" + `, ` + "`survivor`" + `, ` + "`invalid`" + `, or ` + "`inconclusive`" + `.
 3. **Generated checks (Fuzz targets & PBT):** When touching interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories, record whether ` + "`testing.F`" + ` / PBT is used or why named examples suffice, verify boundary reach and assertion activation, and compare histories against a test-owned reference model.
+## Test-to-spec attribution
+
+Run ` + "`" + `ateam test-spec` + "`" + ` (or ` + "`" + `task test:spec` + "`" + `) to deterministically validate every Go ` + "`" + `Test` + "`" + `, ` + "`" + `Fuzz` + "`" + `, and executable ` + "`" + `Example` + "`" + ` declaration and every Vitest ` + "`" + `it` + "`" + `/` + "`" + `test` + "`" + ` declaration. Attach one or more line comments directly to the declaration, naming existing repository-relative specifications and exact requirement headings:
+
+` + "`" + `` + "`" + `` + "`" + `go
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
+func TestOpenSpecQueueAndCheck(t *testing.T) {
+    // assertions
+}
+` + "`" + `` + "`" + `` + "`" + `
+
+Multiple requirements use separate ` + "`" + `// spec:` + "`" + ` lines. Go subtests inherit the top-level declaration; each Vitest test needs its own immediately preceding comment, without inheritance from ` + "`" + `describe` + "`" + `. Missing, malformed, dangling, and escaping references fail the gate. Keep references current when requirements move or are renamed. The checker excludes benchmark functions and fixture source inside string literals; generated test source is not exempt. Dependency, VCS, worktree, and build-output directories are excluded.
+
+Vitest scanning requires Node and TypeScript installed at ui/node_modules/typescript in the target repository. Supported filenames end in .test or .spec plus .ts, .tsx, .js, or .jsx; .mjs/.cjs and other frameworks are outside this gate. Direct Vitest imports (including aliases), namespace calls, globals, modifiers, and parameterized declarations are recognized; arbitrary wrapper modules and runtime expansion counts are not covered. A blank line detaches a citation; block comments do not count as citation lines. Directory symlinks are not followed and symlink test files are rejected. The checker includes untracked supported tests and all Go build tags. It skips .git, .worktrees, node_modules, vendor, .svelte-kit, .enjoy-logs, ui/build, internal/web/dist, coverage, bin, benchmarks/runs, and .ateam. Other testdata files are not exempt.
+
+Attribution validates syntax and reference existence, not whether assertions prove the requirement or whether all specifications have tests. Review must assess those claims separately. The current supported languages are Go and Vitest JavaScript/TypeScript; adopting projects must provide appropriate attribution enforcement for other frameworks and languages.
+
+## 4. Configured model review
+
+Install owner-approved comparisons and forge author/owner logins with ateam review setup --policy FILE. No universal model ranking is supplied. Run ateam review route before implementation and revalidate all actual model escalations. Native clients must be launched with the selected model/effort; role cards do not pin or attest runtime identity.
+
+A separate read-only reviewer must outrank every actual implementer. Cross-provider review is optional and additional; reasoning effort is not model strength. If no stronger model exists, approval blocks without an explicit owner exception scoped to head/reviewer/policy. Independence, current evidence, configured checks and verdict remain required.
+
+Use ateam review check --pr N --record-comment ID with optional --exception-comment ID. The gate reads policy only from the forge-verified current repository default branch, accepts only configured review/owner accounts, and refuses stale or known edited evidence. All paths require review. Shared logins, model/session claims and same-timestamp comment edits remain attestation limits; do not claim runtime or body authorship is proven.
+
 `
 
 var canonicalSkillBodies = map[string]string{
@@ -372,7 +403,7 @@ Read [the shared protocol](../../protocol.md) first. One ` + "`Taskfile.yml`" + 
 
 ## 1. Select Gates by Diff Scope
 
-Inspect ` + "`git status --short`" + ` and ` + "`git diff --stat`" + `, run ` + "`task mutate:check`" + ` for non-trivial refusals/branches, and run ` + "`task verify`" + ` (via ` + "`ateam_task`" + ` or CLI) before any push or completion.
+Inspect ` + "`git status --short`" + ` and ` + "`git diff --stat`" + `, run ` + "`task test:spec`" + ` for test/spec changes (syntax and reference existence, not semantic coverage), run ` + "`task mutate:check`" + ` for non-trivial refusals/branches, and run ` + "`task verify`" + ` (via ` + "`ateam_task`" + ` or CLI) before any push or completion.
 
 ## 2. Record Evidence
 
@@ -383,6 +414,8 @@ Record the exact command, exit status, tested ` + "`HEAD`" + ` SHA, and the 6-li
 const defaultAgentsReadmeMD = `# Agent & Platform Configuration (` + "`.agents/`" + `)
 
 ` + "`.agents/`" + ` holds the single set of instructions, workflow rules, and skills shared across **Claude Code**, **Codex CLI**, and **Gemini CLI**. The files under ` + "`.claude/`" + `, ` + "`.codex/`" + `, and ` + "`.gemini/`" + ` are thin pointers generated by ` + "`ateam init`" + ` and checked by ` + "`ateam doctor`" + `.
+
+Optional model-review setup uses .agents/review-policy.json and .agents/contracts/{developer,reviewer}.md. Run ateam review setup --policy FILE to generate role cards and applicable pointers without overwriting custom files. Operators select the runtime model explicitly; doctor checks configured instruction drift, not runtime model identity.
 
 Existing client configuration is preserved even with --force; merge missing MCP entries manually using https://github.com/C360Studio/ateam/blob/main/docs/mcp.md. MCP configuration belongs in .mcp.json for Claude, .codex/config.toml for Codex, and .gemini/settings.json for Gemini. Doctor checks local structure, not live connection or client trust. Initialization does not detect the project language or create a Taskfile. Adapt the Go-first instructions and supply project verification tasks; local parity checks do not certify live-agent integration. See the adoption scope in AGENTS.md and .agents/protocol.md.
 
@@ -397,19 +430,21 @@ Existing client configuration is preserved even with --force; merge missing MCP 
 
 func defaultTemplateFiles() map[string]string {
 	m := map[string]string{
-		"AGENTS.md":                 defaultAgentsMD,
-		"CLAUDE.md":                 "# ATeam\n\n@AGENTS.md\n",
-		".agents/README.md":         defaultAgentsReadmeMD,
-		".agents/protocol.md":       defaultProtocolMD,
-		".agents/rules-index.md":    defaultRulesIndexMD,
-		".claude/settings.json":     claudeSettingsJSON,
-		".codex/hooks.json":         codexHooksJSON,
-		".codex/config.toml":        codexMCPConfig,
-		".mcp.json":                 claudeMCPJSON,
-		".gemini/settings.json":     geminiSettingsJSON,
-		"openspec/config.yaml":      "schema: spec-driven\n",
-		"openspec/changes/.gitkeep": "# keep\n",
-		"openspec/specs/.gitkeep":   "# keep\n",
+		".agents/contracts/developer.md": developerContract,
+		".agents/contracts/reviewer.md":  reviewerContract,
+		"AGENTS.md":                      defaultAgentsMD,
+		"CLAUDE.md":                      "# ATeam\n\n@AGENTS.md\n",
+		".agents/README.md":              defaultAgentsReadmeMD,
+		".agents/protocol.md":            defaultProtocolMD,
+		".agents/rules-index.md":         defaultRulesIndexMD,
+		".claude/settings.json":          claudeSettingsJSON,
+		".codex/hooks.json":              codexHooksJSON,
+		".codex/config.toml":             codexMCPConfig,
+		".mcp.json":                      claudeMCPJSON,
+		".gemini/settings.json":          geminiSettingsJSON,
+		"openspec/config.yaml":           "schema: spec-driven\n",
+		"openspec/changes/.gitkeep":      "# keep\n",
+		"openspec/specs/.gitkeep":        "# keep\n",
 	}
 	for _, s := range canonicalSkills {
 		body, ok := canonicalSkillBodies[s]

@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
 func TestMCPTokenBudget(t *testing.T) {
 	tokens, bytesLen, err := EstimateSchemaTokens()
 	if err != nil {
@@ -21,6 +22,7 @@ func TestMCPTokenBudget(t *testing.T) {
 	t.Logf("MCP 2-tool schema footprint: %d tokens (%d bytes) < %d budget", tokens, bytesLen, MaxSchemaTokens)
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 func TestMCPStdioRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	input := strings.Join([]string{

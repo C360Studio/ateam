@@ -20,6 +20,22 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **WHEN** `ateam hook --event before-prompt` receives a prompt with no `/ponytail` or `/mode` command
 - **THEN** it returns no `additionalContext` so the Ponytail ladder is not re-injected on every prompt
 
+#### Scenario: Automatic compaction handoff
+
+- **WHEN** a pre-compaction event arrives
+- **THEN** the hook saves an automatic handoff and returns its pickup context
+
+#### Scenario: Session identity and coordination warnings
+
+- **WHEN** session start detects changed commit identity, a competing writer lease, or an unavailable Hold scan
+- **THEN** pickup context discloses each condition and never reports zero holds for an unavailable scan
+- **AND** the same session lease does not produce a competing-writer warning, and clearing the lease removes that warning
+
+#### Scenario: Unknown lifecycle event
+
+- **WHEN** an event has no supported lifecycle mapping
+- **THEN** the hook returns no context
+
 ### Requirement: Two-tool MCP context budget
 
 `ateam mcp` SHALL expose exactly two tools (`ateam_state` and `ateam_task`) whose serialized JSON schema is strictly under 300 tokens (~1,200 bytes), alongside zero-turn-tax MCP Prompts and Resources.
@@ -40,7 +56,7 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 ### Requirement: Dual-forge GitHub and Gitea state sync
 
-`ateam` SHALL support both GitHub (`gh` CLI and REST API) and Gitea (`tea` CLI and `/api/v1` REST API) for listing issues, pull requests, and bootstrapping standard workflow labels (`type:epic`, `status:needs-decision`, `status:blocked`, `class:flake`).
+`ateam` SHALL support both GitHub (`gh` CLI and REST API) and Gitea (`tea` CLI and `/api/v1` REST API) for listing issues, pull requests, and bootstrapping standard workflow labels (`type:epic`, `status:needs-decision`, `status:blocked`, `class:flake`). Synchronization SHALL preserve local/dashboard cards and other forges while replacing the selected forge snapshot, reject partial issue/PR failures, and permit a comment-free fallback when optional comment expansion fails.
 
 #### Scenario: Gitea API sync
 
@@ -73,3 +89,65 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **WHEN** `ateam mutate` runs against a non-test `.go` file and an out-of-tree mutant that causes the named test to fail with the expected assertion
 - **THEN** it prints `verdict: detection`, leaves the target file's SHA-256 unchanged, and exits with status 0
 
+
+### Requirement: Durable shared state and five-field handoff
+
+State SHALL round-trip mode and the five handoff fields without inventing board cards, serialize concurrent updates without losing fields, preserve corrupt cache bytes on refresh failure, and render pickup prompts deterministically. PR handoff comments and pickup decision summaries SHALL preserve the recorded handoff and forge decisions.
+
+#### Scenario: Concurrent updates
+
+- **WHEN** independent updates set mode and handoff
+- **THEN** both values survive loading the cache
+
+### Requirement: Fast Git identity across worktrees
+
+Git identity reads SHALL resolve loose and packed refs, detached HEADs, and linked-worktree gitdir/commondir pointers, returning the branch and seven-character commit identity.
+
+#### Scenario: Linked worktree identity
+
+- **WHEN** a linked worktree stores its branch ref in the common git directory
+- **THEN** identity reads resolve that branch and commit
+
+### Requirement: Inline shortcut inventory
+
+Shortcut scanning SHALL report the source path, line, limit, and revisit trigger from supported source comment markers.
+
+#### Scenario: Source marker
+
+- **WHEN** a source file contains a shortcut comment with a comma-separated revisit trigger
+- **THEN** the inventory preserves its location and both fields
+
+### Requirement: Task target discovery and validation
+
+Task execution SHALL discover top-level targets in the project Taskfile and reject unknown targets before invoking the task runner.
+
+#### Scenario: Unknown target
+
+- **WHEN** a caller requests a target absent from the Taskfile
+- **THEN** execution returns an unknown-target error
+
+### Requirement: Agent initialization and configuration parity
+
+Initialization SHALL write usable canonical instructions, skill adapters, hook settings, and OpenSpec scaffolding. Parity checks SHALL reject missing AGENTS imports, instruction size overflow, mismatched rule row counts, copied adapter checklists, missing native hook configuration, placeholder workflow content, and documented hook event drift.
+
+#### Scenario: Generated configuration
+
+- **WHEN** a repository is initialized with default templates
+- **THEN** its agent configuration passes parity checks
+
+### Requirement: Board state and authenticated API access
+
+The board SHALL expose state and support card creation, movement, handoff, and mode updates through its API, with the static application served at the root. Without an API token, protected reads and writes SHALL accept only loopback clients; when a token is configured, every client SHALL supply it. Board helpers SHALL group cards into all six canonical columns, filter by text, agent, forge, and column, and format five-field pickup prompts deterministically.
+
+The board SHALL support persisted repository registration, a selected repository, explicit forge settings, canonical OpenSpec requirement details and Current Ops. Mutations SHALL refuse a stale repository selection; failed persistence SHALL not change registration in memory. Explicit forge removal SHALL survive refresh, while automatic detection SHALL follow origin changes. Sync SHALL address the configured target and SHALL not fall back to a different repository after failure. Current Ops SHALL distinguish the selected checkout's inspected dirty state from uninspected worktrees, and compatible checkpoint SHA abbreviations SHALL not imply drift. Dashboard loads SHALL discard superseded results and clear stale state on failure. Dialogs SHALL contain focus, support Escape, and expose submission feedback. Benchmarks SHALL run on demand.
+
+#### Scenario: Repository selection history
+
+- **WHEN** a user adds and selects another repository, then removes it
+- **THEN** state and model routing follow that selection and fall back to the startup repository
+- **AND** stale clients cannot write to the newly selected repository
+
+#### Scenario: Configured token
+
+- **WHEN** a loopback client requests protected state without the configured token
+- **THEN** the request is unauthorized

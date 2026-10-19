@@ -18,6 +18,7 @@ import (
 	"github.com/c360studio/ateam/internal/mutate"
 	"github.com/c360studio/ateam/internal/state"
 	"github.com/c360studio/ateam/internal/taskrunner"
+	"github.com/c360studio/ateam/internal/testspec"
 	"github.com/c360studio/ateam/internal/web"
 )
 
@@ -42,6 +43,8 @@ func run(args []string) int {
 	subArgs := args[1:]
 
 	switch cmd {
+	case "review":
+		return runReview(cwd, subArgs)
 	case "hook":
 		return runHook(cwd, subArgs)
 	case "mcp":
@@ -56,6 +59,8 @@ func run(args []string) int {
 		return runDoctor(cwd, subArgs)
 	case "bench":
 		return runBench(cwd, subArgs)
+	case "test-spec":
+		return runTestSpec(cwd, subArgs)
 	case "mutate":
 		return runMutate(cwd, subArgs)
 	case "serve":
@@ -82,8 +87,10 @@ Commands:
   state <subcmd>      Inspect or mutate repo state (status, pickup, handoff, holds, debt, spec-queue, spec-check, sync, mode, board)
   task [name]         List or execute standardized Taskfile.yml targets
   init [flags]        Bootstrap repo with .agents, .claude, .codex, .gemini, openspec, and optional GitHub/Gitea labels
+  review <subcmd>     Configure model routes and validate commit-bound independent review
   doctor [--check]    Verify multi-agent parity, MCP schema token budget, and hook latency
   bench [flags]       Offline self-tests or paired experiments (run, rescore, compare)
+  test-spec          Check Go and Vitest test-to-spec citations offline
   mutate [flags]      Run non-destructive Go -overlay mutation check (-pkg, -test, -file, -mutant, -expect/-expect-text)
   serve [flags]       Start embedded SvelteKit PM Board HTTP server (default 127.0.0.1:8420)`)
 }
@@ -474,4 +481,22 @@ func findRepoRoot(start string) string {
 		}
 		dir = parent
 	}
+}
+
+func runTestSpec(root string, args []string) int {
+	if len(args) != 0 {
+		fmt.Fprintln(os.Stderr, "ateam test-spec: no arguments accepted")
+		return 2
+	}
+	ds, err := testspec.Check(context.Background(), root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam test-spec: %v\n", err)
+		return 2
+	}
+	if len(ds) > 0 {
+		fmt.Fprint(os.Stderr, testspec.Format(ds))
+		return 1
+	}
+	fmt.Println("test-spec: all discovered supported tests have valid citations")
+	return 0
 }

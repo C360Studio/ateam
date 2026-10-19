@@ -35,7 +35,7 @@ Shared truth lives in the repository's versioned code, `openspec/` specs and cha
    - Add a focused test for every new branch, loop, parser, or boundary condition using an independent oracle.
    - Tag any deliberate limitation with `// shortcut: <the limit>, <when to upgrade>`.
 4. **Verify (4-Gate Definition of Done):**
-   - **Gate 1 (`task verify`):** `fmt:check`, `spec:check`, `tidy:check`, `vet`, `lint` (`revive`), `test:unit` (`-race`), `ui:check`, `ui:test`, and clean git tree check.
+   - **Gate 1 (`task verify`):** `fmt:check`, `spec:check`, `test:spec`, `tidy:check`, `vet`, `lint` (`revive`), `test:unit` (`-race`), `ui:check`, `ui:test`, and clean git tree check.
    - **Gate 2 (`ateam doctor` / Parity):** All canonical skills, `.claude/`, `.codex/`, `.gemini/` adapters/hooks, `<24 KB` `AGENTS.md` cap, `<300` token MCP tool schema budget, and `<5ms` hook latency pass.
    - **Gate 3 (`ateam bench --selftest` & `task mutate:check`):** Good/bad reference fixtures and mutation checks pass offline.
    - **Gate 4 (Ponytail Exit Summary):** Reply concludes with 1–2 lines naming what was skipped/not checked and any residual risk.
@@ -60,3 +60,27 @@ Shared truth lives in the repository's versioned code, `openspec/` specs and cha
    - Ensure generators/seeds reach the exact boundary, prove **assertion activation** (what makes the assertion actually execute rather than skipping an empty loop/guard), and compare histories against a test-owned reference model updated from the requirement.
    - Record in the PR: `Decision`, `Rule`, `Inputs`, `Run` (commit, command, seed, completed checks from `-v` output; seed replay vs. `-fuzz` exploration separate), `Mutation` (wrong change + outcome), and `Not covered` (unresolved survivors or deferred checks).
 
+
+## Test-to-spec attribution
+
+Run `ateam test-spec` (or `task test:spec`) to deterministically validate every Go `Test`, `Fuzz`, and executable `Example` declaration and every Vitest `it`/`test` declaration. Attach one or more line comments directly to the declaration, naming existing repository-relative specifications and exact requirement headings:
+
+```go
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
+func TestOpenSpecQueueAndCheck(t *testing.T) {
+    // assertions
+}
+```
+
+Multiple requirements use separate `// spec:` lines. Go subtests inherit the top-level declaration; each Vitest test needs its own immediately preceding comment, without inheritance from `describe`. Missing, malformed, dangling, and escaping references fail the gate. Keep references current when requirements move or are renamed. The checker excludes benchmark functions and fixture source inside string literals; generated test source is not exempt. Dependency, VCS, worktree, and build-output directories are excluded.
+
+Vitest scanning requires Node and TypeScript installed at ui/node_modules/typescript in the target repository. Supported filenames end in .test or .spec plus .ts, .tsx, .js, or .jsx; .mjs/.cjs and other frameworks are outside this gate. Direct Vitest imports (including aliases), namespace calls, globals, modifiers, and parameterized declarations are recognized; arbitrary wrapper modules and runtime expansion counts are not covered. A blank line detaches a citation; block comments do not count as citation lines. Directory symlinks are not followed and symlink test files are rejected. The checker includes untracked supported tests and all Go build tags. It skips .git, .worktrees, node_modules, vendor, .svelte-kit, .enjoy-logs, ui/build, internal/web/dist, coverage, bin, benchmarks/runs, and .ateam. Other testdata files are not exempt.
+
+Attribution validates syntax and reference existence, not whether assertions prove the requirement or whether all specifications have tests. Review must assess those claims separately. The current supported languages are Go and Vitest JavaScript/TypeScript; adopting projects must provide appropriate attribution enforcement for other frameworks and languages.
+## 4. Configured Model Routing & Independent Review
+
+When `.agents/review-policy.json` is configured, validate the route before implementation with `ateam review route`. After any escalation, revalidate against every actual implementation model. Reasoning effort is separate from model strength; neither effort nor a different provider proves superiority. The reviewer must be an independent run that wrote none of the deliverable and outrank every implementer under explicit trusted-policy comparisons. Cross-provider review is optional and additional.
+
+Follow the [developer](contracts/developer.md) and [reviewer](contracts/reviewer.md) contracts. The reviewer remains read-only and the author fixes findings. Review the complete diff and affected callers; instructions, contracts, policy, executable Markdown and rename paths require substantive review. Bind all runs, findings, verdict and actual/reported/unavailable verification to the repository, base/head commits and governing policy digest. New commits or policy revisions invalidate approval.
+
+At the model ceiling, block approval until an authorized owner explicitly grants a head/reviewer/policy-bound exception with a reason. It waives superiority only, never independence, provider constraints, current evidence, required checks or the verdict. `ateam review check` reads trusted baseline policy and authenticated GitHub/Gitea comment authors; candidate policy cannot authorize its own waiver. A configured route and a forge login remain attestations, not proof of model runtime identity or a separate human owner. See [model review](../docs/model-review.md) for the format and limitations.

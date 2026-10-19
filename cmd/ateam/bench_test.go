@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestBenchRejectsForgedRescoreAndCLIArguments(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "forged.json")

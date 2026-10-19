@@ -41,3 +41,9 @@ Canonical skills live in `.agents/skills/<name>/SKILL.md`:
 4. Every canonical skill in `.agents/skills/<name>/SKILL.md` has a matching thin pointer in `.claude/skills/<name>/SKILL.md` and `.gemini/commands/<name>.toml`.
 5. `.claude/settings.json`, `.codex/hooks.json`, and `.gemini/settings.json` wire all four lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) with the expected `--agent claude|codex|gemini` identity.
 6. Project MCP registration is parsed separately from `.mcp.json`, `.codex/config.toml`, and `.gemini/settings.json`. This is local structure validation, not live client connection evidence. See [MCP setup and verification](../docs/mcp.md).
+
+## Configured model review
+
+Optional `.agents/review-policy.json` defines exact approved models, explicit stronger-than comparisons, developer/reviewer routes, authorized reviewer/owner forge logins and required verification. No universal model ranking is bundled. See [model review](../docs/model-review.md) for setup, trust boundaries and commit-bound evidence.
+
+`ateam review setup --policy FILE` preserves custom configurations and creates portable role cards plus thin Claude skill or Gemini CLI command pointers for configured routes. Codex reads the canonical card. Operators select the runtime model explicitly; these files do not launch a model or attest its identity. Canonical [developer](contracts/developer.md) and [reviewer](contracts/reviewer.md) contracts keep implementation and read-only review separate. `ateam doctor` checks configured policy and instruction drift; unconfigured repositories remain compatible.

@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestSelfTestAndMutation(t *testing.T) {
 	rep, err := RunSelfTest(context.Background())
 	if err != nil {
@@ -36,6 +37,7 @@ func TestSelfTestAndMutation(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestCommentSpoofingAndEarlyReturnBypassRejected(t *testing.T) {
 	// Probe 8: An always-accepting path resolver with expected keywords in a comment must fail evaluation.
 	spoofed := `package safepath
@@ -109,6 +111,7 @@ func Resolve(base, rel string) (string, error) {
 }
 
 // Continuity checks do not exercise an adversarial or mutated fixture.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestContinuityDoesNotClaimMutationDetection(t *testing.T) {
 	got := evaluateContinuityTask(Tasks()[5])
 	if !got.Passed {
@@ -119,6 +122,7 @@ func TestContinuityDoesNotClaimMutationDetection(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestMarkdownDoesNotInventSuccess(t *testing.T) {
 	md := FormatMarkdown(SuiteReport{SafetyPassRatePct: 20})
 	if strings.Contains(md, "100% of bad fixtures caught") {
@@ -126,12 +130,14 @@ func TestMarkdownDoesNotInventSuccess(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestUnsupportedSvelteCandidateRejected(t *testing.T) {
 	if CheckCodingCandidate("ui-datepicker", `<div>type="date" bind:value $bindable</div>`) {
 		t.Fatal("keyword-only Svelte candidate accepted without behavioral grader")
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestSelfTestHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -140,6 +146,8 @@ func TestSelfTestHonorsCancellation(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestCandidateEvaluationOutcomes(t *testing.T) {
 	// These examples distinguish trusted assertion failure from an unavailable grader.
 	for _, tc := range []struct {
@@ -172,6 +180,8 @@ func TestCandidateEvaluationOutcomes(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestCandidateRequiresExecutedTrustedTest(t *testing.T) {
 	spec := TaskSpec{ID: "empty", TestSource: "package fixture\nimport \"testing\"\nfunc TestOther(t *testing.T) {}"}
 	got, err := evaluateCandidate(context.Background(), spec, "package fixture")
@@ -180,6 +190,7 @@ func TestCandidateRequiresExecutedTrustedTest(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestSaveSelfTestRunIsImmutable(t *testing.T) {
 	rep := SuiteReport{Timestamp: time.Unix(100, 0)}
 	root := t.TempDir()
@@ -208,6 +219,7 @@ func TestSaveSelfTestRunIsImmutable(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestParseSelfTestReportRejectsContradictions(t *testing.T) {
 	// Construct evidence from the contract, independent of the production evaluator.
 	rep := SuiteReport{SchemaVersion: 1, Timestamp: time.Unix(100, 0), Mode: "selftest-reference-fixtures", TotalTasks: 7,
@@ -265,6 +277,7 @@ func TestParseSelfTestReportRejectsContradictions(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestGraderDoesNotInheritSecrets(t *testing.T) {
 	t.Setenv("ATEAM_TEST_SECRET", "must-not-leak")
 	spec := TaskSpec{ID: "env", TestSource: `package fixture
@@ -279,6 +292,7 @@ func TestFixture(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 func TestDiagnosticBufferBoundsOutput(t *testing.T) {
 	var b diagnosticBuffer
 	payload := bytes.Repeat([]byte("x"), (1<<20)+10)
@@ -293,6 +307,7 @@ func TestDiagnosticBufferBoundsOutput(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestCandidateAcceptsAlternativeImplementation(t *testing.T) {
 	// filepath.Rel provides an independent implementation, with no mutation reach requirement.
 	candidate := `package safepath
@@ -310,6 +325,8 @@ func Resolve(base, rel string) (string, error) {
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestCandidateCancellationDuringExecution(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "started")
 	spec := TaskSpec{ID: "blocking", TestSource: fmt.Sprintf(`package fixture
@@ -354,6 +371,7 @@ waiting:
 	}
 }
 
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestGraderInfrastructureFailure(t *testing.T) {
 	t.Setenv("GOCACHE", filepath.Join(t.TempDir(), "cache-file"))
 	if err := os.WriteFile(os.Getenv("GOCACHE"), []byte("not a directory"), 0600); err != nil {

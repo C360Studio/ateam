@@ -4,7 +4,7 @@
 
 The aim is to test—and eventually measure—how shared instructions, agent configuration, lifecycle hooks, and verification practices affect agent behavior. The current benchmark suite checks reference fixtures and harness mechanisms; it does **not** establish that this configuration improves agent performance.
 
-For the event-by-event lifecycle, state changes, and design rationale, read [how the harness runs](docs/hook-flow.md).
+For the event-by-event lifecycle, state changes, and design rationale, read [how the harness runs](docs/hook-flow.md). For optional stronger-model review, setup, and scoped owner exceptions, read [model routing and independent review](docs/model-review.md).
 
 ## Opinions and Boundaries
 
@@ -82,6 +82,7 @@ This creates missing harness files. Existing client configuration is always pres
 
 - `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`)
 - `.agents/protocol.md`, `.agents/rules-index.md`, `.agents/README.md`, and `.agents/skills/{pickup,handoff,preflight,ponytail}/SKILL.md`
+- `.agents/contracts/developer.md` and `.agents/contracts/reviewer.md`
 - `.claude/settings.json`, `.claude/skills/*/SKILL.md`, and `.mcp.json` (MCP registration)
 - `.codex/hooks.json` and `.codex/config.toml` (MCP registration)
 - `.gemini/settings.json` and `.gemini/commands/*.toml`
@@ -115,6 +116,8 @@ Example output:
   "violations": null
 }
 ```
+
+Model review is opt-in: `init` installs the role contracts but does not choose models or install a policy. Follow the [adoption steps](docs/adoption.md#optional-model-review) to approve model relationships, configure routes, and establish a trusted baseline before checking review evidence.
 
 ### 3. Start or resume work (`ateam state pickup`)
 
@@ -157,6 +160,7 @@ While working on a change:
   - `survivor`: the mutated line was executed by the test, but the test still passed.
   - `invalid`: the mutant failed to compile, or the test never executed the mutated line.
   - `inconclusive`: the baseline test failed, timed out, or failed with an unrelated error.
+- **Attribute tests to requirements:** Attach `// spec: openspec/specs/<capability>/spec.md#Requirement: Exact heading` to each Go test/fuzz/executable example and each Vitest test. Run `task test:spec` to catch missing or stale references. This checks attribution syntax and existing targets; reviewers still assess whether assertions prove the cited behavior. See [the attribution protocol](.agents/protocol.md#test-to-spec-attribution).
 - **Run the full verification suite (`task verify`):**
   ```bash
   task verify
@@ -195,8 +199,10 @@ From the web board you can:
 - View and manage work items in a **Kanban board** (`Backlog`, `In Progress`, `Review`, `Done`) or **Table view**.
 - Sync issues and PRs from **GitHub** or **Gitea** (`Sync Forge` button or `ateam state sync`).
 - Inspect active **OpenSpec changes**, **`Hold:` blockers**, and **`// shortcut:` items**.
-- Switch the repository's discipline level (`lite`, `full`, `ultra`, `off`).
+- Open the top-right **User Profile & Settings** menu (auto-detected from `git config user.name` / `user.email`) to switch the repository's **Agent Discipline Mode** (`lite`, `full`, `ultra`, `off`) or configure `ATEAM_API_TOKEN`.
 - Receive live issue and pull request webhooks at `/api/webhooks/github` (`X-Hub-Signature-256`) and `/api/webhooks/gitea` (`X-Gitea-Signature`) when `ATEAM_WEBHOOK_SECRET` is set.
+
+Repository selection is shared by clients of one server. Writes include `X-ATeam-Repo` to reject stale selections (optional for single-repository clients). Registered paths survive restart; the active selection resets to the served checkout. Webhooks always target the served checkout. Forge settings support GitHub.com and configured Gitea hosts; custom GitHub API URLs are currently unsupported. The read-only model routing panel follows the selected repository; [routing states and limits](docs/model-review.md#dashboard-routing-display).
 
 ---
 
@@ -208,6 +214,9 @@ From the web board you can:
 | --- | --- |
 | `ateam init [--force] [--github\|--gitea]` | Create multi-agent instruction files, skills, hooks, MCP configs, and optional GitHub/Gitea labels |
 | `ateam doctor [--check]` | Verify multi-agent file parity, `<300` token MCP schema budget, and measured hook latency (50ms failure threshold today; <5ms target) |
+| `ateam review setup --policy FILE` | Install approved model policy and role cards/pointers, refusing existing conflicts |
+| `ateam review route [--developer-models IDS]` | Check the configured reviewer against every supplied implementation model; launch no agents |
+| `ateam review check --pr N --record-comment ID [--exception-comment ID]` | Validate current review evidence and optional scoped owner exception against trusted baseline policy |
 | `ateam state status` | Print the full `.ateam/state.json` snapshot (git, worktrees, holds, shortcuts, cards, handoff) |
 | `ateam state pickup` | Reconcile live git/worktree state with the last handoff and report drift or active holds |
 | `ateam state handoff --goal "..." [...]` | Record a 5-field checkpoint, clear the session writer lease, and optionally comment on the open PR |
@@ -218,6 +227,7 @@ From the web board you can:
 | `ateam state sync [--forge github\|gitea]` | Sync open issues and PRs from GitHub or Gitea into `.ateam/state.json` |
 | `ateam state mode [lite\|full\|ultra\|off]` | Get or set the active discipline level |
 | `ateam task [list\|<target>]` | List or run targets defined in `Taskfile.yml` |
+| `ateam test-spec` | Check test attribution comments against exact OpenSpec requirement headings |
 | `ateam mutate -pkg ... -test ... -file ... -mutant ...` | Run a non-destructive `go test -overlay` mutation check |
 | `ateam bench [--selftest] [--markdown]` | Run offline benchmark self-tests and mutation checks |
 | `ateam hook --event <event> [--agent <name>]` | Run lifecycle hook (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) |
@@ -228,7 +238,10 @@ From the web board you can:
 
 | Target | What it does |
 | --- | --- |
+| `task review:route -- ...` | Check configured model routing, forwarding optional CLI arguments |
+| `task review:check -- --pr N --record-comment ID [...]` | Validate current PR review evidence and an optional owner exception |
 | `task fmt` / `task fmt:check` | Format Go files / fail if any Go file is unformatted |
+| `task test:spec` | Validate attached test-to-spec references in Go and Vitest tests |
 | `task spec:check` | Validate `openspec/` specs and changes |
 | `task spec:queue` | Show in-flight `openspec/changes/*` progress and holds |
 | `task tidy:check` | Fail if `go.mod` or `go.sum` is not tidy |

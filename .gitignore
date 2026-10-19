@@ -19,3 +19,4 @@ internal/web/dist/*
 
 # Repository development tooling
 /node_modules/
+.env

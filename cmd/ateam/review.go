@@ -1,0 +1,260 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/c360studio/ateam/internal/bootstrap"
+	"github.com/c360studio/ateam/internal/review"
+	"github.com/c360studio/ateam/internal/state"
+)
+
+func runReview(root string, args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID]")
+		return 2
+	}
+	var err error
+	switch args[0] {
+	case "setup":
+		err = reviewSetup(root, args[1:])
+	case "route":
+		err = reviewRoute(root, args[1:])
+	case "check":
+		err = reviewCheck(root, args[1:])
+	default:
+		err = fmt.Errorf("unknown review command %q", args[0])
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam review: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func readReviewFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 1<<20 {
+		return nil, fmt.Errorf("review file exceeds 1 MiB")
+	}
+	return data, nil
+}
+
+func reviewSetup(root string, args []string) error {
+	fs := flag.NewFlagSet("review setup", flag.ContinueOnError)
+	file := fs.String("policy", "", "owner-approved policy JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *file == "" || fs.NArg() != 0 {
+		return fmt.Errorf("setup requires --policy FILE and no positional arguments")
+	}
+	data, err := readReviewFile(*file)
+	if err != nil {
+		return err
+	}
+	written, err := bootstrap.ConfigureReview(root, data)
+	if err != nil {
+		return fmt.Errorf("setup wrote %v before failure: %w", written, err)
+	}
+	printJSON(map[string]any{"written": written, "notice": "Policy is a project declaration; routing does not launch agents or attest their actual models."})
+	return nil
+}
+
+func reviewRoute(root string, args []string) error {
+	fs := flag.NewFlagSet("review route", flag.ContinueOnError)
+	models := fs.String("developer-models", "", "comma-separated actual implementation model IDs; defaults to configured developer")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("route accepts flags only")
+	}
+	data, err := readReviewFile(filepath.Join(root, ".agents", "review-policy.json"))
+	if err != nil {
+		return fmt.Errorf("review routing is unconfigured: %w", err)
+	}
+	p, err := review.ParsePolicy(data)
+	if err != nil {
+		return err
+	}
+	selected := p.Routes.Reviewer
+	devIDs := []string{p.Routes.Developer.Model}
+	if *models != "" {
+		devIDs = strings.Split(*models, ",")
+	}
+	provider := func(id string) string {
+		for _, m := range p.Models {
+			if m.ID == id {
+				return m.Provider
+			}
+		}
+		return ""
+	}
+	devs := make([]review.Run, 0, len(devIDs))
+	for i, id := range devIDs {
+		id = strings.TrimSpace(id)
+		devs = append(devs, review.Run{ID: fmt.Sprintf("planned-developer-%d", i), Model: id, Provider: provider(id), Effort: p.Routes.Developer.Effort})
+	}
+	rev := review.Run{ID: "planned-reviewer", Model: selected.Model, Provider: provider(selected.Model), Effort: selected.Effort}
+	if err := review.Eligible(p, devs, rev); err != nil {
+		return fmt.Errorf("routing blocked; no automatic downgrade or same-tier fallback: %w", err)
+	}
+	printJSON(map[string]any{"developer": p.Routes.Developer, "implementation_models": devIDs, "reviewer": rev, "policy_digest": review.PolicyDigest(data), "notice": "Selection only. Launch a separate read-only reviewer with this model and record the actual runtime identity; no model was launched."})
+	return nil
+}
+
+func reviewCheck(root string, args []string) error {
+	fs := flag.NewFlagSet("review check", flag.ContinueOnError)
+	prNumber := fs.Int("pr", 0, "pull request number")
+	recordID := fs.Int("record-comment", 0, "comment containing ateam-review followed by record JSON")
+	exceptionID := fs.Int("exception-comment", 0, "optional owner comment containing ateam-review-exception followed by exception JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *prNumber <= 0 || *recordID <= 0 || *exceptionID < 0 || fs.NArg() != 0 {
+		return fmt.Errorf("check requires positive --pr and --record-comment IDs and optional positive --exception-comment")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	remote, err := review.GitRemote(ctx, root)
+	if err != nil {
+		return err
+	}
+	cfg := state.DetectForge(ctx, root, remote)
+	if cfg.Provider != state.ForgeGitHub && cfg.Provider != state.ForgeGitea {
+		return fmt.Errorf("review check requires a GitHub or Gitea origin")
+	}
+	token, err := reviewToken(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	fc := review.ForgeConfig{Provider: string(cfg.Provider), BaseURL: cfg.BaseURL, Owner: cfg.Owner, Repo: cfg.Repo, Token: token}
+	client := &http.Client{Timeout: 10 * time.Second}
+	pr, err := review.ReadPullRequest(ctx, client, fc, *prNumber)
+	if err != nil {
+		return err
+	}
+	data, err := review.BaselinePolicy(ctx, root, pr.Base, pr.Head)
+	if err != nil {
+		return err
+	}
+	policy, err := review.ParsePolicy(data)
+	if err != nil {
+		return fmt.Errorf("trusted policy: %w", err)
+	}
+	comment, err := review.ReadComment(ctx, client, fc, *prNumber, *recordID)
+	if err != nil {
+		return err
+	}
+	payload, err := reviewCommentPayload(comment.Body, "ateam-review")
+	if err != nil {
+		return err
+	}
+	record, err := review.ParseRecord(payload)
+	if err != nil {
+		return err
+	}
+	var exception *review.Exception
+	exceptionAuthor := ""
+	var exceptionComment review.Comment
+	if *exceptionID != 0 {
+		c, err := review.ReadComment(ctx, client, fc, *prNumber, *exceptionID)
+		if err != nil {
+			return err
+		}
+		b, err := reviewCommentPayload(c.Body, "ateam-review-exception")
+		if err != nil {
+			return err
+		}
+		e, err := review.ParseException(b)
+		if err != nil {
+			return err
+		}
+		exception = &e
+		exceptionAuthor = c.Author
+		exceptionComment = c
+	}
+	repo := string(cfg.Provider) + ":" + strings.TrimRight(cfg.BaseURL, "/") + "/" + cfg.Owner + "/" + cfg.Repo
+	expected := review.Expected{Repository: repo, Base: pr.Base, Head: pr.Head, PolicyDigest: review.PolicyDigest(data), RecordAuthor: comment.Author}
+	if err := review.Validate(policy, record, expected, exception, exceptionAuthor); err != nil {
+		return err
+	}
+	// Comments authenticate original accounts, not every later editor. Refuse
+	// changed evidence within this check; timestamps also reject known edits.
+	currentComment, err := review.ReadComment(ctx, client, fc, *prNumber, *recordID)
+	if err != nil {
+		return err
+	}
+	if currentComment != comment {
+		return fmt.Errorf("review comment changed during validation; post fresh evidence")
+	}
+	if *exceptionID != 0 {
+		currentException, err := review.ReadComment(ctx, client, fc, *prNumber, *exceptionID)
+		if err != nil {
+			return err
+		}
+		if currentException != exceptionComment {
+			return fmt.Errorf("exception comment changed during validation; obtain fresh owner approval")
+		}
+	}
+	// Detect movement during this check; merge protection must rerun against its head.
+	latest, err := review.ReadPullRequest(ctx, client, fc, *prNumber)
+	if err != nil {
+		return err
+	}
+	if latest.Base != pr.Base || latest.Head != pr.Head {
+		return fmt.Errorf("PR changed during review validation; rerun on its current head")
+	}
+	printJSON(map[string]any{"approved": true, "head": pr.Head, "base": pr.Base, "policy_digest": expected.PolicyDigest, "record_comment": *recordID, "record_author": comment.Author, "exception_author": exceptionAuthor, "notice": "Forge authenticates original comment accounts. Known edits are rejected, but timestamp granularity can hide same-tick edits. Body authorship, model identity, session independence and checks remain attestations; this does not merge or configure branch protection."})
+	return nil
+}
+
+func reviewCommentPayload(body, marker string) ([]byte, error) {
+	first, rest, ok := strings.Cut(strings.TrimSpace(body), "\n")
+	if !ok || strings.TrimSpace(first) != marker {
+		return nil, fmt.Errorf("comment must start with %s on its own line, followed by JSON", marker)
+	}
+	return []byte(strings.TrimSpace(rest)), nil
+}
+
+func reviewToken(ctx context.Context, cfg state.ForgeConfig) (string, error) {
+	if cfg.Provider == state.ForgeGitea {
+		if token := strings.TrimSpace(os.Getenv("GITEA_TOKEN")); token != "" {
+			return token, nil
+		}
+		return strings.TrimSpace(os.Getenv("ATEAM_GITEA_TOKEN")), nil
+	}
+	if token := strings.TrimSpace(os.Getenv("GH_TOKEN")); token != "" {
+		return token, nil
+	}
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		return token, nil
+	}
+	// Never send credentials from the default gh account to a configured endpoint.
+	if cfg.BaseURL != "https://api.github.com" {
+		return "", nil
+	}
+	cmd := exec.CommandContext(ctx, "gh", "auth", "token", "--hostname", "github.com")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", nil
+	} // Public read-only repositories do not need a token.
+	return strings.TrimSpace(string(out)), nil
+}
