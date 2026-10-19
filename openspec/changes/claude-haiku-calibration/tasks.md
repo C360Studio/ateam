@@ -8,7 +8,7 @@
 
 ## Verification
 - [x] Prove focused parser/execution/accounting regressions and mutations; record generated-check decision.
-- [ ] Complete independent change review and clean-tree task verify.
+- [x] Complete independent change review and clean-tree task verify.
 - [ ] Publish implementation and evidence through draft PR #13.
 
 ## Live calibration
