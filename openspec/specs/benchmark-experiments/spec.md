@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines controlled paired command-adapter experiments, honest offline evaluator self-tests, retained independently graded evidence, and descriptive comparison without unsupported agent-performance claims.
-
 ## Requirements
-
 ### Requirement: Honest evaluator self-tests
 Self-test reports SHALL distinguish actual behavioral checks, continuity checks, and unsupported evaluators. Infrastructure errors SHALL NOT be reported as successful defect detection. Loading a report SHALL validate its schema and invariants, and rescoring SHALL execute evaluation rather than trusting stored success flags.
 
@@ -91,3 +89,115 @@ Native Gemini execution SHALL grant session-only trust to its runner-created wor
 #### Scenario: Independent trusted attempts
 - **WHEN** a native attempt starts in a fresh generated workspace
 - **THEN** its child receives explicit session trust while other attempts and the parent retain separate state
+
+### Requirement: Claude API calibration adapter
+The benchmark runner SHALL support Claude Code API-key authentication with a fixed Haiku model, shared explicit effort across arms, isolated sessions, bounded execution, inspectable configuration and no subscription fallback. It SHALL preserve native per-model usage and terminal evidence, normalize cache tokens exactly once and leave missing accounting unknown. It SHALL reject unexpected models and preserve failed attempts during offline replay.
+
+#### Scenario: Same-model Haiku A/A
+- **WHEN** identical treatments select the Claude native adapter
+- **THEN** both arms use the same configured model and effort in independent sessions
+- **AND** only explicit API credentials reach the isolated child
+
+#### Scenario: Unusable accounting
+- **WHEN** Claude fails or returns incomplete, inconsistent or unexpected-model accounting
+- **THEN** the runner retains the terminal evidence and applicable stop reason
+- **AND** it makes no unsupported quality or billing claim
+
+#### Scenario: Policy and authentication preflight
+- **WHEN** Claude runs on a managed installation or without the required API credential
+- **THEN** managed policy is never bypassed and missing credentials never fall back to a subscription
+- **AND** the live calibration requires recorded policy preflight
+
+#### Scenario: Structured replies and legacy replay
+- **WHEN** a new Claude experiment executes
+- **THEN** its explicit json-schema contract requires a nonempty source in native structured_output without prose fallback
+- **AND** legacy text-output artifacts remain replayable with unchanged failure outcomes but cannot launch new model calls
+
+### Requirement: Codex API calibration adapter
+The benchmark runner SHALL support API-only Codex execution with fixed Luna model configuration, shared explicit effort, isolated sessions, structured source replies and bounded execution. It SHALL preserve native terminal/accounting evidence, leave unknown values unknown, reject unsupported identity claims and retain unsuccessful attempts during offline replay.
+
+#### Scenario: Same-model Luna A/A
+- **WHEN** both arms select identical treatments through the Codex native adapter
+- **THEN** they use identical requested model/settings in independent sessions
+- **AND** configured selection is not misrepresented as provider-reported model identity
+
+#### Scenario: Accounting and terminal integrity
+- **WHEN** native output is malformed, incomplete, contradictory or lacks required accounting or identity evidence
+- **THEN** the runner retains the evidence and applicable refusal/stop outcome
+- **AND** cached input and reasoning output are never added twice to primary totals
+
+#### Scenario: API-only isolation
+- **WHEN** the adapter executes
+- **THEN** only the explicitly selected API credential is available to the authorized provider transport
+- **AND** subscription fallback, ambient configuration and session reuse are excluded without bypassing host policy
+
+### Requirement: Gemini native structured source
+New Gemini benchmark execution SHALL request native JSON schema output containing exactly one string source property. Legacy prose-output configurations SHALL remain replayable with unchanged saved settings but SHALL NOT start new inference. Strict parsing SHALL NOT repair fenced or prose output.
+
+#### Scenario: Native schema is requested
+- **WHEN** a new Gemini experiment starts
+- **THEN** native generation configuration requests application/json and a schema requiring only source
+
+#### Scenario: Legacy replay remains immutable
+- **WHEN** a previously recorded Gemini experiment without schema mode is rescored
+- **THEN** its original configuration and native evidence remain unchanged and no model is called
+
+### Requirement: Operational stops precede missing telemetry
+Native timeout, cancellation and adapter failures SHALL retain an outcome-derived stop reason rather than being described only as unavailable model identity. Existing artifacts with prior stop reasons SHALL remain replayable when supported by their original evidence.
+
+#### Scenario: Timeout without native output
+- **WHEN** a native attempt times out before reporting model identity
+- **THEN** the new run records an attempt timeout and starts no further attempt
+
+### Requirement: Reused sessions are rejected before grading
+A repeated native session identifier SHALL prevent candidate grading for that attempt.
+
+#### Scenario: Duplicate session contains executable source
+- **WHEN** a second native attempt reports an already seen session identifier
+- **THEN** its generated source is not compiled or executed and the run stops with session reuse evidence
+
+### Requirement: Immutable instruction bundle resolution
+A benchmark MAY select explicit versioned instruction bundles. Resolution SHALL retain ordered source content, component hashes and effective instruction content before adapter invocation. Input reads SHALL be bounded and confined to declared local bundle inputs without implicit discovery or execution.
+
+#### Scenario: Explicit ordered files resolve offline
+- **WHEN** a dry run selects an instruction bundle
+- **THEN** the result contains the ordered immutable treatment snapshot and execution limits without a model call
+
+#### Scenario: Explicit input bounds and composition
+- **WHEN** an experiment selects version-1 bundle manifests
+- **THEN** A version-1 manifest SHALL name 1–32 unique ordered file paths naming regular UTF-8 files beneath its directory, SHALL be at most 64 KiB, and SHALL compose at most 1 MiB per arm including two-newline separators. Composition SHALL preserve file bytes and exclude manifest metadata. Bundle selection SHALL reject nonempty inline instruction strings.
+
+#### Scenario: Invalid input is refused before inference
+- **WHEN** an input is missing, escapes its allowed root, uses an unsupported symlink or exceeds configured content bounds
+- **THEN** resolution fails before invoking an adapter
+
+#### Scenario: Known evidence exceeds the artifact limit
+- **WHEN** the resolved bundle snapshot and scheduled requests alone exceed the 64 MiB artifact limit after JSON encoding
+- **THEN** resolution refuses the experiment before inference even when each arm fits its individual content bound
+
+### Requirement: Effective treatment comparison
+A/A SHALL require identical effective instruction content and fixed execution controls. A/B SHALL require an effective treatment difference. Display labels, paths or version metadata alone SHALL NOT count as a treatment difference.
+
+#### Scenario: Metadata differs but instructions do not
+- **WHEN** two differently labeled bundles resolve to identical instruction content
+- **THEN** metadata differences remain visible but do not qualify as a harness A/B treatment
+
+### Requirement: Bundle replay independence
+Offline comparison and rescore SHALL use retained bundle content without rereading original files or invoking a model. New inference SHALL refuse stale or tampered resolution. Existing inline experiments and artifacts SHALL remain compatible. Retained evidence validation SHALL reconstruct the effective instructions, verify manifest/component/effective hashes and ordering, and verify that execution controls match the original configuration.
+
+#### Scenario: Source bundle files are removed
+- **WHEN** a retained experiment is rescored after its original bundle files are removed
+- **THEN** rescore uses saved evidence without model calls or changes to original artifact bytes
+
+#### Scenario: Inputs changed after resolution
+- **WHEN** a new execution receives resolution whose input content has changed
+- **THEN** it refuses inference rather than silently executing a different treatment
+- **AND** Metadata-only input edits SHALL also invalidate a resolution for new execution.
+
+### Requirement: Instruction evidence is not execution evidence
+Bundle provenance SHALL distinguish requested and delivered instruction content from observed native execution. Delivering skill-like text SHALL NOT establish that a native skill or hook executed.
+
+#### Scenario: Skill text is included as instructions
+- **WHEN** a bundle includes text describing a skill
+- **THEN** evidence records instruction delivery without asserting native skill execution
+

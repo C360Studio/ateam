@@ -48,7 +48,7 @@ func bundleTestExperiment(t *testing.T, baseline, candidate []string) (Experimen
 
 // The oracle is literal text and a published SHA-256 test value for "alpha";
 // filename labels, whitespace normalization or reversed components must differ.
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
 func TestBundleImmutableResolution(t *testing.T) {
 	e, dir := bundleTestExperiment(t, []string{"alpha", "\ufeffline\r\n"}, []string{"beta"})
 	r, err := ResolveExperiment(e, dir)
@@ -73,7 +73,7 @@ func TestBundleImmutableResolution(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Effective treatment comparison
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Effective treatment comparison
 func TestBundleEffectiveTreatmentEquality(t *testing.T) {
 	for _, tc := range []struct {
 		name                string
@@ -100,7 +100,7 @@ func TestBundleEffectiveTreatmentEquality(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
 func TestBundleManifestAndReferenceRefusals(t *testing.T) {
 	for _, input := range []string{
 		`{"version":1,"version":1,"name":"x","files":["a"]}`,
@@ -134,7 +134,7 @@ func TestBundleManifestAndReferenceRefusals(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
 func TestBundleResolutionFileRefusals(t *testing.T) {
 	for _, kind := range []string{"missing", "directory", "invalid-utf8", "file-symlink", "directory-symlink", "manifest-symlink"} {
 		t.Run(kind, func(t *testing.T) {
@@ -188,7 +188,7 @@ func TestBundleResolutionFileRefusals(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
 func TestBundleContentAndManifestBoundaries(t *testing.T) {
 	for _, count := range []int{32, 33} {
 		files := make([]string, count)
@@ -219,7 +219,7 @@ func TestBundleContentAndManifestBoundaries(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
 func TestBundlePredictableArtifactLimit(t *testing.T) {
 	for _, tc := range []struct {
 		name, text string
@@ -258,7 +258,7 @@ func bundleLaunchMarker(t *testing.T, e *Experiment, dir string) string {
 
 // Source and metadata edits must fail before any adapter execution. Checking
 // effective text alone would silently admit a metadata-only manifest change.
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Bundle replay independence
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bundle replay independence
 func TestBundleStaleResolutionNeverLaunches(t *testing.T) {
 	for _, change := range []string{"content", "metadata", "missing", "argv", "budget-policy", "runner", "runtime"} {
 		t.Run(change, func(t *testing.T) {
@@ -297,7 +297,7 @@ func TestBundleStaleResolutionNeverLaunches(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Bundle replay independence
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bundle replay independence
 func TestBundleTamperedSnapshotRefusal(t *testing.T) {
 	e, dir := bundleTestExperiment(t, []string{"alpha", "second"}, []string{"beta"})
 	r, err := ResolveExperiment(e, dir)
@@ -341,7 +341,7 @@ func TestBundleTamperedSnapshotRefusal(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Bundle replay independence
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bundle replay independence
 func TestBundleReplayAfterSourceRemoval(t *testing.T) {
 	e, dir := bundleTestExperiment(t, []string{"good"}, []string{"bad"})
 	executable, err := os.Executable()
@@ -404,7 +404,7 @@ func TestBundleReplayAfterSourceRemoval(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Bundle replay independence
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bundle replay independence
 func TestBundleInlineCompatibility(t *testing.T) {
 	e := testExperiment()
 	r, err := ResolveExperiment(e, t.TempDir())
@@ -429,7 +429,7 @@ func TestBundleInlineCompatibility(t *testing.T) {
 
 // RawMessage indentation changes during artifact serialization, but the native
 // settings are the same JSON object and must not become a false stale refusal.
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Bundle replay independence
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bundle replay independence
 func TestBundleNativeResolutionJSONRoundTrip(t *testing.T) {
 	bundle, dir := bundleTestExperiment(t, []string{"same"}, []string{"same"})
 	e := nativeTestExperiment(t, `{"input_tokens":10,"output_tokens":5}`)
@@ -469,7 +469,7 @@ func TestBundleNativeResolutionJSONRoundTrip(t *testing.T) {
 // Reference composition appends literal bytes and the specified separator. It
 // checks empty, Unicode/BOM, CRLF and generated arbitrary-byte histories without
 // deriving the oracle from production joining or hashing code.
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
 func FuzzBundleComposition(f *testing.F) {
 	f.Add("alpha", "beta", uint8(1))
 	f.Add("\ufefffirst\r\n", "last\n", uint8(31))

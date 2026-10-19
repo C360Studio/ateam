@@ -62,8 +62,8 @@ func resolvedBundleDeliveryExperiment(t *testing.T) Experiment {
 
 // Both arms must deliver their literal ordered bytes; trimming, swapping arms or
 // including bundle labels instead of the selected treatment must fail this oracle.
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Instruction evidence is not execution evidence
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Immutable instruction bundle resolution
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Instruction evidence is not execution evidence
 func TestBundleDeliveryToGenericTransport(t *testing.T) {
 	e := resolvedBundleDeliveryExperiment(t)
 	for _, arm := range []struct{ name, instructions string }{{"baseline", bundleLeftInstructions}, {"candidate", bundleRightInstructions}} {
@@ -92,8 +92,8 @@ func TestBundleDeliveryToGenericTransport(t *testing.T) {
 
 // The resolved instruction pair is shared by all transports. Native fake configs
 // retain their existing fixture models; this tests delivery, not native resolution.
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Instruction evidence is not execution evidence
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Effective treatment comparison
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Instruction evidence is not execution evidence
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Effective treatment comparison
 func TestBundleDeliveryToNativeTransports(t *testing.T) {
 	resolved := resolvedBundleDeliveryExperiment(t)
 	for _, provider := range []struct {
@@ -183,7 +183,7 @@ func assertBundleFixedNativeControls(t *testing.T, e Experiment, model, dir stri
 	}
 }
 
-// spec: openspec/changes/benchmark-instruction-bundles/specs/benchmark-experiments/spec.md#Requirement: Instruction evidence is not execution evidence
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Instruction evidence is not execution evidence
 func TestBundleGenericTransportHelper(_ *testing.T) {
 	if !slices.Contains(os.Args, "bundle-delivery") {
 		return
