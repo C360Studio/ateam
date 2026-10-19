@@ -10,4 +10,4 @@ Add frozen minimal/ATeam-subset instruction bundles, a predeclared experiment pr
 
 ## Scope and stop boundary
 
-Run canary, inspect evidence, then A/A, inspect calibration, then A/B if gates pass, with a combined $2 target and explicit token/time limits. Stop on operational/accounting failure or exhausted budget and preserve evidence; do not retry automatically. Deliver reviewed configurations/protocol/results in a PR, without merging. No runner, native skill/hook, routing or UI changes. No raw traces or secrets are published.
+Run canary, inspect evidence, then A/A, inspect calibration, then A/B if gates pass, with a combined $2 target and explicit token/time limits. Stop within a phase on native execution/accounting failure or exhausted budget; grading infrastructure errors block later phases after inspection. Preserve evidence and do not retry automatically. Deliver reviewed configurations/protocol/results in a PR, without merging. No runner, native skill/hook, routing or UI changes. No raw traces or secrets are published.
