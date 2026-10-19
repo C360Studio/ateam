@@ -365,7 +365,7 @@ func runTask(repoRoot string, args []string) int {
 func runInit(repoRoot string, args []string) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	dir := fs.String("dir", repoRoot, "target directory to bootstrap")
-	force := fs.Bool("force", false, "overwrite existing harness files")
+	force := fs.Bool("force", false, "overwrite harness documents/adapters; preserve existing client configuration")
 	ghLabels := fs.Bool("github", false, "bootstrap canonical labels on GitHub via gh")
 	giteaLabels := fs.Bool("gitea", false, "bootstrap canonical labels on Gitea")
 	if err := fs.Parse(args); err != nil {
@@ -386,7 +386,7 @@ func runInit(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam init: %v\n", err)
 		return 1
 	}
-	printJSON(map[string]any{"dir": *dir, "written": written})
+	printJSON(map[string]any{"dir": *dir, "written": written, "next_steps": "Existing client configuration is preserved, even with --force. Run ateam doctor --check and follow https://github.com/C360Studio/ateam/blob/main/docs/mcp.md to merge missing registration and verify client discovery."})
 	return 0
 }
 
@@ -409,11 +409,12 @@ func runDoctor(repoRoot string, args []string) int {
 	}
 	passed := len(violations) == 0
 	printJSON(map[string]any{
-		"passed":            passed,
-		"mcp_schema_tokens": tokens,
-		"mcp_schema_bytes":  bytesLen,
-		"hook_latency_us":   hookUs,
-		"violations":        violations,
+		"passed":                 passed,
+		"mcp_schema_tokens":      tokens,
+		"mcp_connection_checked": false,
+		"mcp_schema_bytes":       bytesLen,
+		"hook_latency_us":        hookUs,
+		"violations":             violations,
 	})
 	if !passed {
 		return 1

@@ -42,12 +42,6 @@ const claudeSettingsJSON = `{
         ]
       }
     ]
-  },
-  "mcpServers": {
-    "ateam": {
-      "command": "ateam",
-      "args": ["mcp"]
-    }
   }
 }
 `
@@ -94,12 +88,6 @@ const codexHooksJSON = `{
         ]
       }
     ]
-  },
-  "mcpServers": {
-    "ateam": {
-      "command": "ateam",
-      "args": ["mcp"]
-    }
   }
 }
 `
@@ -150,6 +138,22 @@ const geminiSettingsJSON = `{
   },
   "mcpServers": {
     "ateam": {
+      "command": "ateam",
+      "args": ["mcp"]
+    }
+  }
+}
+`
+
+const codexMCPConfig = `[mcp_servers.ateam]
+command = "ateam"
+args = ["mcp"]
+`
+
+const claudeMCPJSON = `{
+  "mcpServers": {
+    "ateam": {
+      "type": "stdio",
       "command": "ateam",
       "args": ["mcp"]
     }
@@ -413,14 +417,15 @@ const defaultAgentsReadmeMD = `# Agent & Platform Configuration (` + "`.agents/`
 
 Optional model-review setup uses .agents/review-policy.json and .agents/contracts/{developer,reviewer}.md. Run ateam review setup --policy FILE to generate role cards and applicable pointers without overwriting custom files. Operators select the runtime model explicitly; doctor checks configured instruction drift, not runtime model identity.
 
-Initialization does not detect the project language or create a Taskfile. Adapt the Go-first instructions and supply project verification tasks; local parity checks do not certify live-agent integration. See the adoption scope in AGENTS.md and .agents/protocol.md.
+Existing client configuration is preserved even with --force; merge missing MCP entries manually using https://github.com/C360Studio/ateam/blob/main/docs/mcp.md. MCP configuration belongs in .mcp.json for Claude, .codex/config.toml for Codex, and .gemini/settings.json for Gemini. Doctor checks local structure, not live connection or client trust. Initialization does not detect the project language or create a Taskfile. Adapt the Go-first instructions and supply project verification tasks; local parity checks do not certify live-agent integration. See the adoption scope in AGENTS.md and .agents/protocol.md.
 
 | Capability | Claude Code | Codex CLI | Gemini CLI |
 | --- | --- | --- | --- |
 | Instructions | ` + "`CLAUDE.md`" + ` (` + "`@AGENTS.md`" + `) | ` + "`AGENTS.md`" + ` | ` + "`.gemini/settings.json`" + ` (` + "`contextFileName: \"AGENTS.md\"`" + `) |
 | Canonical Skills | ` + "`.agents/skills/<name>/SKILL.md`" + ` | ` + "`.agents/skills/<name>/SKILL.md`" + ` | ` + "`.agents/skills/<name>/SKILL.md`" + ` |
 | Skill Adapters | ` + "`.claude/skills/<name>/SKILL.md`" + ` | Reads ` + "`.agents/skills/`" + ` directly | ` + "`.gemini/commands/<name>.toml`" + ` |
-| Hook & MCP Config | ` + "`.claude/settings.json`" + ` | ` + "`.codex/hooks.json`" + ` | ` + "`.gemini/settings.json`" + ` |
+| Hook Config | ` + "`.claude/settings.json`" + ` | ` + "`.codex/hooks.json`" + ` | ` + "`.gemini/settings.json`" + ` |
+| MCP Config | ` + "`.mcp.json`" + ` | ` + "`.codex/config.toml`" + ` | ` + "`.gemini/settings.json`" + ` |
 `
 
 func defaultTemplateFiles() map[string]string {
@@ -434,6 +439,8 @@ func defaultTemplateFiles() map[string]string {
 		".agents/rules-index.md":         defaultRulesIndexMD,
 		".claude/settings.json":          claudeSettingsJSON,
 		".codex/hooks.json":              codexHooksJSON,
+		".codex/config.toml":             codexMCPConfig,
+		".mcp.json":                      claudeMCPJSON,
 		".gemini/settings.json":          geminiSettingsJSON,
 		"openspec/config.yaml":           "schema: spec-driven\n",
 		"openspec/changes/.gitkeep":      "# keep\n",

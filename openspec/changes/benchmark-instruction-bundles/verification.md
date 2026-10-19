@@ -34,3 +34,7 @@ At `032b84e58c2955129b42bcfd35831464dcb73511`, `GOFLAGS=-p=1 task verify && task
 The earlier default-parallel full run at the same code revision failed the existing `TestConfiguredGitHubTarget`: the fake CLI log contained fallback and PR calls but lacked the initial comments call. Its first invocation has a 1.5-second deadline; the observation is consistent with process-start contention, not proof of the cause. The unchanged test then passed 5/5 isolated race repetitions, and the entire package-serialized race suite passed. No state implementation or timeouts were altered. This verifies serialized coverage, not stability of the default parallel run; that timing sensitivity remains a disclosed limitation.
 
 Skipped: paid calls, Gemini retries and performance claims. Residual risk: the existing parallel forge-test timing sensitivity and the explicit filesystem/artifact limits above.
+
+## Main integration
+
+Main advanced to `5c005f4bd859f5532508067d9aa0ecdc30cefbfb` (MCP registration and client integration) during delivery. Its four dashboard/routing spec formatting corrections overlapped our equivalent strict-validator fixes. The merge keeps main's exact versions of those four files and all sister-agent MCP changes; benchmark implementation is unchanged. Final post-merge verification and independent review are bound to the integration head in PR #27.
