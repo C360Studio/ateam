@@ -309,7 +309,7 @@ func ResolveExperiment(e Experiment, base string) (ResolvedExperiment, error) {
 		}
 		r.NativeSettings = settings
 		r.NativeArguments = geminiArguments(e)
-		r.BudgetPolicy = "GEMINI_API_KEY only; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported usage; 4 model turns/attempt and 8192 output tokens/turn; no fallback accepted; cost unknown"
+		r.BudgetPolicy = "GEMINI_API_KEY only; GEMINI_CLI_TRUST_WORKSPACE=true only in the generated workspace child process; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported usage; 4 model turns/attempt and 8192 output tokens/turn; no fallback accepted; cost unknown"
 	}
 	grader, err := currentGrader()
 	if err != nil {

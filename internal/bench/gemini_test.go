@@ -45,6 +45,7 @@ func fakeGeminiExperiment(t *testing.T) Experiment {
 // Explicit API auth reaches the CLI, but ambient config/secrets and prior arm files must not.
 func TestGeminiExecutionIsolationAndRedaction(t *testing.T) {
 	e := fakeGeminiExperiment(t)
+	t.Setenv("GEMINI_CLI_TRUST_WORKSPACE", "parent-must-not-change")
 	previousSession := ""
 	for _, arm := range []string{"baseline", "candidate"} {
 		req := newAdapterRequest(e, Trial{Task: "safe-path", Repetition: 1, Arm: arm})
@@ -64,6 +65,9 @@ func TestGeminiExecutionIsolationAndRedaction(t *testing.T) {
 			t.Fatal("independent attempts reused a session")
 		}
 		previousSession = r.Native.SessionID
+		if os.Getenv("GEMINI_CLI_TRUST_WORKSPACE") != "parent-must-not-change" {
+			t.Fatal("workspace trust escaped the child environment")
+		}
 	}
 }
 
@@ -191,6 +195,9 @@ func validateFakeGeminiInvocation(args []string) error {
 		if os.Getenv(name) != "" {
 			return fmt.Errorf("ambient secret inherited")
 		}
+	}
+	if os.Getenv("GEMINI_CLI_TRUST_WORKSPACE") != "true" {
+		return fmt.Errorf("generated workspace lacks session-only trust")
 	}
 	if os.Getenv("GEMINI_API_KEY") != geminiTestKey {
 		return fmt.Errorf("explicit credential missing")

@@ -53,7 +53,8 @@ func executeGemini(ctx context.Context, e Experiment, request AdapterRequest, di
 	configureBenchmarkProcess(cmd)
 	defer cleanupBenchmarkProcess(cmd)
 	cmd.Dir = dir
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "GEMINI_CLI_HOME=" + dir, "GEMINI_API_KEY=" + key,
+	// Trust only this runner-created workspace for this child, without persisting a trust policy.
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "GEMINI_CLI_HOME=" + dir, "GEMINI_API_KEY=" + key, "GEMINI_CLI_TRUST_WORKSPACE=true",
 		"TMPDIR=" + dir, "XDG_CONFIG_HOME=" + dir, "XDG_CACHE_HOME=" + dir, "GOWORK=off", "GOENV=off"}
 	// Arm names and repetition numbers do not enter the model prompt.
 	cmd.Stdin = strings.NewReader("Instructions:\n" + request.Instructions + "\n\nTask:\n" + request.Prompt + "\n\nReturn a JSON object with source containing the complete Go source file.")
