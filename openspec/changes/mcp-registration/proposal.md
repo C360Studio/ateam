@@ -2,6 +2,7 @@
 
 Issue: https://github.com/C360Studio/ateam/issues/11
 Owner: Codex (`codex/mcp-registration`)
+implemented-by: codex
 
 ## Why
 
@@ -24,4 +25,8 @@ Risks: overwriting user settings, assuming the wrong client configuration format
 
 Prove a meaningful failing registration regression before fixing it. Cover settings preservation and idempotence, record mutation/PBT decisions for changed logic, exercise the protocol, and verify actual client discovery/connection where available. Run preflight/parity gates at a recorded revision and label every untested client explicitly.
 
-This initial draft claims the issue and records the plan. Implementation tasks remain open. No merge, runtime changes, or agent-global registration changes at this checkpoint.
+Implementation delivers supported project-local registration, structural validation, conservative preservation of client files, and the MCP guide. Stop before merge. Global client configuration and trust choices remain unchanged.
+
+## Implementation choices
+
+Existing client files remain byte-identical even under --force; missing registration requires a documented manual merge. This avoids rewriting comments, permissions, secrets, or unrelated servers. Codex TOML validation uses pinned go-toml/v2: Go has no standard TOML parser and a handwritten subset would misread quoted keys/comments/tables. This is a linked library, not an external hook runtime. Hook behavior and the two-tool MCP protocol are unchanged.

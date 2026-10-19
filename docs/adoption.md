@@ -8,7 +8,7 @@ See [how the harness runs](hook-flow.md) for the hook lifecycle and which workfl
 
 | Feature | Current behavior |
 | --- | --- |
-| `ateam init` | Writes the same templates regardless of language. Does not inspect manifests to select a toolchain, create a Taskfile, install tools, or migrate existing configuration. Existing files are preserved unless `--force` is used; missing files are added and ignore entries are appended. |
+| `ateam init` | Writes the same templates regardless of language. Does not inspect manifests to select a toolchain, create a Taskfile, install tools, or migrate existing configuration. Existing client configuration is always preserved, including with `--force`; that flag may overwrite other generated files; missing files are added and ignore entries are appended. |
 | Hooks, modes, pickup/handoff, forge state, board | Operate on repository/session metadata rather than a language compiler. This is architectural portability, not evidence of complete support for every project or agent version. |
 | `ateam mutate` | Requires a non-test `.go` target, an external mutant copy, and a working Go test environment. Rejects other source extensions before starting tests. There is no Python, Rust, or JavaScript mutation runner. |
 | `ateam state debt` | Scans only `.go`, `.ts`, `.js`, `.svelte`, `.sh`, `.yml`, `.yaml`. Skips `_test.go` and `.test.ts`, plus generated/dependency directories such as `vendor`, `node_modules`, `dist`, and `build`. Python, Rust, Java, JSX, and TSX files are skipped, not diagnosed as unsupported. |
@@ -36,7 +36,7 @@ A single compiled executable does not mean every command works without external 
 ## Adoption steps
 
 1. Build/install ATeam and make the executable available to your agents. Building ATeam is separate from building the project you want agents to edit.
-2. Review your existing agent instructions and settings. Run `ateam init` in the intended repository; review its diff before using `--force`, which overwrites generated file paths.
+2. Review your existing agent instructions and settings. Run `ateam init` in the intended repository; review its diff before using `--force`, which overwrites generated documents/adapters but preserves client settings. Follow the [MCP migration guide](mcp.md#migrating-existing-configurations) to merge registration into existing files.
 3. Adapt the instructions to your language and actual delivery policy. Generated references to Go tooling, mutation checks, and verification targets are not automatic implementations of those checks. Keep canonical instructions and adapter/rule-index parity consistent.
 4. Create a `Taskfile.yml` exposing your project's checks. For example, a Python project's `verify` task could run its existing lint/type/test commands. Do not copy ATeam's own Taskfile unchanged: it expects this repository's `cmd/`, `internal/`, `go.mod`, and Svelte `ui/` layout.
 5. Run `ateam doctor --check`, inspect `ateam task list`, and execute the project checks. Separately verify that your installed agent versions actually load the intended instructions, hooks, and MCP settings. A parity pass is not an integration certification.
