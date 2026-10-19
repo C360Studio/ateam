@@ -17,7 +17,8 @@ Read [how the harness runs](../docs/hook-flow.md) for event effects, injected co
 | Instructions | `CLAUDE.md` (`@AGENTS.md`) | `AGENTS.md` | `.gemini/settings.json` (`contextFileName: "AGENTS.md"`) |
 | Canonical Skills | `.agents/skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` |
 | Skill Adapters | `.claude/skills/<name>/SKILL.md` | Reads `.agents/skills/` directly | `.gemini/commands/<name>.toml` |
-| Hook & MCP Config | `.claude/settings.json` | `.codex/hooks.json` | `.gemini/settings.json` |
+| Hook Config | `.claude/settings.json` | `.codex/hooks.json` | `.gemini/settings.json` |
+| MCP Config | `.mcp.json` | `.codex/config.toml` | `.gemini/settings.json` |
 | Session Start | `SessionStart` -> `ateam hook --event session-start --agent claude` | `SessionStart` -> `ateam hook --event session-start --agent codex` | `SessionStart` -> `ateam hook --event session-start --agent gemini` |
 | Before Prompt | `UserPromptSubmit` -> `ateam hook --event before-prompt --agent claude` | `UserPromptSubmit` -> `ateam hook --event before-prompt --agent codex` | `BeforeAgent` -> `ateam hook --event before-prompt --agent gemini` |
 | Pre-Compaction | `PreCompact` -> `ateam hook --event pre-compact --agent claude` | `PreCompact` -> `ateam hook --event pre-compact --agent codex` | `PreCompress` -> `ateam hook --event pre-compact --agent gemini` |
@@ -38,7 +39,8 @@ Canonical skills live in `.agents/skills/<name>/SKILL.md`:
 2. `CLAUDE.md` imports `@AGENTS.md`, stays within 10 lines, and does not define its own section headings or rule tables.
 3. `AGENTS.md` stays strictly under 24,000 bytes and matches `.agents/rules-index.md` in numbered rule sections and row counts.
 4. Every canonical skill in `.agents/skills/<name>/SKILL.md` has a matching thin pointer in `.claude/skills/<name>/SKILL.md` and `.gemini/commands/<name>.toml`.
-5. `.claude/settings.json`, `.codex/hooks.json`, and `.gemini/settings.json` wire all four lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) with `--agent claude|codex|gemini` and register the `ateam mcp` server.
+5. `.claude/settings.json`, `.codex/hooks.json`, and `.gemini/settings.json` wire all four lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) with the expected `--agent claude|codex|gemini` identity.
+6. Project MCP registration is parsed separately from `.mcp.json`, `.codex/config.toml`, and `.gemini/settings.json`. This is local structure validation, not live client connection evidence. See [MCP setup and verification](../docs/mcp.md).
 
 ## Configured model review
 
