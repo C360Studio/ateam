@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,16 +29,22 @@ type Attempt struct {
 
 // ExperimentRun is a complete immutable pilot artifact. Digest detects corruption, not forgery.
 type ExperimentRun struct {
-	Version  int                `json:"version"`
-	Created  time.Time          `json:"created"`
-	Resolved ResolvedExperiment `json:"resolved"`
-	Attempts []Attempt          `json:"attempts"`
-	Digest   string             `json:"sha256"`
+	StopReason string             `json:"stop_reason,omitempty"`
+	Version    int                `json:"version"`
+	Created    time.Time          `json:"created"`
+	Resolved   ResolvedExperiment `json:"resolved"`
+	Attempts   []Attempt          `json:"attempts"`
+	Digest     string             `json:"sha256"`
 }
 
 type limitedBuffer struct {
 	bytes.Buffer
 	overflow bool
+}
+
+// ReadFrom prevents io.Copy from bypassing Write through the embedded bytes.Buffer.
+func (b *limitedBuffer) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{b}, r)
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
@@ -52,6 +59,15 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 }
 
 func executeAdapter(ctx context.Context, e Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
+	if e.Codex != nil {
+		return executeCodex(ctx, e, request, dir)
+	}
+	if e.Claude != nil {
+		return executeClaude(ctx, e, request, dir)
+	}
+	if e.Gemini != nil {
+		return executeGemini(ctx, e, request, dir)
+	}
 	var response AdapterResponse
 	payload, err := json.Marshal(request)
 	if err != nil {
@@ -101,7 +117,7 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err != nil {
 		return "", err
 	}
-	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
+	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.GeminiVersion != resolved.GeminiVersion || current.ClaudeVersion != resolved.ClaudeVersion || current.CodexVersion != resolved.CodexVersion || (current.Experiment.IsNative() && !jsonEquivalent(current.NativeSettings, resolved.NativeSettings)) || !reflect.DeepEqual(current.NativeArguments, resolved.NativeArguments) || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
 		return "", fmt.Errorf("resolved experiment changed before execution")
 	}
 	if err := os.MkdirAll(outputRoot, 0700); err != nil {
@@ -111,13 +127,30 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err != nil {
 		return "", err
 	}
+	if resolved.Experiment.IsNative() {
+		keyName := nativeKeyName(resolved.Experiment)
+		if os.Getenv(keyName) == "" {
+			return dir, fmt.Errorf("%s is required for explicitly selected API authentication", keyName)
+		}
+		bounded, cancel := context.WithTimeout(ctx, time.Duration(resolved.Experiment.MaxRunSeconds)*time.Second)
+		defer cancel()
+		ctx = bounded
+	}
 	run := ExperimentRun{Version: experimentVersion, Created: time.Now().UTC(), Resolved: resolved}
 	if err := writeExclusiveJSON(filepath.Join(dir, "resolved.json"), resolved); err != nil {
 		return dir, err
 	}
+	var usedTokens int64
+	var stopErr error
+	sessions := map[string]bool{}
 	for i, trial := range resolved.Schedule {
 		if err := ctx.Err(); err != nil {
-			return dir, err
+			run.StopReason = "cancelled"
+			if err == context.DeadlineExceeded {
+				run.StopReason = "run-timeout"
+			}
+			stopErr = err
+			break
 		}
 		a := Attempt{Request: newAdapterRequest(resolved.Experiment, trial)}
 		workspace, err := os.MkdirTemp("", "ateam-agent-*")
@@ -127,10 +160,30 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 		start := time.Now()
 		response, stdout, stderr, status, runErr := executeAdapter(ctx, resolved.Experiment, a.Request, workspace)
 		a.AgentNanos = time.Since(start).Nanoseconds()
+		if resolved.Experiment.IsNative() && runErr == nil {
+			if reason := nativeIdentityStatus(resolved.Experiment, response.Native); reason != "" {
+				status = "adapter-error"
+				runErr = fmt.Errorf("%s", nativeIdentityDiagnostic(reason))
+			}
+		}
 		a.Stdout = stdout
 		a.Stderr = stderr
 		a.Status = status
 		removeErr := os.RemoveAll(workspace)
+		if response.Native != nil {
+			a.Response = &response
+			if response.Source != "" {
+				a.SourceSHA = digest([]byte(response.Source))
+			}
+		}
+		if a.Response != nil && a.Response.Native != nil {
+			session := a.Response.Native.SessionID
+			if session != "" && sessions[session] {
+				a.Status = "adapter-error"
+				runErr = fmt.Errorf("native session ID reused across attempts")
+			}
+			sessions[session] = true
+		}
 		if runErr != nil {
 			a.Diagnostic = runErr.Error()
 		} else {
@@ -145,8 +198,10 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 		if removeErr != nil {
 			return dir, fmt.Errorf("remove workspace: %w", removeErr)
 		}
-		if ctx.Err() != nil {
-			return dir, ctx.Err()
+		reason, err := nativeStop(ctx, resolved.Experiment, a, &usedTokens, i+1 == len(resolved.Schedule))
+		if reason != "" {
+			run.StopReason, stopErr = reason, err
+			break
 		}
 	}
 	run.Digest = runDigest(run)
@@ -154,7 +209,58 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 	if err := writeExclusiveJSON(path, run); err != nil {
 		return dir, err
 	}
-	return path, nil
+	return path, stopErr
+}
+
+func nativeStop(ctx context.Context, e Experiment, a Attempt, used *int64, last bool) (string, error) {
+	if ctx.Err() != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "run-timeout", ctx.Err()
+		}
+		return "cancelled", ctx.Err()
+	}
+	if !e.IsNative() {
+		return "", nil
+	}
+	if a.Diagnostic == "native session ID reused across attempts" {
+		return "session-reuse", fmt.Errorf("native session reused; stopped before further calls")
+	}
+	switch a.Status {
+	case "timeout":
+		return "attempt-timeout", fmt.Errorf("native attempt timed out; stopped before further calls")
+	case "cancelled":
+		return "cancelled", fmt.Errorf("native attempt cancelled; stopped before further calls")
+	case "adapter-error":
+		// Identity refusal is a runner decision after successful execution. Do not
+		// substitute missing telemetry for the cause of a genuine adapter failure.
+		if a.Response != nil {
+			reason := nativeIdentityStatus(e, a.Response.Native)
+			identityRefusal := a.Diagnostic == nativeIdentityDiagnostic(reason)
+			// Codex also refuses a mismatched native thread before starting a turn.
+			identityRefusal = identityRefusal || (e.Codex != nil && a.Diagnostic == "codex native thread configuration does not match requested model, provider and reasoning")
+			if reason != "" && identityRefusal {
+				return reason, fmt.Errorf("native model accounting invalid; stopped before further calls")
+			}
+		}
+		return "adapter-error", fmt.Errorf("native adapter failed; stopped before further calls")
+	}
+	if a.Response != nil {
+		if reason := nativeIdentityStatus(e, a.Response.Native); reason != "" {
+			return reason, fmt.Errorf("native model accounting invalid; stopped before further calls")
+		}
+	}
+	if a.Response == nil || a.Response.Usage == nil {
+		return "unknown-usage", fmt.Errorf("native usage unknown; stopped before further calls")
+	}
+	*used += a.Response.Usage.InputTokens + a.Response.Usage.OutputTokens
+	if *used >= e.MaxTotalTokens && !last {
+		return "token-limit", fmt.Errorf("native token ceiling reached; stopped before further calls")
+	}
+	return "", nil
+}
+
+func nativeIdentityDiagnostic(reason string) string {
+	return reason + ": native evidence does not confirm the configured model/settings"
 }
 
 func gradeAttempt(ctx context.Context, a *Attempt) {
@@ -199,7 +305,7 @@ func writeExclusiveJSON(path string, value any) error {
 }
 func runDigest(r ExperimentRun) string { r.Digest = ""; return jsonDigest(r) }
 
-// LoadExperimentRun verifies complete history, evidence consistency and evaluator identity.
+// LoadExperimentRun verifies complete or explicitly stopped history and evidence consistency.
 func LoadExperimentRun(path string) (ExperimentRun, error) {
 	var r ExperimentRun
 	f, err := os.Open(path)
@@ -241,15 +347,59 @@ func validateRun(r ExperimentRun) error {
 		return fmt.Errorf("evaluator mismatch: rescore with the matching task/grader version")
 	}
 	schedule := Schedule(cfg)
-	if !reflect.DeepEqual(schedule, r.Resolved.Schedule) || len(r.Attempts) != len(schedule) {
+	if !reflect.DeepEqual(schedule, r.Resolved.Schedule) || len(r.Attempts) > len(schedule) || (r.StopReason == "" && len(r.Attempts) != len(schedule)) {
 		return fmt.Errorf("incomplete or inconsistent paired schedule")
+	}
+	switch r.StopReason {
+	case "", "cancelled", "run-timeout":
+	case "unknown-usage", "token-limit", "session-reuse", "model-mismatch", "model-unverified", "attempt-timeout", "adapter-error":
+		if !cfg.IsNative() {
+			return fmt.Errorf("native stop reason on command adapter")
+		}
+	default:
+		return fmt.Errorf("unknown run stop reason")
+	}
+	if cfg.IsNative() && (((cfg.Gemini != nil && r.Resolved.GeminiVersion == "") || (cfg.Claude != nil && r.Resolved.ClaudeVersion == "") || (cfg.Codex != nil && r.Resolved.CodexVersion == "")) || r.Resolved.BudgetPolicy == "" || len(r.Resolved.NativeSettings) == 0 || len(r.Resolved.NativeArguments) == 0) {
+		return fmt.Errorf("missing native provenance")
+	}
+	if cfg.IsNative() {
+		expected, err := nativeSettings(cfg)
+		if err != nil || !jsonEquivalent(expected, r.Resolved.NativeSettings) || !reflect.DeepEqual(nativeArguments(cfg), r.Resolved.NativeArguments) {
+			return fmt.Errorf("native execution settings provenance mismatch")
+		}
 	}
 	if len(r.Resolved.CommandFiles) == 0 || r.Resolved.ConfigSHA == "" || r.Resolved.Runtime == "" || r.Resolved.RunnerSHA == "" || r.Resolved.Grader.Path == "" || r.Resolved.Grader.SHA == "" || r.Resolved.Grader.Version == "" {
 		return fmt.Errorf("missing provenance")
 	}
+	sessions := map[string]bool{}
 	for i, a := range r.Attempts {
 		if !reflect.DeepEqual(a.Request, newAdapterRequest(cfg, schedule[i])) || a.AgentNanos < 0 || a.GradeNanos < 0 || a.AgentNanos > int64(24*time.Hour) || a.GradeNanos > int64(24*time.Hour) {
 			return fmt.Errorf("attempt %d: request/timing mismatch", i)
+		}
+		if cfg.IsNative() {
+			parsed, parseErr := parseNativeOutput(cfg, a.Stdout)
+			if a.Response != nil && a.Response.Native != nil && a.Response.Native.OutputTruncated {
+				if a.Status != "adapter-error" || a.Diagnostic != cfg.Agent+" output exceeded 1 MiB per stream" {
+					return fmt.Errorf("attempt %d: invalid truncation outcome", i)
+				}
+				markGeminiTruncated(&parsed)
+			}
+			if a.Response == nil || !reflect.DeepEqual(&parsed, a.Response) {
+				return fmt.Errorf("attempt %d: native response differs from raw output", i)
+			}
+			if err := validateUsage(a.Response.Usage); err != nil {
+				return err
+			}
+			if a.Response.Source != "" && a.SourceSHA != digest([]byte(a.Response.Source)) {
+				return fmt.Errorf("attempt %d: native source digest mismatch", i)
+			}
+			session := a.Response.Native.SessionID
+			if a.Status == "passed" || a.Status == "failed" || a.Status == "grading-error" {
+				if parseErr != nil || nativeIdentityStatus(cfg, a.Response.Native) != "" || (session != "" && sessions[session]) {
+					return fmt.Errorf("attempt %d: incomplete or reused native session", i)
+				}
+			}
+			sessions[session] = true
 		}
 		switch a.Status {
 		case "passed", "failed", "grading-error":
@@ -257,7 +407,7 @@ func validateRun(r ExperimentRun) error {
 				return fmt.Errorf("attempt %d: missing or corrupt candidate", i)
 			}
 			var parsed AdapterResponse
-			if err := strictJSON([]byte(a.Stdout), &parsed); err != nil || !reflect.DeepEqual(&parsed, a.Response) {
+			if err := strictJSON([]byte(a.Stdout), &parsed); !cfg.IsNative() && (err != nil || !reflect.DeepEqual(&parsed, a.Response)) {
 				return fmt.Errorf("attempt %d: response differs from raw output", i)
 			}
 			if err := validateUsage(a.Response.Usage); err != nil {
@@ -273,14 +423,96 @@ func validateRun(r ExperimentRun) error {
 				return fmt.Errorf("attempt %d: missing grading diagnostic", i)
 			}
 		case "adapter-error", "timeout", "cancelled":
-			if a.Response != nil || a.SourceSHA != "" || a.Grade.Passed || a.Diagnostic == "" {
+			if (!cfg.IsNative() && (a.Response != nil || a.SourceSHA != "")) || a.Grade.Passed || a.Diagnostic == "" {
 				return fmt.Errorf("attempt %d: invalid execution failure", i)
 			}
 		default:
 			return fmt.Errorf("attempt %d: unknown status %q", i, a.Status)
 		}
 	}
+	return validateNativeStop(r)
+}
+
+func validateNativeStop(r ExperimentRun) error {
+	if !r.Resolved.Experiment.IsNative() {
+		return nil
+	}
+	var used int64
+	sessions := map[string]bool{}
+	outcomeStop := r.StopReason == "attempt-timeout" || r.StopReason == "adapter-error"
+	for i, a := range r.Attempts {
+		last := i+1 == len(r.Attempts)
+		if a.Response == nil || a.Response.Native == nil {
+			return fmt.Errorf("missing native evidence")
+		}
+		session := a.Response.Native.SessionID
+		reused := session != "" && sessions[session]
+		sessions[session] = true
+		if reused {
+			if !last || (r.StopReason != "session-reuse" && r.StopReason != "cancelled" && r.StopReason != "run-timeout") || a.Diagnostic != "native session ID reused across attempts" {
+				return fmt.Errorf("invalid session reuse stop")
+			}
+			return nil
+		}
+		if outcomeStop {
+			if last {
+				want := r.StopReason
+				if want == "attempt-timeout" {
+					want = "timeout"
+				}
+				if a.Status != want {
+					return fmt.Errorf("unsubstantiated execution failure stop")
+				}
+				return nil
+			}
+			if a.Status == "timeout" || a.Status == "cancelled" || a.Status == "adapter-error" {
+				return fmt.Errorf("native execution continued after execution failure")
+			}
+		}
+		if reason := nativeIdentityStatus(r.Resolved.Experiment, a.Response.Native); reason != "" {
+			if !last || (r.StopReason != reason && r.StopReason != "cancelled" && r.StopReason != "run-timeout") {
+				return fmt.Errorf("native execution continued with unverified or changed model")
+			}
+			return nil
+		}
+		if a.Response.Usage == nil {
+			if !last || (r.StopReason != "unknown-usage" && r.StopReason != "cancelled" && r.StopReason != "run-timeout") {
+				return fmt.Errorf("native execution continued after unknown usage")
+			}
+			return nil
+		}
+		used += a.Response.Usage.InputTokens + a.Response.Usage.OutputTokens
+		if used >= r.Resolved.Experiment.MaxTotalTokens && !last {
+			return fmt.Errorf("native execution continued after token ceiling")
+		}
+	}
+	switch r.StopReason {
+	case "token-limit":
+		if len(r.Attempts) == len(r.Resolved.Schedule) || used < r.Resolved.Experiment.MaxTotalTokens {
+			return fmt.Errorf("unsubstantiated token stop")
+		}
+	case "unknown-usage", "session-reuse", "model-mismatch", "model-unverified", "attempt-timeout", "adapter-error":
+		return fmt.Errorf("unsubstantiated native stop")
+	}
 	return nil
+}
+
+func nativeModelStatus(evidence *NativeEvidence, model string) string {
+	if evidence == nil || len(evidence.ReportedModels) == 0 {
+		return "model-unverified"
+	}
+	if len(evidence.ReportedModels) != 1 || evidence.ReportedModels[0] != model {
+		return "model-mismatch"
+	}
+	return ""
+}
+
+func jsonEquivalent(a, b []byte) bool {
+	var left, right any
+	if uniqueJSON(a) != nil || uniqueJSON(b) != nil || json.Unmarshal(a, &left) != nil || json.Unmarshal(b, &right) != nil {
+		return false
+	}
+	return reflect.DeepEqual(left, right)
 }
 
 // RescoreExperiment re-evaluates retained source without executing any adapter or overwriting evidence.
@@ -304,7 +536,7 @@ func rescoreExperiment(ctx context.Context, path string, grade func(context.Cont
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		if run.Attempts[i].Response != nil {
+		if run.Attempts[i].Status == "passed" || run.Attempts[i].Status == "failed" || run.Attempts[i].Status == "grading-error" {
 			grade(ctx, &run.Attempts[i])
 		}
 	}

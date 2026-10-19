@@ -9,43 +9,55 @@ import (
 
 // Comparison summarizes paired pilot evidence with explicit denominators and no inference claims.
 type Comparison struct {
-	UnevaluablePairs             int            `json:"unevaluable_pairs"`
-	Pairs                        int            `json:"pairs"`
-	BaselinePassed               int            `json:"baseline_passed"`
-	CandidatePassed              int            `json:"candidate_passed"`
-	Improvements                 int            `json:"improvements"`
-	Regressions                  int            `json:"regressions"`
-	BothPassed                   int            `json:"both_passed"`
-	NeitherPassed                int            `json:"neither_passed"`
-	StatusCounts                 map[string]int `json:"status_counts"`
-	SuccessfulPairMeanDeltaNanos *float64       `json:"successful_pair_mean_delta_nanos"`
-	UsagePairs                   int            `json:"usage_pairs"`
-	MissingUsagePairs            int            `json:"missing_usage_pairs"`
-	TotalTokenDelta              *int64         `json:"total_token_delta"`
+	Mode                         string                `json:"mode"`
+	Arms                         map[string]ArmSummary `json:"arms"`
+	StopReason                   string                `json:"stop_reason,omitempty"`
+	ScheduledAttempts            int                   `json:"scheduled_attempts"`
+	CompletedAttempts            int                   `json:"completed_attempts"`
+	UnpairedAttempts             int                   `json:"unpaired_attempts"`
+	UnevaluablePairs             int                   `json:"unevaluable_pairs"`
+	Pairs                        int                   `json:"pairs"`
+	BaselinePassed               int                   `json:"baseline_passed"`
+	CandidatePassed              int                   `json:"candidate_passed"`
+	Improvements                 int                   `json:"improvements"`
+	Regressions                  int                   `json:"regressions"`
+	BothPassed                   int                   `json:"both_passed"`
+	NeitherPassed                int                   `json:"neither_passed"`
+	StatusCounts                 map[string]int        `json:"status_counts"`
+	SuccessfulPairMeanDeltaNanos *float64              `json:"successful_pair_mean_delta_nanos"`
+	UsagePairs                   int                   `json:"usage_pairs"`
+	MissingUsagePairs            int                   `json:"missing_usage_pairs"`
+	TotalTokenDelta              *int64                `json:"total_token_delta"`
 }
 
-// CompareExperiment compares the two configured arms only after complete-history validation.
+// CompareExperiment compares the two configured arms only after retained-history validation.
 func CompareExperiment(run ExperimentRun) (Comparison, error) {
 	c := Comparison{StatusCounts: map[string]int{}}
 	if err := validateRun(run); err != nil {
 		return c, err
 	}
+	c.Mode = run.Resolved.Experiment.Mode
+	if c.Mode == "" {
+		c.Mode = "ab"
+	}
+	c.Arms = summarizeArms(run.Attempts)
+	c.StopReason = run.StopReason
+	c.ScheduledAttempts = len(run.Resolved.Schedule)
+	c.CompletedAttempts = len(run.Attempts)
+	c.UnpairedAttempts = len(run.Attempts) % 2
+	c.BaselinePassed = c.Arms["baseline"].StatusCounts["passed"]
+	c.CandidatePassed = c.Arms["candidate"].StatusCounts["passed"]
+	for _, a := range run.Attempts {
+		c.StatusCounts[a.Request.Trial.Arm+"/"+a.Status]++
+	}
 	var timeDelta int64
 	var tokenDelta int64
-	for i := 0; i < len(run.Attempts); i += 2 {
+	for i := 0; i+1 < len(run.Attempts); i += 2 {
 		a, b := run.Attempts[i], run.Attempts[i+1]
 		if a.Request.Trial.Arm == "candidate" {
 			a, b = b, a
 		}
 		c.Pairs++
-		c.StatusCounts["baseline/"+a.Status]++
-		c.StatusCounts["candidate/"+b.Status]++
-		if a.Status == "passed" {
-			c.BaselinePassed++
-		}
-		if b.Status == "passed" {
-			c.CandidatePassed++
-		}
 		switch {
 		case a.Status == "passed" && b.Status == "passed":
 			c.BothPassed++
@@ -79,7 +91,19 @@ func CompareExperiment(run ExperimentRun) (Comparison, error) {
 // FormatComparison renders descriptive results without declaring a winner from a pilot.
 func FormatComparison(c Comparison) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Paired pilot: %d pairs\nBaseline passed: %d/%d; candidate passed: %d/%d\nQuality changes: %d improvements, %d regressions, %d both passed, %d neither passed\n", c.Pairs, c.BaselinePassed, c.Pairs, c.CandidatePassed, c.Pairs, c.Improvements, c.Regressions, c.BothPassed, c.NeitherPassed)
+	if c.Mode == "aa" {
+		b.WriteString("A/A calibration: identical configured treatments; stochastic outcomes may differ.\n")
+	}
+	fmt.Fprintf(&b, "Attempts retained: %d/%d scheduled; %d unpaired\n", c.CompletedAttempts, c.ScheduledAttempts, c.UnpairedAttempts)
+	if c.StopReason != "" {
+		fmt.Fprintf(&b, "Run stopped: %s\n", c.StopReason)
+	}
+	fmt.Fprintf(&b, "Paired pilot: %d pairs\nBaseline passed: %d/%d; candidate passed: %d/%d\n", c.Pairs, c.BaselinePassed, c.Arms["baseline"].Attempts, c.CandidatePassed, c.Arms["candidate"].Attempts)
+	if c.Mode == "aa" {
+		fmt.Fprintf(&b, "Quality discordance: %d candidate-only passes, %d baseline-only passes, %d both passed, %d neither passed\n", c.Improvements, c.Regressions, c.BothPassed, c.NeitherPassed)
+	} else {
+		fmt.Fprintf(&b, "Quality changes: %d improvements, %d regressions, %d both passed, %d neither passed\n", c.Improvements, c.Regressions, c.BothPassed, c.NeitherPassed)
+	}
 	fmt.Fprintf(&b, "Unevaluable quality pairs: %d (execution/grading errors or timeouts)\n", c.UnevaluablePairs)
 	keys := make([]string, 0, len(c.StatusCounts))
 	for key := range c.StatusCounts {
@@ -89,6 +113,7 @@ func FormatComparison(c Comparison) string {
 	for _, key := range keys {
 		fmt.Fprintf(&b, "%s: %d\n", key, c.StatusCounts[key])
 	}
+	formatArmSummaries(&b, c.Arms)
 	if c.SuccessfulPairMeanDeltaNanos != nil {
 		fmt.Fprintf(&b, "Mean candidate-minus-baseline execution time: %.3f s (%d both-passed pairs)\n", *c.SuccessfulPairMeanDeltaNanos/1e9, c.BothPassed)
 	} else {
