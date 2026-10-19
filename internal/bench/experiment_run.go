@@ -406,7 +406,7 @@ func validateNativeStop(r ExperimentRun) error {
 		reused := session != "" && sessions[session]
 		sessions[session] = true
 		if reused {
-			if !last || r.StopReason != "session-reuse" || a.Diagnostic != "native session ID reused across attempts" {
+			if !last || (r.StopReason != "session-reuse" && r.StopReason != "cancelled" && r.StopReason != "run-timeout") || a.Diagnostic != "native session ID reused across attempts" {
 				return fmt.Errorf("invalid session reuse stop")
 			}
 			return nil

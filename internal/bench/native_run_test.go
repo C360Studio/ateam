@@ -207,6 +207,8 @@ func TestNativeStopHistoryConsistency(t *testing.T) {
 		{"genuinely missing", "unknown-usage", []Attempt{{Response: &AdapterResponse{Native: &CodexEvidence{SessionID: "a"}}}}, true},
 		{"no invented reuse", "session-reuse", []Attempt{{Response: response("a", 1)}}, false},
 		{"reuse stop", "session-reuse", []Attempt{{Response: response("a", 1)}, {Response: response("a", 1), Diagnostic: "native session ID reused across attempts"}}, true},
+		{"reuse cancelled", "cancelled", []Attempt{{Response: response("a", 1)}, {Response: response("a", 1), Diagnostic: "native session ID reused across attempts"}}, true},
+		{"reuse deadline", "run-timeout", []Attempt{{Response: response("a", 1)}, {Response: response("a", 1), Diagnostic: "native session ID reused across attempts"}}, true},
 		{"reuse ignored", "cancelled", []Attempt{{Response: response("a", 1)}, {Response: response("a", 1)}}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
