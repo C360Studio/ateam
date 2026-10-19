@@ -19,24 +19,25 @@ const maxAdapterBytes = 1 << 20
 
 // Experiment controls a paired pilot with one command and two instruction variants.
 type Experiment struct {
-	Version        int           `json:"version"`
-	Mode           string        `json:"mode,omitempty"`
-	Gemini         *GeminiConfig `json:"gemini,omitempty"`
-	Claude         *ClaudeConfig `json:"claude,omitempty"`
-	Codex          *CodexConfig  `json:"codex,omitempty"`
-	MaxTotalTokens int64         `json:"max_total_tokens,omitempty"`
-	MaxRunSeconds  int           `json:"max_run_seconds,omitempty"`
-	Name           string        `json:"name"`
-	Command        []string      `json:"command"`
-	Agent          string        `json:"agent"`
-	AgentVersion   string        `json:"agent_version"`
-	Model          string        `json:"model"`
-	Baseline       string        `json:"baseline"`
-	Candidate      string        `json:"candidate"`
-	Tasks          []string      `json:"tasks"`
-	Repetitions    int           `json:"repetitions"`
-	Seed           int64         `json:"seed"`
-	TimeoutSeconds int           `json:"timeout_seconds"`
+	Version        int               `json:"version"`
+	Mode           string            `json:"mode,omitempty"`
+	Bundles        *BundleReferences `json:"bundles,omitempty"`
+	Gemini         *GeminiConfig     `json:"gemini,omitempty"`
+	Claude         *ClaudeConfig     `json:"claude,omitempty"`
+	Codex          *CodexConfig      `json:"codex,omitempty"`
+	MaxTotalTokens int64             `json:"max_total_tokens,omitempty"`
+	MaxRunSeconds  int               `json:"max_run_seconds,omitempty"`
+	Name           string            `json:"name"`
+	Command        []string          `json:"command"`
+	Agent          string            `json:"agent"`
+	AgentVersion   string            `json:"agent_version"`
+	Model          string            `json:"model"`
+	Baseline       string            `json:"baseline"`
+	Candidate      string            `json:"candidate"`
+	Tasks          []string          `json:"tasks"`
+	Repetitions    int               `json:"repetitions"`
+	Seed           int64             `json:"seed"`
+	TimeoutSeconds int               `json:"timeout_seconds"`
 }
 
 // Trial identifies one arm of a task/repetition pair.
@@ -48,6 +49,7 @@ type Trial struct {
 
 // ResolvedExperiment is the reviewable dry-run output, including reproducibility metadata.
 type ResolvedExperiment struct {
+	Bundles         *BundleResolution `json:"bundles,omitempty"`
 	NativeSettings  json.RawMessage   `json:"native_settings,omitempty"`
 	NativeArguments []string          `json:"native_arguments,omitempty"`
 	GeminiVersion   string            `json:"gemini_version,omitempty"`
@@ -136,17 +138,24 @@ func validateExperiment(e Experiment) error {
 		}
 		seen[id] = true
 	}
-	switch e.Mode {
-	case "", "ab":
-		if e.Baseline == e.Candidate {
-			return fmt.Errorf("baseline and candidate instructions must differ in A/B mode")
+	if e.Mode != "" && e.Mode != "ab" && e.Mode != "aa" {
+		return fmt.Errorf("mode must be aa or ab")
+	}
+	if e.Bundles != nil {
+		if e.Baseline != "" || e.Candidate != "" {
+			return fmt.Errorf("bundle references cannot be combined with inline instructions")
 		}
-	case "aa":
+		for _, path := range []string{e.Bundles.Baseline, e.Bundles.Candidate} {
+			if err := validateBundlePath(path); err != nil {
+				return err
+			}
+		}
+	} else if e.Mode == "aa" {
 		if e.Baseline != e.Candidate {
 			return fmt.Errorf("A/A requires identical baseline and candidate instructions")
 		}
-	default:
-		return fmt.Errorf("mode must be aa or ab")
+	} else if e.Baseline == e.Candidate {
+		return fmt.Errorf("baseline and candidate instructions must differ in A/B mode")
 	}
 	providers := 0
 	for _, selected := range []bool{e.Gemini != nil, e.Claude != nil, e.Codex != nil} {
@@ -279,9 +288,26 @@ func evaluatorDigest(ids []string) string {
 
 // ResolveExperiment validates executable/script identity without running the adapter.
 func ResolveExperiment(e Experiment, base string) (ResolvedExperiment, error) {
+	if e.Bundles != nil {
+		refs := *e.Bundles
+		e.Bundles = &refs
+	}
 	r := ResolvedExperiment{Original: e, ConfigSHA: jsonDigest(e), CommandFiles: map[string]string{}, Runtime: runtime.Version() + " " + runtime.GOOS + "/" + runtime.GOARCH}
 	if err := validateExperiment(e); err != nil {
 		return r, err
+	}
+	if e.Bundles != nil {
+		bundles, err := resolveBundles(e.Bundles, base)
+		if err != nil {
+			return r, err
+		}
+		r.Bundles = bundles
+		base = bundles.ConfigDir
+		e.Baseline, e.Candidate = bundles.Baseline.Instructions, bundles.Candidate.Instructions
+		e.Bundles = nil
+		if err := validateExperiment(e); err != nil {
+			return r, err
+		}
 	}
 	e.Command = append([]string(nil), e.Command...)
 	executable := e.Command[0]
@@ -357,7 +383,7 @@ func ResolveExperiment(e Experiment, base string) (ResolvedExperiment, error) {
 	r.Experiment = e
 	r.EvaluatorSHA = evaluatorDigest(e.Tasks)
 	r.Schedule = Schedule(e)
-	return r, nil
+	return r, boundBundleArtifact(r)
 }
 
 func validateUsage(u *Usage) error {

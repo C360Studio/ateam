@@ -1,11 +1,28 @@
-# Claim checkpoint
+# Implementation verification
 
-implemented-by: codex (claim/design only; implementation and independent approval pending)
+implemented-by: codex (bundle resolver, retained evidence, shared transport integration, offline tests and examples)
 
-Parent: #16. Focused implementation issue: #26. Base: 76e6f63d8deae62c075923f91fb703afe2d6c5a5. Dedicated branch: codex/benchmark-treatments.
+Addresses #26 under roadmap #16. Base: 76e6f63d8deae62c075923f91fb703afe2d6c5a5. Branch: codex/benchmark-treatments. The initial claim-only checkpoint was 8e86f466c80b2c4b07bd62ab8d47cb5fdcb27399; the owner subsequently authorized implementation and delivery.
 
-Reviewed the current Experiment/ResolvedExperiment/AdapterRequest boundaries, resolution-before-execution behavior and affected experiment tests. No runtime code, dependencies or generated client settings changed. No configured .agents/review-policy.json exists at this base; recheck policy and route before implementation if one is added.
+No `.agents/review-policy.json` is configured at this base or in this change. Independent plan and substantive change review use a separate read-only agent run that authored none of the deliverable. Runtime model identity/superiority is not independently attested; no configured-policy approval is claimed. The reviewer approved the schema and bounds and found a relative-config-directory issue during code review. A failing changed-cwd regression reproduced it before the correction. A second failing regression reproduced rejection of semantically identical native settings after JSON indentation; the corrected guard retains full provenance comparison and compares native settings semantically. Tests also reject actual native-settings changes. Final committed-head review and full clean-tree verification are delivery gates, recorded against their exact SHAs in PR #27.
 
-This checkpoint makes the next slice concrete and reviewable. It does not claim completed implementation, independent design approval, live calibration or performance gains. Gemini capacity retry remains deferred; no credentials or previous raw benchmark traces are copied into this worktree.
+## Focused offline evidence
 
-Direct documentation checks: `openspec validate benchmark-instruction-bundles --strict --no-interactive` passed; `git diff --check` passed. Runtime tests and full implementation gates are deferred because this draft contains only the claim/design, not implementation.
+- The two tracked bundle examples resolved offline and each completed six reference-adapter attempts. Comparison and rescore outputs matched; original artifact bytes stayed unchanged. The reference adapter ignores instructions, so these are pipeline checks, not performance evidence.
+- Historical real Haiku and Luna pilot artifacts passed read-only load/compare using the extended implementation. SHA-256 values stayed `9c68c17cfcff2c1673266f0d7546b26bdf37cc68f4e22d593eabaf549803f0c8` and `ce5fcbe681d2279fd66c999ea38e0e8a64f7759e1454976f72dc00626c428873`. Neither raw artifact was copied into this worktree or published.
+- `TestBundleDeliveryToGenericTransport` and `TestBundleDeliveryToNativeTransports` passed all eight arm/transport cases, with literal Unicode/CRLF/quotes/backslash/whitespace oracles. Existing three native isolation regressions passed. Native tests use fake CLI processes, not provider calls.
+- `task test:spec` passed after adding directly attached citations. Strict OpenSpec validation and `git diff --check` passed.
+
+## Testing decision and mutation evidence
+
+Decision: Generated composition checks plus deterministic parser, boundary and state-history examples. No generated filesystem-race claim.
+
+Rule: Preserve ordered component bytes and two-newline separators; use effective bytes for AA/AB; confine and bound explicit inputs; validate retained evidence without source access; refuse changed inputs/controls before execution.
+
+Inputs: Three fuzz seeds include empty content, Unicode/BOM/CRLF and 32 components. Examples cover metadata-only equivalence, alternate component splits, reversed order, manifests at 64 KiB and one byte over, 32/33 file paths, effective content at 1 MiB and one byte over, 600-attempt JSON-escaped artifact expansion, missing files, directories/symlinks/traversal, changed content/metadata/argv/provenance, corruption under a recomputed outer digest, and resolve/change-cwd/run/delete-sources/compare/rescore history. Literal source/hash expectations and the test-owned byte-append model supply independent oracles.
+
+Run: `go test ./internal/bench -run '^$' -fuzz '^FuzzBundleComposition$' -fuzztime 10s -parallel 2 -v` passed 543,747 generated executions after replaying all three seeds; this is exploration, separately from ordinary seed replay. Logs and generated cache are local and ignored. These focused checks measured the implementation snapshot before final commit; final repository checks are bound to committed heads in the PR.
+
+Mutation: Five non-destructive `task mutate:check` overlays reported `detection`, each with passing baseline and after-run: select baseline bytes for the candidate (all three native transports); replace the two-newline separator with one; omit component hash verification; omit known artifact-size refusal; and omit the whole resolved-bundle stale check (content, metadata, argv, policy, runner and runtime mutations were then accepted). Tests were `TestBundleDeliveryToNativeTransports`, `TestBundleImmutableResolution`, `TestBundleTamperedSnapshotRefusal`, `TestBundlePredictableArtifactLimit` and `TestBundleStaleResolutionNeverLaunches`. Mutants were temporary copies outside the repository; original source files were never swapped or restored. There are no known survivors.
+
+Not covered: Paid model calls, Gemini capacity retry, native skill/hook execution, provider billing reconciliation, adversarial concurrent edits to already-open file contents, and exhaustive platform-specific filesystem behavior. Known request sizing cannot predict response size. Retained hashes establish consistency, not authenticated authorship. No harness-performance improvement is claimed.

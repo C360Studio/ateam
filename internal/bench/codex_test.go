@@ -265,6 +265,9 @@ func TestCodexCLIHelper(_ *testing.T) {
 	if len(inputs) != 1 || !strings.Contains(inputs[0].Text, "func Resolve") || strings.Contains(inputs[0].Text, `"arm"`) {
 		os.Exit(2)
 	}
+	if err := os.WriteFile(filepath.Join(cwd, "bundle-delivered-prompt.txt"), []byte(inputs[0].Text), 0600); err != nil {
+		os.Exit(12)
+	}
 	var schema map[string]any
 	_ = json.Unmarshal(turn["outputSchema"], &schema)
 	expected := `{"additionalProperties":false,"properties":{"source":{"type":"string"}},"required":["source"],"type":"object"}`

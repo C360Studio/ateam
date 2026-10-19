@@ -54,6 +54,45 @@ Usage may be `null` or omitted. If supplied, both primary counts are required. I
 
 A real adapter must invoke its agent, apply `instructions`, capture provider usage, and return the resulting source. The native Gemini, Claude and Codex adapters described below are built-in integrations. The saved request proves which treatment was requested; it does not prove a skill or tool was actually used. Retain provider-native traces externally before making such claims.
 
+## Versioned instruction bundles
+
+Use file-backed bundles to compare real instruction edits while keeping the model, provider, reasoning, schedule and budgets shared. Replace the inline `baseline` and `candidate` strings with explicit manifest references:
+
+```json
+"bundles": {
+  "baseline": "bundles/baseline.json",
+  "candidate": "bundles/candidate.json"
+}
+```
+
+Each manifest has this version-1 format:
+
+```json
+{
+  "version": 1,
+  "name": "boundary-review-v1",
+  "files": ["instructions.md", "boundaries.md"]
+}
+```
+
+Manifest paths resolve beneath the experiment configuration directory. Each manifest's directory is its bundle root; its ordered `files` resolve beneath that directory. Paths must be canonical relative paths using `/`, with no absolute paths, `.` or `..` segments, backslashes or symlinks. Only explicit regular UTF-8 text files are read. There is no globbing, directory discovery, network fetch, template expansion or execution. A manifest is at most 64 KiB and names 1–32 unique file paths; each arm's effective content is at most 1 MiB, including separators. Inline strings must be empty or omitted when `bundles` is selected.
+
+The effective instructions are the exact file contents joined with two newline bytes (`\n\n`), in listed order. Existing whitespace and line endings are preserved. Names, paths and manifest metadata are retained as provenance but never prepended to instructions. `mode: aa` requires byte-identical effective content; omitted mode or `ab` requires different content. Two names for the same content are a valid A/A control, not an A/B change. Reordering files counts only when the resulting instruction bytes change.
+
+Try the offline examples:
+
+```sh
+bin/ateam bench run benchmarks/examples/bundles-aa.json --dry-run
+bin/ateam bench run benchmarks/examples/bundles-ab.json --dry-run
+bin/ateam bench run benchmarks/examples/bundles-ab.json
+```
+
+The reference adapter returns fixed solutions regardless of instruction content. These commands demonstrate resolution, delivery and artifact handling, not prompt effectiveness. To use bundles with a native provider, make the same replacement in its existing experiment configuration; the workflow and shared adapter instruction field are unchanged.
+
+Dry-run output retains the original references, raw manifests, ordered component contents and SHA-256 hashes, and effective content/hashes for both arms. Review the resolved `experiment.baseline` and `experiment.candidate` to see the actual treatment difference. New execution validates the saved snapshot and rereads its explicit inputs before starting attempts; changed or missing files require a fresh resolution. Once resolved for execution, all attempts use the retained bytes. Offline `compare` and `rescore` validate and use saved content without accessing the original bundle files, so they still work after those files are removed.
+
+Resolution refuses bundles whose known snapshot and scheduled requests alone exceed the existing 64 MiB artifact limit, accounting for JSON escaping. Adapter responses can still exceed the remaining artifact space; choose smaller bundles or fewer repetitions for large experiments. Bundle content is copied into retained evidence and delivered to the selected adapter: include only text intended for that provider. Hashes detect corruption, not malicious forgery. Delivery of skill-like text is not evidence that a native skill or hook ran, or that the treatment improved performance.
+
 ## Isolation, grading, and evidence
 
 Each attempt gets a temporary working directory and configuration home, with a minimal environment. Parent credentials, agent settings and project instructions are not automatically inherited. PATH still identifies installed executables. Credentials/configuration needed by a real adapter must be handled deliberately in its implementation.
@@ -94,7 +133,7 @@ node_modules/.bin/openspec show benchmark-experiments --type spec
 
 ## Gemini API calibration and harness A/B
 
-The first native adapter uses Gemini CLI **0.43.0**, API-key authentication and **gemini-3.8-flash**. Both arms share one model and generation configuration. The experimental treatment is the explicit harness instruction text: identical for A/A, different for A/B. Routing, init roles, other native providers and arbitrary skill bundles are outside this first adapter. The existing generic command protocol remains available.
+The first native adapter uses Gemini CLI **0.43.0**, API-key authentication and **gemini-3.8-flash**. Both arms share one model and generation configuration. The experimental treatment is the explicit harness instruction text: identical for A/A, different for A/B. Routing, init roles and native skill/hook execution remain outside the instruction treatment. File-backed instruction bundles use the shared resolution described above. The existing generic command protocol remains available.
 
 The examples are pilot templates, not live authorization or performance results:
 
