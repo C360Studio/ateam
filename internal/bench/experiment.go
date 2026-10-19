@@ -158,6 +158,10 @@ func validateExperiment(e Experiment) error {
 		return fmt.Errorf("select exactly one native provider")
 	}
 	if e.Gemini != nil {
+		// Empty format preserves the original prompt-only canary for offline replay.
+		if e.Gemini.OutputFormat != "" && e.Gemini.OutputFormat != "json-schema" {
+			return fmt.Errorf("gemini output_format must be json-schema")
+		}
 		if e.Model != "gemini-3.8-flash" {
 			return fmt.Errorf("first native benchmark requires fixed model gemini-3.8-flash")
 		}

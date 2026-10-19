@@ -19,7 +19,7 @@ func nativeTestExperiment(t *testing.T, usage string) Experiment {
 	cfg.Agent, cfg.AgentVersion, cfg.Mode = "gemini", "", "aa"
 	cfg.Candidate = cfg.Baseline
 	cfg.Model = "gemini-3.8-flash"
-	cfg.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low"}
+	cfg.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low", OutputFormat: "json-schema"}
 	cfg.MaxTotalTokens, cfg.MaxRunSeconds = 1000, 60
 	cfg.Tasks, cfg.Repetitions = []string{"safe-path"}, 1
 	var source string

@@ -1,0 +1,18 @@
+# Verification
+
+implemented-by: codex, PR #13 (Addresses #10; user-requested Gemini retry and review follow-ups)
+
+Independent plan review approved explicit native JSON schema output for new Gemini execution, with exact legacy settings retained for replay. Installed CLI 0.43.0 configuration and SDK serialization were inspected; official documentation confirms schema plus function calling for Gemini 3.8 Flash, currently preview. Runtime compatibility and complete accounting still require a bounded native canary.
+
+PR review: https://github.com/C360Studio/ateam/pull/13#issuecomment-6273350281 . Findings 1 and 2 concern operational stop labels and pre-grading session refusal; finding 4 is the stale Codex README sentence. Shared-helper naming, provider dispatch and version-policy table consolidation (findings 3 and 5) remain nonblocking structural follow-ups before another provider or CLI-contract refresh. This change preserves the recorded JSON contract instead of introducing that refactor.
+
+The first new canary is independently retained at `benchmarks/runs/gemini-capacity-canary/experiment-1711254730/run.json`, SHA-256 `aceca6f2e4446b5cb326132ab1101678e8e315971dd4b5760898e729235e67e7`. It returned fenced JSON after one observed 503 error; raw counters contain 13,537 tokens across three requests, one erroneous. Normalized usage remains unknown; there is no quality result. Offline replay retained the error without model calls. Full details are in the Gemini startup report.
+
+- Decision: deterministic lifecycle/status combinations and a candidate-init side-effect oracle cover the two control-flow defects; schema-mode examples cover both override scopes and legacy/invalid values. Existing generated accounting cases remain; no new broad fuzz exploration claim.
+- Rule: real execution failures keep their operational cause; explicit identity refusal remains identifiable; a duplicate session never reaches the grader; new Gemini execution requests schema output while legacy bytes stay replayable.
+- Inputs: timeout/cancellation/adapter failure with absent identity; explicit runner/Codex identity refusals; wrong/no/prior terminal evidence for new stop reasons; repeated native sessions with executable source; native schema presence, absent/invalid output format, both configuration scopes and legacy captured settings.
+- Run: meaningful RED reproduced failure relabeling, duplicate candidate execution (`evaluated` twice), missing native schema and permitted legacy launch. Four new control-flow tests passed under race; native/Claude/Codex run suites passed; all TestGemini tests passed (1.806s). Format/lint, package vet and native/strict OpenSpec passed (seven items).
+- Mutation: detection for accounting-first stop ordering, executing duplicate source then erasing its grade, native schema omission, missing execution gate and missing resolution gate. Baseline/after checks passed with unchanged original sources. Gemini logs: `.enjoy-logs/gemini-schema-mutation.log`, `gemini-execution-gate-mutation.log`, `gemini-resolution-gate-mutation.log`.
+- Not covered: live schema/tool compatibility, complete failed-request usage, authoritative billing, provider capacity stability, or the deferred structural refactors.
+
+Independent final change review approved the combined implementation, tests, legacy fixture and documentation. The rebuilt binary rescored the actual new legacy Gemini canary at `rescore-3621744295/run.json`; comparison stayed identical and original SHA-256 stayed `aceca6f2e4446b5cb326132ab1101678e8e315971dd4b5760898e729235e67e7`. The original Gemini timeout artifact still loads. Real Haiku and Luna comparisons remain byte-identical under the new reader. The schema-canary dry run passed without inference.

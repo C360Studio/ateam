@@ -163,7 +163,7 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 		if resolved.Experiment.IsNative() && runErr == nil {
 			if reason := nativeIdentityStatus(resolved.Experiment, response.Native); reason != "" {
 				status = "adapter-error"
-				runErr = fmt.Errorf("%s: native evidence does not confirm the configured model/settings", reason)
+				runErr = fmt.Errorf("%s", nativeIdentityDiagnostic(reason))
 			}
 		}
 		a.Stdout = stdout
@@ -176,22 +176,20 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 				a.SourceSHA = digest([]byte(response.Source))
 			}
 		}
+		if a.Response != nil && a.Response.Native != nil {
+			session := a.Response.Native.SessionID
+			if session != "" && sessions[session] {
+				a.Status = "adapter-error"
+				runErr = fmt.Errorf("native session ID reused across attempts")
+			}
+			sessions[session] = true
+		}
 		if runErr != nil {
 			a.Diagnostic = runErr.Error()
 		} else {
 			a.Response = &response
 			a.SourceSHA = digest([]byte(response.Source))
 			gradeAttempt(ctx, &a)
-		}
-		if a.Response != nil && a.Response.Native != nil {
-			session := a.Response.Native.SessionID
-			if session != "" && sessions[session] {
-				a.Status = "adapter-error"
-				a.Grade = CandidateEvaluation{}
-				a.GradeNanos = 0
-				a.Diagnostic = "native session ID reused across attempts"
-			}
-			sessions[session] = true
 		}
 		if err := writeExclusiveJSON(filepath.Join(dir, fmt.Sprintf("attempt-%04d.json", i)), a); err != nil {
 			return dir, err
@@ -227,6 +225,25 @@ func nativeStop(ctx context.Context, e Experiment, a Attempt, used *int64, last 
 	if a.Diagnostic == "native session ID reused across attempts" {
 		return "session-reuse", fmt.Errorf("native session reused; stopped before further calls")
 	}
+	switch a.Status {
+	case "timeout":
+		return "attempt-timeout", fmt.Errorf("native attempt timed out; stopped before further calls")
+	case "cancelled":
+		return "cancelled", fmt.Errorf("native attempt cancelled; stopped before further calls")
+	case "adapter-error":
+		// Identity refusal is a runner decision after successful execution. Do not
+		// substitute missing telemetry for the cause of a genuine adapter failure.
+		if a.Response != nil {
+			reason := nativeIdentityStatus(e, a.Response.Native)
+			identityRefusal := a.Diagnostic == nativeIdentityDiagnostic(reason)
+			// Codex also refuses a mismatched native thread before starting a turn.
+			identityRefusal = identityRefusal || (e.Codex != nil && a.Diagnostic == "codex native thread configuration does not match requested model, provider and reasoning")
+			if reason != "" && identityRefusal {
+				return reason, fmt.Errorf("native model accounting invalid; stopped before further calls")
+			}
+		}
+		return "adapter-error", fmt.Errorf("native adapter failed; stopped before further calls")
+	}
 	if a.Response != nil {
 		if reason := nativeIdentityStatus(e, a.Response.Native); reason != "" {
 			return reason, fmt.Errorf("native model accounting invalid; stopped before further calls")
@@ -240,6 +257,10 @@ func nativeStop(ctx context.Context, e Experiment, a Attempt, used *int64, last 
 		return "token-limit", fmt.Errorf("native token ceiling reached; stopped before further calls")
 	}
 	return "", nil
+}
+
+func nativeIdentityDiagnostic(reason string) string {
+	return reason + ": native evidence does not confirm the configured model/settings"
 }
 
 func gradeAttempt(ctx context.Context, a *Attempt) {
@@ -331,7 +352,7 @@ func validateRun(r ExperimentRun) error {
 	}
 	switch r.StopReason {
 	case "", "cancelled", "run-timeout":
-	case "unknown-usage", "token-limit", "session-reuse", "model-mismatch", "model-unverified":
+	case "unknown-usage", "token-limit", "session-reuse", "model-mismatch", "model-unverified", "attempt-timeout", "adapter-error":
 		if !cfg.IsNative() {
 			return fmt.Errorf("native stop reason on command adapter")
 		}
@@ -418,6 +439,7 @@ func validateNativeStop(r ExperimentRun) error {
 	}
 	var used int64
 	sessions := map[string]bool{}
+	outcomeStop := r.StopReason == "attempt-timeout" || r.StopReason == "adapter-error"
 	for i, a := range r.Attempts {
 		last := i+1 == len(r.Attempts)
 		if a.Response == nil || a.Response.Native == nil {
@@ -431,6 +453,21 @@ func validateNativeStop(r ExperimentRun) error {
 				return fmt.Errorf("invalid session reuse stop")
 			}
 			return nil
+		}
+		if outcomeStop {
+			if last {
+				want := r.StopReason
+				if want == "attempt-timeout" {
+					want = "timeout"
+				}
+				if a.Status != want {
+					return fmt.Errorf("unsubstantiated execution failure stop")
+				}
+				return nil
+			}
+			if a.Status == "timeout" || a.Status == "cancelled" || a.Status == "adapter-error" {
+				return fmt.Errorf("native execution continued after execution failure")
+			}
 		}
 		if reason := nativeIdentityStatus(r.Resolved.Experiment, a.Response.Native); reason != "" {
 			if !last || (r.StopReason != reason && r.StopReason != "cancelled" && r.StopReason != "run-timeout") {
@@ -454,7 +491,7 @@ func validateNativeStop(r ExperimentRun) error {
 		if len(r.Attempts) == len(r.Resolved.Schedule) || used < r.Resolved.Experiment.MaxTotalTokens {
 			return fmt.Errorf("unsubstantiated token stop")
 		}
-	case "unknown-usage", "session-reuse", "model-mismatch", "model-unverified":
+	case "unknown-usage", "session-reuse", "model-mismatch", "model-unverified", "attempt-timeout", "adapter-error":
 		return fmt.Errorf("unsubstantiated native stop")
 	}
 	return nil

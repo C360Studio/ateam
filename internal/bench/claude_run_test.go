@@ -67,7 +67,7 @@ func TestClaudeRunStopsAndReplay(t *testing.T) {
 		{"tokens", "token-limit", "passed", 1, 0},
 		{"unknown", "unknown-usage", "passed", 1, 0},
 		{"model", "model-mismatch", "adapter-error", 1, 0},
-		{"failed", "unknown-usage", "adapter-error", 1, 0},
+		{"failed", "adapter-error", "adapter-error", 1, 0},
 		{"reuse", "session-reuse", "adapter-error", 2, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

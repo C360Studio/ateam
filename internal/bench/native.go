@@ -56,6 +56,9 @@ func parseNativeOutput(e Experiment, output string) (AdapterResponse, error) {
 }
 
 func resolveNative(r *ResolvedExperiment, e Experiment) error {
+	if e.Gemini != nil && e.Gemini.OutputFormat != "json-schema" {
+		return fmt.Errorf("gemini new execution requires output_format json-schema; legacy text format is replay-only")
+	}
 	if e.Claude != nil && e.Claude.OutputFormat != "json-schema" {
 		return fmt.Errorf("claude new execution requires output_format json-schema; legacy text format is replay-only")
 	}

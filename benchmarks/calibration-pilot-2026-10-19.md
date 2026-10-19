@@ -1,6 +1,6 @@
 # Gemini A/A pilot: startup evidence, 2026-10-19
 
-The pilot has **no evaluable pairs or quality result**. The first launch exposed a missing workspace-trust setting. After the user approved session-only trust and the adapter was fixed, Google's API returned repeated HTTP 503 high-demand errors. The first attempt reached its 120-second limit; the runner retained the timeout and stopped before another benchmark attempt. Provider availability must recover before A/A calibration can be completed.
+The pilot has **no evaluable pairs or quality result**. The first launch exposed a missing workspace-trust setting. After the user approved session-only trust and the adapter was fixed, Google's API returned repeated HTTP 503 high-demand errors. The first attempt reached its 120-second limit; the runner retained the timeout and stopped before another benchmark attempt. A later canary received a response after one 503 retry, but exposed a fenced-JSON output mismatch and incomplete accounting. Native schema output and a clean, fully accounted canary are required before the full A/A pilot.
 
 ## Configuration and authorization
 
@@ -17,8 +17,9 @@ The pilot has **no evaluable pairs or quality result**. The first launch exposed
 | Before trust fix | 1 / 30 | Adapter error after 0.866 seconds | Exit 55: untrusted workspace | 0 |
 | With approved scoped trust | 1 / 30 | Timeout after 120.007 seconds | Six explicit 503 retry messages in stderr; no stdout report | 0 |
 | User-requested capacity retry | 1 / 30 | Timeout after 120.018 seconds | Six explicit 503 retry messages in stderr; no stdout report | 0 |
+| Post-Luna capacity canary | 1 / 2 | Adapter error after 16.102 seconds | Fenced JSON; three native API requests with one error; partial usage | 0 |
 
-These are separate startup runs, not combined A/A samples. The third launch reused the same config and runner hashes below, again stopped after the first attempt, and produced no evaluable pairs. The second run's provider errors establish a service-availability failure, not a task-quality regression. Six logged retry failures are observed stderr evidence, not an authoritative billing/request ledger. No further native attempt or model fallback was launched after the runner stopped. All three runs have stop reason `model-unverified` because model identity was unavailable; the terminal attempt status and stderr retain the underlying cause.
+These are separate startup runs, not combined A/A samples. The third launch reused the same config and runner hashes below, again stopped after the first attempt, and produced no evaluable pairs. The second run's provider errors establish a service-availability failure, not a task-quality regression. Six logged retry failures are observed stderr evidence, not an authoritative billing/request ledger. No further native attempt or model fallback was launched after the runner stopped. The original three runs have stop reason `model-unverified` because model identity was unavailable; the terminal attempt status and stderr retain the underlying cause.
 
 The local environment also reported missing ripgrep and a GrepTool fallback. No tool execution was observed; make tool availability consistent before interpreting later tool-heavy comparisons.
 
@@ -42,4 +43,16 @@ The trust regression failed before the fix. Fake-child tests confirm explicit se
 
 Retry the same fixed-model configuration when provider capacity is available, retain the existing failures, and reconcile available provider usage before treating calibration as complete. Do not switch models silently, count service failures as task-quality regressions, or claim harness improvements from these startup runs.
 
-The user subsequently selected Claude Haiku through API authentication for a separate calibration, followed by Codex Luna. The Claude adapter is being verified independently; its future results will not be combined with these Gemini startup failures.
+The separate [Haiku](haiku-calibration-pilot-2026-10-19.md) and [Luna](luna-calibration-pilot-2026-10-19.md) calibrations are complete. Their results are not pooled with these Gemini startup failures.
+
+## Post-Luna capacity canary
+
+The user requested another Gemini retry while PR #13 was under review. The unchanged verified runner binary (SHA-256 `bde3b34628dcc603c5e417a7a016a3d2ed3d050f4b81193caba7752ffe053110`) scheduled only one safe-path pair, preserving Gemini CLI 0.43.0, gemini-3.8-flash, low reasoning, API-only auth and the original 120-second/100,000-token limits. Its offline self-test passed first.
+
+Google returned one explicit 503 before the CLI produced a native terminal report. The report identified gemini-3.8-flash and one successful list_directory call; generated source was wrapped in Markdown JSON fences. Strict parsing rejected it rather than repairing or grading the response. Native counters reported 12,973 prompt and 564 candidate tokens (13,537 total), zero cache/thought/tool tokens and three API requests including one error. The failed request's usage is unknown, so normalized usage remained partial/unknown and the runner stopped with `unknown-usage` after the first attempt. No full pilot or model fallback followed this artifact.
+
+- Artifact: `benchmarks/runs/gemini-capacity-canary/experiment-1711254730/run.json`; SHA-256 `aceca6f2e4446b5cb326132ab1101678e8e315971dd4b5760898e729235e67e7`.
+- Offline replay: `rescore-3159759801/run.json`; retains the adapter error without a model call.
+- Native schema correction is tracked separately in `openspec/changes/gemini-structured-output/`; old configuration/evidence must stay replayable.
+
+This is evidence that at least one request returned during the retry, not proof that provider capacity is stable. Reported token counts are partial observations, not a full bill or a quality result.

@@ -107,7 +107,7 @@ func TestCodexRunStopsAndReplay(t *testing.T) {
 		{"tokens", "complete", "token-limit", "passed", 1, 0},
 		{"unknown", "unknownusage", "unknown-usage", "passed", 1, 0},
 		{"model", "mismatchedmodel", "model-mismatch", "adapter-error", 1, 0},
-		{"failed", "failed", "unknown-usage", "adapter-error", 1, 0},
+		{"failed", "failed", "adapter-error", "adapter-error", 1, 0},
 		{"reuse", "reusedsession", "session-reuse", "adapter-error", 2, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -33,7 +33,7 @@ func fakeGeminiExperiment(t *testing.T) Experiment {
 	e := testExperiment()
 	e.Command = []string{launcher}
 	e.Model = "explicit-test-model"
-	e.Gemini = &GeminiConfig{Reasoning: "low", Auth: "api-key-env"}
+	e.Gemini = &GeminiConfig{Reasoning: "low", Auth: "api-key-env", OutputFormat: "json-schema"}
 	t.Setenv("GEMINI_API_KEY", geminiTestKey)
 	t.Setenv("ATEAM_SECRET_PROBE", "must-not-inherit")
 	for _, name := range []string{"OPENAI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_GENAI_USE_VERTEXAI", "NODE_OPTIONS"} {
@@ -259,6 +259,13 @@ func validateFakeGeminiInvocation(args []string) error {
 	if settings.Security.Auth.SelectedType != "gemini-api-key" || !settings.Advanced.IgnoreLocalEnv || settings.Skills.Enabled || settings.HooksConfig.Enabled || settings.Experimental.EnableAgents {
 		return fmt.Errorf("authentication or isolation policy is wrong")
 	}
+	var native map[string]json.RawMessage
+	if err := json.Unmarshal(settingsBytes, &native); err != nil {
+		return err
+	}
+	if !strings.Contains(string(native["modelConfigs"]), `"responseMimeType": "application/json"`) || !strings.Contains(string(native["modelConfigs"]), `"responseJsonSchema"`) {
+		return fmt.Errorf("native source schema was not delivered")
+	}
 	if !slices.Equal(settings.Tools.Core, []string{"list_directory", "read_file", "grep_search", "glob"}) {
 		return fmt.Errorf("unexpected tools enabled")
 	}
@@ -281,7 +288,7 @@ func TestGeminiRejectsManagedSettings(t *testing.T) {
 func TestGeminiSettingsPinExecutionPolicy(t *testing.T) {
 	e := testExperiment()
 	e.Model = "gemini-3.8-flash"
-	e.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low"}
+	e.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low", OutputFormat: "json-schema"}
 	b, err := geminiSettings(e)
 	if err != nil {
 		t.Fatal(err)
@@ -337,6 +344,96 @@ func TestGeminiSettingsPinExecutionPolicy(t *testing.T) {
 	for _, override := range configs.Overrides {
 		if override.Config.Model != "gemini-3.8-flash" || override.Config.Generation.MaxTokens != 8192 || override.Config.Generation.Thinking.Level != "LOW" || override.Config.Generation.Thinking.Include {
 			t.Fatal("generation model, thinking, or output cap drifted")
+		}
+	}
+}
+
+func TestGeminiNativeSourceSchema(t *testing.T) {
+	e := testExperiment()
+	e.Model = "gemini-3.8-flash"
+	if err := json.Unmarshal([]byte(`{"auth":"api-key-env","reasoning":"low","output_format":"json-schema"}`), &e.Gemini); err != nil {
+		t.Fatal(err)
+	}
+	data, err := geminiSettings(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings struct {
+		ModelConfigs struct {
+			Overrides []struct {
+				Config struct {
+					Generation map[string]json.RawMessage `json:"generateContentConfig"`
+				} `json:"modelConfig"`
+			} `json:"customOverrides"`
+		} `json:"modelConfigs"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.ModelConfigs.Overrides) != 2 {
+		t.Fatal("missing native model overrides")
+	}
+	schema := []byte(`{"type":"object","properties":{"source":{"type":"string"}},"required":["source"],"additionalProperties":false}`)
+	for _, override := range settings.ModelConfigs.Overrides {
+		if string(override.Config.Generation["responseMimeType"]) != `"application/json"` || !jsonEquivalent(schema, override.Config.Generation["responseJsonSchema"]) {
+			t.Fatal("native source schema is absent or does not constrain the final JSON object")
+		}
+	}
+}
+
+func TestGeminiLegacyExecutionRefused(t *testing.T) {
+	e := fakeGeminiExperiment(t)
+	e.Gemini.OutputFormat = ""
+	dir := t.TempDir()
+	_, stdout, _, status, err := executeGemini(context.Background(), e, AdapterRequest{}, dir)
+	if err == nil || status != "adapter-error" || stdout != "" || !strings.Contains(err.Error(), "output_format json-schema") {
+		t.Fatalf("legacy execution not refused before process launch: %s %v", status, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".gemini")); !os.IsNotExist(err) {
+		t.Fatal("legacy execution reached workspace preparation")
+	}
+	e.Command = []string{"/does-not-exist/no-version-probe"}
+	if err := resolveNative(&ResolvedExperiment{}, e); err == nil || !strings.Contains(err.Error(), "output_format json-schema") {
+		t.Fatalf("legacy resolution reached CLI probe: %v", err)
+	}
+}
+
+func TestGeminiLegacySettingsReplay(t *testing.T) {
+	e := testExperiment()
+	e.Model = "gemini-3.8-flash"
+	e.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low"}
+	data, err := geminiSettings(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Captured native settings from the real, prompt-only capacity canary.
+	previous, err := os.ReadFile(filepath.Join("testdata", "gemini", "legacy-settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !jsonEquivalent(data, previous) {
+		t.Fatal("legacy Gemini settings no longer reproduce saved canary provenance")
+	}
+	raw, err := json.Marshal(e.Gemini)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "output_format") {
+		t.Fatal("absent output format changed legacy config digest")
+	}
+}
+
+func TestGeminiOutputFormatValidation(t *testing.T) {
+	e := testExperiment()
+	e.Agent, e.Model = "gemini", "gemini-3.8-flash"
+	e.MaxTotalTokens, e.MaxRunSeconds = 1000, 60
+	e.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low"}
+	for _, format := range []string{"", "json-schema", "unknown"} {
+		e.Gemini.OutputFormat = format
+		data, _ := json.Marshal(e)
+		_, err := ParseExperiment(data)
+		if (err == nil) != (format != "unknown") {
+			t.Fatalf("output format %q validation: %v", format, err)
 		}
 	}
 }

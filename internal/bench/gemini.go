@@ -14,14 +14,18 @@ import (
 
 // GeminiConfig opts into the built-in, API-key-only Gemini CLI adapter.
 type GeminiConfig struct {
-	Reasoning string `json:"reasoning"`
-	Auth      string `json:"auth"`
+	Reasoning    string `json:"reasoning"`
+	Auth         string `json:"auth"`
+	OutputFormat string `json:"output_format,omitempty"`
 }
 
 func executeGemini(ctx context.Context, e Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
 	empty, _ := parseGeminiOutput("")
 	if e.Gemini == nil || e.Gemini.Auth != "api-key-env" || len(e.Command) != 1 {
 		return empty, "", "", "adapter-error", fmt.Errorf("gemini requires api-key-env authentication and one executable")
+	}
+	if e.Gemini.OutputFormat != "json-schema" {
+		return empty, "", "", "adapter-error", fmt.Errorf("gemini new execution requires output_format json-schema; legacy text format is replay-only")
 	}
 	key := os.Getenv("GEMINI_API_KEY")
 	if key == "" {
@@ -102,6 +106,13 @@ func geminiSettings(e Experiment) ([]byte, error) {
 	generation := map[string]any{
 		"maxOutputTokens": 8192,
 		"thinkingConfig":  map[string]any{"thinkingLevel": strings.ToUpper(e.Gemini.Reasoning), "includeThoughts": false},
+	}
+	if e.Gemini.OutputFormat == "json-schema" {
+		generation["responseMimeType"] = "application/json"
+		generation["responseJsonSchema"] = map[string]any{
+			"type": "object", "properties": map[string]any{"source": map[string]any{"type": "string"}},
+			"required": []string{"source"}, "additionalProperties": false,
+		}
 	}
 	settings := map[string]any{
 		"security":     map[string]any{"auth": map[string]any{"selectedType": "gemini-api-key"}},
