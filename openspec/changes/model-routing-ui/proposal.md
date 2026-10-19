@@ -1,5 +1,7 @@
 # Change: Read-only model routing dashboard
 
+Issue: https://github.com/C360Studio/ateam/issues/21
+Draft PR: https://github.com/C360Studio/ateam/pull/22
 Owner: Codex (`codex/model-routing-ui`)
 implemented-by: codex
 
@@ -17,4 +19,4 @@ Touch the web server, focused routing reader/tests, dashboard types, a Svelte pa
 
 ## Acceptance and Stop Boundary
 
-Verify all five routing states, read authorization/method refusal, fresh reads after policy replacement/deletion, bounded/confined file reads, exact display/escaping and arbitrary effort strings. Run relevant gates, mutation checks, independent review and full preflight. Deliver locally verified work; issue/PR publication requires authorization after automatic approval review rejected issue creation.
+Verify all five routing states, read authorization/method refusal, fresh reads after policy replacement/deletion, bounded/confined file reads, exact display/escaping and arbitrary effort strings. Run relevant gates, mutation checks, independent review and full preflight. Deliver verified work in a draft PR. The user explicitly authorized issue, branch and draft PR publication after the initial automatic approval rejection. Stop before merge.

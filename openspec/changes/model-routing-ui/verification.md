@@ -1,6 +1,6 @@
 # Verification evidence
 
-Base: `10314ea0f4885343c2d0829b48be6f77fd016da4`; implementation snapshot is the commit containing this file. Local logs are in `.enjoy-logs/`. No project model-review policy is configured, so independent code review is not a policy-bound approval or proof of model superiority.
+Base: `10314ea0f4885343c2d0829b48be6f77fd016da4`; implementation snapshot is `d1ff1683489bfefa5b0abcd0265fc22fb0704a5c`; the later publication update changes documentation only. Local logs are in `.enjoy-logs/`. No project model-review policy is configured, so independent code review is not a policy-bound approval or proof of model superiority.
 
 ## Focused checks
 
@@ -24,8 +24,8 @@ Not covered: native runtime model identity, policy editing, generated route-card
 
 ## Full preflight
 
-The first `task verify` attempt passed formatting, spec shape/attribution, tidy, vet and lint. All Go packages except `cmd/ateam` passed with race detection. `TestCLISubcommands` hit the existing doctor timing gate at 52,809us against its 50,000us threshold during concurrent package verification. This failed attempt is preserved in `.enjoy-logs/routing-preflight-dirty.log`; it is not a passing verification result. The isolated CLI replay passed, and the remaining benchmark/UI checks exited 0 in `.enjoy-logs/routing-remaining-checks.log`: selftest passed with six evaluated checks and one explicitly unsupported task, UI checks reported zero errors/warnings, all 15 Vitest tests passed, and UI build passed. A clean-commit `task verify` is required before final delivery; final exact-SHA results are reported in the conversation and `.enjoy-logs/routing-preflight-final.log`.
+The first `task verify` attempt passed formatting, spec shape/attribution, tidy, vet and lint. All Go packages except `cmd/ateam` passed with race detection. `TestCLISubcommands` hit the existing doctor timing gate at 52,809us against its 50,000us threshold during concurrent package verification. This failed attempt is preserved in `.enjoy-logs/routing-preflight-dirty.log`; it is not a passing verification result. The isolated CLI replay passed, and the remaining benchmark/UI checks exited 0 in `.enjoy-logs/routing-remaining-checks.log`: selftest passed with six evaluated checks and one explicitly unsupported task, UI checks reported zero errors/warnings, all 15 Vitest tests passed, and UI build passed. `GOFLAGS=-p=1 task verify` then exited 0 on clean implementation commit `d1ff1683489bfefa5b0abcd0265fc22fb0704a5c`; the exact-SHA result is recorded in the conversation and `.enjoy-logs/routing-preflight-final.log`. Serial Go package execution avoided the earlier timing contention without skipping checks. Independent review confirmed the final committed diff with no remaining findings.
 
 ## Publication boundary
 
-Automatic approval review rejected creating the GitHub tracking issue because external publication was not explicitly authorized. No issue, push or PR was attempted afterward. The remaining publication task records this hold; local implementation and verification continued.
+Automatic approval review rejected creating the GitHub tracking issue because external publication was not explicitly authorized. Local implementation and verification continued without publication. The user subsequently explicitly selected “Publish the issue and draft PR”; approval review then permitted publication. [Issue #21](https://github.com/C360Studio/ateam/issues/21) and [draft PR #22](https://github.com/C360Studio/ateam/pull/22) are now created, and the branch is published. The publication hold is resolved. Merge remains outside the authorized scope.
