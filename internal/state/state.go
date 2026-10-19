@@ -103,9 +103,18 @@ type BoardCard struct {
 	Branch     string    `json:"branch,omitempty"`
 	Milestone  string    `json:"milestone,omitempty"`
 	HoldReason string    `json:"hold_reason,omitempty"`
+	Decision   string    `json:"decision,omitempty"`
 	Forge      string    `json:"forge,omitempty"` // github, gitea, local
 	URL        string    `json:"url,omitempty"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// WriterLease tracks the most recent active agent writer in .ateam/writer.json.
+type WriterLease struct {
+	Agent     string    `json:"agent"`
+	SessionID string    `json:"session_id,omitempty"`
+	PID       int       `json:"pid"`
+	LastSeen  time.Time `json:"last_seen"`
 }
 
 // State is the cached local state stored in gitignored .ateam/state.json.
@@ -113,10 +122,12 @@ type State struct {
 	Mode          DisciplineMode   `json:"mode"`
 	Forge         ForgeConfig      `json:"forge"`
 	LastHandoff   *Handoff         `json:"last_handoff,omitempty"`
+	Writer        *WriterLease     `json:"writer,omitempty"`
 	Git           GitStatus        `json:"git"`
 	Cards         []BoardCard      `json:"cards"`
 	Shortcuts     []ShortcutItem   `json:"shortcuts,omitempty"`
 	Holds         []HoldItem       `json:"holds,omitempty"`
+	HoldScanError string           `json:"hold_scan_error,omitempty"`
 	OpenSpecQueue []OpenSpecChange `json:"openspec_queue,omitempty"`
 	UpdatedAt     time.Time        `json:"updated_at"`
 }
@@ -126,6 +137,75 @@ func CacheFilePath(root string) string {
 	return filepath.Join(root, ".ateam", "state.json")
 }
 
+// WriterLeasePath returns the path to .ateam/writer.json under root.
+func WriterLeasePath(root string) string {
+	return filepath.Join(root, ".ateam", "writer.json")
+}
+
+// ReadWriterLease reads .ateam/writer.json if present.
+func ReadWriterLease(root string) (*WriterLease, error) {
+	data, err := os.ReadFile(WriterLeasePath(root))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var wl WriterLease
+	if err := json.Unmarshal(data, &wl); err != nil {
+		return nil, err
+	}
+	return &wl, nil
+}
+
+// WriteWriterLease atomically writes the active writer lease to .ateam/writer.json.
+func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
+	dir := filepath.Join(root, ".ateam")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	agent = strings.TrimSpace(agent)
+	if agent == "" {
+		agent = strings.TrimSpace(os.Getenv("ATEAM_AGENT"))
+	}
+	if agent == "" {
+		br, _ := ReadFastGitHead(root)
+		agent = inferAgentFromBranch(br)
+	}
+	if agent == "" {
+		agent = "agent"
+	}
+	wl := &WriterLease{
+		Agent:     agent,
+		SessionID: strings.TrimSpace(sessionID),
+		PID:       os.Getpid(),
+		LastSeen:  time.Now().UTC(),
+	}
+	data, err := json.MarshalIndent(wl, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp(dir, "writer.json.*.tmp")
+	if err != nil {
+		return nil, err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return nil, err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, err
+	}
+	if err := os.Rename(tmpPath, WriterLeasePath(root)); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, err
+	}
+	return wl, nil
+}
+
 // Load reads .ateam/state.json or returns an initialized default State.
 func Load(root string) (*State, error) {
 	p := CacheFilePath(root)
@@ -133,6 +213,9 @@ func Load(root string) (*State, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			st := defaultState()
+			if wl, err := ReadWriterLease(root); err == nil && wl != nil {
+				st.Writer = wl
+			}
 			return st, nil
 		}
 		return nil, fmt.Errorf("read state cache: %w", err)
@@ -146,8 +229,11 @@ func Load(root string) (*State, error) {
 	} else {
 		st.Mode = ModeFull
 	}
-	if len(st.Cards) == 0 {
-		st.Cards = defaultBoardCards()
+	if st.Cards == nil {
+		st.Cards = []BoardCard{}
+	}
+	if wl, err := ReadWriterLease(root); err == nil && wl != nil {
+		st.Writer = wl
 	}
 	return &st, nil
 }
@@ -231,79 +317,8 @@ func Update(root string, fn func(st *State) error) (*State, error) {
 func defaultState() *State {
 	return &State{
 		Mode:      ModeFull,
-		Cards:     defaultBoardCards(),
+		Cards:     []BoardCard{},
 		UpdatedAt: time.Now().UTC(),
-	}
-}
-
-func defaultBoardCards() []BoardCard {
-	now := time.Now().UTC()
-	return []BoardCard{
-		{
-			ID:        "ATEAM-1",
-			Number:    1,
-			Title:     "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms",
-			Column:    "done",
-			Type:      "epic",
-			Labels:    []string{"type:epic", "harness"},
-			Agent:     "gemini",
-			Branch:    "gemini/universal-hooks",
-			Milestone: "v0.1 Foundation",
-			Forge:     "github",
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ATEAM-2",
-			Number:    2,
-			Title:     "2-Tool multiplexed MCP server (ateam_state, ateam_task) <300 tokens",
-			Column:    "done",
-			Type:      "issue",
-			Labels:    []string{"mcp", "ponytail"},
-			Agent:     "gemini",
-			Branch:    "gemini/mcp-server",
-			Milestone: "v0.1 Foundation",
-			Forge:     "github",
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ATEAM-3",
-			Number:    3,
-			Title:     "OpenSpec spec:queue / spec:check & Dual-Forge (GitHub + Gitea) sync",
-			Column:    "done",
-			Type:      "issue",
-			Labels:    []string{"openspec", "gitea", "github"},
-			Agent:     "gemini",
-			Branch:    "gemini/openspec-gitea",
-			Milestone: "v0.1 Foundation",
-			Forge:     "github",
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ATEAM-4",
-			Number:    4,
-			Title:     "Agentic benchmark suite (Coding Discipline + Handoff Continuity tiers)",
-			Column:    "done",
-			Type:      "issue",
-			Labels:    []string{"benchmark", "ponytail"},
-			Agent:     "claude",
-			Branch:    "claude/bench-suite",
-			Milestone: "v0.1 Foundation",
-			Forge:     "github",
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ATEAM-5",
-			Number:    5,
-			Title:     "Cross-repo automatic PR merge-check & dual-forge webhook enforcement",
-			Column:    "done",
-			Type:      "issue",
-			Labels:    []string{"webhooks", "governance"},
-			Agent:     "gemini",
-			Branch:    "gemini/dual-forge-webhooks",
-			Milestone: "v0.2 Rollout",
-			Forge:     "gitea",
-			UpdatedAt: now,
-		},
 	}
 }
 
@@ -349,11 +364,17 @@ func (st *State) MergeForgeCards(synced []BoardCard, provider ForgeProvider) {
 			if updated.HoldReason == "" && existing.HoldReason != "" {
 				updated.HoldReason = existing.HoldReason
 			}
+			if existing.Column == "needs-decision" && updated.Column != "needs-decision" && updated.Decision == "" {
+				updated.Decision = fmt.Sprintf("resolved -> %s", updated.Column)
+			}
+			if updated.Decision == "" && existing.Decision != "" {
+				updated.Decision = existing.Decision
+			}
 			merged = append(merged, updated)
 			seen[existing.ID] = true
 			continue
 		}
-		if existing.Forge != string(provider) || strings.HasPrefix(existing.ID, "ATEAM-") {
+		if existing.Forge != string(provider) {
 			merged = append(merged, existing)
 			seen[existing.ID] = true
 		}
@@ -419,6 +440,7 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 		st.Forge = forgeCfg
 		st.Shortcuts = shortcuts
 		st.Holds = holds
+		st.HoldScanError = ""
 		st.OpenSpecQueue = queue
 		if syncRemote {
 			st.MergeForgeCards(syncedCards, forgeCfg.Provider)
@@ -593,8 +615,27 @@ func resolveGitDirs(root string) (gitDir, commonDir string, ok bool) {
 // BuildPickupSummary creates a concise reconciliation report for SessionStart or pickup.
 func BuildPickupSummary(st *State) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%d\n",
-		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), len(st.Holds))
+	holdsDisplay := fmt.Sprintf("%d", len(st.Holds))
+	if st.HoldScanError != "" {
+		holdsDisplay = "unavailable"
+	}
+	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%s\n",
+		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay)
+	if st.HoldScanError != "" {
+		fmt.Fprintf(&b, "WARNING: Hold/OpenSpec scan failed (%s) — hold status unavailable\n", st.HoldScanError)
+	}
+	if st.Writer != nil && !st.Writer.LastSeen.IsZero() {
+		age := time.Since(st.Writer.LastSeen).Round(time.Second)
+		if age < 0 {
+			age = 0
+		}
+		fmt.Fprintf(&b, "Writer lease: agent=%s session=%s pid=%d last_seen=%s ago\n",
+			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age)
+		if time.Since(st.Writer.LastSeen) < 10*time.Minute && st.Writer.PID != 0 && st.Writer.PID != os.Getpid() {
+			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)\n",
+				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age)
+		}
+	}
 	if len(st.OpenSpecQueue) > 0 {
 		fmt.Fprintf(&b, "OpenSpec in-flight changes: %d\n", len(st.OpenSpecQueue))
 		for _, ch := range st.OpenSpecQueue {
@@ -605,6 +646,21 @@ func BuildPickupSummary(st *State) string {
 		fmt.Fprintf(&b, "Active Hold items:\n")
 		for _, h := range st.Holds {
 			fmt.Fprintf(&b, "  - %s:%d %s\n", h.File, h.Line, h.Text)
+		}
+	}
+	var decisions []BoardCard
+	for _, c := range st.Cards {
+		if strings.TrimSpace(c.Decision) != "" {
+			decisions = append(decisions, c)
+			if len(decisions) >= 5 {
+				break
+			}
+		}
+	}
+	if len(decisions) > 0 {
+		fmt.Fprintf(&b, "Recent decisions:\n")
+		for _, c := range decisions {
+			fmt.Fprintf(&b, "  - %s (%s): %s\n", c.ID, c.Title, c.Decision)
 		}
 	}
 	if st.LastHandoff != nil {

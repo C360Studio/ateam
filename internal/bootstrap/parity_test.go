@@ -87,6 +87,13 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(sub, ".agents", "skills", "handoff", "SKILL.md"), []byte("---\nname: handoff\n---\n# handoff\nFollow protocol.\n"), 0o644)
 		requireViolation(t, CheckParity(sub), ".agents/protocol.md", ".agents/skills/handoff/SKILL.md")
 	})
+
+	t.Run("README.md hook event drift rejected", func(t *testing.T) {
+		sub := t.TempDir()
+		_, _ = InitRepo(context.Background(), sub, Options{})
+		_ = os.WriteFile(filepath.Join(sub, "README.md"), []byte("# Repo\n- `ateam hook <event>` (`session-start`, `pre-tool`, `post-tool`, `stop`)\n"), 0o644)
+		requireViolation(t, CheckParity(sub), "README.md", "before-prompt")
+	})
 }
 
 func requireViolation(t *testing.T, violations []string, substrings ...string) {

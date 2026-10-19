@@ -7,7 +7,7 @@ Experimental universal agentic harness, CLI, low-tax MCP server, Ponytail benchm
 - **Universal Agent Governance (`AGENTS.md` + `.agents/`):** Single canonical workflow protocol (`pickup`, `handoff`, `preflight`, `ponytail`) with thin platform adapters in `.claude/`, `.codex/`, and `.gemini/` verified by `ateam doctor`.
 - **Ponytail Decision Ladder:** Enforces minimum-complete-change discipline, tracks intentional deferrals via `// shortcut: <limit>, <when to upgrade>`, and requires a 2-line skipped/residual-risk exit summary.
 - **Zero-Dependency Go Binary (`ateam`):**
-  - `ateam hook <event>` — `<5ms` normalized lifecycle hook (`session-start`, `pre-tool`, `post-tool`, `stop`)
+  - `ateam hook <event>` — `<5ms` normalized lifecycle hook (`session-start`, `before-prompt`, `pre-compact`, `turn-end`)
   - `ateam mcp` — 2-tool stdio MCP server (`ateam_state`, `ateam_task`) under `<300` schema tokens
   - `ateam state` — Hybrid state management (`status`, `pickup`, `handoff`, `holds`, `debt`, `spec-queue`, `spec-check`, `sync`, `mode`)
   - `ateam init` / `ateam doctor` — Repo bootstrap (`--github`, `--gitea` label setup) and multi-agent parity checks

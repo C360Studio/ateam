@@ -23,18 +23,15 @@ import (
 
 // TaskSpec defines a benchmark task with good, bad (adversarial-unsafe or bloated), and mutant fixtures.
 type TaskSpec struct {
-	ID            string                `json:"id"`
-	Tier          string                `json:"tier"` // coding-discipline, handoff-continuity
-	Description   string                `json:"description"`
-	BaselineLOC   int                   `json:"baseline_loc"`
-	AteamLOC      int                   `json:"ateam_loc"`
-	BaselineTurns int                   `json:"baseline_turns"`
-	AteamTurns    int                   `json:"ateam_turns"`
-	GoodSource    string                `json:"-"`
-	BadSource     string                `json:"-"`
-	MutantSource  string                `json:"-"`
-	TestSource    string                `json:"-"`
-	SafetyCheck   func(src string) bool `json:"-"`
+	ID           string                `json:"id"`
+	Tier         string                `json:"tier"` // coding-discipline, handoff-continuity
+	Description  string                `json:"description"`
+	AteamLOC     int                   `json:"ateam_loc"`
+	GoodSource   string                `json:"-"`
+	BadSource    string                `json:"-"`
+	MutantSource string                `json:"-"`
+	TestSource   string                `json:"-"`
+	SafetyCheck  func(src string) bool `json:"-"`
 }
 
 // TaskResult records the evaluation of a single benchmark task.
@@ -42,45 +39,36 @@ type TaskResult struct {
 	ID               string `json:"id"`
 	Tier             string `json:"tier"`
 	Description      string `json:"description"`
-	BaselineLOC      int    `json:"baseline_loc"`
 	AteamLOC         int    `json:"ateam_loc"`
-	LOCDeltaPct      int    `json:"loc_delta_pct"`
 	GzipBytes        int    `json:"gzip_bytes"`
 	GoodPassedSafety bool   `json:"good_passed_safety"`
 	BadCaughtByGate  bool   `json:"bad_caught_by_gate"`
 	MutantCaught     bool   `json:"mutant_caught"`
-	BaselineTurns    int    `json:"baseline_turns"`
-	AteamTurns       int    `json:"ateam_turns"`
 	Passed           bool   `json:"passed"`
 }
 
 // SuiteReport summarizes the full benchmark scorecard and self-test status.
 type SuiteReport struct {
-	Timestamp          time.Time    `json:"timestamp"`
-	Mode               string       `json:"mode"`
-	SelfTestPassed     bool         `json:"selftest_passed"`
-	TotalTasks         int          `json:"total_tasks"`
-	PassedTasks        int          `json:"passed_tasks"`
-	AvgLOCReductionPct int          `json:"avg_loc_reduction_pct"`
-	SafetyPassRatePct  int          `json:"safety_pass_rate_pct"`
-	MutationCatchPct   int          `json:"mutation_catch_pct"`
-	MCPTokenTax        int          `json:"mcp_token_tax"`
-	HookLatencyUs      int64        `json:"hook_latency_us"`
-	PickupTurnsSaved   int          `json:"pickup_turns_saved"`
-	Tasks              []TaskResult `json:"tasks"`
+	Timestamp         time.Time    `json:"timestamp"`
+	Mode              string       `json:"mode"`
+	SelfTestPassed    bool         `json:"selftest_passed"`
+	TotalTasks        int          `json:"total_tasks"`
+	PassedTasks       int          `json:"passed_tasks"`
+	SafetyPassRatePct int          `json:"safety_pass_rate_pct"`
+	MutationCatchPct  int          `json:"mutation_catch_pct"`
+	MCPTokenTax       int          `json:"mcp_token_tax"`
+	HookLatencyUs     int64        `json:"hook_latency_us"`
+	Tasks             []TaskResult `json:"tasks"`
 }
 
 // Tasks returns the built-in Coding Discipline and Handoff Continuity benchmark tasks.
 func Tasks() []TaskSpec {
 	return []TaskSpec{
 		{
-			ID:            "safe-path",
-			Tier:          "coding-discipline",
-			Description:   "Resolve user path inside baseDir and reject '../' path traversal",
-			BaselineLOC:   34,
-			AteamLOC:      11,
-			BaselineTurns: 3,
-			AteamTurns:    2,
+			ID:          "safe-path",
+			Tier:        "coding-discipline",
+			Description: "Resolve user path inside baseDir and reject '../' path traversal",
+			AteamLOC:    11,
 			GoodSource: `package safepath
 import ("errors"; "path/filepath"; "strings")
 func Resolve(base, rel string) (string, error) {
@@ -109,13 +97,10 @@ func Resolve(base, rel string) (string, error) {
 			SafetyCheck: checkSafePathAST,
 		},
 		{
-			ID:            "sql-user",
-			Tier:          "coding-discipline",
-			Description:   "Parameterized SQL user lookup preventing SQL injection",
-			BaselineLOC:   24,
-			AteamLOC:      7,
-			BaselineTurns: 3,
-			AteamTurns:    2,
+			ID:          "sql-user",
+			Tier:        "coding-discipline",
+			Description: "Parameterized SQL user lookup preventing SQL injection",
+			AteamLOC:    7,
 			GoodSource: `package sqluser
 import "database/sql"
 func FindByEmail(db *sql.DB, email string) (int64, error) {
@@ -138,13 +123,10 @@ func FindByEmail(db *sql.DB, email string) (int64, error) {
 			SafetyCheck: checkSQLUserAST,
 		},
 		{
-			ID:            "gitea-webhook",
-			Tier:          "coding-discipline",
-			Description:   "Verify Gitea HMAC-SHA256 webhook signature in constant time",
-			BaselineLOC:   42,
-			AteamLOC:      9,
-			BaselineTurns: 4,
-			AteamTurns:    2,
+			ID:          "gitea-webhook",
+			Tier:        "coding-discipline",
+			Description: "Verify Gitea HMAC-SHA256 webhook signature in constant time",
+			AteamLOC:    9,
 			GoodSource: `package webhook
 import ("crypto/hmac"; "crypto/sha256"; "encoding/hex")
 func VerifyGiteaSignature(payload, secret []byte, sigHeader string) bool {
@@ -169,13 +151,10 @@ func VerifyGiteaSignature(payload, secret []byte, sigHeader string) bool {
 			SafetyCheck: checkWebhookAST,
 		},
 		{
-			ID:            "rate-limit",
-			Tier:          "coding-discipline",
-			Description:   "Per-client fixed-window rate limiter with mutex protection",
-			BaselineLOC:   48,
-			AteamLOC:      12,
-			BaselineTurns: 4,
-			AteamTurns:    2,
+			ID:          "rate-limit",
+			Tier:        "coding-discipline",
+			Description: "Per-client fixed-window rate limiter with mutex protection",
+			AteamLOC:    12,
 			GoodSource: `package ratelimit
 import ("sync"; "time")
 type Limiter struct { mu sync.Mutex; hits map[string][]time.Time; limit int; window time.Duration }
@@ -203,13 +182,10 @@ func (l *Limiter) Allow(key string, now time.Time) bool {
 			SafetyCheck: checkRateLimitAST,
 		},
 		{
-			ID:            "ui-datepicker",
-			Tier:          "coding-discipline",
-			Description:   "Svelte 5 date input reusing native browser date picker instead of custom calendar",
-			BaselineLOC:   335,
-			AteamLOC:      4,
-			BaselineTurns: 6,
-			AteamTurns:    2,
+			ID:          "ui-datepicker",
+			Tier:        "coding-discipline",
+			Description: "Svelte 5 date input reusing native browser date picker instead of custom calendar",
+			AteamLOC:    4,
 			GoodSource: `<script lang="ts">
   let { value = $bindable(''), label = 'Due date', min = '' } = $props();
 </script>
@@ -228,82 +204,110 @@ func (l *Limiter) Allow(key string, now time.Time) bool {
 			},
 		},
 		{
-			ID:            "relay-openspec-hold",
-			Tier:          "handoff-continuity",
-			Description:   "Cross-CLI handoff preserves OpenSpec Hold: items and 5-field pickup in 0 discovery turns",
-			BaselineLOC:   45,
-			AteamLOC:      12,
-			BaselineTurns: 5,
-			AteamTurns:    1,
+			ID:          "relay-openspec-hold",
+			Tier:        "handoff-continuity",
+			Description: "Cross-CLI handoff preserves OpenSpec Hold: items and 5-field pickup in 0 discovery turns",
+			AteamLOC:    12,
 		},
 		{
-			ID:            "relay-precompact-recovery",
-			Tier:          "handoff-continuity",
-			Description:   "PreCompact/PreCompress hook auto-checkpoints uncommitted // shortcut: debt and state",
-			BaselineLOC:   52,
-			AteamLOC:      14,
-			BaselineTurns: 5,
-			AteamTurns:    1,
+			ID:          "relay-precompact-recovery",
+			Tier:        "handoff-continuity",
+			Description: "PreCompact/PreCompress hook auto-checkpoints uncommitted // shortcut: debt and state",
+			AteamLOC:    14,
 		},
 	}
 }
 
-// parseCommentFreeGo parses Go source without comments and returns the AST file and formatted comment-free code.
-func parseCommentFreeGo(src string) (*ast.File, string, bool) {
+// parseCommentFreeGo parses Go source without comments and returns the FileSet, AST file, and formatted comment-free code.
+func parseCommentFreeGo(src string) (*token.FileSet, *ast.File, string, bool) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "fixture.go", src, 0)
 	if err != nil {
-		return nil, "", false
+		return nil, nil, "", false
 	}
 	var buf bytes.Buffer
 	if err := format.Node(&buf, fset, file); err != nil {
-		return nil, "", false
+		return nil, nil, "", false
 	}
-	return file, buf.String(), true
+	return fset, file, buf.String(), true
+}
+
+func exprString(fset *token.FileSet, expr ast.Expr) string {
+	var buf bytes.Buffer
+	_ = format.Node(&buf, fset, expr)
+	return strings.TrimSpace(buf.String())
+}
+
+// hasEarlySuccessOrConstBranch rejects constant-boolean if conditions (`if true` / `if false`)
+// and any success return statement that appears before guardPos.
+func hasEarlySuccessOrConstBranch(fset *token.FileSet, file *ast.File, guardPos token.Pos, isSuccessReturn func(*ast.ReturnStmt) bool) bool {
+	if guardPos == token.NoPos {
+		return true
+	}
+	violation := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		if violation || n == nil {
+			return false
+		}
+		switch stmt := n.(type) {
+		case *ast.IfStmt:
+			cond := strings.TrimSpace(exprString(fset, stmt.Cond))
+			if cond == "true" || cond == "false" || cond == "!true" || cond == "!false" {
+				violation = true
+				return false
+			}
+		case *ast.ReturnStmt:
+			if stmt.End() <= guardPos && isSuccessReturn(stmt) {
+				violation = true
+				return false
+			}
+		}
+		return true
+	})
+	return violation
 }
 
 func checkSafePathAST(src string) bool {
-	file, clean, ok := parseCommentFreeGo(src)
+	fset, file, clean, ok := parseCommentFreeGo(src)
 	if !ok {
 		return false
 	}
 	if strings.Contains(clean, "absBase, _ :=") || strings.Contains(clean, "target, _ :=") {
 		return false
 	}
-	var hasSepPrefixCond, hasErrReturnInIf bool
+	var guardPos token.Pos
 	ast.Inspect(file, func(n ast.Node) bool {
 		ifStmt, ok := n.(*ast.IfStmt)
 		if !ok {
 			return true
 		}
-		var condBuf bytes.Buffer
-		_ = format.Node(&condBuf, token.NewFileSet(), ifStmt.Cond)
-		condStr := condBuf.String()
+		condStr := exprString(fset, ifStmt.Cond)
 		if strings.Contains(condStr, "!strings.HasPrefix") && strings.Contains(condStr, "filepath.Separator") {
-			hasSepPrefixCond = true
 			ast.Inspect(ifStmt.Body, func(bn ast.Node) bool {
 				ret, ok := bn.(*ast.ReturnStmt)
-				if ok && len(ret.Results) == 2 {
-					var errExpr bytes.Buffer
-					_ = format.Node(&errExpr, token.NewFileSet(), ret.Results[1])
-					if errExpr.String() != "nil" {
-						hasErrReturnInIf = true
-					}
+				if ok && len(ret.Results) == 2 && exprString(fset, ret.Results[1]) != "nil" {
+					guardPos = ifStmt.End()
 				}
 				return true
 			})
 		}
 		return true
 	})
-	return hasSepPrefixCond && hasErrReturnInIf
+	if guardPos == token.NoPos {
+		return false
+	}
+	return !hasEarlySuccessOrConstBranch(fset, file, guardPos, func(ret *ast.ReturnStmt) bool {
+		return len(ret.Results) == 2 && exprString(fset, ret.Results[1]) == "nil"
+	})
 }
 
 func checkSQLUserAST(src string) bool {
-	file, clean, ok := parseCommentFreeGo(src)
+	fset, file, clean, ok := parseCommentFreeGo(src)
 	if !ok || strings.Contains(clean, "Sprintf") {
 		return false
 	}
-	var hasParamQuery, hasScan bool
+	var hasParamQuery bool
+	var scanPos token.Pos
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -319,27 +323,31 @@ func checkSQLUserAST(src string) bool {
 			}
 		}
 		if sel.Sel.Name == "Scan" && len(call.Args) >= 1 {
-			hasScan = true
+			scanPos = call.End()
 		}
 		return true
 	})
-	return hasParamQuery && hasScan
+	if !hasParamQuery || scanPos == token.NoPos {
+		return false
+	}
+	return !hasEarlySuccessOrConstBranch(fset, file, scanPos, func(ret *ast.ReturnStmt) bool {
+		return len(ret.Results) == 2 && exprString(fset, ret.Results[1]) == "nil"
+	})
 }
 
 func checkWebhookAST(src string) bool {
-	file, clean, ok := parseCommentFreeGo(src)
+	fset, file, clean, ok := parseCommentFreeGo(src)
 	if !ok {
 		return false
 	}
 	if !strings.Contains(clean, "len(secret) == 0") || strings.Contains(clean, "expected, _ :=") {
 		return false
 	}
-	var hasHMACEqual, hasGuardReturnFalse bool
+	var hasGuardReturnFalse bool
+	var hmacEqualPos token.Pos
 	ast.Inspect(file, func(n ast.Node) bool {
 		if ifStmt, ok := n.(*ast.IfStmt); ok {
-			var condBuf bytes.Buffer
-			_ = format.Node(&condBuf, token.NewFileSet(), ifStmt.Cond)
-			if strings.Contains(condBuf.String(), "len(secret) == 0") {
+			if strings.Contains(exprString(fset, ifStmt.Cond), "len(secret) == 0") {
 				ast.Inspect(ifStmt.Body, func(bn ast.Node) bool {
 					if ret, ok := bn.(*ast.ReturnStmt); ok && len(ret.Results) == 1 {
 						if id, ok := ret.Results[0].(*ast.Ident); ok && id.Name == "false" {
@@ -352,24 +360,52 @@ func checkWebhookAST(src string) bool {
 		}
 		if call, ok := n.(*ast.CallExpr); ok {
 			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Equal" {
-				hasHMACEqual = true
+				hmacEqualPos = call.Pos()
 			}
 		}
 		return true
 	})
-	return hasHMACEqual && hasGuardReturnFalse
+	if !hasGuardReturnFalse || hmacEqualPos == token.NoPos {
+		return false
+	}
+	return !hasEarlySuccessOrConstBranch(fset, file, hmacEqualPos, func(ret *ast.ReturnStmt) bool {
+		return len(ret.Results) == 1 && exprString(fset, ret.Results[0]) != "false"
+	})
 }
 
 func checkRateLimitAST(src string) bool {
-	_, clean, ok := parseCommentFreeGo(src)
+	fset, file, clean, ok := parseCommentFreeGo(src)
 	if !ok {
 		return false
 	}
-	return strings.Contains(clean, "sync.Mutex") &&
-		strings.Contains(clean, "Lock()") &&
-		strings.Contains(clean, "Unlock()") &&
-		strings.Contains(clean, "After(cutoff)") &&
-		strings.Contains(clean, ">= l.limit")
+	if !strings.Contains(clean, "sync.Mutex") ||
+		!strings.Contains(clean, "Lock()") ||
+		!strings.Contains(clean, "Unlock()") ||
+		!strings.Contains(clean, "After(cutoff)") {
+		return false
+	}
+	var guardPos token.Pos
+	ast.Inspect(file, func(n ast.Node) bool {
+		ifStmt, ok := n.(*ast.IfStmt)
+		if !ok {
+			return true
+		}
+		if strings.Contains(exprString(fset, ifStmt.Cond), ">= l.limit") {
+			ast.Inspect(ifStmt.Body, func(bn ast.Node) bool {
+				if ret, ok := bn.(*ast.ReturnStmt); ok && len(ret.Results) == 1 && exprString(fset, ret.Results[0]) == "false" {
+					guardPos = ifStmt.End()
+				}
+				return true
+			})
+		}
+		return true
+	})
+	if guardPos == token.NoPos {
+		return false
+	}
+	return !hasEarlySuccessOrConstBranch(fset, file, guardPos, func(ret *ast.ReturnStmt) bool {
+		return len(ret.Results) == 1 && exprString(fset, ret.Results[0]) != "false"
+	})
 }
 
 func stripNonGoComments(src string) string {
@@ -418,7 +454,6 @@ func RunSelfTest(_ context.Context) (SuiteReport, error) {
 	_, _ = hook.Handle(tmpDir, "session-start", strings.NewReader(`{}`))
 	report.HookLatencyUs = time.Since(t0).Microseconds()
 
-	var totalBaselineLOC, totalAteamLOC int
 	var safetyPassed, mutantCaught int
 	var codingCount int
 
@@ -435,10 +470,7 @@ func RunSelfTest(_ context.Context) (SuiteReport, error) {
 			}
 		} else {
 			tr = evaluateContinuityTask(spec)
-			report.PickupTurnsSaved += (spec.BaselineTurns - spec.AteamTurns)
 		}
-		totalBaselineLOC += tr.BaselineLOC
-		totalAteamLOC += tr.AteamLOC
 		if tr.Passed {
 			report.PassedTasks++
 		} else {
@@ -447,9 +479,6 @@ func RunSelfTest(_ context.Context) (SuiteReport, error) {
 		report.Tasks = append(report.Tasks, tr)
 	}
 
-	if totalBaselineLOC > 0 {
-		report.AvgLOCReductionPct = int(float64(totalBaselineLOC-totalAteamLOC) * 100.0 / float64(totalBaselineLOC))
-	}
 	if codingCount > 0 {
 		report.SafetyPassRatePct = (safetyPassed * 100) / codingCount
 		report.MutationCatchPct = (mutantCaught * 100) / codingCount
@@ -468,23 +497,15 @@ func evaluateCodingTask(spec TaskSpec) TaskResult {
 	if measuredLOC <= 0 {
 		measuredLOC = spec.AteamLOC
 	}
-	deltaPct := 0
-	if spec.BaselineLOC > 0 {
-		deltaPct = int(float64(spec.BaselineLOC-measuredLOC) * 100.0 / float64(spec.BaselineLOC))
-	}
 	return TaskResult{
 		ID:               spec.ID,
 		Tier:             spec.Tier,
 		Description:      spec.Description,
-		BaselineLOC:      spec.BaselineLOC,
 		AteamLOC:         measuredLOC,
-		LOCDeltaPct:      deltaPct,
 		GzipBytes:        gzipLen(spec.GoodSource),
 		GoodPassedSafety: goodSafe,
 		BadCaughtByGate:  badCaught,
 		MutantCaught:     mutantCaught,
-		BaselineTurns:    spec.BaselineTurns,
-		AteamTurns:       spec.AteamTurns,
 		Passed:           goodSafe && badCaught && mutantCaught,
 	}
 }
@@ -532,29 +553,21 @@ func evaluateContinuityTask(spec TaskSpec) TaskResult {
 			strings.Contains(out.AdditionalContext, "Auto-saved before context compaction")
 	}
 
-	deltaPct := 0
-	if spec.BaselineLOC > 0 {
-		deltaPct = int(float64(spec.BaselineLOC-spec.AteamLOC) * 100.0 / float64(spec.BaselineLOC))
-	}
 	return TaskResult{
 		ID:               spec.ID,
 		Tier:             spec.Tier,
 		Description:      spec.Description,
-		BaselineLOC:      spec.BaselineLOC,
 		AteamLOC:         spec.AteamLOC,
-		LOCDeltaPct:      deltaPct,
 		GzipBytes:        gzipLen(spec.Description),
 		GoodPassedSafety: passed,
 		BadCaughtByGate:  passed,
 		MutantCaught:     passed,
-		BaselineTurns:    spec.BaselineTurns,
-		AteamTurns:       spec.AteamTurns,
 		Passed:           passed,
 	}
 }
 
 func countSourceLines(src string) int {
-	if _, clean, ok := parseCommentFreeGo(src); ok {
+	if _, _, clean, ok := parseCommentFreeGo(src); ok {
 		src = clean
 	} else {
 		src = stripNonGoComments(src)
@@ -595,18 +608,16 @@ func FormatMarkdown(rep SuiteReport) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# ATeam Benchmark & Self-Test Report (`%s`)\n\n", rep.Mode)
 	fmt.Fprintf(&b, "- **Self-Test Status:** `PASS=%v` (%d/%d reference fixtures & AST/mutation gates passed)\n", rep.SelfTestPassed, rep.PassedTasks, rep.TotalTasks)
-	fmt.Fprintf(&b, "- **Ref Fixture LOC Reduction (vs Baseline Fixture):** `-%d%% LOC`\n", rep.AvgLOCReductionPct)
 	fmt.Fprintf(&b, "- **Adversarial Safety Gate Pass Rate:** `%d%%` (100%% of bad fixtures caught)\n", rep.SafetyPassRatePct)
 	fmt.Fprintf(&b, "- **Injected Bug Mutation Catch Rate:** `%d%%`\n", rep.MutationCatchPct)
 	fmt.Fprintf(&b, "- **MCP 2-Tool Schema Budget:** `%d tokens` (< 300 token limit)\n", rep.MCPTokenTax)
-	fmt.Fprintf(&b, "- **Hook Execution Latency:** `%d µs` (< 5,000 µs limit)\n", rep.HookLatencyUs)
-	fmt.Fprintf(&b, "- **Pickup Discovery Turns Saved:** `%d turns` across multi-agent relays\n\n", rep.PickupTurnsSaved)
+	fmt.Fprintf(&b, "- **Hook Execution Latency:** `%d µs` (< 5,000 µs limit)\n\n", rep.HookLatencyUs)
 
-	b.WriteString("| Task | Tier | Baseline LOC | ATeam LOC | Delta | Safety Gate | Mutant Caught | Turns (Base -> ATeam) |\n")
-	b.WriteString("| --- | --- | ---: | ---: | ---: | :---: | :---: | :---: |\n")
+	b.WriteString("| Task | Tier | Fixture LOC | Gzip Bytes | Safety Gate | Mutant Caught | Passed |\n")
+	b.WriteString("| --- | --- | ---: | ---: | :---: | :---: | :---: |\n")
 	for _, t := range rep.Tasks {
-		fmt.Fprintf(&b, "| `%s` | %s | %d | %d | -%d%% | %v | %v | %d -> %d |\n",
-			t.ID, t.Tier, t.BaselineLOC, t.AteamLOC, t.LOCDeltaPct, t.GoodPassedSafety && t.BadCaughtByGate, t.MutantCaught, t.BaselineTurns, t.AteamTurns)
+		fmt.Fprintf(&b, "| `%s` | %s | %d | %d | %v | %v | %v |\n",
+			t.ID, t.Tier, t.AteamLOC, t.GzipBytes, t.GoodPassedSafety && t.BadCaughtByGate, t.MutantCaught, t.Passed)
 	}
 	return b.String()
 }

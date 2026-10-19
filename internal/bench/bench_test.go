@@ -20,16 +20,13 @@ func TestSelfTestAndMutation(t *testing.T) {
 	if rep.MutationCatchPct != 100 {
 		t.Errorf("MutationCatchPct = %d, want 100", rep.MutationCatchPct)
 	}
-	if rep.AvgLOCReductionPct < 50 {
-		t.Errorf("AvgLOCReductionPct = %d%%, want >= 50%%", rep.AvgLOCReductionPct)
-	}
 	md := FormatMarkdown(rep)
 	if !strings.Contains(md, "relay-openspec-hold") || !strings.Contains(md, "gitea-webhook") {
 		t.Errorf("FormatMarkdown missing expected task rows:\n%s", md)
 	}
 }
 
-func TestCommentSpoofingRejected(t *testing.T) {
+func TestCommentSpoofingAndEarlyReturnBypassRejected(t *testing.T) {
 	// Probe 8: An always-accepting path resolver with expected keywords in a comment must fail evaluation.
 	spoofed := `package safepath
 import "path/filepath"
@@ -39,5 +36,40 @@ func Resolve(base, rel string) (string, error) {
 }`
 	if checkSafePathAST(spoofed) {
 		t.Fatal("checkSafePathAST accepted comment-spoofed always-accepting path resolver")
+	}
+
+	// Astra #4: Unconditional/early return before safety check must be rejected.
+	earlyReturnBypass := `package safepath
+import ("errors"; "path/filepath"; "strings")
+func Resolve(base, rel string) (string, error) {
+	if true { return rel, nil }
+	absBase, err := filepath.Abs(base)
+	if err != nil { return "", err }
+	target, err := filepath.Abs(filepath.Join(absBase, rel))
+	if err != nil { return "", err }
+	if target != absBase && !strings.HasPrefix(target, absBase+string(filepath.Separator)) {
+		return "", errors.New("blocked")
+	}
+	return target, nil
+}`
+	if checkSafePathAST(earlyReturnBypass) {
+		t.Fatal("checkSafePathAST accepted early-return bypass before safety guard")
+	}
+
+	nonConstEarlyReturn := `package safepath
+import ("errors"; "path/filepath"; "strings")
+func Resolve(base, rel string) (string, error) {
+	if rel != "" { return rel, nil }
+	absBase, err := filepath.Abs(base)
+	if err != nil { return "", err }
+	target, err := filepath.Abs(filepath.Join(absBase, rel))
+	if err != nil { return "", err }
+	if target != absBase && !strings.HasPrefix(target, absBase+string(filepath.Separator)) {
+		return "", errors.New("blocked")
+	}
+	return target, nil
+}`
+	if checkSafePathAST(nonConstEarlyReturn) {
+		t.Fatal("checkSafePathAST accepted non-constant early nil-error return before safety guard")
 	}
 }

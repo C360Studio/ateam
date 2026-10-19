@@ -210,6 +210,7 @@ func runStateHandoff(repoRoot string, args []string) int {
 	constraints := fs.String("constraints", "", "constraints or active holds")
 	doneWhen := fs.String("done-when", "", "definition of done")
 	checks := fs.String("checks", "task verify", "checks to run")
+	noPost := fs.Bool("no-post", false, "skip posting handoff comment to open PR on forge")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -243,7 +244,13 @@ func runStateHandoff(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam state handoff: %v\n", err)
 		return 1
 	}
-	fmt.Print(state.FormatFiveFieldPrompt(ho))
+	prompt := state.FormatFiveFieldPrompt(ho)
+	if !*noPost && st.Forge.Provider != state.ForgeLocal {
+		if _, err := state.PostPRHandoffComment(context.Background(), repoRoot, st.Forge, ho.Branch, prompt); err != nil {
+			fmt.Fprintf(os.Stderr, "ateam state handoff: forge PR comment skipped: %v\n", err)
+		}
+	}
+	fmt.Print(prompt)
 	return 0
 }
 

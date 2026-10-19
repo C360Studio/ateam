@@ -12,6 +12,7 @@
 	let loading = $state(true);
 	let errorMsg = $state('');
 	let statusNotice = $state('');
+	let apiToken = $state('');
 
 	let activeTab = $state<'board' | 'table' | 'openspec' | 'benchmarks'>('board');
 	let searchQuery = $state('');
@@ -50,11 +51,36 @@
 	const openspecQueue = $derived(payload?.state?.openspec_queue ?? []);
 	const worktrees = $derived(payload?.state?.git?.worktrees ?? []);
 
+	function authHeaders(json = false): Record<string, string> {
+		const h: Record<string, string> = {};
+		if (json) {
+			h['Content-Type'] = 'application/json';
+		}
+		if (apiToken.trim()) {
+			h['X-ATeam-Token'] = apiToken.trim();
+		}
+		return h;
+	}
+
+	function saveApiToken(val: string) {
+		apiToken = val;
+		try {
+			if (val.trim()) {
+				localStorage.setItem('ateam_api_token', val.trim());
+			} else {
+				localStorage.removeItem('ateam_api_token');
+			}
+		} catch {
+			// localStorage unavailable
+		}
+		loadDashboard();
+	}
+
 	async function loadDashboard() {
 		loading = true;
 		errorMsg = '';
 		try {
-			const res = await fetch('/api/state');
+			const res = await fetch('/api/state', { headers: authHeaders(false) });
 			if (!res.ok) {
 				throw new Error(`HTTP ${res.status}`);
 			}
@@ -78,15 +104,18 @@
 		try {
 			const res = await fetch('/api/mode', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: authHeaders(true),
 				body: JSON.stringify({ mode })
 			});
-			if (res.ok && payload) {
+			if (!res.ok) {
+				throw new Error(`HTTP ${res.status}`);
+			}
+			if (payload) {
 				payload.state.mode = mode;
 				flashNotice(`Ponytail mode switched to ${mode.toUpperCase()}`);
 			}
-		} catch {
-			errorMsg = 'Failed to switch Ponytail mode';
+		} catch (err) {
+			errorMsg = err instanceof Error ? `Failed to switch Ponytail mode (${err.message})` : 'Failed to switch Ponytail mode';
 		}
 	}
 
@@ -94,11 +123,11 @@
 		try {
 			const res = await fetch('/api/cards/move', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: authHeaders(true),
 				body: JSON.stringify({ id, column, agent })
 			});
 			if (!res.ok) {
-				throw new Error('Failed to move card');
+				throw new Error(`Failed to move card (HTTP ${res.status})`);
 			}
 			const updated: BoardCard = await res.json();
 			if (payload) {
@@ -120,7 +149,7 @@
 		try {
 			const res = await fetch('/api/cards', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: authHeaders(true),
 				body: JSON.stringify({
 					title: newCardTitle.trim(),
 					column: newCardColumn,
@@ -132,7 +161,7 @@
 				})
 			});
 			if (!res.ok) {
-				throw new Error('Failed to create card');
+				throw new Error(`Failed to create card (HTTP ${res.status})`);
 			}
 			const created: BoardCard = await res.json();
 			if (payload) {
@@ -154,7 +183,7 @@
 		try {
 			const res = await fetch('/api/handoff', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: authHeaders(true),
 				body: JSON.stringify({
 					goal: hoGoal.trim(),
 					addresses: hoAddresses.trim(),
@@ -164,7 +193,7 @@
 				})
 			});
 			if (!res.ok) {
-				throw new Error('Failed to record handoff');
+				throw new Error(`Failed to record handoff (HTTP ${res.status})`);
 			}
 			await loadDashboard();
 			showHandoffModal = false;
@@ -178,7 +207,7 @@
 		try {
 			const res = await fetch('/api/sync', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: authHeaders(true),
 				body: JSON.stringify({ provider })
 			});
 			const data = await res.json();
@@ -201,6 +230,11 @@
 	}
 
 	onMount(() => {
+		try {
+			apiToken = localStorage.getItem('ateam_api_token') ?? '';
+		} catch {
+			apiToken = '';
+		}
 		loadDashboard();
 	});
 </script>
@@ -244,6 +278,18 @@
 					<button type="button" class="link-btn" onclick={() => syncForge('gitea')}>Gitea Sync</button>
 				</div>
 			{/if}
+
+			<div class="status-chip">
+				<label for="api-token-input">Token:</label>
+				<input
+					id="api-token-input"
+					type="password"
+					placeholder="ATEAM_API_TOKEN"
+					value={apiToken}
+					onchange={(e) => saveApiToken((e.currentTarget as HTMLInputElement).value)}
+					aria-label="API token"
+				/>
+			</div>
 
 			<button type="button" class="btn secondary" onclick={() => (showHandoffModal = true)}>
 				Checkpoint Handoff
@@ -305,8 +351,8 @@
 
 			<div class="strip-card metrics-mini">
 				<div class="metric-box">
-					<span class="metric-val">-{payload.benchmarks.avg_loc_reduction_pct}%</span>
-					<span class="metric-lbl">Ponytail LOC Delta</span>
+					<span class="metric-val">{payload.benchmarks.safety_pass_rate_pct}% / {payload.benchmarks.mutation_catch_pct}%</span>
+					<span class="metric-lbl">Safety &amp; Mutant Catch</span>
 				</div>
 				<div class="metric-box">
 					<span class="metric-val">{payload.benchmarks.mcp_token_tax} tok</span>
@@ -585,19 +631,18 @@
 					<div class="panel">
 						<h2>Ponytail + Continuity Benchmark Scorecard (`ateam bench --selftest`)</h2>
 						<p class="muted">
-							Verifies code-size reduction, adversarial safety gates, injected mutant detection, and 0-turn cross-agent handoff continuity.
+							Verifies reference fixture LOC/gzip size, adversarial AST safety gates, injected mutant detection, and cross-agent handoff continuity.
 						</p>
 						<table class="data-table">
 							<thead>
 								<tr>
 									<th>Task ID</th>
 									<th>Tier</th>
-									<th>Baseline LOC</th>
-									<th>ATeam LOC</th>
-									<th>LOC Delta</th>
+									<th>Fixture LOC</th>
+									<th>Gzip Bytes</th>
 									<th>Safety Gate</th>
 									<th>Mutant Caught</th>
-									<th>Turns (Base → ATeam)</th>
+									<th>Status</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -605,12 +650,11 @@
 									<tr>
 										<td><code>{t.id}</code></td>
 										<td><span class="badge">{t.tier}</span></td>
-										<td>{t.baseline_loc}</td>
 										<td><strong>{t.ateam_loc}</strong></td>
-										<td class="text-ok">-{t.loc_delta_pct}%</td>
+										<td>{t.gzip_bytes} B</td>
 										<td>{t.good_passed_safety && t.bad_caught_by_gate ? 'PASS' : 'FAIL'}</td>
 										<td>{t.mutant_caught ? 'CAUGHT' : 'MISSED'}</td>
-										<td>{t.baseline_turns} → <strong>{t.ateam_turns}</strong></td>
+										<td class="text-ok">{t.passed ? 'PASS' : 'FAIL'}</td>
 									</tr>
 								{/each}
 							</tbody>

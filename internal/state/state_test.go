@@ -2,6 +2,10 @@ package state
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +22,9 @@ func TestHandoffPickupRoundTrip(t *testing.T) {
 	}
 	if st.Mode != ModeFull {
 		t.Fatalf("default mode = %q, want %q", st.Mode, ModeFull)
+	}
+	if len(st.Cards) != 0 {
+		t.Fatalf("fresh state Cards count = %d, want 0 (no fabricated board cards)", len(st.Cards))
 	}
 
 	h := Handoff{
@@ -189,5 +196,77 @@ func TestReadFastGitHeadLinkedWorktree(t *testing.T) {
 	br, sha = ReadFastGitHead(wtRoot)
 	if br != "gemini/worktree-fix" || sha != "9876543" {
 		t.Fatalf("ReadFastGitHead linked worktree packed-ref = (%q, %q), want (\"gemini/worktree-fix\", \"9876543\")", br, sha)
+	}
+}
+
+func TestPostPRHandoffCommentAndDecisionsInPickup(t *testing.T) {
+	var postedComment string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls"):
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"number": 12,
+					"title":  "Hardening fixes",
+					"state":  "open",
+					"draft":  true,
+					"head":   map[string]string{"ref": "gemini/hardening"},
+				},
+			})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/issues/12/comments"):
+			raw, _ := io.ReadAll(r.Body)
+			var body struct {
+				Body string `json:"body"`
+			}
+			_ = json.Unmarshal(raw, &body)
+			postedComment = body.Body
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/issues"):
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"number": 7,
+					"title":  "Auth token policy",
+					"state":  "open",
+					"body":   "Decision: require ATEAM_API_TOKEN for all non-loopback reads and writes",
+					"labels": []map[string]string{{"name": "decision:approved"}},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := ForgeConfig{
+		Provider: ForgeGitea,
+		BaseURL:  ts.URL,
+		Owner:    "c360",
+		Repo:     "ateam",
+	}
+	h := Handoff{
+		Goal:        "Land PR #12 review fixes",
+		Addresses:   "PR #12",
+		Constraints: "none",
+		DoneWhen:    "task verify green",
+		ChecksToRun: "task verify",
+	}
+	wantPrompt := strings.TrimSpace(FormatFiveFieldPrompt(h))
+	posted, err := PostPRHandoffComment(context.Background(), t.TempDir(), cfg, "gemini/hardening", wantPrompt)
+	if err != nil || !posted {
+		t.Fatalf("PostPRHandoffComment = (%v, %v), want (true, nil)", posted, err)
+	}
+	if strings.TrimSpace(postedComment) != wantPrompt {
+		t.Fatalf("posted PR comment = %q, want %q", postedComment, wantPrompt)
+	}
+
+	cards, err := SyncForgeBoard(context.Background(), t.TempDir(), cfg)
+	if err != nil {
+		t.Fatalf("SyncForgeBoard: %v", err)
+	}
+	st := defaultState()
+	st.MergeForgeCards(cards, ForgeGitea)
+	summary := BuildPickupSummary(st)
+	if !strings.Contains(summary, "Recent decisions:") || !strings.Contains(summary, "Decision: require ATEAM_API_TOKEN") {
+		t.Fatalf("BuildPickupSummary missing decision summary:\n%s", summary)
 	}
 }

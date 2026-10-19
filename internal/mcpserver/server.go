@@ -224,7 +224,11 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage) (s
 		}); err != nil {
 			return err.Error(), true
 		}
-		return state.FormatFiveFieldPrompt(h), false
+		prompt := state.FormatFiveFieldPrompt(h)
+		if st.Forge.Provider != state.ForgeLocal {
+			_, _ = state.PostPRHandoffComment(ctx, root, st.Forge, h.Branch, prompt)
+		}
+		return prompt, false
 	case "debt":
 		data, _ := json.MarshalIndent(st.Shortcuts, "", "  ")
 		return string(data), false

@@ -9,6 +9,7 @@ export interface BoardCard {
 	branch?: string;
 	milestone?: string;
 	hold_reason?: string;
+	decision?: string;
 	forge?: string;
 	url?: string;
 	updated_at?: string;
@@ -84,15 +85,11 @@ export interface BenchTaskResult {
 	id: string;
 	tier: string;
 	description: string;
-	baseline_loc: number;
 	ateam_loc: number;
-	loc_delta_pct: number;
 	gzip_bytes: number;
 	good_passed_safety: boolean;
 	bad_caught_by_gate: boolean;
 	mutant_caught: boolean;
-	baseline_turns: number;
-	ateam_turns: number;
 	passed: boolean;
 }
 
@@ -101,12 +98,10 @@ export interface SuiteReport {
 	selftest_passed: boolean;
 	total_tasks: number;
 	passed_tasks: number;
-	avg_loc_reduction_pct: number;
 	safety_pass_rate_pct: number;
 	mutation_catch_pct: number;
 	mcp_token_tax: number;
 	hook_latency_us: number;
-	pickup_turns_saved: number;
 	tasks: BenchTaskResult[];
 }
 

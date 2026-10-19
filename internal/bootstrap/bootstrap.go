@@ -126,6 +126,16 @@ func checkRequiredFiles(root string) []string {
 			out = append(out, ".agents/protocol.md: missing canonical protocol sections (must not be a placeholder stub)")
 		}
 	}
+	if readmeData, err := os.ReadFile(filepath.Join(root, "README.md")); err == nil {
+		readme := string(readmeData)
+		if strings.Contains(readme, "ateam hook") {
+			for _, ev := range requiredHooks {
+				if !strings.Contains(readme, ev) {
+					out = append(out, fmt.Sprintf("README.md: mentions ateam hook but is missing canonical event %q", ev))
+				}
+			}
+		}
+	}
 	return out
 }
 

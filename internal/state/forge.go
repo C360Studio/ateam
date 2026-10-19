@@ -124,6 +124,7 @@ func SyncForgeBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardC
 type forgeIssuePayload struct {
 	Number  int    `json:"number"`
 	Title   string `json:"title"`
+	Body    string `json:"body,omitempty"`
 	State   string `json:"state"`
 	HTMLURL string `json:"html_url"`
 	URL     string `json:"url"`
@@ -141,6 +142,9 @@ type forgeIssuePayload struct {
 	Head *struct {
 		Ref string `json:"ref"`
 	} `json:"head,omitempty"`
+	Comments []struct {
+		Body string `json:"body"`
+	} `json:"comments,omitempty"`
 }
 
 func syncGiteaBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
@@ -240,7 +244,7 @@ func syncGitHubBoard(ctx context.Context, root string, _ ForgeConfig) ([]BoardCa
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	issueCmd := exec.CommandContext(cctx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url")
+	issueCmd := exec.CommandContext(cctx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body,comments")
 	issueCmd.Dir = root
 	issueOut, err := issueCmd.Output()
 	if err != nil {
@@ -321,10 +325,42 @@ func mapForgeItemToCard(it forgeIssuePayload, isPR bool, forgeName string) Board
 		Agent:     inferAgentFromBranch(branch),
 		Branch:    branch,
 		Milestone: ms,
+		Decision:  extractDecisionSummary(it, labels),
 		Forge:     forgeName,
 		URL:       u,
 		UpdatedAt: time.Now().UTC(),
 	}
+}
+
+func extractDecisionSummary(it forgeIssuePayload, labels []string) string {
+	for i := len(it.Comments) - 1; i >= 0; i-- {
+		if line := findDecisionLine(it.Comments[i].Body); line != "" {
+			return line
+		}
+	}
+	if line := findDecisionLine(it.Body); line != "" {
+		return line
+	}
+	for _, l := range labels {
+		if strings.HasPrefix(strings.ToLower(l), "decision:") {
+			return l
+		}
+	}
+	return ""
+}
+
+func findDecisionLine(text string) string {
+	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "decision:") || strings.HasPrefix(lower, "ruling:") {
+			if len(line) > 120 {
+				line = line[:120]
+			}
+			return line
+		}
+	}
+	return ""
 }
 
 func classifyCardColumn(stateStr string, isPR, draft bool, labels []string) string {
@@ -346,6 +382,96 @@ func classifyCardColumn(stateStr string, isPR, draft bool, labels []string) stri
 		return "in-review"
 	}
 	return "backlog"
+}
+
+// PostPRHandoffComment posts the 5-field handoff block to the open PR for branch on GitHub or Gitea.
+func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, branch, body string) (bool, error) {
+	branch = strings.TrimSpace(branch)
+	body = strings.TrimSpace(body)
+	if branch == "" || body == "" {
+		return false, nil
+	}
+	switch cfg.Provider {
+	case ForgeGitHub:
+		if _, err := exec.LookPath("gh"); err != nil {
+			return false, fmt.Errorf("gh CLI not found")
+		}
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(cctx, "gh", "pr", "comment", branch, "--body", body)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return false, fmt.Errorf("gh pr comment %s: %w (%s)", branch, err, strings.TrimSpace(string(out)))
+		}
+		return true, nil
+
+	case ForgeGitea:
+		if cfg.BaseURL == "" || cfg.Owner == "" || cfg.Repo == "" {
+			return false, fmt.Errorf("gitea PR comment requires BaseURL, Owner, and Repo")
+		}
+		client := &http.Client{Timeout: 5 * time.Second}
+		token := strings.TrimSpace(os.Getenv("GITEA_TOKEN"))
+		if token == "" {
+			token = strings.TrimSpace(os.Getenv("ATEAM_GITEA_TOKEN"))
+		}
+		pullsURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls?state=open&limit=50", strings.TrimRight(cfg.BaseURL, "/"), cfg.Owner, cfg.Repo)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, pullsURL, nil)
+		if err != nil {
+			return false, err
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "token "+token)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return false, err
+		}
+		rawPulls, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			return false, fmt.Errorf("gitea pulls API returned %d", resp.StatusCode)
+		}
+		var prs []forgeIssuePayload
+		if err := json.Unmarshal(rawPulls, &prs); err != nil {
+			return false, err
+		}
+		prNum := 0
+		for _, pr := range prs {
+			ref := pr.HeadRef
+			if ref == "" && pr.Head != nil {
+				ref = pr.Head.Ref
+			}
+			if ref == branch {
+				prNum = pr.Number
+				break
+			}
+		}
+		if prNum == 0 {
+			return false, nil
+		}
+		commentURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%d/comments", strings.TrimRight(cfg.BaseURL, "/"), cfg.Owner, cfg.Repo, prNum)
+		payload, _ := json.Marshal(map[string]string{"body": body})
+		postReq, err := http.NewRequestWithContext(ctx, http.MethodPost, commentURL, bytes.NewReader(payload))
+		if err != nil {
+			return false, err
+		}
+		postReq.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			postReq.Header.Set("Authorization", "token "+token)
+		}
+		postResp, err := client.Do(postReq)
+		if err != nil {
+			return false, err
+		}
+		postResp.Body.Close()
+		if postResp.StatusCode >= 300 {
+			return false, fmt.Errorf("gitea post comment returned %d", postResp.StatusCode)
+		}
+		return true, nil
+
+	default:
+		return false, nil
+	}
 }
 
 // BootstrapForgeLabels seeds the 4 standard workflow labels on GitHub or Gitea.

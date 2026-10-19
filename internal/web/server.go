@@ -95,6 +95,39 @@ func (s *Server) registerRoutes() error {
 	return nil
 }
 
+func (s *Server) authorizeAPIRequest(w http.ResponseWriter, r *http.Request, remoteMsg string) bool {
+	token := strings.TrimSpace(s.apiToken)
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("ATEAM_API_TOKEN"))
+	}
+	if token != "" {
+		provided := strings.TrimSpace(r.Header.Get("X-ATeam-Token"))
+		if provided == "" {
+			if bearer, ok := strings.CutPrefix(strings.TrimSpace(r.Header.Get("Authorization")), "Bearer "); ok {
+				provided = strings.TrimSpace(bearer)
+			}
+		}
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
+			writeError(w, http.StatusUnauthorized, "invalid or missing API token")
+			return false
+		}
+		return true
+	}
+	if !isLoopbackRequest(r.RemoteAddr) {
+		writeError(w, http.StatusUnauthorized, remoteMsg)
+		return false
+	}
+	return true
+}
+
+func (s *Server) validateReadRequest(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return false
+	}
+	return s.authorizeAPIRequest(w, r, "remote read requires ATEAM_API_TOKEN")
+}
+
 func (s *Server) validateMutationRequest(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -116,31 +149,12 @@ func (s *Server) validateMutationRequest(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 		return false
 	}
-	token := strings.TrimSpace(s.apiToken)
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("ATEAM_API_TOKEN"))
-	}
-	if token != "" {
-		provided := strings.TrimSpace(r.Header.Get("X-ATeam-Token"))
-		if provided == "" {
-			if bearer, ok := strings.CutPrefix(strings.TrimSpace(r.Header.Get("Authorization")), "Bearer "); ok {
-				provided = strings.TrimSpace(bearer)
-			}
-		}
-		if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
-			writeError(w, http.StatusUnauthorized, "invalid or missing API token")
-			return false
-		}
-	} else if !isLocalOrTestRemoteAddr(r.RemoteAddr) {
-		writeError(w, http.StatusUnauthorized, "remote mutation requires ATEAM_API_TOKEN")
-		return false
-	}
-	return true
+	return s.authorizeAPIRequest(w, r, "remote mutation requires ATEAM_API_TOKEN")
 }
 
-func isLocalOrTestRemoteAddr(remoteAddr string) bool {
+func isLoopbackRequest(remoteAddr string) bool {
 	host := extractClientIP(remoteAddr)
-	if host == "" || host == "local" || host == "localhost" || host == "192.0.2.1" {
+	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 	ip := net.ParseIP(host)
@@ -163,8 +177,7 @@ func (s *Server) buildDashboard(ctx context.Context) (*DashboardPayload, error) 
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !s.validateReadRequest(w, r) {
 		return
 	}
 	s.mu.Lock()
@@ -333,8 +346,7 @@ func (s *Server) handleMode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOpenSpec(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !s.validateReadRequest(w, r) {
 		return
 	}
 	changes, err := state.ScanOpenSpecQueue(s.repoRoot)
@@ -351,8 +363,7 @@ func (s *Server) handleOpenSpec(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleShortcuts(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !s.validateReadRequest(w, r) {
 		return
 	}
 	items, err := state.ScanShortcuts(s.repoRoot)
@@ -364,8 +375,7 @@ func (s *Server) handleShortcuts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBenchmarks(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !s.validateReadRequest(w, r) {
 		return
 	}
 	report, err := bench.RunSelfTest(r.Context())
