@@ -2,7 +2,7 @@
 
 ### Requirement: Read-only dashboard model routing
 
-The authenticated dashboard API SHALL expose configured developer and reviewer model IDs, providers and reasoning efforts separately from model strength, Ponytail discipline mode, runtime identity and PR approval. The UI SHALL render eligible, blocked, unconfigured, invalid and unavailable states with textual reasons. Blocked routes SHALL retain configured identities; missing, unreadable or malformed policy SHALL never imply eligibility. Reads SHALL be bounded to 1 MiB and confined to regular policy files within the selected repository. Routing reads SHALL NOT mutate policy or launch models. Responses SHALL prohibit caching and re-read policy on refresh.
+The authenticated dashboard API SHALL expose configured developer and reviewer model IDs, providers and reasoning efforts separately from model strength, Ponytail discipline mode, runtime identity and PR approval. The UI SHALL render eligible, blocked, unconfigured, invalid and unavailable states with textual reasons. Blocked routes SHALL retain configured identities; missing, unreadable or malformed policy SHALL never imply eligibility.
 
 #### Scenario: Configured eligible and blocked routes
 
@@ -18,6 +18,7 @@ The authenticated dashboard API SHALL expose configured developer and reviewer m
 
 - **WHEN** a client requests routing or refreshes the dashboard after policy changes
 - **THEN** existing read authentication applies, mutation methods are rejected, and the latest non-cacheable summary is returned without changing the policy
+- **AND** Reads SHALL be bounded to 1 MiB and confined to regular policy files within the selected repository. Routing reads SHALL NOT mutate policy or launch models. Responses SHALL prohibit caching and re-read policy on refresh.
 
 #### Scenario: Honest rendering
 
