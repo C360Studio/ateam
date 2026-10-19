@@ -120,6 +120,12 @@ func checkRequiredFiles(root string) []string {
 			out = append(out, fmt.Sprintf("%s: missing or empty required file", rel))
 		}
 	}
+	if protoData, err := os.ReadFile(filepath.Join(root, ".agents", "protocol.md")); err == nil {
+		proto := string(protoData)
+		if !strings.Contains(proto, "## 1. Hybrid State Architecture") || !strings.Contains(proto, "## 2. Work Lifecycle & Definition of Done") {
+			out = append(out, ".agents/protocol.md: missing canonical protocol sections (must not be a placeholder stub)")
+		}
+	}
 	return out
 }
 
@@ -214,12 +220,30 @@ func discoverSkills(root string) []string {
 	return out
 }
 
+var requiredSkillMarkers = map[string][]string{
+	"handoff":   {"## 1.", "ateam state handoff", "Goal:"},
+	"pickup":    {"## 1.", "ateam state pickup", "Verify Write Ownership"},
+	"ponytail":  {"## 1.", "6-Step Decision Ladder", "// shortcut:"},
+	"preflight": {"## 1.", "task verify", "Record Evidence"},
+}
+
 func checkSkillAdapters(root string) []string {
 	var out []string
 	for _, name := range discoverSkills(root) {
 		canonRel := ".agents/skills/" + name + "/SKILL.md"
-		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(canonRel))); err != nil || info.IsDir() || info.Size() == 0 {
+		canonBytes, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(canonRel)))
+		if err != nil || len(strings.TrimSpace(string(canonBytes))) == 0 {
 			out = append(out, fmt.Sprintf("%s: missing canonical skill", canonRel))
+		} else {
+			canonText := string(canonBytes)
+			if !strings.Contains(canonText, "## 1.") {
+				out = append(out, fmt.Sprintf("%s: missing numbered workflow steps (placeholder skill not allowed)", canonRel))
+			}
+			for _, marker := range requiredSkillMarkers[name] {
+				if !strings.Contains(canonText, marker) {
+					out = append(out, fmt.Sprintf("%s: missing required workflow procedure marker %q", canonRel, marker))
+				}
+			}
 		}
 
 		claudeRel := ".claude/skills/" + name + "/SKILL.md"

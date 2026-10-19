@@ -44,9 +44,9 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 ### Requirement: Constant-time forge webhook verification and rate limiting
 
-`ateam serve` SHALL expose `POST /api/webhooks/gitea` and `POST /api/webhooks/github` protected by a 60 req/min per-IP fixed-window rate limiter and constant-time `hmac.Equal` HMAC-SHA256 verification (`X-Gitea-Signature` and `X-Hub-Signature-256`) whenever `ATEAM_WEBHOOK_SECRET` is configured.
+`ateam serve` SHALL default to loopback (`127.0.0.1:8420`), enforce same-origin and `Content-Type: application/json` on browser POST mutation endpoints, and expose `POST /api/webhooks/gitea` and `POST /api/webhooks/github` protected by a 60 req/min per-IP fixed-window rate limiter and fail-closed constant-time `hmac.Equal` HMAC-SHA256 verification (`X-Gitea-Signature` and `X-Hub-Signature-256`) requiring `ATEAM_WEBHOOK_SECRET` by default (unless `ATEAM_ALLOW_UNSIGNED_WEBHOOKS=1` is explicitly set).
 
 #### Scenario: Valid signed Gitea webhook payload
 
 - **WHEN** `POST /api/webhooks/gitea` receives a payload signed with `ATEAM_WEBHOOK_SECRET`
-- **THEN** the matching `BoardCard` column and labels update in `.ateam/state.json` and the response reports `merge_allowed` based on active OpenSpec `Hold:` items
+- **THEN** the matching `BoardCard` column and labels update atomically in `.ateam/state.json` under `.ateam/state.lock` and the response reports `merge_allowed` based on fail-closed OpenSpec `Hold:` scanning

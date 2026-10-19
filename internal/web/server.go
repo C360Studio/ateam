@@ -3,11 +3,15 @@ package web
 
 import (
 	"context"
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -30,19 +34,24 @@ type DashboardPayload struct {
 
 // Server serves the ATeam HTTP API and embedded static UI.
 type Server struct {
-	repoRoot      string
-	webhookSecret string
-	limiter       *webhookLimiter
-	mu            sync.Mutex
-	mux           *http.ServeMux
+	repoRoot              string
+	webhookSecret         string
+	allowUnsignedWebhooks bool
+	apiToken              string
+	limiter               *webhookLimiter
+	mu                    sync.Mutex
+	mux                   *http.ServeMux
 }
 
 // NewServer creates a new ATeam HTTP server rooted at repoRoot.
 func NewServer(repoRoot string) (*Server, error) {
 	s := &Server{
-		repoRoot: repoRoot,
-		limiter:  newWebhookLimiter(60, time.Minute),
-		mux:      http.NewServeMux(),
+		repoRoot:              repoRoot,
+		webhookSecret:         strings.TrimSpace(os.Getenv("ATEAM_WEBHOOK_SECRET")),
+		allowUnsignedWebhooks: strings.TrimSpace(os.Getenv("ATEAM_ALLOW_UNSIGNED_WEBHOOKS")) == "1",
+		apiToken:              strings.TrimSpace(os.Getenv("ATEAM_API_TOKEN")),
+		limiter:               newWebhookLimiter(60, time.Minute),
+		mux:                   http.NewServeMux(),
 	}
 	if err := s.registerRoutes(); err != nil {
 		return nil, err
@@ -86,6 +95,58 @@ func (s *Server) registerRoutes() error {
 	return nil
 }
 
+func (s *Server) validateMutationRequest(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "cross-site") {
+		writeError(w, http.StatusForbidden, "cross-origin mutation rejected")
+		return false
+	}
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || u.Host == "" || !strings.EqualFold(u.Host, r.Host) {
+			writeError(w, http.StatusForbidden, "cross-origin mutation rejected")
+			return false
+		}
+	}
+	ct := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	if !strings.HasPrefix(ct, "application/json") {
+		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return false
+	}
+	token := strings.TrimSpace(s.apiToken)
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("ATEAM_API_TOKEN"))
+	}
+	if token != "" {
+		provided := strings.TrimSpace(r.Header.Get("X-ATeam-Token"))
+		if provided == "" {
+			if bearer, ok := strings.CutPrefix(strings.TrimSpace(r.Header.Get("Authorization")), "Bearer "); ok {
+				provided = strings.TrimSpace(bearer)
+			}
+		}
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
+			writeError(w, http.StatusUnauthorized, "invalid or missing API token")
+			return false
+		}
+	} else if !isLocalOrTestRemoteAddr(r.RemoteAddr) {
+		writeError(w, http.StatusUnauthorized, "remote mutation requires ATEAM_API_TOKEN")
+		return false
+	}
+	return true
+}
+
+func isLocalOrTestRemoteAddr(remoteAddr string) bool {
+	host := extractClientIP(remoteAddr)
+	if host == "" || host == "local" || host == "localhost" || host == "192.0.2.1" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func (s *Server) buildDashboard(ctx context.Context) (*DashboardPayload, error) {
 	st, err := state.Refresh(ctx, s.repoRoot, false)
 	if err != nil {
@@ -121,8 +182,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCards(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !s.validateMutationRequest(w, r) {
 		return
 	}
 	var card state.BoardCard
@@ -134,17 +194,22 @@ func (s *Server) handleCards(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	st, err := state.Load(s.repoRoot)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	var updated state.BoardCard
+	var badReqErr error
+	_, err := state.Update(s.repoRoot, func(st *state.State) error {
+		c, err := st.UpsertCard(card)
+		if err != nil {
+			badReqErr = err
+			return err
+		}
+		updated = c
+		return nil
+	})
+	if badReqErr != nil {
+		writeError(w, http.StatusBadRequest, badReqErr.Error())
 		return
 	}
-	updated, err := st.UpsertCard(card)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := state.Save(s.repoRoot, st); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -158,8 +223,7 @@ type moveRequest struct {
 }
 
 func (s *Server) handleCardMove(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !s.validateMutationRequest(w, r) {
 		return
 	}
 	var req moveRequest
@@ -171,17 +235,22 @@ func (s *Server) handleCardMove(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	st, err := state.Load(s.repoRoot)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	var updated state.BoardCard
+	var badReqErr error
+	_, err := state.Update(s.repoRoot, func(st *state.State) error {
+		c, err := st.MoveCard(req.ID, req.Column, req.Agent)
+		if err != nil {
+			badReqErr = err
+			return err
+		}
+		updated = c
+		return nil
+	})
+	if badReqErr != nil {
+		writeError(w, http.StatusBadRequest, badReqErr.Error())
 		return
 	}
-	updated, err := st.MoveCard(req.ID, req.Column, req.Agent)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := state.Save(s.repoRoot, st); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -189,8 +258,7 @@ func (s *Server) handleCardMove(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !s.validateMutationRequest(w, r) {
 		return
 	}
 	var ho state.Handoff
@@ -211,19 +279,24 @@ func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	ho.Branch = st.Git.Branch
-	ho.CheckpointSHA = st.Git.HeadSHA
-	ho.Dirty = st.Git.Dirty
-	ho.UpdatedAt = time.Now().UTC()
-	if strings.TrimSpace(ho.Addresses) == "" {
-		ho.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
-	}
-	st.LastHandoff = &ho
-	if err := state.Save(s.repoRoot, st); err != nil {
+	var saved state.Handoff
+	_, err = state.Update(s.repoRoot, func(cur *state.State) error {
+		ho.Branch = st.Git.Branch
+		ho.CheckpointSHA = st.Git.HeadSHA
+		ho.Dirty = st.Git.Dirty
+		ho.UpdatedAt = time.Now().UTC()
+		if strings.TrimSpace(ho.Addresses) == "" {
+			ho.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
+		}
+		cur.LastHandoff = &ho
+		saved = ho
+		return nil
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, st.LastHandoff)
+	writeJSON(w, http.StatusOK, saved)
 }
 
 type modeRequest struct {
@@ -231,8 +304,7 @@ type modeRequest struct {
 }
 
 func (s *Server) handleMode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !s.validateMutationRequest(w, r) {
 		return
 	}
 	var req modeRequest
@@ -249,13 +321,11 @@ func (s *Server) handleMode(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	st, err := state.Load(s.repoRoot)
+	st, err := state.Update(s.repoRoot, func(st *state.State) error {
+		st.Mode = mode
+		return nil
+	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	st.Mode = mode
-	if err := state.Save(s.repoRoot, st); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -311,12 +381,14 @@ type syncRequest struct {
 }
 
 func (s *Server) handleSyncForge(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !s.validateMutationRequest(w, r) {
 		return
 	}
 	var req syncRequest
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid sync JSON: "+err.Error())
+		return
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -338,9 +410,12 @@ func (s *Server) handleSyncForge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	if len(cards) > 0 {
-		st.Cards = cards
-		_ = state.Save(s.repoRoot, st)
+	if _, err := state.Update(s.repoRoot, func(cur *state.State) error {
+		cur.MergeForgeCards(cards, cfg.Provider)
+		return nil
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"synced": len(cards), "forge": cfg})
 }

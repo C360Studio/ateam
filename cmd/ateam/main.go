@@ -82,7 +82,7 @@ Commands:
   init [flags]        Bootstrap repo with .agents, .claude, .codex, .gemini, openspec, and optional GitHub/Gitea labels
   doctor [--check]    Verify multi-agent parity, MCP schema token budget, and hook latency
   bench [flags]       Run Ponytail + Handoff benchmark suite (--selftest, --rescore)
-  serve [flags]       Start embedded SvelteKit PM Board HTTP server (default :8420)`)
+  serve [flags]       Start embedded SvelteKit PM Board HTTP server (default 127.0.0.1:8420)`)
 }
 
 func runHook(repoRoot string, args []string) int {
@@ -232,26 +232,39 @@ func runStateHandoff(repoRoot string, args []string) int {
 	if strings.TrimSpace(ho.Addresses) == "" {
 		ho.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 	}
-	st.LastHandoff = &ho
-	_ = state.Save(repoRoot, st)
+	if _, err := state.Update(repoRoot, func(cur *state.State) error {
+		cur.LastHandoff = &ho
+		return nil
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state handoff: %v\n", err)
+		return 1
+	}
 	fmt.Print(state.FormatFiveFieldPrompt(ho))
 	return 0
 }
 
 func runStateMode(repoRoot string, args []string) int {
-	st, err := state.Load(repoRoot)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ateam state mode: %v\n", err)
-		return 1
-	}
 	if len(args) > 0 {
 		mode, ok := state.NormalizeMode(args[0])
 		if !ok {
 			fmt.Fprintf(os.Stderr, "ateam state mode: invalid mode %q\n", args[0])
 			return 1
 		}
-		st.Mode = mode
-		_ = state.Save(repoRoot, st)
+		st, err := state.Update(repoRoot, func(cur *state.State) error {
+			cur.Mode = mode
+			return nil
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ateam state mode: %v\n", err)
+			return 1
+		}
+		printJSON(map[string]string{"mode": string(st.Mode)})
+		return 0
+	}
+	st, err := state.Load(repoRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state mode: %v\n", err)
+		return 1
 	}
 	printJSON(map[string]string{"mode": string(st.Mode)})
 	return 0
@@ -279,9 +292,12 @@ func runStateSync(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam state sync: %v\n", err)
 		return 1
 	}
-	if len(cards) > 0 {
-		st.Cards = cards
-		_ = state.Save(repoRoot, st)
+	if _, err := state.Update(repoRoot, func(cur *state.State) error {
+		cur.MergeForgeCards(cards, cfg.Provider)
+		return nil
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state sync: %v\n", err)
+		return 1
 	}
 	printJSON(map[string]any{"synced": len(cards), "forge": cfg})
 	return 0
@@ -433,7 +449,7 @@ func runBench(repoRoot string, args []string) int {
 
 func runServe(repoRoot string, args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	addr := fs.String("addr", ":8420", "HTTP listen address")
+	addr := fs.String("addr", "127.0.0.1:8420", "HTTP listen address (default loopback)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -447,7 +463,11 @@ func runServe(repoRoot string, args []string) int {
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	fmt.Printf("ATeam PM Board listening on http://localhost%s\n", *addr)
+	listenURL := *addr
+	if strings.HasPrefix(listenURL, ":") {
+		listenURL = "127.0.0.1" + listenURL
+	}
+	fmt.Printf("ATeam PM Board listening on http://%s\n", listenURL)
 	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintf(os.Stderr, "ateam serve: %v\n", err)
 		return 1

@@ -218,18 +218,30 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage) (s
 		if h.Addresses == "" {
 			h.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 		}
-		st.LastHandoff = &h
-		_ = state.Save(root, st)
+		if _, err := state.Update(root, func(cur *state.State) error {
+			cur.LastHandoff = &h
+			return nil
+		}); err != nil {
+			return err.Error(), true
+		}
 		return state.FormatFiveFieldPrompt(h), false
 	case "debt":
 		data, _ := json.MarshalIndent(st.Shortcuts, "", "  ")
 		return string(data), false
 	case "mode":
 		if args.Mode != "" {
-			if m, ok := state.NormalizeMode(args.Mode); ok {
-				st.Mode = m
-				_ = state.Save(root, st)
+			m, ok := state.NormalizeMode(args.Mode)
+			if !ok {
+				return "invalid mode: " + args.Mode, true
 			}
+			updated, err := state.Update(root, func(cur *state.State) error {
+				cur.Mode = m
+				return nil
+			})
+			if err != nil {
+				return err.Error(), true
+			}
+			st = updated
 		}
 		return fmt.Sprintf("active mode: %s\n%s", st.Mode, hook.LadderPrompt(st.Mode)), false
 	case "spec_queue":
@@ -318,7 +330,10 @@ func handleResourceRead(ctx context.Context, root string, req rpcRequest) rpcRes
 		URI string `json:"uri"`
 	}
 	_ = json.Unmarshal(req.Params, &r)
-	st, _ := state.Refresh(ctx, root, false)
+	st, err := state.Refresh(ctx, root, false)
+	if err != nil {
+		return rpcErrorResp(req.ID, -32603, err.Error())
+	}
 	var text string
 	switch r.URI {
 	case "ateam://state/pickup":

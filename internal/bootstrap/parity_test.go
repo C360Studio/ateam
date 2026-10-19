@@ -79,6 +79,14 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 		_ = os.WriteFile(p, []byte(edited), 0o644)
 		requireViolation(t, CheckParity(sub), ".gemini/settings.json", "contextFileName")
 	})
+
+	t.Run("Placeholder protocol or canonical skill rejected", func(t *testing.T) {
+		sub := t.TempDir()
+		_, _ = InitRepo(context.Background(), sub, Options{})
+		_ = os.WriteFile(filepath.Join(sub, ".agents", "protocol.md"), []byte("# Shared Work Protocol\n\nClarify, Claim, Merge, Close.\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(sub, ".agents", "skills", "handoff", "SKILL.md"), []byte("---\nname: handoff\n---\n# handoff\nFollow protocol.\n"), 0o644)
+		requireViolation(t, CheckParity(sub), ".agents/protocol.md", ".agents/skills/handoff/SKILL.md")
+	})
 }
 
 func requireViolation(t *testing.T, violations []string, substrings ...string) {

@@ -28,3 +28,16 @@ func TestSelfTestAndMutation(t *testing.T) {
 		t.Errorf("FormatMarkdown missing expected task rows:\n%s", md)
 	}
 }
+
+func TestCommentSpoofingRejected(t *testing.T) {
+	// Probe 8: An always-accepting path resolver with expected keywords in a comment must fail evaluation.
+	spoofed := `package safepath
+import "path/filepath"
+// filepath.Separator HasPrefix !strings.HasPrefix
+func Resolve(base, rel string) (string, error) {
+	return filepath.Join(base, rel), nil
+}`
+	if checkSafePathAST(spoofed) {
+		t.Fatal("checkSafePathAST accepted comment-spoofed always-accepting path resolver")
+	}
+}

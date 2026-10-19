@@ -69,9 +69,10 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 	ev := NormalizeEvent(flagEvent, firstNonEmpty(in.HookEventName, in.Event))
 	st, err := state.Load(root)
 	if err != nil {
-		st = &state.State{Mode: state.ModeFull}
+		return Output{}, err
 	}
-	if br, sha := state.ReadFastGitHead(root); sha != "" {
+	br, sha := state.ReadFastGitHead(root)
+	if sha != "" {
 		st.Git.Branch = br
 		st.Git.HeadSHA = sha
 	}
@@ -93,8 +94,14 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 	case "before-prompt":
 		promptText := firstNonEmpty(in.Prompt, in.UserPrompt)
 		if newMode, changed := detectModeSwitch(promptText); changed {
-			st.Mode = newMode
-			_ = state.Save(root, st)
+			updated, err := state.Update(root, func(cur *state.State) error {
+				cur.Mode = newMode
+				return nil
+			})
+			if err != nil {
+				return Output{}, err
+			}
+			st = updated
 		}
 		if st.Mode == state.ModeOff {
 			return Output{}, nil
@@ -102,40 +109,61 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 		return buildOutput("UserPromptSubmit", LadderPrompt(st.Mode)), nil
 
 	case "pre-compact":
-		if shortcuts, err := state.ScanShortcuts(root); err == nil {
-			st.Shortcuts = shortcuts
+		shortcuts, err := state.ScanShortcuts(root)
+		if err != nil {
+			return Output{}, err
 		}
-		if holds, err := state.ScanHolds(root); err == nil {
-			st.Holds = holds
+		holds, err := state.ScanHolds(root)
+		if err != nil {
+			return Output{}, err
 		}
-		if st.LastHandoff == nil {
-			st.LastHandoff = &state.Handoff{
-				Goal:          "Auto-saved before context compaction",
-				Addresses:     fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA),
-				Constraints:   fmt.Sprintf("%d active holds, %d shortcuts", len(st.Holds), len(st.Shortcuts)),
-				DoneWhen:      "Run task verify and reconcile via /pickup",
-				ChecksToRun:   "ateam state pickup && task verify",
-				Branch:        st.Git.Branch,
-				CheckpointSHA: st.Git.HeadSHA,
-				Dirty:         st.Git.Dirty,
-				AutoCompacted: true,
-				UpdatedAt:     time.Now().UTC(),
+		updated, err := state.Update(root, func(cur *state.State) error {
+			if sha != "" {
+				cur.Git.Branch = br
+				cur.Git.HeadSHA = sha
 			}
-		} else {
-			st.LastHandoff.AutoCompacted = true
-			st.LastHandoff.UpdatedAt = time.Now().UTC()
+			cur.Shortcuts = shortcuts
+			cur.Holds = holds
+			if cur.LastHandoff == nil {
+				cur.LastHandoff = &state.Handoff{
+					Goal:          "Auto-saved before context compaction",
+					Addresses:     fmt.Sprintf("branch %s, SHA %s", cur.Git.Branch, cur.Git.HeadSHA),
+					Constraints:   fmt.Sprintf("%d active holds, %d shortcuts", len(cur.Holds), len(cur.Shortcuts)),
+					DoneWhen:      "Run task verify and reconcile via /pickup",
+					ChecksToRun:   "ateam state pickup && task verify",
+					Branch:        cur.Git.Branch,
+					CheckpointSHA: cur.Git.HeadSHA,
+					Dirty:         cur.Git.Dirty,
+					AutoCompacted: true,
+					UpdatedAt:     time.Now().UTC(),
+				}
+			} else {
+				cur.LastHandoff.AutoCompacted = true
+				cur.LastHandoff.UpdatedAt = time.Now().UTC()
+			}
+			return nil
+		})
+		if err != nil {
+			return Output{}, err
 		}
-		_ = state.Save(root, st)
-		return buildOutput("PreCompact", "Auto-handoff checkpoint saved before compaction:\n"+state.FormatFiveFieldPrompt(*st.LastHandoff)), nil
+		return buildOutput("PreCompact", "Auto-handoff checkpoint saved before compaction:\n"+state.FormatFiveFieldPrompt(*updated.LastHandoff)), nil
 
 	case "turn-end":
-		if shortcuts, err := state.ScanShortcuts(root); err == nil {
-			st.Shortcuts = shortcuts
+		shortcuts, err := state.ScanShortcuts(root)
+		if err != nil {
+			return Output{}, err
 		}
-		if holds, err := state.ScanHolds(root); err == nil {
-			st.Holds = holds
+		holds, err := state.ScanHolds(root)
+		if err != nil {
+			return Output{}, err
 		}
-		_ = state.Save(root, st)
+		if _, err := state.Update(root, func(cur *state.State) error {
+			cur.Shortcuts = shortcuts
+			cur.Holds = holds
+			return nil
+		}); err != nil {
+			return Output{}, err
+		}
 		return Output{}, nil
 
 	default:

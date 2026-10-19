@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -37,6 +39,7 @@ func TestServerEndpoints(t *testing.T) {
 		Column: "backlog",
 	})
 	req = httptest.NewRequest(http.MethodPost, "/api/cards", bytes.NewReader(cardBody))
+	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -50,6 +53,7 @@ func TestServerEndpoints(t *testing.T) {
 		"agent":  "claude",
 	})
 	req = httptest.NewRequest(http.MethodPost, "/api/cards/move", bytes.NewReader(moveBody))
+	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -65,6 +69,7 @@ func TestServerEndpoints(t *testing.T) {
 		ChecksToRun: "task verify",
 	})
 	req = httptest.NewRequest(http.MethodPost, "/api/handoff", bytes.NewReader(hoBody))
+	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -74,6 +79,7 @@ func TestServerEndpoints(t *testing.T) {
 	// 5. POST /api/mode
 	modeBody, _ := json.Marshal(map[string]string{"mode": "ultra"})
 	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(modeBody))
+	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -132,5 +138,67 @@ func TestWebhookSignatureAndRateLimit(t *testing.T) {
 	h.ServeHTTP(recRate, reqRate)
 	if recRate.Code != http.StatusTooManyRequests {
 		t.Fatalf("POST /api/webhooks/gitea rate-limited status = %d, want 429", recRate.Code)
+	}
+}
+
+func TestSecurityAndFailClosedProbes(t *testing.T) {
+	dir := t.TempDir()
+	srv, err := NewServer(dir)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	h := srv.Handler()
+
+	// Probe 1a: Unsigned webhook when ATEAM_WEBHOOK_SECRET is unset must be rejected (401).
+	unsignedPayload := []byte(`{"action":"opened","issue":{"number":7,"title":"Unsigned issue","state":"open"}}`)
+	reqUnsigned := httptest.NewRequest(http.MethodPost, "/api/webhooks/github", bytes.NewReader(unsignedPayload))
+	recUnsigned := httptest.NewRecorder()
+	h.ServeHTTP(recUnsigned, reqUnsigned)
+	if recUnsigned.Code != http.StatusUnauthorized {
+		t.Fatalf("unsigned webhook without secret status = %d, want 401", recUnsigned.Code)
+	}
+
+	// Probe 1b: Cross-origin Origin header and text/plain Content-Type must be rejected on /api/mode.
+	modeBody := []byte(`{"mode":"off"}`)
+	reqPlain := httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(modeBody))
+	reqPlain.Header.Set("Content-Type", "text/plain")
+	recPlain := httptest.NewRecorder()
+	h.ServeHTTP(recPlain, reqPlain)
+	if recPlain.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("POST /api/mode with text/plain status = %d, want 415", recPlain.Code)
+	}
+
+	reqEvilOrigin := httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(modeBody))
+	reqEvilOrigin.Header.Set("Content-Type", "application/json")
+	reqEvilOrigin.Header.Set("Origin", "https://evil.example")
+	recEvilOrigin := httptest.NewRecorder()
+	h.ServeHTTP(recEvilOrigin, reqEvilOrigin)
+	if recEvilOrigin.Code != http.StatusForbidden {
+		t.Fatalf("POST /api/mode with evil Origin status = %d, want 403", recEvilOrigin.Code)
+	}
+
+	st, err := state.Load(dir)
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	if st.Mode == state.ModeOff {
+		t.Fatal("cross-origin or text/plain request mutated state.Mode to off")
+	}
+
+	// Probe 6: Invalid UTF-8 tasks.md with Hold must fail closed instead of returning merge_allowed: true.
+	srv.webhookSecret = "secret-2"
+	changeDir := filepath.Join(dir, "openspec", "changes", "broken-utf8")
+	_ = os.MkdirAll(changeDir, 0o755)
+	_ = os.WriteFile(filepath.Join(changeDir, "tasks.md"), []byte("## 1. Work\n- [ ] 1.1 Task\n  - Hold: blocked \xff\xfe\n"), 0o644)
+
+	mac := hmac.New(sha256.New, []byte(srv.webhookSecret))
+	mac.Write(unsignedPayload)
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	reqSigned := httptest.NewRequest(http.MethodPost, "/api/webhooks/github", bytes.NewReader(unsignedPayload))
+	reqSigned.Header.Set("X-Hub-Signature-256", sig)
+	recSigned := httptest.NewRecorder()
+	h.ServeHTTP(recSigned, reqSigned)
+	if recSigned.Code == http.StatusOK {
+		t.Fatalf("expected invalid UTF-8 Hold scan to fail closed, got 200: %s", recSigned.Body.String())
 	}
 }

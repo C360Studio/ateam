@@ -7,6 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +57,7 @@ type TaskResult struct {
 // SuiteReport summarizes the full benchmark scorecard and self-test status.
 type SuiteReport struct {
 	Timestamp          time.Time    `json:"timestamp"`
+	Mode               string       `json:"mode"`
 	SelfTestPassed     bool         `json:"selftest_passed"`
 	TotalTasks         int          `json:"total_tasks"`
 	PassedTasks        int          `json:"passed_tasks"`
@@ -73,7 +78,7 @@ func Tasks() []TaskSpec {
 			Tier:          "coding-discipline",
 			Description:   "Resolve user path inside baseDir and reject '../' path traversal",
 			BaselineLOC:   34,
-			AteamLOC:      13,
+			AteamLOC:      11,
 			BaselineTurns: 3,
 			AteamTurns:    2,
 			GoodSource: `package safepath
@@ -101,16 +106,14 @@ func Resolve(base, rel string) (string, error) {
 	if strings.HasPrefix(target, absBase) { return target, nil } // mutant: prefix without separator allows /base-other
 	return "", errors.New("blocked")
 }`,
-			SafetyCheck: func(src string) bool {
-				return strings.Contains(src, "filepath.Separator") && strings.Contains(src, "HasPrefix")
-			},
+			SafetyCheck: checkSafePathAST,
 		},
 		{
 			ID:            "sql-user",
 			Tier:          "coding-discipline",
 			Description:   "Parameterized SQL user lookup preventing SQL injection",
 			BaselineLOC:   24,
-			AteamLOC:      9,
+			AteamLOC:      7,
 			BaselineTurns: 3,
 			AteamTurns:    2,
 			GoodSource: `package sqluser
@@ -132,16 +135,14 @@ import "database/sql"
 func FindByEmail(db *sql.DB, email string) (int64, error) {
 	return 0, nil // mutant: skips query and error
 }`,
-			SafetyCheck: func(src string) bool {
-				return strings.Contains(src, "WHERE email = ?") && !strings.Contains(src, "Sprintf")
-			},
+			SafetyCheck: checkSQLUserAST,
 		},
 		{
 			ID:            "gitea-webhook",
 			Tier:          "coding-discipline",
 			Description:   "Verify Gitea HMAC-SHA256 webhook signature in constant time",
 			BaselineLOC:   42,
-			AteamLOC:      14,
+			AteamLOC:      9,
 			BaselineTurns: 4,
 			AteamTurns:    2,
 			GoodSource: `package webhook
@@ -165,16 +166,14 @@ func VerifyGiteaSignature(payload, secret []byte, sigHeader string) bool {
 	expected, _ := hex.DecodeString(sigHeader)
 	return hmac.Equal(mac.Sum(nil), expected) // mutant: empty secret accepted
 }`,
-			SafetyCheck: func(src string) bool {
-				return strings.Contains(src, "hmac.Equal") && strings.Contains(src, "len(secret) == 0")
-			},
+			SafetyCheck: checkWebhookAST,
 		},
 		{
 			ID:            "rate-limit",
 			Tier:          "coding-discipline",
 			Description:   "Per-client fixed-window rate limiter with mutex protection",
 			BaselineLOC:   48,
-			AteamLOC:      22,
+			AteamLOC:      12,
 			BaselineTurns: 4,
 			AteamTurns:    2,
 			GoodSource: `package ratelimit
@@ -201,29 +200,31 @@ func (l *Limiter) Allow(key string, now time.Time) bool {
 	l.hits[key] = append(l.hits[key], now)
 	return true
 }`,
-			SafetyCheck: func(src string) bool {
-				return strings.Contains(src, "sync.Mutex") && strings.Contains(src, ">= l.limit") && strings.Contains(src, "After(cutoff)")
-			},
+			SafetyCheck: checkRateLimitAST,
 		},
 		{
 			ID:            "ui-datepicker",
 			Tier:          "coding-discipline",
 			Description:   "Svelte 5 date input reusing native browser date picker instead of custom calendar",
 			BaselineLOC:   335,
-			AteamLOC:      10,
+			AteamLOC:      4,
 			BaselineTurns: 6,
 			AteamTurns:    2,
 			GoodSource: `<script lang="ts">
   let { value = $bindable(''), label = 'Due date', min = '' } = $props();
 </script>
 <label>{label}<input type="date" bind:value {min} /></label>`,
-			BadSource: strings.Repeat("// custom 300-line calendar grid implementation\n", 120),
+			BadSource: strings.Repeat("<div>calendar cell</div>\n", 120),
 			MutantSource: `<script lang="ts">
   let { value = '', label = 'Due date' } = $props(); // mutant: not bindable, loses min constraint
 </script>
 <input type="text" {value} />`,
 			SafetyCheck: func(src string) bool {
-				return strings.Contains(src, `type="date"`) && strings.Contains(src, "$bindable") && countSourceLines(src) <= 25
+				clean := stripNonGoComments(src)
+				return strings.Contains(clean, `type="date"`) &&
+					strings.Contains(clean, "bind:value") &&
+					strings.Contains(clean, "$bindable") &&
+					countSourceLines(clean) <= 25
 			},
 		},
 		{
@@ -247,11 +248,152 @@ func (l *Limiter) Allow(key string, now time.Time) bool {
 	}
 }
 
+// parseCommentFreeGo parses Go source without comments and returns the AST file and formatted comment-free code.
+func parseCommentFreeGo(src string) (*ast.File, string, bool) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "fixture.go", src, 0)
+	if err != nil {
+		return nil, "", false
+	}
+	var buf bytes.Buffer
+	if err := format.Node(&buf, fset, file); err != nil {
+		return nil, "", false
+	}
+	return file, buf.String(), true
+}
+
+func checkSafePathAST(src string) bool {
+	file, clean, ok := parseCommentFreeGo(src)
+	if !ok {
+		return false
+	}
+	if strings.Contains(clean, "absBase, _ :=") || strings.Contains(clean, "target, _ :=") {
+		return false
+	}
+	var hasSepPrefixCond, hasErrReturnInIf bool
+	ast.Inspect(file, func(n ast.Node) bool {
+		ifStmt, ok := n.(*ast.IfStmt)
+		if !ok {
+			return true
+		}
+		var condBuf bytes.Buffer
+		_ = format.Node(&condBuf, token.NewFileSet(), ifStmt.Cond)
+		condStr := condBuf.String()
+		if strings.Contains(condStr, "!strings.HasPrefix") && strings.Contains(condStr, "filepath.Separator") {
+			hasSepPrefixCond = true
+			ast.Inspect(ifStmt.Body, func(bn ast.Node) bool {
+				ret, ok := bn.(*ast.ReturnStmt)
+				if ok && len(ret.Results) == 2 {
+					var errExpr bytes.Buffer
+					_ = format.Node(&errExpr, token.NewFileSet(), ret.Results[1])
+					if errExpr.String() != "nil" {
+						hasErrReturnInIf = true
+					}
+				}
+				return true
+			})
+		}
+		return true
+	})
+	return hasSepPrefixCond && hasErrReturnInIf
+}
+
+func checkSQLUserAST(src string) bool {
+	file, clean, ok := parseCommentFreeGo(src)
+	if !ok || strings.Contains(clean, "Sprintf") {
+		return false
+	}
+	var hasParamQuery, hasScan bool
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if sel.Sel.Name == "QueryRow" && len(call.Args) >= 2 {
+			if lit, ok := call.Args[0].(*ast.BasicLit); ok && strings.Contains(lit.Value, "WHERE email = ?") {
+				hasParamQuery = true
+			}
+		}
+		if sel.Sel.Name == "Scan" && len(call.Args) >= 1 {
+			hasScan = true
+		}
+		return true
+	})
+	return hasParamQuery && hasScan
+}
+
+func checkWebhookAST(src string) bool {
+	file, clean, ok := parseCommentFreeGo(src)
+	if !ok {
+		return false
+	}
+	if !strings.Contains(clean, "len(secret) == 0") || strings.Contains(clean, "expected, _ :=") {
+		return false
+	}
+	var hasHMACEqual, hasGuardReturnFalse bool
+	ast.Inspect(file, func(n ast.Node) bool {
+		if ifStmt, ok := n.(*ast.IfStmt); ok {
+			var condBuf bytes.Buffer
+			_ = format.Node(&condBuf, token.NewFileSet(), ifStmt.Cond)
+			if strings.Contains(condBuf.String(), "len(secret) == 0") {
+				ast.Inspect(ifStmt.Body, func(bn ast.Node) bool {
+					if ret, ok := bn.(*ast.ReturnStmt); ok && len(ret.Results) == 1 {
+						if id, ok := ret.Results[0].(*ast.Ident); ok && id.Name == "false" {
+							hasGuardReturnFalse = true
+						}
+					}
+					return true
+				})
+			}
+		}
+		if call, ok := n.(*ast.CallExpr); ok {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Equal" {
+				hasHMACEqual = true
+			}
+		}
+		return true
+	})
+	return hasHMACEqual && hasGuardReturnFalse
+}
+
+func checkRateLimitAST(src string) bool {
+	_, clean, ok := parseCommentFreeGo(src)
+	if !ok {
+		return false
+	}
+	return strings.Contains(clean, "sync.Mutex") &&
+		strings.Contains(clean, "Lock()") &&
+		strings.Contains(clean, "Unlock()") &&
+		strings.Contains(clean, "After(cutoff)") &&
+		strings.Contains(clean, ">= l.limit")
+}
+
+func stripNonGoComments(src string) string {
+	var out []string
+	for _, line := range strings.Split(src, "\n") {
+		if idx := strings.Index(line, "//"); idx >= 0 {
+			line = line[:idx]
+		}
+		if idx := strings.Index(line, "<!--"); idx >= 0 {
+			line = line[:idx]
+		}
+		if strings.TrimSpace(line) != "" {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // RunSelfTest executes the deterministic offline benchmark self-test and mutation suite (0 API calls).
 func RunSelfTest(_ context.Context) (SuiteReport, error) {
 	tasks := Tasks()
 	report := SuiteReport{
 		Timestamp:      time.Now().UTC(),
+		Mode:           "selftest-reference-fixtures",
 		SelfTestPassed: true,
 		TotalTasks:     len(tasks),
 	}
@@ -295,8 +437,8 @@ func RunSelfTest(_ context.Context) (SuiteReport, error) {
 			tr = evaluateContinuityTask(spec)
 			report.PickupTurnsSaved += (spec.BaselineTurns - spec.AteamTurns)
 		}
-		totalBaselineLOC += spec.BaselineLOC
-		totalAteamLOC += spec.AteamLOC
+		totalBaselineLOC += tr.BaselineLOC
+		totalAteamLOC += tr.AteamLOC
 		if tr.Passed {
 			report.PassedTasks++
 		} else {
@@ -322,16 +464,20 @@ func evaluateCodingTask(spec TaskSpec) TaskResult {
 	goodSafe := spec.SafetyCheck(spec.GoodSource)
 	badCaught := !spec.SafetyCheck(spec.BadSource)
 	mutantCaught := !spec.SafetyCheck(spec.MutantSource)
+	measuredLOC := countSourceLines(spec.GoodSource)
+	if measuredLOC <= 0 {
+		measuredLOC = spec.AteamLOC
+	}
 	deltaPct := 0
 	if spec.BaselineLOC > 0 {
-		deltaPct = int(float64(spec.BaselineLOC-spec.AteamLOC) * 100.0 / float64(spec.BaselineLOC))
+		deltaPct = int(float64(spec.BaselineLOC-measuredLOC) * 100.0 / float64(spec.BaselineLOC))
 	}
 	return TaskResult{
 		ID:               spec.ID,
 		Tier:             spec.Tier,
 		Description:      spec.Description,
 		BaselineLOC:      spec.BaselineLOC,
-		AteamLOC:         spec.AteamLOC,
+		AteamLOC:         measuredLOC,
 		LOCDeltaPct:      deltaPct,
 		GzipBytes:        gzipLen(spec.GoodSource),
 		GoodPassedSafety: goodSafe,
@@ -408,6 +554,11 @@ func evaluateContinuityTask(spec TaskSpec) TaskResult {
 }
 
 func countSourceLines(src string) int {
+	if _, clean, ok := parseCommentFreeGo(src); ok {
+		src = clean
+	} else {
+		src = stripNonGoComments(src)
+	}
 	n := 0
 	for _, line := range strings.Split(strings.TrimSpace(src), "\n") {
 		t := strings.TrimSpace(line)
@@ -442,9 +593,9 @@ func SaveRun(root string, rep SuiteReport) error {
 // FormatMarkdown renders a human-readable benchmark report table.
 func FormatMarkdown(rep SuiteReport) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# ATeam Benchmark & Self-Test Report\n\n")
-	fmt.Fprintf(&b, "- **Self-Test Status:** `PASS=%v` (%d/%d tasks passed)\n", rep.SelfTestPassed, rep.PassedTasks, rep.TotalTasks)
-	fmt.Fprintf(&b, "- **Avg Code Size Reduction (vs No-Skill Baseline):** `-%d%% LOC`\n", rep.AvgLOCReductionPct)
+	fmt.Fprintf(&b, "# ATeam Benchmark & Self-Test Report (`%s`)\n\n", rep.Mode)
+	fmt.Fprintf(&b, "- **Self-Test Status:** `PASS=%v` (%d/%d reference fixtures & AST/mutation gates passed)\n", rep.SelfTestPassed, rep.PassedTasks, rep.TotalTasks)
+	fmt.Fprintf(&b, "- **Ref Fixture LOC Reduction (vs Baseline Fixture):** `-%d%% LOC`\n", rep.AvgLOCReductionPct)
 	fmt.Fprintf(&b, "- **Adversarial Safety Gate Pass Rate:** `%d%%` (100%% of bad fixtures caught)\n", rep.SafetyPassRatePct)
 	fmt.Fprintf(&b, "- **Injected Bug Mutation Catch Rate:** `%d%%`\n", rep.MutationCatchPct)
 	fmt.Fprintf(&b, "- **MCP 2-Tool Schema Budget:** `%d tokens` (< 300 token limit)\n", rep.MCPTokenTax)

@@ -216,6 +216,19 @@ func fetchTeaCLICards(ctx context.Context, root string) ([]BoardCard, error) {
 	for _, it := range items {
 		cards = append(cards, mapForgeItemToCard(it, false, "gitea"))
 	}
+	prCmd := exec.CommandContext(cctx, "tea", "pulls", "list", "--output", "json")
+	prCmd.Dir = root
+	prOut, err := prCmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	var prs []forgeIssuePayload
+	if err := json.Unmarshal(prOut, &prs); err != nil {
+		return nil, err
+	}
+	for _, pr := range prs {
+		cards = append(cards, mapForgeItemToCard(pr, true, "gitea"))
+	}
 	return cards, nil
 }
 
@@ -229,28 +242,34 @@ func syncGitHubBoard(ctx context.Context, root string, _ ForgeConfig) ([]BoardCa
 
 	issueCmd := exec.CommandContext(cctx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url")
 	issueCmd.Dir = root
-	if out, err := issueCmd.Output(); err == nil {
-		var issues []forgeIssuePayload
-		if json.Unmarshal(out, &issues) == nil {
-			for _, it := range issues {
-				cards = append(cards, mapForgeItemToCard(it, false, "github"))
-			}
-		}
+	issueOut, err := issueCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh issue list failed: %w", err)
+	}
+	var issues []forgeIssuePayload
+	if err := json.Unmarshal(issueOut, &issues); err != nil {
+		return nil, fmt.Errorf("parse gh issue list JSON: %w", err)
+	}
+	for _, it := range issues {
+		cards = append(cards, mapForgeItemToCard(it, false, "github"))
 	}
 
 	prCmd := exec.CommandContext(cctx, "gh", "pr", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,isDraft,headRefName,labels,url")
 	prCmd.Dir = root
-	if out, err := prCmd.Output(); err == nil {
-		var prs []struct {
-			forgeIssuePayload
-			IsDraft bool `json:"isDraft"`
-		}
-		if json.Unmarshal(out, &prs) == nil {
-			for _, pr := range prs {
-				pr.Draft = pr.IsDraft
-				cards = append(cards, mapForgeItemToCard(pr.forgeIssuePayload, true, "github"))
-			}
-		}
+	prOut, err := prCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh pr list failed: %w", err)
+	}
+	var prs []struct {
+		forgeIssuePayload
+		IsDraft bool `json:"isDraft"`
+	}
+	if err := json.Unmarshal(prOut, &prs); err != nil {
+		return nil, fmt.Errorf("parse gh pr list JSON: %w", err)
+	}
+	for _, pr := range prs {
+		pr.Draft = pr.IsDraft
+		cards = append(cards, mapForgeItemToCard(pr.forgeIssuePayload, true, "github"))
 	}
 	return cards, nil
 }
