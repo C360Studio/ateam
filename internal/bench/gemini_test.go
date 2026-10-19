@@ -159,6 +159,9 @@ func TestGeminiCLIHelper(_ *testing.T) {
 		os.Exit(10)
 	}
 	cwd, _ := os.Getwd()
+	if err := os.WriteFile(filepath.Join(cwd, "bundle-delivered-prompt.txt"), prompt, 0600); err != nil {
+		os.Exit(12)
+	}
 	if strings.Contains(string(prompt), "timeout") {
 		_ = os.WriteFile(filepath.Join(cwd, "ready"), nil, 0600)
 		time.Sleep(8 * time.Second)

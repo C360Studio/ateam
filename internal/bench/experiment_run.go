@@ -110,15 +110,40 @@ func executeAdapter(ctx context.Context, e Experiment, request AdapterRequest, d
 	return response, stdout.String(), stderr.String(), "completed", nil
 }
 
-// RunExperiment executes a resolved paired pilot and returns its unique artifact path.
-func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot string) (string, error) {
+func revalidateExperiment(resolved ResolvedExperiment) error {
+	if err := validateResolvedExperiment(resolved); err != nil {
+		return err
+	}
 	// Re-resolve before any execution so dry-run metadata cannot silently become stale.
-	current, err := ResolveExperiment(resolved.Experiment, ".")
+	config, base := resolved.Experiment, "."
+	if resolved.Bundles != nil {
+		config, base = resolved.Original, resolved.Bundles.ConfigDir
+	}
+	current, err := ResolveExperiment(config, base)
 	if err != nil {
-		return "", err
+		return err
+	}
+	if resolved.Bundles != nil {
+		comparable := current
+		if current.Experiment.IsNative() {
+			// Artifact indentation can reformat RawMessage; the semantic settings
+			// check below still rejects changed native configuration.
+			comparable.NativeSettings = resolved.NativeSettings
+		}
+		if !reflect.DeepEqual(comparable, resolved) {
+			return fmt.Errorf("resolved bundle experiment changed before execution")
+		}
 	}
 	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.GeminiVersion != resolved.GeminiVersion || current.ClaudeVersion != resolved.ClaudeVersion || current.CodexVersion != resolved.CodexVersion || (current.Experiment.IsNative() && !jsonEquivalent(current.NativeSettings, resolved.NativeSettings)) || !reflect.DeepEqual(current.NativeArguments, resolved.NativeArguments) || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
-		return "", fmt.Errorf("resolved experiment changed before execution")
+		return fmt.Errorf("resolved experiment changed before execution")
+	}
+	return nil
+}
+
+// RunExperiment executes a resolved paired pilot and returns its unique artifact path.
+func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot string) (string, error) {
+	if err := revalidateExperiment(resolved); err != nil {
+		return "", err
 	}
 	if err := os.MkdirAll(outputRoot, 0700); err != nil {
 		return "", err
@@ -289,7 +314,7 @@ func writeExclusiveJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	if len(data) > 64<<20 {
+	if len(data) > maxExperimentArtifactBytes {
 		return fmt.Errorf("artifact exceeds 64 MiB; reduce repetitions or adapter output")
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
@@ -314,7 +339,7 @@ func LoadExperimentRun(path string) (ExperimentRun, error) {
 	}
 	defer f.Close()
 	// shortcut: pilot artifacts are capped at 64 MiB; use streaming artifacts before larger task suites.
-	data, err := readBounded(f, 64<<20)
+	data, err := readBounded(f, maxExperimentArtifactBytes)
 	if err != nil {
 		return r, err
 	}
@@ -332,15 +357,7 @@ func validateRun(r ExperimentRun) error {
 		return fmt.Errorf("invalid run version, timestamp or digest")
 	}
 	cfg := r.Resolved.Experiment
-	if err := validateExperiment(r.Resolved.Original); err != nil {
-		return err
-	}
-	originalShape := cfg
-	originalShape.Command = r.Resolved.Original.Command
-	if r.Resolved.ConfigSHA != jsonDigest(r.Resolved.Original) || !reflect.DeepEqual(originalShape, r.Resolved.Original) {
-		return fmt.Errorf("original configuration provenance mismatch")
-	}
-	if err := validateExperiment(cfg); err != nil {
+	if err := validateResolvedExperiment(r.Resolved); err != nil {
 		return err
 	}
 	if r.Resolved.EvaluatorSHA != evaluatorDigest(cfg.Tasks) {
