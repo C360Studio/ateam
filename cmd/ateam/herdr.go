@@ -206,44 +206,47 @@ func toastNewCaveats(ctx context.Context, run herdrRunner, bin, repo string) err
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return fmt.Errorf("state dir: %w", err)
 	}
-	path := filepath.Join(stateDir, "notified.json")
-	notified := map[string][]string{}
-	if data, err := os.ReadFile(path); err == nil {
-		if json.Unmarshal(data, &notified) != nil {
-			// A corrupt record is replaced; the cost is one repeat toast per caveat.
-			notified = map[string][]string{}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-	key := notifyKey(repo)
-	seen := map[string]bool{}
-	for _, fp := range notified[key] {
-		seen[fp] = true
-	}
 	type toast struct{ title, body string }
 	var pending []toast
-	for _, ch := range changes {
-		for _, c := range ch.Caveats {
-			if c.Marker != "HALT" && c.Marker != "RED" && c.Marker != "BLOCKED" {
-				continue
+	// The flock (reused from state.WithLock, on <stateDir>/.ateam/state.lock) serializes
+	// concurrent event commands so two of them cannot both claim the same caveat.
+	err = state.WithLock(stateDir, func() error {
+		path := filepath.Join(stateDir, "notified.json")
+		notified := map[string][]string{}
+		if data, err := os.ReadFile(path); err == nil {
+			if json.Unmarshal(data, &notified) != nil {
+				// A corrupt record is replaced; the cost is one repeat toast per caveat.
+				notified = map[string][]string{}
 			}
-			// Line numbers are left out so edits elsewhere in tasks.md do not re-toast.
-			fp := ch.Name + "|" + c.Marker + "|" + c.Text
-			if seen[fp] {
-				continue
-			}
-			seen[fp] = true
-			notified[key] = append(notified[key], fp)
-			pending = append(pending, toast{fmt.Sprintf("ateam: %s %s", ch.Name, c.Marker), c.Text})
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("read %s: %w", path, err)
 		}
-	}
-	if len(pending) == 0 {
-		return nil
-	}
-	// shortcut: concurrent events can race this read-modify-write and double-toast once;
-	// add a lock file if herdr turns out to run event commands in parallel.
-	if err := writeNotified(stateDir, path, notified); err != nil {
+		key := notifyKey(repo)
+		seen := map[string]bool{}
+		for _, fp := range notified[key] {
+			seen[fp] = true
+		}
+		for _, ch := range changes {
+			for _, c := range ch.Caveats {
+				if c.Marker != "HALT" && c.Marker != "RED" && c.Marker != "BLOCKED" {
+					continue
+				}
+				// Line numbers are left out so edits elsewhere in tasks.md do not re-toast.
+				fp := ch.Name + "|" + c.Marker + "|" + c.Text
+				if seen[fp] {
+					continue
+				}
+				seen[fp] = true
+				notified[key] = append(notified[key], fp)
+				pending = append(pending, toast{fmt.Sprintf("ateam: %s %s", ch.Name, c.Marker), c.Text})
+			}
+		}
+		if len(pending) == 0 {
+			return nil
+		}
+		return writeNotified(stateDir, path, notified)
+	})
+	if err != nil {
 		return err
 	}
 	for _, t := range pending {

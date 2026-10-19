@@ -18,4 +18,4 @@ implemented-by: claude (opus)
 ## 3. Verification
 
 - [x] 3.1 Mutation evidence per `.agents/protocol.md`; `task verify` green.
-- [ ] 3.2 Manual herdr session check recorded in the PR: pickup via action, `worktree.created` fires, a caveat toast appears; confirm the runtime-only facts deferred from 1.1.
+- [x] 3.2 Manual herdr session check recorded in the PR: pickup via action, `worktree.created` fires, a caveat toast appears; confirm the runtime-only facts deferred from 1.1. Visual render in an attached TUI waived by owner on 2026-10-19; verified through a headless herdr 0.9.5 server log and `herdr plugin log` (PR #25).

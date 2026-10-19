@@ -7,16 +7,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
 // fakeHerdr records herdr invocations and answers `pane get` with a cwd.
 type fakeHerdr struct {
+	mu      sync.Mutex
 	calls   [][]string
 	paneCWD string
 }
 
 func (f *fakeHerdr) run(_ context.Context, bin string, args ...string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, append([]string{bin}, args...))
 	if len(args) >= 2 && args[0] == "pane" && args[1] == "get" {
 		return json.Marshal(map[string]any{"result": map[string]any{"type": "pane_info", "pane": map[string]any{"pane_id": args[2], "cwd": f.paneCWD}}})
@@ -333,5 +337,35 @@ func TestHerdrOpenPaneUsesPaneCWD(t *testing.T) {
 	want := "/fake/herdr plugin pane open --plugin ateam --entrypoint spec-queue --focus --cwd /work/repo"
 	if len(f.calls) != 2 || strings.Join(f.calls[0], " ") != "/fake/herdr pane get p_5" || strings.Join(f.calls[1], " ") != want {
 		t.Fatalf("calls = %v, want [pane get p_5] then [%s]", f.calls, want)
+	}
+}
+
+func TestHerdrOnEventConcurrentEventsToastOnce(t *testing.T) {
+	repo := t.TempDir()
+	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n")
+	setHerdrEnv(t, "worktree.created", `{"event":"worktree_created","data":{"worktree":{"path":"`+repo+`"}}}`)
+	f := &fakeHerdr{}
+	const n = 16
+	start := make(chan struct{})
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- herdrOnEvent(context.Background(), f.run)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("herdrOnEvent: %v", err)
+		}
+	}
+	if got := f.toasts(); len(got) != 1 {
+		t.Fatalf("%d concurrent events toasted %d times (%q), want once", n, len(got), got)
 	}
 }
