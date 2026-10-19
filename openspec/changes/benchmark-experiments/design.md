@@ -19,3 +19,6 @@ Task set is small and Go-only. Adapter labels and usage need provider-native val
 
 ## Verification
 Failing regressions precede evaluator fixes. Offline fake command covers request/response, failures, deadlines, missing usage, two arms, artifacts, and rescore. Strict config/artifact tests cover invalid JSON, duplicate/unknown tasks, invalid limits, digest mismatch and incomplete trial histories. Generated JSON decode checks exercise panic/validation boundaries; deterministic schedule tests cover pairing/order. Mutation checks target acceptance/refusal and comparison logic. Run Taskfile verify on a clean commit, doctor, and bench selftest; preserve exact evidence in verification.md.
+
+## Independent review
+The plan review required explicit package/API contracts, script-argument provenance, and grader isolation/process cleanup; all were implemented. Change review found final-grade cancellation, package-mismatch classification, infrastructure-versus-quality wording, and actual grader identity gaps. Each was corrected with focused regression checks. The read-only reviewer approved the scoped offline pilot; paid/provider-native validation remains out of scope.

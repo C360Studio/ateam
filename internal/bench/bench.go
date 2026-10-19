@@ -6,9 +6,11 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,19 +23,20 @@ import (
 
 // TaskSpec defines a benchmark task with good, bad (adversarial-unsafe or bloated), and mutant fixtures.
 type TaskSpec struct {
-	ID           string                `json:"id"`
-	Tier         string                `json:"tier"` // coding-discipline, handoff-continuity
-	Description  string                `json:"description"`
-	AteamLOC     int                   `json:"ateam_loc"`
-	GoodSource   string                `json:"-"`
-	BadSource    string                `json:"-"`
-	MutantSource string                `json:"-"`
-	TestSource   string                `json:"-"`
-	SafetyCheck  func(src string) bool `json:"-"`
+	ID           string `json:"id"`
+	Tier         string `json:"tier"` // coding-discipline, handoff-continuity
+	Description  string `json:"description"`
+	AteamLOC     int    `json:"ateam_loc"`
+	GoodSource   string `json:"-"`
+	BadSource    string `json:"-"`
+	MutantSource string `json:"-"`
+	TestSource   string `json:"-"`
 }
 
 // TaskResult records the evaluation of a single benchmark task.
 type TaskResult struct {
+	Evaluation       string `json:"evaluation"`
+	Diagnostics      string `json:"diagnostics,omitempty"`
 	ID               string `json:"id"`
 	Tier             string `json:"tier"`
 	Description      string `json:"description"`
@@ -47,6 +50,9 @@ type TaskResult struct {
 
 // SuiteReport summarizes the full benchmark scorecard and self-test status.
 type SuiteReport struct {
+	SchemaVersion     int          `json:"schema_version"`
+	EvaluatedTasks    int          `json:"evaluated_tasks"`
+	SkippedTasks      int          `json:"skipped_tasks"`
 	Timestamp         time.Time    `json:"timestamp"`
 	Mode              string       `json:"mode"`
 	SelfTestPassed    bool         `json:"selftest_passed"`
@@ -230,7 +236,7 @@ func TestFixture(t *testing.T) {
 		{
 			ID:          "rate-limit",
 			Tier:        "coding-discipline",
-			Description: "Per-client fixed-window rate limiter with mutex protection",
+			Description: "Per-client rolling-window rate limiter with mutex protection",
 			AteamLOC:    12,
 			GoodSource: `package ratelimit
 import ("sync"; "time")
@@ -286,18 +292,11 @@ func TestFixture(t *testing.T) {
   let { value = '', label = 'Due date' } = $props(); // mutant: not bindable, loses min constraint
 </script>
 <input type="text" {value} />`,
-			SafetyCheck: func(src string) bool {
-				clean := stripNonGoComments(src)
-				return strings.Contains(clean, `type="date"`) &&
-					strings.Contains(clean, "bind:value") &&
-					strings.Contains(clean, "$bindable") &&
-					countSourceLines(clean) <= 25
-			},
 		},
 		{
 			ID:          "relay-openspec-hold",
 			Tier:        "handoff-continuity",
-			Description: "Cross-CLI handoff preserves OpenSpec Hold: items and 5-field pickup in 0 discovery turns",
+			Description: "Session-start hook restores handoff context and OpenSpec Hold: items",
 			AteamLOC:    12,
 		},
 		{
@@ -309,97 +308,163 @@ func TestFixture(t *testing.T) {
 	}
 }
 
-// CheckCodingCandidate evaluates a candidate Go source string against the named task's behavioral TestSource using mutate.Run.
-// Returns true only if the candidate compiles and passes all behavioral assertions in TestFixture.
+// CandidateEvaluation records behavioral grading and preserves the grader output.
+type CandidateEvaluation struct {
+	Supported   bool   `json:"supported"`
+	Passed      bool   `json:"passed"`
+	Verdict     string `json:"verdict"`
+	Diagnostics string `json:"diagnostics"`
+}
+
+// CheckCodingCandidate is the compatibility wrapper for context-aware behavioral grading.
 func CheckCodingCandidate(taskID, candidateSrc string) bool {
+	result, err := EvaluateCodingCandidate(context.Background(), taskID, candidateSrc)
+	return err == nil && result.Passed
+}
+
+// EvaluateCodingCandidate compiles and tests a candidate against trusted reference assertions.
+// Compilation/assertion failures are task failures; execution failures return an error.
+// This runs candidate Go code locally; callers must only evaluate code they trust to execute.
+func EvaluateCodingCandidate(ctx context.Context, taskID, candidateSrc string) (CandidateEvaluation, error) {
 	for _, spec := range Tasks() {
-		if spec.ID != taskID {
-			continue
-		}
-		if spec.TestSource == "" {
-			if spec.SafetyCheck != nil {
-				return spec.SafetyCheck(candidateSrc)
+		if spec.ID == taskID {
+			if spec.TestSource == "" {
+				return CandidateEvaluation{Verdict: "unsupported", Diagnostics: "no behavioral grader for task " + taskID}, nil
 			}
-			return false
+			return evaluateCandidate(ctx, spec, candidateSrc)
 		}
-		if strings.TrimSpace(candidateSrc) == strings.TrimSpace(spec.GoodSource) {
-			_, goodSafe, _, _ := runBehavioralCheck(spec)
-			return goodSafe
-		}
-		return runCandidateAgainstTestSource(spec, candidateSrc)
 	}
-	return false
+	return CandidateEvaluation{Verdict: "unsupported", Diagnostics: "unknown task " + taskID}, fmt.Errorf("unknown benchmark task %q", taskID)
 }
 
-func runCandidateAgainstTestSource(spec TaskSpec, candidateSrc string) bool {
-	modDir, err := os.MkdirTemp("", "ateam-bench-cand-*")
+func fixtureModule(spec TaskSpec, source string) (string, error) {
+	dir, err := os.MkdirTemp("", "ateam-bench-fixture-*")
 	if err != nil {
-		return false
+		return "", err
 	}
-	defer os.RemoveAll(modDir)
-
-	outDir, err := os.MkdirTemp("", "ateam-bench-mut-*")
-	if err != nil {
-		return false
+	for name, data := range map[string]string{"go.mod": "module benchfixture\n\ngo 1.23\n", "fixture.go": source, "fixture_test.go": spec.TestSource} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o600); err != nil {
+			_ = os.RemoveAll(dir)
+			return "", fmt.Errorf("write fixture %s: %w", name, err)
+		}
 	}
-	defer os.RemoveAll(outDir)
-
-	if err := os.WriteFile(filepath.Join(modDir, "go.mod"), []byte("module benchfixture\n\ngo 1.23\n"), 0o600); err != nil {
-		return false
-	}
-	if err := os.WriteFile(filepath.Join(modDir, "fixture.go"), []byte(spec.GoodSource), 0o600); err != nil {
-		return false
-	}
-	if err := os.WriteFile(filepath.Join(modDir, "fixture_test.go"), []byte(spec.TestSource), 0o600); err != nil {
-		return false
-	}
-	candPath := filepath.Join(outDir, "candidate.go")
-	if err := os.WriteFile(candPath, []byte(candidateSrc), 0o600); err != nil {
-		return false
-	}
-	rep, _ := mutate.Run(context.Background(), modDir, mutate.Options{
-		Pkg:        ".",
-		Test:       "TestFixture",
-		File:       "fixture.go",
-		Mutant:     candPath,
-		ExpectText: []string{"expected safety assertion"},
-		Runs:       1,
-		Timeout:    15 * time.Second,
-		Seed:       1,
-	}, io.Discard, io.Discard)
-	// A candidate that passes all tests in TestFixture is classified as a survivor relative to GoodSource.
-	// Any candidate that fails a safety assertion (detection) or fails to build (invalid) is rejected.
-	return rep.Verdict == mutate.OutcomeSurvivor
+	return dir, nil
 }
 
-func runBehavioralCheck(spec TaskSpec) (ran, goodSafe, badCaught, mutantCaught bool) {
+// diagnosticBuffer bounds output from evaluated code while retaining a visible truncation signal.
+type diagnosticBuffer struct {
+	bytes.Buffer
+	truncated bool
+}
+
+func (b *diagnosticBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := (1 << 20) - b.Len()
+	if len(p) > remaining {
+		p = p[:remaining]
+		b.truncated = true
+	}
+	_, _ = b.Buffer.Write(p)
+	return n, nil
+}
+
+func evaluateCandidate(ctx context.Context, spec TaskSpec, source string) (CandidateEvaluation, error) {
+	result := CandidateEvaluation{Supported: true, Verdict: "inconclusive"}
+	if err := ctx.Err(); err != nil {
+		result.Diagnostics = err.Error()
+		return result, err
+	}
+	dir, err := fixtureModule(spec, source)
+	if err != nil {
+		result.Diagnostics = err.Error()
+		return result, err
+	}
+	defer os.RemoveAll(dir)
+	homeDir, tempDir := filepath.Join(dir, "home"), filepath.Join(dir, "tmp")
+	for _, isolatedDir := range []string{homeDir, tempDir} {
+		if err := os.Mkdir(isolatedDir, 0o700); err != nil {
+			result.Diagnostics = err.Error()
+			return result, err
+		}
+	}
+	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, "go", "test", "-json", "-count=1", "-run", "^TestFixture$", "-timeout=15s", ".")
+	cmd.Dir = dir
+	cache := os.Getenv("GOCACHE")
+	if cache == "" {
+		cache = filepath.Join(os.TempDir(), "ateam-bench-go-cache")
+	}
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + homeDir, "TMPDIR=" + tempDir, "GOCACHE=" + cache, "GOENV=off", "GOWORK=off", "GOFLAGS=", "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local"}
+	configureBenchmarkProcess(cmd)
+	defer cleanupBenchmarkProcess(cmd)
+	var output diagnosticBuffer
+	cmd.Stdout, cmd.Stderr = &output, &output
+	err = cmd.Run()
+	result.Diagnostics = output.String()
+	if runCtx.Err() != nil {
+		return result, fmt.Errorf("grade %s: %w", spec.ID, runCtx.Err())
+	}
+	if output.truncated {
+		return result, fmt.Errorf("grade %s: output exceeded 1 MiB", spec.ID)
+	}
+	var ran, passed bool
+	for _, line := range strings.Split(output.String(), "\n") {
+		var event struct{ Action, Test string }
+		if json.Unmarshal([]byte(line), &event) == nil && event.Test == "TestFixture" {
+			ran = ran || event.Action == "run"
+			passed = passed || event.Action == "pass"
+		}
+	}
+	if err != nil {
+		var exitErr *exec.ExitError
+		packageMismatch := strings.Contains(output.String(), "found packages ") &&
+			strings.Contains(output.String(), "(fixture.go) and ") && strings.Contains(output.String(), "(fixture_test.go)")
+		candidateBuildFailure := strings.Contains(output.String(), "fixture.go:") || strings.Contains(output.String(), "fixture_test.go:") || packageMismatch
+		// A failed command without a test run or candidate compiler diagnostic is an infrastructure error.
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() < 0 || (!ran && !candidateBuildFailure) {
+			return result, fmt.Errorf("grade %s: %w", spec.ID, err)
+		}
+		result.Verdict = "failed"
+		return result, nil
+	}
+	result.Passed = ran && passed
+	result.Verdict = "failed"
+	if result.Passed {
+		result.Verdict = "passed"
+	}
+	return result, nil
+}
+
+func runBehavioralCheck(ctx context.Context, spec TaskSpec) (goodSafe, badCaught, mutantCaught bool, diagnostics string) {
 	modDir, err := os.MkdirTemp("", "ateam-bench-mod-*")
 	if err != nil {
-		return false, false, false, false
+		return false, false, false, err.Error()
 	}
 	defer os.RemoveAll(modDir)
 
 	outDir, err := os.MkdirTemp("", "ateam-bench-out-*")
 	if err != nil {
-		return false, false, false, false
+		return false, false, false, err.Error()
 	}
 	defer os.RemoveAll(outDir)
 
 	if err := os.WriteFile(filepath.Join(modDir, "go.mod"), []byte("module benchfixture\n\ngo 1.23\n"), 0o600); err != nil {
-		return false, false, false, false
+		return false, false, false, err.Error()
 	}
 	if err := os.WriteFile(filepath.Join(modDir, "fixture.go"), []byte(spec.GoodSource), 0o600); err != nil {
-		return false, false, false, false
+		return false, false, false, err.Error()
 	}
 	if err := os.WriteFile(filepath.Join(modDir, "fixture_test.go"), []byte(spec.TestSource), 0o600); err != nil {
-		return false, false, false, false
+		return false, false, false, err.Error()
 	}
 
 	mutPath := filepath.Join(outDir, "mutant.go")
 	if err := os.WriteFile(mutPath, []byte(spec.MutantSource), 0o600); err != nil {
-		return false, false, false, false
+		return false, false, false, err.Error()
 	}
-	mutRep, _ := mutate.Run(context.Background(), modDir, mutate.Options{
+	var mutLog bytes.Buffer
+	mutRep, _ := mutate.Run(ctx, modDir, mutate.Options{
 		Pkg:        ".",
 		Test:       "TestFixture",
 		File:       "fixture.go",
@@ -408,13 +473,14 @@ func runBehavioralCheck(spec TaskSpec) (ran, goodSafe, badCaught, mutantCaught b
 		Runs:       1,
 		Timeout:    15 * time.Second,
 		Seed:       1,
-	}, io.Discard, io.Discard)
+	}, &mutLog, &mutLog)
 
 	badPath := filepath.Join(outDir, "bad.go")
 	if err := os.WriteFile(badPath, []byte(spec.BadSource), 0o600); err != nil {
-		return false, false, false, false
+		return false, false, false, err.Error()
 	}
-	badRep, _ := mutate.Run(context.Background(), modDir, mutate.Options{
+	var badLog bytes.Buffer
+	badRep, _ := mutate.Run(ctx, modDir, mutate.Options{
 		Pkg:        ".",
 		Test:       "TestFixture",
 		File:       "fixture.go",
@@ -423,12 +489,12 @@ func runBehavioralCheck(spec TaskSpec) (ran, goodSafe, badCaught, mutantCaught b
 		Runs:       1,
 		Timeout:    15 * time.Second,
 		Seed:       1,
-	}, io.Discard, io.Discard)
+	}, &badLog, &badLog)
 
-	goodSafe = mutRep.Verdict == mutate.OutcomeDetection
+	goodSafe = mutRep.Verdict == mutate.OutcomeDetection || mutRep.Verdict == mutate.OutcomeSurvivor || mutRep.Verdict == mutate.OutcomeInvalid
 	mutantCaught = mutRep.Verdict == mutate.OutcomeDetection
 	badCaught = badRep.Verdict == mutate.OutcomeDetection || badRep.Verdict == mutate.OutcomeInvalid
-	return true, goodSafe, badCaught, mutantCaught
+	return goodSafe, badCaught, mutantCaught, "mutation: " + mutLog.String() + "\nbad fixture: " + badLog.String()
 }
 
 func stripNonGoComments(src string) string {
@@ -448,17 +514,23 @@ func stripNonGoComments(src string) string {
 }
 
 // RunSelfTest executes the deterministic offline benchmark self-test and mutation suite (0 API calls).
-func RunSelfTest(_ context.Context) (SuiteReport, error) {
+func RunSelfTest(ctx context.Context) (SuiteReport, error) {
 	tasks := Tasks()
 	report := SuiteReport{
+		SchemaVersion:  1,
 		Timestamp:      time.Now().UTC(),
 		Mode:           "selftest-reference-fixtures",
 		SelfTestPassed: true,
 		TotalTasks:     len(tasks),
 	}
 
+	if err := ctx.Err(); err != nil {
+		report.SelfTestPassed = false
+		return report, err
+	}
 	tokens, _, err := mcpserver.EstimateSchemaTokens()
 	if err != nil {
+		report.SelfTestPassed = false
 		return report, err
 	}
 	report.MCPTokenTax = tokens
@@ -469,31 +541,51 @@ func RunSelfTest(_ context.Context) (SuiteReport, error) {
 	// Measure hook latency in an isolated temp dir.
 	tmpDir, err := os.MkdirTemp("", "ateam-bench-*")
 	if err != nil {
+		report.SelfTestPassed = false
 		return report, err
 	}
 	defer os.RemoveAll(tmpDir)
 
 	t0 := time.Now()
-	_, _ = hook.Handle(tmpDir, "session-start", strings.NewReader(`{}`))
+	if _, err := hook.Handle(tmpDir, "session-start", strings.NewReader(`{}`)); err != nil {
+		report.SelfTestPassed = false
+		return report, err
+	}
 	report.HookLatencyUs = time.Since(t0).Microseconds()
 
 	var safetyPassed, mutantCaught int
 	var codingCount int
 
 	for _, spec := range tasks {
+		if err := ctx.Err(); err != nil {
+			report.SelfTestPassed = false
+			return report, err
+		}
 		var tr TaskResult
 		if spec.Tier == "coding-discipline" {
-			codingCount++
-			tr = evaluateCodingTask(spec)
+			tr = evaluateCodingTask(ctx, spec)
+			if tr.Evaluation == "behavioral" {
+				codingCount++
+			}
 			if tr.GoodPassedSafety && tr.BadCaughtByGate {
 				safetyPassed++
 			}
 			if tr.MutantCaught {
 				mutantCaught++
 			}
+			if codingCount > 0 {
+				report.SafetyPassRatePct = safetyPassed * 100 / codingCount
+				report.MutationCatchPct = mutantCaught * 100 / codingCount
+			}
 		} else {
 			tr = evaluateContinuityTask(spec)
 		}
+		if tr.Evaluation == "unsupported" {
+			report.SkippedTasks++
+			report.Tasks = append(report.Tasks, tr)
+			continue
+		}
+		report.EvaluatedTasks++
 		if tr.Passed {
 			report.PassedTasks++
 		} else {
@@ -502,55 +594,59 @@ func RunSelfTest(_ context.Context) (SuiteReport, error) {
 		report.Tasks = append(report.Tasks, tr)
 	}
 
-	if codingCount > 0 {
-		report.SafetyPassRatePct = (safetyPassed * 100) / codingCount
-		report.MutationCatchPct = (mutantCaught * 100) / codingCount
+	if err := ctx.Err(); err != nil {
+		report.SelfTestPassed = false
+		return report, err
 	}
 	if !report.SelfTestPassed {
-		return report, fmt.Errorf("benchmark selftest failed: %d/%d tasks passed", report.PassedTasks, report.TotalTasks)
+		return report, fmt.Errorf("benchmark selftest failed: %d/%d tasks passed", report.PassedTasks, report.EvaluatedTasks)
 	}
 	return report, nil
 }
 
-func evaluateCodingTask(spec TaskSpec) TaskResult {
-	var goodSafe, badCaught, mutantCaught bool
-	if spec.TestSource != "" {
-		_, goodSafe, badCaught, mutantCaught = runBehavioralCheck(spec)
-	} else if spec.SafetyCheck != nil {
-		goodSafe = spec.SafetyCheck(spec.GoodSource)
-		badCaught = !spec.SafetyCheck(spec.BadSource)
-		mutantCaught = !spec.SafetyCheck(spec.MutantSource)
+func evaluateCodingTask(ctx context.Context, spec TaskSpec) TaskResult {
+	result := TaskResult{ID: spec.ID, Tier: spec.Tier, Description: spec.Description,
+		AteamLOC: countSourceLines(spec.GoodSource), GzipBytes: gzipLen(spec.GoodSource), Evaluation: "unsupported"}
+	if spec.TestSource == "" {
+		// shortcut: Svelte fixtures are not graded, add a compiler and behavioral UI grader before enabling them.
+		result.Diagnostics = "No behavioral grader; keyword matching is not evidence of correctness."
+		return result
 	}
-	measuredLOC := countSourceLines(spec.GoodSource)
-	if measuredLOC <= 0 {
-		measuredLOC = spec.AteamLOC
-	}
-	return TaskResult{
-		ID:               spec.ID,
-		Tier:             spec.Tier,
-		Description:      spec.Description,
-		AteamLOC:         measuredLOC,
-		GzipBytes:        gzipLen(spec.GoodSource),
-		GoodPassedSafety: goodSafe,
-		BadCaughtByGate:  badCaught,
-		MutantCaught:     mutantCaught,
-		Passed:           goodSafe && badCaught && mutantCaught,
-	}
+	result.Evaluation = "behavioral"
+	result.GoodPassedSafety, result.BadCaughtByGate, result.MutantCaught, result.Diagnostics = runBehavioralCheck(ctx, spec)
+	result.Passed = result.GoodPassedSafety && result.BadCaughtByGate && result.MutantCaught
+	return result
 }
 
 func evaluateContinuityTask(spec TaskSpec) TaskResult {
+	result := TaskResult{ID: spec.ID, Tier: spec.Tier, Description: spec.Description, Evaluation: "continuity"}
 	dir, err := os.MkdirTemp("", "ateam-relay-*")
 	if err != nil {
-		return TaskResult{ID: spec.ID, Tier: spec.Tier, Description: spec.Description}
+		result.Diagnostics = err.Error()
+		return result
 	}
 	defer os.RemoveAll(dir)
+	result.Passed, err = checkContinuity(dir, spec)
+	result.GoodPassedSafety = result.Passed
+	if err != nil {
+		result.Diagnostics = err.Error()
+	} else if !result.Passed {
+		result.Diagnostics = "continuity assertions failed"
+	}
+	return result
+}
 
+func checkContinuity(dir string, spec TaskSpec) (bool, error) {
 	var passed bool
 	switch spec.ID {
 	case "relay-openspec-hold":
 		changeDir := filepath.Join(dir, "openspec", "changes", "relay-01")
-		_ = os.MkdirAll(changeDir, 0o755)
-		_ = os.WriteFile(filepath.Join(changeDir, "tasks.md"), []byte("## 1. Work\n- [ ] 1.1 Wire Gitea sync\n  - Hold: waiting on #48\n"), 0o644)
+		if err := os.MkdirAll(changeDir, 0o755); err != nil {
+			return false, err
+		}
+		if err := os.WriteFile(filepath.Join(changeDir, "tasks.md"), []byte("## 1. Work\n- [ ] 1.1 Wire Gitea sync\n  - Hold: waiting on #48\n"), 0o644); err != nil {
+			return false, err
+		}
 		st := &state.State{
 			Mode: state.ModeFull,
 			LastHandoff: &state.Handoff{
@@ -562,36 +658,44 @@ func evaluateContinuityTask(spec TaskSpec) TaskResult {
 				CheckpointSHA: "9f8e7d6",
 			},
 		}
-		_ = state.Save(dir, st)
+		if err := state.Save(dir, st); err != nil {
+			return false, err
+		}
 		out, err := hook.Handle(dir, "session-start", strings.NewReader(`{}`))
-		passed = err == nil &&
+		if err != nil {
+			return false, err
+		}
+		passed =
 			strings.Contains(out.AdditionalContext, "Goal: Finish Gitea sync") &&
-			strings.Contains(out.AdditionalContext, "Hold: waiting on #48") &&
-			strings.Contains(out.AdditionalContext, "PONYTAIL MODE [full]")
+				strings.Contains(out.AdditionalContext, "Hold: waiting on #48") &&
+				strings.Contains(out.AdditionalContext, "PONYTAIL MODE [full]")
 
 	case "relay-precompact-recovery":
-		_ = os.WriteFile(filepath.Join(dir, "worker.go"), []byte("package main\n// shortcut: single worker goroutine, scale to pool when queue > 1000\n"), 0o644)
-		_, _ = hook.Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress"}`))
+		if err := os.WriteFile(filepath.Join(dir, "worker.go"), []byte("package main\n// shortcut: single worker goroutine, scale to pool when queue > 1000\n"), 0o644); err != nil {
+			return false, err
+		}
+		if _, err := hook.Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress"}`)); err != nil {
+			return false, err
+		}
 		out, err := hook.Handle(dir, "session-start", strings.NewReader(`{}`))
-		st, _ := state.Load(dir)
-		passed = err == nil &&
+		if err != nil {
+			return false, err
+		}
+		st, err := state.Load(dir)
+		if err != nil {
+			return false, err
+		}
+		if err != nil {
+			return false, err
+		}
+		passed =
 			st.LastHandoff != nil &&
-			st.LastHandoff.AutoCompacted &&
-			len(st.Shortcuts) == 1 &&
-			strings.Contains(out.AdditionalContext, "Auto-saved before context compaction")
+				st.LastHandoff.AutoCompacted &&
+				len(st.Shortcuts) == 1 &&
+				strings.Contains(out.AdditionalContext, "Auto-saved before context compaction")
 	}
 
-	return TaskResult{
-		ID:               spec.ID,
-		Tier:             spec.Tier,
-		Description:      spec.Description,
-		AteamLOC:         spec.AteamLOC,
-		GzipBytes:        gzipLen(spec.Description),
-		GoodPassedSafety: passed,
-		BadCaughtByGate:  passed,
-		MutantCaught:     passed,
-		Passed:           passed,
-	}
+	return passed, nil
 }
 
 func countSourceLines(src string) int {
@@ -614,34 +718,137 @@ func gzipLen(s string) int {
 	return buf.Len()
 }
 
-// SaveRun writes the benchmark report to benchmarks/runs/latest.json under root.
+// SaveRun preserves compatibility while writing an immutable self-test artifact.
 func SaveRun(root string, rep SuiteReport) error {
+	_, err := SaveSelfTestRun(root, rep)
+	return err
+}
+
+// SaveSelfTestRun writes a new artifact without replacing any previous result.
+func SaveSelfTestRun(root string, rep SuiteReport) (string, error) {
 	dir := filepath.Join(root, "benchmarks", "runs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return "", fmt.Errorf("create report directory: %w", err)
 	}
 	data, err := json.MarshalIndent(rep, "", "  ")
 	if err != nil {
-		return err
+		return "", fmt.Errorf("encode selftest report: %w", err)
 	}
-	return os.WriteFile(filepath.Join(dir, "latest.json"), append(data, '\n'), 0o644)
+	f, err := os.CreateTemp(dir, "selftest-"+rep.Timestamp.UTC().Format("20060102T150405.000000000Z")+"-*.json")
+	if err != nil {
+		return "", fmt.Errorf("create selftest report: %w", err)
+	}
+	name := f.Name()
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		_ = f.Close()
+		_ = os.Remove(name)
+		return "", fmt.Errorf("write selftest report: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", fmt.Errorf("close selftest report: %w", err)
+	}
+	return name, nil
 }
 
-// FormatMarkdown renders a human-readable benchmark report table.
+// ParseSelfTestReport validates a stored report for rendering; it does not re-run grading.
+func ParseSelfTestReport(data []byte) (SuiteReport, error) {
+	var report SuiteReport
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&report); err != nil {
+		return report, fmt.Errorf("decode selftest report: %w", err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return report, errors.New("selftest report contains trailing data")
+	}
+	if report.SchemaVersion != 1 || report.Mode != "selftest-reference-fixtures" || report.Timestamp.IsZero() {
+		return report, errors.New("unsupported or incomplete selftest report schema")
+	}
+	specs := make(map[string]TaskSpec)
+	for _, spec := range Tasks() {
+		specs[spec.ID] = spec
+	}
+	if report.TotalTasks != len(specs) || len(report.Tasks) > report.TotalTasks || report.MCPTokenTax < 0 || report.HookLatencyUs < 0 {
+		return report, errors.New("invalid selftest report totals or measurements")
+	}
+	seen := make(map[string]bool)
+	var evaluated, skipped, passed, coding, safety, mutation int
+	for _, task := range report.Tasks {
+		spec, ok := specs[task.ID]
+		if !ok || seen[task.ID] || task.Tier != spec.Tier || task.AteamLOC < 0 || task.GzipBytes < 0 {
+			return report, fmt.Errorf("invalid or duplicate selftest task %q", task.ID)
+		}
+		seen[task.ID] = true
+		expected := "behavioral"
+		if spec.Tier == "handoff-continuity" {
+			expected = "continuity"
+		} else if spec.TestSource == "" {
+			expected = "unsupported"
+		}
+		if task.Evaluation != expected {
+			return report, fmt.Errorf("invalid evaluation for %s", task.ID)
+		}
+		switch expected {
+		case "unsupported":
+			skipped++
+			if task.Passed || task.GoodPassedSafety || task.BadCaughtByGate || task.MutantCaught {
+				return report, fmt.Errorf("unsupported task %s claims results", task.ID)
+			}
+			continue
+		case "continuity":
+			if task.BadCaughtByGate || task.MutantCaught || task.Passed != task.GoodPassedSafety {
+				return report, fmt.Errorf("continuity task %s claims untested results", task.ID)
+			}
+		case "behavioral":
+			coding++
+			if task.GoodPassedSafety && task.BadCaughtByGate {
+				safety++
+			}
+			if task.MutantCaught {
+				mutation++
+			}
+			if task.Passed != (task.GoodPassedSafety && task.BadCaughtByGate && task.MutantCaught) {
+				return report, fmt.Errorf("inconsistent outcome for %s", task.ID)
+			}
+		}
+		evaluated++
+		if task.Passed {
+			passed++
+		}
+	}
+	safetyPct, mutationPct := 0, 0
+	if coding > 0 {
+		safetyPct, mutationPct = safety*100/coding, mutation*100/coding
+	}
+	expectedPass := len(report.Tasks) == report.TotalTasks && passed == evaluated && report.MCPTokenTax < mcpserver.MaxSchemaTokens
+	if report.EvaluatedTasks != evaluated || report.SkippedTasks != skipped || report.PassedTasks != passed || report.SafetyPassRatePct != safetyPct || report.MutationCatchPct != mutationPct || report.SelfTestPassed != expectedPass {
+		return report, errors.New("selftest summary contradicts task evidence")
+	}
+	return report, nil
+}
+
+// FormatMarkdown renders the measured reference checks without claiming agent performance.
 func FormatMarkdown(rep SuiteReport) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# ATeam Benchmark & Self-Test Report (`%s`)\n\n", rep.Mode)
-	fmt.Fprintf(&b, "- **Self-Test Status:** `PASS=%v` (%d/%d reference fixtures & AST/mutation gates passed)\n", rep.SelfTestPassed, rep.PassedTasks, rep.TotalTasks)
-	fmt.Fprintf(&b, "- **Adversarial Safety Gate Pass Rate:** `%d%%` (100%% of bad fixtures caught)\n", rep.SafetyPassRatePct)
-	fmt.Fprintf(&b, "- **Injected Bug Mutation Catch Rate:** `%d%%`\n", rep.MutationCatchPct)
-	fmt.Fprintf(&b, "- **MCP 2-Tool Schema Budget:** `%d tokens` (< 300 token limit)\n", rep.MCPTokenTax)
-	fmt.Fprintf(&b, "- **Hook Execution Latency:** `%d µs` (< 5,000 µs limit)\n\n", rep.HookLatencyUs)
-
-	b.WriteString("| Task | Tier | Fixture LOC | Gzip Bytes | Safety Gate | Mutant Caught | Passed |\n")
+	fmt.Fprintf(&b, "# ATeam Self-Test Report (`%s`)\n\n", rep.Mode)
+	fmt.Fprintf(&b, "- **Self-Test Status:** `PASS=%v` (%d/%d evaluated reference checks passed; %d unsupported tasks skipped)\n", rep.SelfTestPassed, rep.PassedTasks, rep.EvaluatedTasks, rep.SkippedTasks)
+	fmt.Fprintf(&b, "- **Good + Bad Fixture Gate Pass Rate:** `%d%%` (behavioral coding tasks only)\n", rep.SafetyPassRatePct)
+	fmt.Fprintf(&b, "- **Injected Bug Mutation Catch Rate:** `%d%%` (behavioral coding tasks only)\n", rep.MutationCatchPct)
+	fmt.Fprintf(&b, "- **MCP 2-Tool Schema Budget:** `%d tokens` (limit: < 300)\n", rep.MCPTokenTax)
+	fmt.Fprintf(&b, "- **Hook Execution Latency:** `%d µs` (one local observation; not a latency distribution)\n\n", rep.HookLatencyUs)
+	b.WriteString("These offline reference checks validate graders and local continuity behavior; they do not measure agent time, tokens, or quality.\n\n")
+	b.WriteString("| Task | Evaluation | Fixture LOC | Gzip Bytes | Safety Gate | Mutant Caught | Passed |\n")
 	b.WriteString("| --- | --- | ---: | ---: | :---: | :---: | :---: |\n")
-	for _, t := range rep.Tasks {
-		fmt.Fprintf(&b, "| `%s` | %s | %d | %d | %v | %v | %v |\n",
-			t.ID, t.Tier, t.AteamLOC, t.GzipBytes, t.GoodPassedSafety && t.BadCaughtByGate, t.MutantCaught, t.Passed)
+	for _, task := range rep.Tasks {
+		safety, mutation, passed := "N/A", "N/A", fmt.Sprint(task.Passed)
+		if task.Evaluation == "behavioral" {
+			safety, mutation = fmt.Sprint(task.GoodPassedSafety && task.BadCaughtByGate), fmt.Sprint(task.MutantCaught)
+		}
+		if task.Evaluation == "unsupported" {
+			passed = "not evaluated"
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %d | %d | %s | %s | %s |\n", task.ID, task.Evaluation, task.AteamLOC, task.GzipBytes, safety, mutation, passed)
 	}
 	return b.String()
 }
