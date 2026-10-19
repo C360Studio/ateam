@@ -24,3 +24,16 @@ Full clean-tree `GOCACHE="$PWD/.enjoy-logs/go-cache" task verify` passed with ex
 - Not covered: corrected live execution and authoritative billing. First pilot retained 11 adapter errors (23,075 known tokens, $0.288833 CLI estimate with unknown pricing basis) and one interrupted attempt with unknown usage; these are not successful quality measurements.
 
 Independent read-only correction review found no code blockers. It required clarifying that MAX_STRUCTURED_OUTPUT_RETRIES=1 means one structured-output attempt, and that the native StructuredOutput return tool accompanies Read/Glob/Grep; documentation and recorded budget policy now say so. Clean-tree full verification is required before the corrected live retry; its tested commit and outcome will be recorded in PR #13.
+
+
+## Completed live Haiku calibration
+
+Full clean-tree `GOCACHE="$PWD/.enjoy-logs/go-cache" task verify` passed with exit 0 at `4d473a424d3971f9c9b1ccb21b241041eb2c01a4`; log `.enjoy-logs/haiku-schema-verify.log`. Doctor parity passed (177 schema tokens); the 6,008 µs single hook observation is above the advertised 5 ms target, not a latency guarantee. Isolated remote-policy preflight passed with no managed settings configured for the organization.
+
+The corrected pilot completed 30/30 passing attempts with 15 evaluable pairs, complete primary usage and 30 distinct native session IDs. All reported model identities matched claude-haiku-5-5; requested low effort remains unverified by native telemetry. Offline rescore preserved every grade, identical comparison JSON and the original SHA256. See `benchmarks/haiku-calibration-pilot-2026-10-19.md` for exact configuration, timing/token variation, hashes, cumulative consumption and billing limitations. No API/test concurrency occurred during the pilot.
+
+The earlier verification block's live-call exclusions describe its historical checkpoint. Current limits are unknown pricing basis/authoritative billing, unknown usage from the first launch's interruption, unreported resolved effort, small task coverage and no equivalence/harness-improvement claim. Codex Luna remains a separately sequenced task.
+
+A sanitized captured-success fixture now locks the actual native StructuredOutput envelope and accounting (954 normalized input, 1,766 output including 1,162 thinking). It omits UUID/timing/permissions and replaces the session ID; provenance is in `internal/bench/testdata/README.md`. The focused recorded-fixture test passed. This fixture adds real CLI evidence alongside the synthetic malformed/failure cases; it does not prove billing.
+
+Independent read-only delivery review approved the report and captured fixture after recomputing the live hash, totals, per-task observations and replay equality, and checking retained fields against the original with the session-ID substitution. The recorded fixture supersedes the earlier historical synthetic-only limitation. Final evidence-checkpoint clean-tree verification is recorded by exact commit and log in PR #13.

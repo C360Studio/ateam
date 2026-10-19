@@ -1,12 +1,49 @@
 package bench
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestClaudeRecordedStructuredOutput(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "claude-haiku-schema-success.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := parseClaudeStructuredOutput(string(data))
+	if err != nil || r.Usage == nil || r.Native.Terminal != "completed" || r.Native.UsageStatus != "reported" {
+		t.Fatalf("recorded native success rejected: %+v %v", r, err)
+	}
+	// Captured native counts: 4 uncached + 950 cache creation + 0 cache read;
+	// 1,766 output already includes the 1,162 thinking tokens.
+	if r.Usage.InputTokens != 954 || r.Usage.OutputTokens != 1766 || r.Usage.CachedInputTokens == nil || *r.Usage.CachedInputTokens != 0 || r.Usage.ReasoningOutputTokens == nil || *r.Usage.ReasoningOutputTokens != 1162 {
+		t.Fatalf("recorded usage was normalized incorrectly: %+v", r.Usage)
+	}
+	if r.Native.SessionID != "fixture-session" || !reflect.DeepEqual(r.Native.ReportedModels, []string{"claude-haiku-5-5"}) {
+		t.Fatalf("recorded session or model identity lost: %+v", r.Native)
+	}
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(r.Source))); got != "a643c7e4909c51f25182e4ec29950ae9b006aab70f1b9cc4eb0202fbdbcdf947" {
+		t.Fatalf("recorded structured source changed: sha256=%s", got)
+	}
+	var envelope struct {
+		StopReason string `json:"stop_reason"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil || envelope.StopReason != "tool_use" {
+		t.Fatalf("recorded fixture no longer exercises StructuredOutput tool completion: %+v %v", envelope, err)
+	}
+	// Preserve the CLI's estimate and its explicit unknown pricing basis; neither
+	// the parser nor this fixture upgrades those fields to provider billing proof.
+	raw := r.Native.ClaudeReportedUsage
+	if raw == nil || raw.TotalCostUSD == nil || *raw.TotalCostUSD != 0.040086 || raw.Models["claude-haiku-5-5"].CostBasis != "unknown" {
+		t.Fatalf("recorded estimated-cost evidence lost: %+v", raw)
+	}
+}
 
 const claudeGoodModel = `{"inputTokens":100,"outputTokens":40,"cacheCreationInputTokens":200,"cacheReadInputTokens":300,"thinkingTokens":10,"costUSD":0.002}`
 
