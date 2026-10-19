@@ -156,6 +156,12 @@ func TestAdapterScriptProvenance(t *testing.T) {
 }
 
 func FuzzExperimentDecode(f *testing.F) {
+	boundary := testExperiment()
+	boundary.Repetitions = 100
+	boundary.TimeoutSeconds = 3600
+	boundary.Tasks = []string{"safe-path", "sql-user", "gitea-webhook"}
+	boundaryJSON, _ := json.Marshal(boundary)
+	f.Add(boundaryJSON)
 	b, _ := json.Marshal(testExperiment())
 	f.Add(b)
 	f.Add([]byte(`{"version":1}`))
@@ -370,5 +376,42 @@ func TestComparisonDoesNotCallInfrastructureFailureQuality(t *testing.T) {
 	}
 	if c.Regressions != 0 {
 		t.Fatal("infrastructure error counted as quality regression")
+	}
+}
+
+func TestExperimentMaximumBoundary(t *testing.T) {
+	cfg := testExperiment()
+	cfg.Repetitions = 100
+	cfg.TimeoutSeconds = 3600
+	cfg.Tasks = []string{"safe-path", "sql-user", "gitea-webhook"}
+	data, _ := json.Marshal(cfg)
+	parsed, err := ParseExperiment(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schedule := Schedule(parsed)
+	if len(schedule) != 600 {
+		t.Fatalf("maximum boundary: got %d attempts, want 600", len(schedule))
+	}
+	seen := map[Trial]bool{}
+	for _, trial := range schedule {
+		if seen[trial] {
+			t.Fatal("duplicate trial at maximum boundary")
+		}
+		seen[trial] = true
+	}
+	for _, id := range cfg.Tasks {
+		for repetition := 1; repetition <= 100; repetition++ {
+			for _, arm := range []string{"baseline", "candidate"} {
+				if !seen[Trial{Task: id, Repetition: repetition, Arm: arm}] {
+					t.Fatalf("maximum boundary missed %s/%d/%s", id, repetition, arm)
+				}
+			}
+		}
+	}
+	cfg.TimeoutSeconds = 3601
+	data, _ = json.Marshal(cfg)
+	if _, err := ParseExperiment(data); err == nil {
+		t.Fatal("accepted timeout above maximum")
 	}
 }
