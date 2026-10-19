@@ -8,6 +8,8 @@ ATeam is an opinionated experimentation lab primarily grounded in Go development
 
 See [the adoption guide](../docs/adoption.md) for command dependencies, scanner limits, and verification setup. The Go/Svelte gates below describe this repository; adopting projects must define suitable equivalents.
 
+Read [how the harness runs](../docs/hook-flow.md) for event effects, injected context, design opinions, and failure behavior.
+
 ## How Each CLI Reads This Repository
 
 | Capability | Claude Code | Codex CLI | Gemini CLI |

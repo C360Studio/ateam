@@ -4,6 +4,8 @@
 
 The aim is to test—and eventually measure—how shared instructions, agent configuration, lifecycle hooks, and verification practices affect agent behavior. The current benchmark suite checks reference fixtures and harness mechanisms; it does **not** establish that this configuration improves agent performance.
 
+For the event-by-event lifecycle, state changes, and design rationale, read [how the harness runs](docs/hook-flow.md).
+
 ## Opinions and Boundaries
 
 ATeam adapts Ponytail’s decision ladder and supporting mechanisms into Go: question whether code needs to exist, reuse what is already available, prefer the standard library and installed dependencies, and finish the smallest complete change. Its workflow also favors isolated worktrees, issue-linked draft PRs, OpenSpec task lists, explicit handoffs, and tests demonstrated to catch wrong behavior. These are deliberate choices that adopters should review.
