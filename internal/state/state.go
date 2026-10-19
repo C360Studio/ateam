@@ -119,17 +119,18 @@ type WriterLease struct {
 
 // State is the cached local state stored in gitignored .ateam/state.json.
 type State struct {
-	Mode          DisciplineMode   `json:"mode"`
-	Forge         ForgeConfig      `json:"forge"`
-	LastHandoff   *Handoff         `json:"last_handoff,omitempty"`
-	Writer        *WriterLease     `json:"writer,omitempty"`
-	Git           GitStatus        `json:"git"`
-	Cards         []BoardCard      `json:"cards"`
-	Shortcuts     []ShortcutItem   `json:"shortcuts,omitempty"`
-	Holds         []HoldItem       `json:"holds,omitempty"`
-	HoldScanError string           `json:"hold_scan_error,omitempty"`
-	OpenSpecQueue []OpenSpecChange `json:"openspec_queue,omitempty"`
-	UpdatedAt     time.Time        `json:"updated_at"`
+	Mode             DisciplineMode   `json:"mode"`
+	Forge            ForgeConfig      `json:"forge"`
+	LastHandoff      *Handoff         `json:"last_handoff,omitempty"`
+	Writer           *WriterLease     `json:"writer,omitempty"`
+	CurrentSessionID string           `json:"-"`
+	Git              GitStatus        `json:"git"`
+	Cards            []BoardCard      `json:"cards"`
+	Shortcuts        []ShortcutItem   `json:"shortcuts,omitempty"`
+	Holds            []HoldItem       `json:"holds,omitempty"`
+	HoldScanError    string           `json:"hold_scan_error,omitempty"`
+	OpenSpecQueue    []OpenSpecChange `json:"openspec_queue,omitempty"`
+	UpdatedAt        time.Time        `json:"updated_at"`
 }
 
 // CacheFilePath returns the path to .ateam/state.json under root.
@@ -156,6 +157,15 @@ func ReadWriterLease(root string) (*WriterLease, error) {
 		return nil, err
 	}
 	return &wl, nil
+}
+
+// ClearWriterLease removes .ateam/writer.json when an agent hands off write ownership.
+func ClearWriterLease(root string) error {
+	err := os.Remove(WriterLeasePath(root))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // WriteWriterLease atomically writes the active writer lease to .ateam/writer.json.
@@ -232,6 +242,7 @@ func Load(root string) (*State, error) {
 	if st.Cards == nil {
 		st.Cards = []BoardCard{}
 	}
+	st.Writer = nil
 	if wl, err := ReadWriterLease(root); err == nil && wl != nil {
 		st.Writer = wl
 	}
@@ -329,7 +340,22 @@ func (st *State) UpsertCard(card BoardCard) (BoardCard, error) {
 		return BoardCard{}, fmt.Errorf("card title is required")
 	}
 	if strings.TrimSpace(card.ID) == "" {
-		card.ID = fmt.Sprintf("ATEAM-%d", len(st.Cards)+1)
+		next := len(st.Cards) + 1
+		for {
+			candidate := fmt.Sprintf("ATEAM-%d", next)
+			conflict := false
+			for _, c := range st.Cards {
+				if c.ID == candidate {
+					conflict = true
+					break
+				}
+			}
+			if !conflict {
+				card.ID = candidate
+				break
+			}
+			next++
+		}
 	}
 	if strings.TrimSpace(card.Column) == "" {
 		card.Column = "backlog"
@@ -374,7 +400,7 @@ func (st *State) MergeForgeCards(synced []BoardCard, provider ForgeProvider) {
 			seen[existing.ID] = true
 			continue
 		}
-		if existing.Forge != string(provider) {
+		if existing.Forge != string(provider) || strings.HasPrefix(existing.ID, "ATEAM-") {
 			merged = append(merged, existing)
 			seen[existing.ID] = true
 		}
@@ -631,7 +657,12 @@ func BuildPickupSummary(st *State) string {
 		}
 		fmt.Fprintf(&b, "Writer lease: agent=%s session=%s pid=%d last_seen=%s ago\n",
 			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age)
-		if time.Since(st.Writer.LastSeen) < 10*time.Minute && st.Writer.PID != 0 && st.Writer.PID != os.Getpid() {
+		curSession := strings.TrimSpace(st.CurrentSessionID)
+		if curSession == "" {
+			curSession = strings.TrimSpace(os.Getenv("ATEAM_SESSION_ID"))
+		}
+		leaseSession := strings.TrimSpace(st.Writer.SessionID)
+		if time.Since(st.Writer.LastSeen) < 10*time.Minute && leaseSession != "" && leaseSession != curSession {
 			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)\n",
 				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age)
 		}

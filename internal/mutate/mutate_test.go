@@ -216,6 +216,50 @@ func TestRunOutcomes(t *testing.T) {
 		t.Fatalf("expected inconclusive (wrong assertion, code 1), got code=%d verdict=%s reason=%s", code, rep.Verdict, rep.Reason)
 	}
 
+	// 6. Astra #4: Build-excluded target file (//go:build ignore) has no coverage blocks -> must report invalid, not survivor
+	mustWrite(t, filepath.Join(repo, "excluded.go"), "//go:build ignore\n\npackage tiny\nfunc Excluded() int { return 1 }\n")
+	excludedMut := filepath.Join(outsideDir, "excluded_mut.go")
+	mustWrite(t, excludedMut, "//go:build ignore\n\npackage tiny\nfunc Excluded() int { return 2 }\n")
+	out.Reset()
+	rep, code = Run(context.Background(), repo, Options{
+		Pkg:        ".",
+		Test:       "TestClampMax",
+		File:       "excluded.go",
+		Mutant:     excludedMut,
+		ExpectText: []string{"want clamped max 10"},
+		Runs:       1,
+		Timeout:    30 * time.Second,
+		Seed:       1,
+	}, &out, &errBuf)
+	if code != 1 || rep.Verdict != OutcomeInvalid {
+		t.Fatalf("expected invalid for build-excluded target file, got code=%d verdict=%s reason=%s", code, rep.Verdict, rep.Reason)
+	}
+
+	// 7. Astra #3: Baseline passing t.Log matching -expect-text followed by an unrelated t.Fatal must report inconclusive, not detection
+	mustWrite(t, filepath.Join(repo, "tiny_test.go"), `package tiny
+import "testing"
+func TestClampMax(t *testing.T) {
+	t.Log("expected clamp assertion")
+	if ClampMax(12, 10) != 10 {
+		t.Fatal("unrelated failure assertion")
+	}
+}
+`)
+	out.Reset()
+	rep, code = Run(context.Background(), repo, Options{
+		Pkg:        ".",
+		Test:       "TestClampMax",
+		File:       "tiny.go",
+		Mutant:     detMutant,
+		ExpectText: []string{"expected clamp assertion"},
+		Runs:       1,
+		Timeout:    30 * time.Second,
+		Seed:       1,
+	}, &out, &errBuf)
+	if code != 1 || rep.Verdict != OutcomeInconclusive {
+		t.Fatalf("expected inconclusive when only baseline log matched -expect-text, got code=%d verdict=%s reason=%s", code, rep.Verdict, rep.Reason)
+	}
+
 	// Verify target file on disk was never modified
 	afterBytes, _ := os.ReadFile(target)
 	if !bytes.Equal(origBytes, afterBytes) {

@@ -34,11 +34,11 @@ import "path/filepath"
 func Resolve(base, rel string) (string, error) {
 	return filepath.Join(base, rel), nil
 }`
-	if checkSafePathAST(spoofed) {
-		t.Fatal("checkSafePathAST accepted comment-spoofed always-accepting path resolver")
+	if CheckCodingCandidate("safe-path", spoofed) {
+		t.Fatal("CheckCodingCandidate accepted comment-spoofed always-accepting path resolver")
 	}
 
-	// Astra #4: Unconditional/early return before safety check must be rejected.
+	// Astra #4: Unconditional/early return (`if true`) before safety check must be rejected.
 	earlyReturnBypass := `package safepath
 import ("errors"; "path/filepath"; "strings")
 func Resolve(base, rel string) (string, error) {
@@ -52,8 +52,26 @@ func Resolve(base, rel string) (string, error) {
 	}
 	return target, nil
 }`
-	if checkSafePathAST(earlyReturnBypass) {
-		t.Fatal("checkSafePathAST accepted early-return bypass before safety guard")
+	if CheckCodingCandidate("safe-path", earlyReturnBypass) {
+		t.Fatal("CheckCodingCandidate accepted if true early-return bypass before safety guard")
+	}
+
+	// G-03: `if 1 == 1` early-return bypass must also be rejected behaviorally.
+	oneEqOneBypass := `package safepath
+import ("errors"; "path/filepath"; "strings")
+func Resolve(base, rel string) (string, error) {
+	if 1 == 1 { return rel, nil }
+	absBase, err := filepath.Abs(base)
+	if err != nil { return "", err }
+	target, err := filepath.Abs(filepath.Join(absBase, rel))
+	if err != nil { return "", err }
+	if target != absBase && !strings.HasPrefix(target, absBase+string(filepath.Separator)) {
+		return "", errors.New("blocked")
+	}
+	return target, nil
+}`
+	if CheckCodingCandidate("safe-path", oneEqOneBypass) {
+		t.Fatal("CheckCodingCandidate accepted if 1 == 1 early-return bypass before safety guard")
 	}
 
 	nonConstEarlyReturn := `package safepath
@@ -69,7 +87,7 @@ func Resolve(base, rel string) (string, error) {
 	}
 	return target, nil
 }`
-	if checkSafePathAST(nonConstEarlyReturn) {
-		t.Fatal("checkSafePathAST accepted non-constant early nil-error return before safety guard")
+	if CheckCodingCandidate("safe-path", nonConstEarlyReturn) {
+		t.Fatal("CheckCodingCandidate accepted non-constant early nil-error return before safety guard")
 	}
 }

@@ -60,6 +60,11 @@ func NormalizeEvent(flagEvent, payloadEvent string) string {
 
 // Handle processes a hook event against root without external subprocesses so latency stays <5ms.
 func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
+	return HandleWithAgent(root, flagEvent, "", stdin)
+}
+
+// HandleWithAgent processes a hook event with an optional explicit agent identity (--agent claude|codex|gemini).
+func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output, error) {
 	var in Input
 	if stdin != nil {
 		if data, err := io.ReadAll(io.LimitReader(stdin, 1<<20)); err == nil && len(strings.TrimSpace(string(data))) > 0 {
@@ -74,6 +79,7 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 	if err != nil {
 		return Output{}, err
 	}
+	st.CurrentSessionID = strings.TrimSpace(in.SessionID)
 	br, sha := state.ReadFastGitHead(root)
 	if sha != "" {
 		st.Git.Branch = br
@@ -82,6 +88,9 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 
 	switch ev {
 	case "session-start":
+		if shortcuts, err := state.ScanShortcuts(root); err == nil {
+			st.Shortcuts = shortcuts
+		}
 		var scanErrs []string
 		if holds, err := state.ScanHolds(root); err == nil {
 			st.Holds = holds
@@ -101,7 +110,7 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 		return buildOutput("SessionStart", ctxText), nil
 
 	case "before-prompt":
-		_, _ = state.WriteWriterLease(root, "", in.SessionID)
+		_, _ = state.WriteWriterLease(root, flagAgent, in.SessionID)
 		promptText := firstNonEmpty(in.Prompt, in.UserPrompt)
 		newMode, changed := detectModeSwitch(promptText)
 		if !changed {
@@ -161,7 +170,7 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 		return buildOutput("PreCompact", "Auto-handoff checkpoint saved before compaction:\n"+state.FormatFiveFieldPrompt(*updated.LastHandoff)), nil
 
 	case "turn-end":
-		_, _ = state.WriteWriterLease(root, "", in.SessionID)
+		_, _ = state.WriteWriterLease(root, flagAgent, in.SessionID)
 		holds, holdErr := state.ScanHolds(root)
 		if _, err := state.Update(root, func(cur *state.State) error {
 			if holdErr == nil {

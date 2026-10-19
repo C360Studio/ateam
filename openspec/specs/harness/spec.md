@@ -15,6 +15,11 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **WHEN** `ateam hook --event before-prompt` receives a prompt containing `/ponytail ultra` or `/mode ultra`
 - **THEN** it updates `.ateam/state.json` to mode `ultra` and returns `additionalContext` containing the Ponytail 6-step decision ladder at `ultra` level
 
+#### Scenario: Ordinary prompt without mode switch
+
+- **WHEN** `ateam hook --event before-prompt` receives a prompt with no `/ponytail` or `/mode` command
+- **THEN** it returns no `additionalContext` so the Ponytail ladder is not re-injected on every prompt
+
 ### Requirement: Two-tool MCP context budget
 
 `ateam mcp` SHALL expose exactly two tools (`ateam_state` and `ateam_task`) whose serialized JSON schema is strictly under 300 tokens (~1,200 bytes), alongside zero-turn-tax MCP Prompts and Resources.

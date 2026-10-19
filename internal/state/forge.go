@@ -142,9 +142,32 @@ type forgeIssuePayload struct {
 	Head *struct {
 		Ref string `json:"ref"`
 	} `json:"head,omitempty"`
-	Comments []struct {
-		Body string `json:"body"`
-	} `json:"comments,omitempty"`
+	Comments      json.RawMessage `json:"comments,omitempty"`
+	CommentBodies []string        `json:"-"`
+}
+
+func parseIssueComments(raw json.RawMessage) ([]string, int) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil, 0
+	}
+	if trimmed[0] == '[' {
+		var list []struct {
+			Body string `json:"body"`
+		}
+		if err := json.Unmarshal(trimmed, &list); err == nil {
+			out := make([]string, 0, len(list))
+			for _, c := range list {
+				out = append(out, c.Body)
+			}
+			return out, len(out)
+		}
+	}
+	var count int
+	if err := json.Unmarshal(trimmed, &count); err == nil {
+		return nil, count
+	}
+	return nil, 0
 }
 
 func syncGiteaBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
@@ -167,14 +190,15 @@ func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, err
 	if token == "" {
 		token = strings.TrimSpace(os.Getenv("ATEAM_GITEA_TOKEN"))
 	}
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 
 	var all []BoardCard
 	for _, endpoint := range []struct {
 		path string
 		isPR bool
 	}{
-		{path: fmt.Sprintf("%s/api/v1/repos/%s/%s/issues?type=issues&state=all&limit=50", strings.TrimRight(cfg.BaseURL, "/"), cfg.Owner, cfg.Repo), isPR: false},
-		{path: fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls?state=all&limit=50", strings.TrimRight(cfg.BaseURL, "/"), cfg.Owner, cfg.Repo), isPR: true},
+		{path: fmt.Sprintf("%s/api/v1/repos/%s/%s/issues?type=issues&state=all&limit=50", baseURL, cfg.Owner, cfg.Repo), isPR: false},
+		{path: fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls?state=all&limit=50", baseURL, cfg.Owner, cfg.Repo), isPR: true},
 	} {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.path, nil)
 		if err != nil {
@@ -197,10 +221,39 @@ func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, err
 			return nil, err
 		}
 		for _, item := range items {
+			if !endpoint.isPR {
+				if _, count := parseIssueComments(item.Comments); count > 0 {
+					commentsURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%d/comments", baseURL, cfg.Owner, cfg.Repo, item.Number)
+					item.CommentBodies = fetchGiteaIssueComments(ctx, client, token, commentsURL)
+				}
+			}
 			all = append(all, mapForgeItemToCard(item, endpoint.isPR, "gitea"))
 		}
 	}
 	return all, nil
+}
+
+func fetchGiteaIssueComments(ctx context.Context, client *http.Client, token, commentsURL string) []string {
+	cctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(cctx, http.MethodGet, commentsURL, nil)
+	if err != nil {
+		return nil
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return nil
+	}
+	bodies, _ := parseIssueComments(raw)
+	return bodies
 }
 
 func fetchTeaCLICards(ctx context.Context, root string) ([]BoardCard, error) {
@@ -241,15 +294,27 @@ func syncGitHubBoard(ctx context.Context, root string, _ ForgeConfig) ([]BoardCa
 		return nil, fmt.Errorf("gh CLI not found")
 	}
 	var cards []BoardCard
+
+	// G-06: Attempt issue fetch with comments under a bounded sub-timeout; on timeout/error, fall back to comment-free card sync.
+	issueCtx, issueCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	issueCmd := exec.CommandContext(issueCtx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body,comments")
+	issueCmd.Dir = root
+	issueOut, err := issueCmd.Output()
+	issueCancel()
+	if err != nil {
+		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 3*time.Second)
+		fallbackCmd := exec.CommandContext(fallbackCtx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body")
+		fallbackCmd.Dir = root
+		issueOut, err = fallbackCmd.Output()
+		fallbackCancel()
+		if err != nil {
+			return nil, fmt.Errorf("gh issue list failed: %w", err)
+		}
+	}
+
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	issueCmd := exec.CommandContext(cctx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body,comments")
-	issueCmd.Dir = root
-	issueOut, err := issueCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("gh issue list failed: %w", err)
-	}
 	var issues []forgeIssuePayload
 	if err := json.Unmarshal(issueOut, &issues); err != nil {
 		return nil, fmt.Errorf("parse gh issue list JSON: %w", err)
@@ -333,8 +398,10 @@ func mapForgeItemToCard(it forgeIssuePayload, isPR bool, forgeName string) Board
 }
 
 func extractDecisionSummary(it forgeIssuePayload, labels []string) string {
-	for i := len(it.Comments) - 1; i >= 0; i-- {
-		if line := findDecisionLine(it.Comments[i].Body); line != "" {
+	bodies, _ := parseIssueComments(it.Comments)
+	bodies = append(bodies, it.CommentBodies...)
+	for i := len(bodies) - 1; i >= 0; i-- {
+		if line := findDecisionLine(bodies[i]); line != "" {
 			return line
 		}
 	}

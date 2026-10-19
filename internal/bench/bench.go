@@ -7,10 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go/ast"
-	"go/format"
-	"go/parser"
-	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +15,7 @@ import (
 
 	"github.com/c360studio/ateam/internal/hook"
 	"github.com/c360studio/ateam/internal/mcpserver"
+	"github.com/c360studio/ateam/internal/mutate"
 	"github.com/c360studio/ateam/internal/state"
 )
 
@@ -94,7 +92,22 @@ func Resolve(base, rel string) (string, error) {
 	if strings.HasPrefix(target, absBase) { return target, nil } // mutant: prefix without separator allows /base-other
 	return "", errors.New("blocked")
 }`,
-			SafetyCheck: checkSafePathAST,
+			TestSource: `package safepath
+import ("path/filepath"; "strings"; "testing")
+func TestFixture(t *testing.T) {
+	base := t.TempDir()
+	got, err := Resolve(base, "sub/file.txt")
+	if err != nil || !filepath.IsAbs(got) || !strings.HasPrefix(got, base+string(filepath.Separator)) {
+		t.Fatalf("expected safety assertion: valid child failed: got=%q err=%v", got, err)
+	}
+	if _, err := Resolve(base, "../etc/passwd"); err == nil {
+		t.Fatalf("expected safety assertion: parent traversal accepted")
+	}
+	siblingRel := "../" + filepath.Base(base) + "-other/secret.txt"
+	if _, err := Resolve(base, siblingRel); err == nil {
+		t.Fatalf("expected safety assertion: sibling prefix traversal accepted")
+	}
+}`,
 		},
 		{
 			ID:          "sql-user",
@@ -120,7 +133,52 @@ import "database/sql"
 func FindByEmail(db *sql.DB, email string) (int64, error) {
 	return 0, nil // mutant: skips query and error
 }`,
-			SafetyCheck: checkSQLUserAST,
+			TestSource: `package sqluser
+import (
+	"database/sql"
+	"database/sql/driver"
+	"errors"
+	"io"
+	"strings"
+	"sync"
+	"testing"
+)
+var regOnce sync.Once
+type stubDrv struct{}
+type stubConn struct{}
+type stubRows struct{ done bool; id int64 }
+func (stubDrv) Open(string) (driver.Conn, error) { return stubConn{}, nil }
+func (stubConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("unused") }
+func (stubConn) Close() error { return nil }
+func (stubConn) Begin() (driver.Tx, error) { return nil, errors.New("unused") }
+func (stubConn) Query(q string, args []driver.Value) (driver.Rows, error) {
+	if !strings.Contains(q, "WHERE email = ?") || len(args) != 1 {
+		return nil, errors.New("unparameterized query rejected")
+	}
+	if s, _ := args[0].(string); s == "alice@example.com" {
+		return &stubRows{id: 42}, nil
+	}
+	return &stubRows{done: true}, nil
+}
+func (r *stubRows) Columns() []string { return []string{"id"} }
+func (r *stubRows) Close() error { return nil }
+func (r *stubRows) Next(dest []driver.Value) error {
+	if r.done { return io.EOF }
+	r.done = true; dest[0] = r.id; return nil
+}
+func TestFixture(t *testing.T) {
+	regOnce.Do(func() { sql.Register("benchsql", stubDrv{}) })
+	db, err := sql.Open("benchsql", "")
+	if err != nil { t.Fatal(err) }
+	defer db.Close()
+	id, err := FindByEmail(db, "alice@example.com")
+	if err != nil || id != 42 {
+		t.Fatalf("expected safety assertion: parameterized lookup failed: id=%d err=%v", id, err)
+	}
+	if _, err := FindByEmail(db, "alice' OR '1'='1"); err == nil {
+		t.Fatalf("expected safety assertion: injection or missing error accepted")
+	}
+}`,
 		},
 		{
 			ID:          "gitea-webhook",
@@ -148,7 +206,26 @@ func VerifyGiteaSignature(payload, secret []byte, sigHeader string) bool {
 	expected, _ := hex.DecodeString(sigHeader)
 	return hmac.Equal(mac.Sum(nil), expected) // mutant: empty secret accepted
 }`,
-			SafetyCheck: checkWebhookAST,
+			TestSource: `package webhook
+import ("crypto/hmac"; "crypto/sha256"; "encoding/hex"; "testing")
+func signHex(payload, secret []byte) string {
+	m := hmac.New(sha256.New, secret)
+	m.Write(payload)
+	return hex.EncodeToString(m.Sum(nil))
+}
+func TestFixture(t *testing.T) {
+	payload := []byte("event=push")
+	secret := []byte("top-secret")
+	if !VerifyGiteaSignature(payload, secret, signHex(payload, secret)) {
+		t.Fatalf("expected safety assertion: valid signature rejected")
+	}
+	if VerifyGiteaSignature(payload, secret, "deadbeef") {
+		t.Fatalf("expected safety assertion: forged signature accepted")
+	}
+	if VerifyGiteaSignature(payload, nil, signHex(payload, nil)) {
+		t.Fatalf("expected safety assertion: empty secret accepted")
+	}
+}`,
 		},
 		{
 			ID:          "rate-limit",
@@ -179,7 +256,21 @@ func (l *Limiter) Allow(key string, now time.Time) bool {
 	l.hits[key] = append(l.hits[key], now)
 	return true
 }`,
-			SafetyCheck: checkRateLimitAST,
+			TestSource: `package ratelimit
+import ("testing"; "time")
+func TestFixture(t *testing.T) {
+	l := &Limiter{hits: make(map[string][]time.Time), limit: 2, window: time.Minute}
+	t0 := time.Now()
+	if !l.Allow("ip1", t0) || !l.Allow("ip1", t0) {
+		t.Fatalf("expected safety assertion: requests within limit rejected")
+	}
+	if l.Allow("ip1", t0) {
+		t.Fatalf("expected safety assertion: request exceeding limit accepted")
+	}
+	if !l.Allow("ip1", t0.Add(2*time.Minute)) {
+		t.Fatalf("expected safety assertion: expired window did not reset")
+	}
+}`,
 		},
 		{
 			ID:          "ui-datepicker",
@@ -218,194 +309,126 @@ func (l *Limiter) Allow(key string, now time.Time) bool {
 	}
 }
 
-// parseCommentFreeGo parses Go source without comments and returns the FileSet, AST file, and formatted comment-free code.
-func parseCommentFreeGo(src string) (*token.FileSet, *ast.File, string, bool) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "fixture.go", src, 0)
-	if err != nil {
-		return nil, nil, "", false
-	}
-	var buf bytes.Buffer
-	if err := format.Node(&buf, fset, file); err != nil {
-		return nil, nil, "", false
-	}
-	return fset, file, buf.String(), true
-}
-
-func exprString(fset *token.FileSet, expr ast.Expr) string {
-	var buf bytes.Buffer
-	_ = format.Node(&buf, fset, expr)
-	return strings.TrimSpace(buf.String())
-}
-
-// hasEarlySuccessOrConstBranch rejects constant-boolean if conditions (`if true` / `if false`)
-// and any success return statement that appears before guardPos.
-func hasEarlySuccessOrConstBranch(fset *token.FileSet, file *ast.File, guardPos token.Pos, isSuccessReturn func(*ast.ReturnStmt) bool) bool {
-	if guardPos == token.NoPos {
-		return true
-	}
-	violation := false
-	ast.Inspect(file, func(n ast.Node) bool {
-		if violation || n == nil {
+// CheckCodingCandidate evaluates a candidate Go source string against the named task's behavioral TestSource using mutate.Run.
+// Returns true only if the candidate compiles and passes all behavioral assertions in TestFixture.
+func CheckCodingCandidate(taskID, candidateSrc string) bool {
+	for _, spec := range Tasks() {
+		if spec.ID != taskID {
+			continue
+		}
+		if spec.TestSource == "" {
+			if spec.SafetyCheck != nil {
+				return spec.SafetyCheck(candidateSrc)
+			}
 			return false
 		}
-		switch stmt := n.(type) {
-		case *ast.IfStmt:
-			cond := strings.TrimSpace(exprString(fset, stmt.Cond))
-			if cond == "true" || cond == "false" || cond == "!true" || cond == "!false" {
-				violation = true
-				return false
-			}
-		case *ast.ReturnStmt:
-			if stmt.End() <= guardPos && isSuccessReturn(stmt) {
-				violation = true
-				return false
-			}
+		if strings.TrimSpace(candidateSrc) == strings.TrimSpace(spec.GoodSource) {
+			_, goodSafe, _, _ := runBehavioralCheck(spec)
+			return goodSafe
 		}
-		return true
-	})
-	return violation
+		return runCandidateAgainstTestSource(spec, candidateSrc)
+	}
+	return false
 }
 
-func checkSafePathAST(src string) bool {
-	fset, file, clean, ok := parseCommentFreeGo(src)
-	if !ok {
+func runCandidateAgainstTestSource(spec TaskSpec, candidateSrc string) bool {
+	modDir, err := os.MkdirTemp("", "ateam-bench-cand-*")
+	if err != nil {
 		return false
 	}
-	if strings.Contains(clean, "absBase, _ :=") || strings.Contains(clean, "target, _ :=") {
+	defer os.RemoveAll(modDir)
+
+	outDir, err := os.MkdirTemp("", "ateam-bench-mut-*")
+	if err != nil {
 		return false
 	}
-	var guardPos token.Pos
-	ast.Inspect(file, func(n ast.Node) bool {
-		ifStmt, ok := n.(*ast.IfStmt)
-		if !ok {
-			return true
-		}
-		condStr := exprString(fset, ifStmt.Cond)
-		if strings.Contains(condStr, "!strings.HasPrefix") && strings.Contains(condStr, "filepath.Separator") {
-			ast.Inspect(ifStmt.Body, func(bn ast.Node) bool {
-				ret, ok := bn.(*ast.ReturnStmt)
-				if ok && len(ret.Results) == 2 && exprString(fset, ret.Results[1]) != "nil" {
-					guardPos = ifStmt.End()
-				}
-				return true
-			})
-		}
-		return true
-	})
-	if guardPos == token.NoPos {
+	defer os.RemoveAll(outDir)
+
+	if err := os.WriteFile(filepath.Join(modDir, "go.mod"), []byte("module benchfixture\n\ngo 1.23\n"), 0o600); err != nil {
 		return false
 	}
-	return !hasEarlySuccessOrConstBranch(fset, file, guardPos, func(ret *ast.ReturnStmt) bool {
-		return len(ret.Results) == 2 && exprString(fset, ret.Results[1]) == "nil"
-	})
+	if err := os.WriteFile(filepath.Join(modDir, "fixture.go"), []byte(spec.GoodSource), 0o600); err != nil {
+		return false
+	}
+	if err := os.WriteFile(filepath.Join(modDir, "fixture_test.go"), []byte(spec.TestSource), 0o600); err != nil {
+		return false
+	}
+	candPath := filepath.Join(outDir, "candidate.go")
+	if err := os.WriteFile(candPath, []byte(candidateSrc), 0o600); err != nil {
+		return false
+	}
+	rep, _ := mutate.Run(context.Background(), modDir, mutate.Options{
+		Pkg:        ".",
+		Test:       "TestFixture",
+		File:       "fixture.go",
+		Mutant:     candPath,
+		ExpectText: []string{"expected safety assertion"},
+		Runs:       1,
+		Timeout:    15 * time.Second,
+		Seed:       1,
+	}, io.Discard, io.Discard)
+	// A candidate that passes all tests in TestFixture is classified as a survivor relative to GoodSource.
+	// Any candidate that fails a safety assertion (detection) or fails to build (invalid) is rejected.
+	return rep.Verdict == mutate.OutcomeSurvivor
 }
 
-func checkSQLUserAST(src string) bool {
-	fset, file, clean, ok := parseCommentFreeGo(src)
-	if !ok || strings.Contains(clean, "Sprintf") {
-		return false
+func runBehavioralCheck(spec TaskSpec) (ran, goodSafe, badCaught, mutantCaught bool) {
+	modDir, err := os.MkdirTemp("", "ateam-bench-mod-*")
+	if err != nil {
+		return false, false, false, false
 	}
-	var hasParamQuery bool
-	var scanPos token.Pos
-	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		if sel.Sel.Name == "QueryRow" && len(call.Args) >= 2 {
-			if lit, ok := call.Args[0].(*ast.BasicLit); ok && strings.Contains(lit.Value, "WHERE email = ?") {
-				hasParamQuery = true
-			}
-		}
-		if sel.Sel.Name == "Scan" && len(call.Args) >= 1 {
-			scanPos = call.End()
-		}
-		return true
-	})
-	if !hasParamQuery || scanPos == token.NoPos {
-		return false
-	}
-	return !hasEarlySuccessOrConstBranch(fset, file, scanPos, func(ret *ast.ReturnStmt) bool {
-		return len(ret.Results) == 2 && exprString(fset, ret.Results[1]) == "nil"
-	})
-}
+	defer os.RemoveAll(modDir)
 
-func checkWebhookAST(src string) bool {
-	fset, file, clean, ok := parseCommentFreeGo(src)
-	if !ok {
-		return false
+	outDir, err := os.MkdirTemp("", "ateam-bench-out-*")
+	if err != nil {
+		return false, false, false, false
 	}
-	if !strings.Contains(clean, "len(secret) == 0") || strings.Contains(clean, "expected, _ :=") {
-		return false
-	}
-	var hasGuardReturnFalse bool
-	var hmacEqualPos token.Pos
-	ast.Inspect(file, func(n ast.Node) bool {
-		if ifStmt, ok := n.(*ast.IfStmt); ok {
-			if strings.Contains(exprString(fset, ifStmt.Cond), "len(secret) == 0") {
-				ast.Inspect(ifStmt.Body, func(bn ast.Node) bool {
-					if ret, ok := bn.(*ast.ReturnStmt); ok && len(ret.Results) == 1 {
-						if id, ok := ret.Results[0].(*ast.Ident); ok && id.Name == "false" {
-							hasGuardReturnFalse = true
-						}
-					}
-					return true
-				})
-			}
-		}
-		if call, ok := n.(*ast.CallExpr); ok {
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Equal" {
-				hmacEqualPos = call.Pos()
-			}
-		}
-		return true
-	})
-	if !hasGuardReturnFalse || hmacEqualPos == token.NoPos {
-		return false
-	}
-	return !hasEarlySuccessOrConstBranch(fset, file, hmacEqualPos, func(ret *ast.ReturnStmt) bool {
-		return len(ret.Results) == 1 && exprString(fset, ret.Results[0]) != "false"
-	})
-}
+	defer os.RemoveAll(outDir)
 
-func checkRateLimitAST(src string) bool {
-	fset, file, clean, ok := parseCommentFreeGo(src)
-	if !ok {
-		return false
+	if err := os.WriteFile(filepath.Join(modDir, "go.mod"), []byte("module benchfixture\n\ngo 1.23\n"), 0o600); err != nil {
+		return false, false, false, false
 	}
-	if !strings.Contains(clean, "sync.Mutex") ||
-		!strings.Contains(clean, "Lock()") ||
-		!strings.Contains(clean, "Unlock()") ||
-		!strings.Contains(clean, "After(cutoff)") {
-		return false
+	if err := os.WriteFile(filepath.Join(modDir, "fixture.go"), []byte(spec.GoodSource), 0o600); err != nil {
+		return false, false, false, false
 	}
-	var guardPos token.Pos
-	ast.Inspect(file, func(n ast.Node) bool {
-		ifStmt, ok := n.(*ast.IfStmt)
-		if !ok {
-			return true
-		}
-		if strings.Contains(exprString(fset, ifStmt.Cond), ">= l.limit") {
-			ast.Inspect(ifStmt.Body, func(bn ast.Node) bool {
-				if ret, ok := bn.(*ast.ReturnStmt); ok && len(ret.Results) == 1 && exprString(fset, ret.Results[0]) == "false" {
-					guardPos = ifStmt.End()
-				}
-				return true
-			})
-		}
-		return true
-	})
-	if guardPos == token.NoPos {
-		return false
+	if err := os.WriteFile(filepath.Join(modDir, "fixture_test.go"), []byte(spec.TestSource), 0o600); err != nil {
+		return false, false, false, false
 	}
-	return !hasEarlySuccessOrConstBranch(fset, file, guardPos, func(ret *ast.ReturnStmt) bool {
-		return len(ret.Results) == 1 && exprString(fset, ret.Results[0]) != "false"
-	})
+
+	mutPath := filepath.Join(outDir, "mutant.go")
+	if err := os.WriteFile(mutPath, []byte(spec.MutantSource), 0o600); err != nil {
+		return false, false, false, false
+	}
+	mutRep, _ := mutate.Run(context.Background(), modDir, mutate.Options{
+		Pkg:        ".",
+		Test:       "TestFixture",
+		File:       "fixture.go",
+		Mutant:     mutPath,
+		ExpectText: []string{"expected safety assertion"},
+		Runs:       1,
+		Timeout:    15 * time.Second,
+		Seed:       1,
+	}, io.Discard, io.Discard)
+
+	badPath := filepath.Join(outDir, "bad.go")
+	if err := os.WriteFile(badPath, []byte(spec.BadSource), 0o600); err != nil {
+		return false, false, false, false
+	}
+	badRep, _ := mutate.Run(context.Background(), modDir, mutate.Options{
+		Pkg:        ".",
+		Test:       "TestFixture",
+		File:       "fixture.go",
+		Mutant:     badPath,
+		ExpectText: []string{"expected safety assertion"},
+		Runs:       1,
+		Timeout:    15 * time.Second,
+		Seed:       1,
+	}, io.Discard, io.Discard)
+
+	goodSafe = mutRep.Verdict == mutate.OutcomeDetection
+	mutantCaught = mutRep.Verdict == mutate.OutcomeDetection
+	badCaught = badRep.Verdict == mutate.OutcomeDetection || badRep.Verdict == mutate.OutcomeInvalid
+	return true, goodSafe, badCaught, mutantCaught
 }
 
 func stripNonGoComments(src string) string {
@@ -490,9 +513,14 @@ func RunSelfTest(_ context.Context) (SuiteReport, error) {
 }
 
 func evaluateCodingTask(spec TaskSpec) TaskResult {
-	goodSafe := spec.SafetyCheck(spec.GoodSource)
-	badCaught := !spec.SafetyCheck(spec.BadSource)
-	mutantCaught := !spec.SafetyCheck(spec.MutantSource)
+	var goodSafe, badCaught, mutantCaught bool
+	if spec.TestSource != "" {
+		_, goodSafe, badCaught, mutantCaught = runBehavioralCheck(spec)
+	} else if spec.SafetyCheck != nil {
+		goodSafe = spec.SafetyCheck(spec.GoodSource)
+		badCaught = !spec.SafetyCheck(spec.BadSource)
+		mutantCaught = !spec.SafetyCheck(spec.MutantSource)
+	}
 	measuredLOC := countSourceLines(spec.GoodSource)
 	if measuredLOC <= 0 {
 		measuredLOC = spec.AteamLOC
@@ -567,11 +595,7 @@ func evaluateContinuityTask(spec TaskSpec) TaskResult {
 }
 
 func countSourceLines(src string) int {
-	if _, _, clean, ok := parseCommentFreeGo(src); ok {
-		src = clean
-	} else {
-		src = stripNonGoComments(src)
-	}
+	src = stripNonGoComments(src)
 	n := 0
 	for _, line := range strings.Split(strings.TrimSpace(src), "\n") {
 		t := strings.TrimSpace(line)

@@ -1,13 +1,13 @@
 package bootstrap
 
-const hookSettingsJSON = `{
+const claudeSettingsJSON = `{
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "ateam hook --event session-start"
+            "command": "ateam hook --event session-start --agent claude"
           }
         ]
       }
@@ -17,7 +17,7 @@ const hookSettingsJSON = `{
         "hooks": [
           {
             "type": "command",
-            "command": "ateam hook --event before-prompt"
+            "command": "ateam hook --event before-prompt --agent claude"
           }
         ]
       }
@@ -27,7 +27,7 @@ const hookSettingsJSON = `{
         "hooks": [
           {
             "type": "command",
-            "command": "ateam hook --event pre-compact"
+            "command": "ateam hook --event pre-compact --agent claude"
           }
         ]
       }
@@ -37,7 +37,59 @@ const hookSettingsJSON = `{
         "hooks": [
           {
             "type": "command",
-            "command": "ateam hook --event turn-end"
+            "command": "ateam hook --event turn-end --agent claude"
+          }
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "ateam": {
+      "command": "ateam",
+      "args": ["mcp"]
+    }
+  }
+}
+`
+
+const codexHooksJSON = `{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ateam hook --event session-start --agent codex"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ateam hook --event before-prompt --agent codex"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ateam hook --event pre-compact --agent codex"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ateam hook --event turn-end --agent codex"
           }
         ]
       }
@@ -60,7 +112,7 @@ const geminiSettingsJSON = `{
         "hooks": [
           {
             "type": "command",
-            "command": "ateam hook --event session-start"
+            "command": "ateam hook --event session-start --agent gemini"
           }
         ]
       }
@@ -70,7 +122,7 @@ const geminiSettingsJSON = `{
         "hooks": [
           {
             "type": "command",
-            "command": "ateam hook --event before-prompt"
+            "command": "ateam hook --event before-prompt --agent gemini"
           }
         ]
       }
@@ -80,7 +132,7 @@ const geminiSettingsJSON = `{
         "hooks": [
           {
             "type": "command",
-            "command": "ateam hook --event pre-compact"
+            "command": "ateam hook --event pre-compact --agent gemini"
           }
         ]
       }
@@ -90,7 +142,7 @@ const geminiSettingsJSON = `{
         "hooks": [
           {
             "type": "command",
-            "command": "ateam hook --event turn-end"
+            "command": "ateam hook --event turn-end --agent gemini"
           }
         ]
       }
@@ -327,8 +379,8 @@ func defaultTemplateFiles() map[string]string {
 		".agents/README.md":         "# Agent Profiles\n\nManaged by `ateam init` and verified by `ateam doctor`.\n",
 		".agents/protocol.md":       defaultProtocolMD,
 		".agents/rules-index.md":    defaultRulesIndexMD,
-		".claude/settings.json":     hookSettingsJSON,
-		".codex/hooks.json":         hookSettingsJSON,
+		".claude/settings.json":     claudeSettingsJSON,
+		".codex/hooks.json":         codexHooksJSON,
 		".gemini/settings.json":     geminiSettingsJSON,
 		"openspec/config.yaml":      "schema: spec-driven\n",
 		"openspec/changes/.gitkeep": "# keep\n",
