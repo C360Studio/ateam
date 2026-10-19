@@ -98,7 +98,7 @@ Commands:
 func runHook(repoRoot string, args []string) int {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	evFlag := fs.String("event", "", "normalized hook event name")
-	agFlag := fs.String("agent", "", "agent name (claude, codex, gemini)")
+	agFlag := fs.String("agent", "", "agent name (claude, codex, gemini, agy)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -111,7 +111,7 @@ func runHook(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam hook: %v\n", err)
 		return 1
 	}
-	if out.AdditionalContext != "" || out.Decision != "" || out.HookSpecific != nil {
+	if out.HasPayload() {
 		_ = json.NewEncoder(os.Stdout).Encode(out)
 	}
 	return 0

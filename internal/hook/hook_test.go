@@ -1,6 +1,8 @@
 package hook
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,5 +210,82 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 	}
 	if strings.Contains(afterHandoffOut.AdditionalContext, "WARNING: another writer may be active") {
 		t.Fatalf("cleared writer lease still triggered warning:\n%s", afterHandoffOut.AdditionalContext)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+func TestAntigravityHookContract(t *testing.T) {
+	dir := t.TempDir()
+
+	// Strict protojson-style oracle for Antigravity SessionStart/PreInvocation stdout.
+	type agyStepOracle struct {
+		InjectSteps []struct {
+			SystemMessage struct {
+				SystemMessage string `json:"systemMessage"`
+			} `json:"systemMessage"`
+		} `json:"injectSteps"`
+	}
+	// Strict protojson-style oracle for Antigravity Stop stdout.
+	type agyStopOracle struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason,omitempty"`
+	}
+
+	// 1. SessionStart with --agent agy emits strictly injectSteps (no unknown additionalContext field).
+	startOut, err := HandleWithAgent(dir, "session-start", "agy", strings.NewReader(`{"conversationId":"conv-agy-123","modelName":"auto"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent agy session-start: %v", err)
+	}
+	if !startOut.HasPayload() {
+		t.Fatal("expected agy session-start HasPayload() == true")
+	}
+	rawStart, err := json.Marshal(startOut)
+	if err != nil {
+		t.Fatalf("marshal startOut: %v", err)
+	}
+	decStart := json.NewDecoder(bytes.NewReader(rawStart))
+	decStart.DisallowUnknownFields()
+	var parsedStart agyStepOracle
+	if err := decStart.Decode(&parsedStart); err != nil {
+		t.Fatalf("agy session-start output violated strict protojson schema (%s): %v", string(rawStart), err)
+	}
+	if len(parsedStart.InjectSteps) != 1 || !strings.Contains(parsedStart.InjectSteps[0].SystemMessage.SystemMessage, "PONYTAIL MODE [full]") {
+		t.Fatalf("expected agy injectSteps with Ponytail ladder, got: %s", string(rawStart))
+	}
+
+	// 2. PreInvocation normalizes to before-prompt, records conversationId in writer lease, and emits {} when no mode switch occurs.
+	preOut, err := HandleWithAgent(dir, "", "agy", strings.NewReader(`{"event":"PreInvocation","conversationId":"conv-agy-123","invocationNum":1}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent agy PreInvocation: %v", err)
+	}
+	if !preOut.HasPayload() {
+		t.Fatal("expected agy PreInvocation HasPayload() == true for empty JSON object")
+	}
+	rawPre, err := json.Marshal(preOut)
+	if err != nil || string(rawPre) != "{}" {
+		t.Fatalf("expected agy PreInvocation stdout {}, got %q (err=%v)", string(rawPre), err)
+	}
+	wl, err := state.ReadWriterLease(dir)
+	if err != nil || wl == nil {
+		t.Fatalf("expected writer lease after agy PreInvocation, got wl=%+v err=%v", wl, err)
+	}
+	if wl.Agent != "agy" || wl.SessionID != "conv-agy-123" {
+		t.Fatalf("expected writer lease agent=agy session=conv-agy-123, got %+v", wl)
+	}
+
+	// 3. Stop (turn-end) with --agent agy emits {"decision":"allow"} and does not trigger competing-writer warning on same conversationId.
+	stopOut, err := HandleWithAgent(dir, "turn-end", "agy", strings.NewReader(`{"conversationId":"conv-agy-123","terminationReason":"NO_TOOL_CALL","fullyIdle":true}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent agy turn-end: %v", err)
+	}
+	rawStop, err := json.Marshal(stopOut)
+	if err != nil {
+		t.Fatalf("marshal stopOut: %v", err)
+	}
+	decStop := json.NewDecoder(bytes.NewReader(rawStop))
+	decStop.DisallowUnknownFields()
+	var parsedStop agyStopOracle
+	if err := decStop.Decode(&parsedStop); err != nil || parsedStop.Decision != "allow" {
+		t.Fatalf("expected agy Stop output {\"decision\":\"allow\"}, got %s (err=%v)", string(rawStop), err)
 	}
 }

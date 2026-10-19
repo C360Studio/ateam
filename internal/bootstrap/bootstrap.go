@@ -342,5 +342,51 @@ func checkHookConfigs(root string) []string {
 			out = append(out, fmt.Sprintf("%s: missing contextFileName AGENTS.md", rel))
 		}
 	}
+	out = append(out, checkAntigravityConfigs(root)...)
+	return out
+}
+
+func checkAntigravityConfigs(root string) []string {
+	var out []string
+	// shortcut: Antigravity hooks.json omits pre-compact, add pre-compact hook when Antigravity exposes a compaction event
+	agyRel := ".agents/hooks.json"
+	if agyData, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(agyRel))); err != nil {
+		out = append(out, fmt.Sprintf("%s: missing hook config file", agyRel))
+	} else {
+		var parsed map[string]any
+		if err := json.Unmarshal(agyData, &parsed); err != nil {
+			out = append(out, fmt.Sprintf("%s: invalid JSON: %v", agyRel, err))
+		} else {
+			text := string(agyData)
+			for _, ev := range []string{"session-start", "before-prompt", "turn-end"} {
+				if !strings.Contains(text, "ateam hook --event "+ev) {
+					out = append(out, fmt.Sprintf("%s: missing hook command for event %s", agyRel, ev))
+				}
+			}
+			if !strings.Contains(text, "--agent agy") {
+				out = append(out, fmt.Sprintf("%s: missing --agent agy in hook commands", agyRel))
+			}
+		}
+	}
+
+	for _, rel := range []string{".agents/plugins/ateam/plugin.json", ".agents/plugins/ateam/mcp_config.json"} {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			out = append(out, fmt.Sprintf("%s: missing Antigravity plugin file", rel))
+			continue
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			out = append(out, fmt.Sprintf("%s: invalid JSON: %v", rel, err))
+			continue
+		}
+		text := string(data)
+		if rel == ".agents/plugins/ateam/plugin.json" && !strings.Contains(text, `"ateam"`) {
+			out = append(out, fmt.Sprintf("%s: missing plugin name ateam", rel))
+		}
+		if rel == ".agents/plugins/ateam/mcp_config.json" && (!strings.Contains(text, `"ateam"`) || !strings.Contains(text, `"mcp"`)) {
+			out = append(out, fmt.Sprintf("%s: missing ateam mcp server entry", rel))
+		}
+	}
 	return out
 }
