@@ -1,5 +1,7 @@
 # Change: Dual-Forge Webhook & Branch Protection Sync (`dual-forge-webhooks`)
 
+implemented-by: gemini
+
 ## Why
 Teams running `ateam` across both GitHub and self-hosted Gitea need real-time board card updates when draft PRs open, CI checks complete, or `status:needs-decision` / `status:blocked` labels change, without polling `gh` or `tea` on every UI refresh.
 
