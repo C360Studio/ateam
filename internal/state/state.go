@@ -119,6 +119,10 @@ type WriterLease struct {
 	SessionID string    `json:"session_id,omitempty"`
 	PID       int       `json:"pid"`
 	LastSeen  time.Time `json:"last_seen"`
+	// Herdr IDs are recorded only inside a herdr pane (HERDR_ENV=1); they name a
+	// live pane, unlike the short-lived hook PID.
+	HerdrPaneID      string `json:"herdr_pane_id,omitempty"`
+	HerdrWorkspaceID string `json:"herdr_workspace_id,omitempty"`
 }
 
 // State is the cached local state stored in gitignored .ateam/state.json.
@@ -197,6 +201,10 @@ func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
 		SessionID: strings.TrimSpace(sessionID),
 		PID:       os.Getpid(),
 		LastSeen:  time.Now().UTC(),
+	}
+	if os.Getenv("HERDR_ENV") == "1" {
+		wl.HerdrPaneID = strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
+		wl.HerdrWorkspaceID = strings.TrimSpace(os.Getenv("HERDR_WORKSPACE_ID"))
 	}
 	data, err := json.MarshalIndent(wl, "", "  ")
 	if err != nil {
@@ -730,6 +738,13 @@ func ReadFastGitHead(root string) (branch, shortSHA string) {
 	return "", ""
 }
 
+// GitCommonDir returns the git common dir shared by root and all its linked worktrees,
+// reading .git, gitdir:, and commondir files only (no git subprocess).
+func GitCommonDir(root string) (string, bool) {
+	_, commonDir, ok := resolveGitDirs(root)
+	return commonDir, ok
+}
+
 func resolveGitDirs(root string) (gitDir, commonDir string, ok bool) {
 	dotGit := filepath.Join(root, ".git")
 	info, err := os.Stat(dotGit)
@@ -783,16 +798,20 @@ func BuildPickupSummary(st *State) string {
 		if age < 0 {
 			age = 0
 		}
-		fmt.Fprintf(&b, "Writer lease: agent=%s session=%s pid=%d last_seen=%s ago\n",
-			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age)
+		pane := ""
+		if st.Writer.HerdrPaneID != "" {
+			pane = fmt.Sprintf(" (herdr pane %s)", st.Writer.HerdrPaneID)
+		}
+		fmt.Fprintf(&b, "Writer lease: agent=%s session=%s pid=%d last_seen=%s ago%s\n",
+			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		curSession := strings.TrimSpace(st.CurrentSessionID)
 		if curSession == "" {
 			curSession = strings.TrimSpace(os.Getenv("ATEAM_SESSION_ID"))
 		}
 		leaseSession := strings.TrimSpace(st.Writer.SessionID)
 		if time.Since(st.Writer.LastSeen) < 10*time.Minute && leaseSession != "" && leaseSession != curSession {
-			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)\n",
-				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age)
+			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)%s\n",
+				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		}
 	}
 	if len(st.OpenSpecQueue) > 0 {

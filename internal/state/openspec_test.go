@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
@@ -87,5 +88,13 @@ This header explains Hold: markers above the first section heading.
 	_, code, err = CheckOpenSpec(context.Background(), dir)
 	if err == nil || code != 2 {
 		t.Fatalf("expected exit code 2 for invalid UTF-8, got code=%d err=%v", code, err)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
+func TestCleanTaskTextKeepsUTF8AtTheCut(t *testing.T) {
+	got := cleanTaskText("- [ ] 1.1 RED: " + strings.Repeat("é", 60))
+	if !utf8.ValidString(got) || len(got) > 104 {
+		t.Fatalf("cleanTaskText = %q (len %d), want valid UTF-8 of at most 104 bytes", got, len(got))
 	}
 }

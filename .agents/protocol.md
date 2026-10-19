@@ -29,6 +29,7 @@ Shared truth lives in the repository's versioned code, `openspec/` specs and cha
    - **Definition of Done and verification** (`task verify` gates and observable checks)
    - **Stop boundary** (pause after design/plan vs. run through to verified completion)
 2. **Claim:** Create or switch to an isolated worktree on an agent-prefixed branch (`claude/…`, `codex/…`, `gemini/…`; in Enjoy desktop, use `move_to_worktree`), backed by a draft PR on GitHub or Gitea.
+   - Inside a herdr pane (`HERDR_ENV=1`), create the worktree with `herdr worktree create --cwd "$PWD" --branch <agent>/<topic> --path "$PWD/.worktrees/<agent>-<topic>" --no-focus` so herdr groups it as a workspace. The explicit `--path` keeps the `.worktrees/` layout; `git worktree list` stays the source of truth.
 3. **Execute (Ponytail Decision Ladder):**
    - Take the smallest complete change that solves the task.
    - Reuse existing code and stdlib before adding helpers or dependencies.

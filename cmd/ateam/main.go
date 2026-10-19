@@ -84,7 +84,7 @@ Usage:
 Commands:
   hook [--event <ev>] Execute <5ms normalized lifecycle hook (session-start, before-prompt, pre-compact, turn-end)
   mcp                 Start the 2-tool stdio MCP server (<300 schema tokens)
-  state <subcmd>      Inspect or mutate repo state (status, pickup, handoff, holds, debt, spec-queue, spec-check, sync, mode, board)
+  state <subcmd>      Inspect or mutate repo state (status, pickup, handoff, holds, debt, spec-queue, spec-check, sync, mode, board, herdr)
   task [name]         List or execute standardized Taskfile.yml targets
   init [flags]        Bootstrap repo with .agents, .claude, .codex, .gemini, openspec, and optional GitHub/Gitea labels
   review <subcmd>     Configure model routes and validate commit-bound independent review
@@ -155,6 +155,8 @@ func runState(repoRoot string, args []string) int {
 		return 0
 	case "status", "board":
 		return runStateSnapshot(repoRoot, sub)
+	case "herdr":
+		return runStateHerdr(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "ateam state: unknown subcommand %q\n", sub)
 		return 1
