@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -612,5 +613,102 @@ func TestPopulateMCPProvenanceAndRegisterMCPProcess(t *testing.T) {
 	}
 	if strings.Contains(BuildPickupSummary(stFresh), "WARNING: MCP server binary is stale") {
 		t.Fatalf("expected fresh MCP build not to warn, got:\n%s", BuildPickupSummary(stFresh))
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestReview65ReusedBranchLatestMerge(t *testing.T) {
+	dirtyFalse := false
+	oldPR := BoardCard{ID: "GH-PR-1", Number: 1, Type: "pr", Column: "done", Merged: true, Branch: "gemini/reused-branch", HeadSHA: "aaaa1110000", Forge: "github"}
+	newPR := BoardCard{ID: "GH-PR-2", Number: 2, Type: "pr", Column: "done", Merged: true, Branch: "gemini/reused-branch", HeadSHA: "bbbb2220000", Forge: "github"}
+
+	for _, cards := range [][]BoardCard{
+		{oldPR, newPR},
+		{newPR, oldPR},
+	} {
+		st := defaultState()
+		st.Git.Branch = "main"
+		st.Git.HeadSHA = "e37563b"
+		st.Git.Worktrees = []Worktree{
+			{Path: "/repo/.worktrees/reused", Branch: "gemini/reused-branch", Head: "bbbb222", Dirty: &dirtyFalse, AheadCount: 2, MergedIntoMain: false},
+		}
+		st.Cards = append([]BoardCard(nil), cards...)
+		st.ReconcileWorktrees()
+		if !st.Git.Worktrees[0].MergedIntoMain {
+			t.Fatalf("expected MergedIntoMain=true when PR #2 matches HEAD (order %v, %v), got false", cards[0].ID, cards[1].ID)
+		}
+		if got := st.WorktreePRStatus(st.Git.Worktrees[0]); got != "merged via #2" {
+			t.Fatalf("WorktreePRStatus = %q, want %q", got, "merged via #2")
+		}
+	}
+
+	// Verify cached-old -> synced-new MergeForgeCards history and post-merge commits ahead of #2:
+	stHist := defaultState()
+	stHist.Git.Branch = "main"
+	stHist.Git.HeadSHA = "e37563b"
+	stHist.Git.Worktrees = []Worktree{
+		{Path: "/repo/.worktrees/reused", Branch: "gemini/reused-branch", Head: "bbbb222", Dirty: &dirtyFalse, AheadCount: 2, MergedIntoMain: false},
+	}
+	stHist.Cards = []BoardCard{oldPR}
+	stHist.MergeForgeCards([]BoardCard{newPR, oldPR}, ForgeGitHub)
+	if !stHist.Git.Worktrees[0].MergedIntoMain {
+		t.Fatalf("expected MergeForgeCards to reconcile reused branch as MergedIntoMain=true when PR #2 matches HEAD")
+	}
+	if summary := BuildPickupSummary(stHist); !strings.Contains(summary, "- gemini/reused-branch (head=bbbb222, dirty=false, ahead=2, merged via #2)") {
+		t.Fatalf("unexpected pickup summary after MergeForgeCards:\n%s", summary)
+	}
+
+	stHist.Git.Worktrees[0].Head = "cccc333"
+	stHist.Git.Worktrees[0].AheadCount = 3
+	stHist.ReconcileWorktrees()
+	if stHist.Git.Worktrees[0].MergedIntoMain {
+		t.Fatalf("expected MergedIntoMain=false when reused branch advances ahead of both merged PRs")
+	}
+	if got := stHist.WorktreePRStatus(stHist.Git.Worktrees[0]); got != "ahead of merged #2" {
+		t.Fatalf("WorktreePRStatus = %q, want %q", got, "ahead of merged #2")
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+func TestReview65WorktreeRegistryVisibleFromMain(t *testing.T) {
+	ctx := context.Background()
+	base := t.TempDir()
+	mainDir := filepath.Join(base, "main")
+	wtA := filepath.Join(base, "wt-a")
+	wtB := filepath.Join(base, "wt-b")
+	if err := os.MkdirAll(mainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, string(out))
+		}
+	}
+	runGit(mainDir, "init", "-b", "main")
+	runGit(mainDir, "config", "user.email", "test@example.com")
+	runGit(mainDir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(mainDir, "README.md"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(mainDir, "add", "README.md")
+	runGit(mainDir, "commit", "-m", "init")
+	runGit(mainDir, "worktree", "add", "-b", "gemini/wt-a", wtA)
+	runGit(mainDir, "worktree", "add", "-b", "codex/wt-b", wtB)
+
+	cleanup := RegisterMCPProcess(wtA, "7606b7e", "7606b7e111111111111111111111111111111111")
+	for name, root := range map[string]string{"main": mainDir, "wtA": wtA, "wtB": wtB} {
+		live := LoadLiveMCPProcesses(root)
+		if len(live) != 1 || live[0].PID != os.Getpid() || live[0].BuildCommit != "7606b7e" {
+			t.Fatalf("LoadLiveMCPProcesses(%s) = %+v, want 1 record for current PID", name, live)
+		}
+	}
+	cleanup()
+	for name, root := range map[string]string{"main": mainDir, "wtA": wtA, "wtB": wtB} {
+		if after := LoadLiveMCPProcesses(root); len(after) != 0 {
+			t.Fatalf("LoadLiveMCPProcesses(%s) after cleanup = %+v, want empty", name, after)
+		}
 	}
 }

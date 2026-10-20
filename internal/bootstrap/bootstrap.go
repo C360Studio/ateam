@@ -486,23 +486,52 @@ func InspectRunningServeProcesses(ctx context.Context) ([]int, []string) {
 	return pids, CheckDuplicateServeProcesses(pids)
 }
 
-// ParseRunningMCPProcesses extracts active `ateam mcp` processes from `ps -eo pid=,args=` output and merges recorded process metadata.
+func parsePSStartTime(tokens []string) (time.Time, string, bool) {
+	if len(tokens) != 5 {
+		return time.Time{}, "", false
+	}
+	raw := strings.Join(tokens, " ")
+	t, err := time.ParseInLocation("Mon Jan 2 15:04:05 2006", raw, time.Local)
+	if err != nil {
+		return time.Time{}, "", false
+	}
+	return t, raw, true
+}
+
+func canTrustRecordedMCPBuild(rec state.MCPProcess, lstartRaw string, psStart time.Time, hasPSStart bool) bool {
+	if strings.TrimSpace(rec.BuildCommit) == "" {
+		return false
+	}
+	if strings.TrimSpace(rec.StartToken) != "" && lstartRaw != "" && strings.TrimSpace(rec.StartToken) != lstartRaw {
+		return false
+	}
+	if rec.StartedAt != nil && hasPSStart {
+		diff := psStart.Sub(rec.StartedAt.In(time.Local))
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > 5*time.Second {
+			return false
+		}
+	}
+	return true
+}
+
+// ParseRunningMCPProcesses extracts active `ateam mcp` processes from `ps -eo pid=,lstart=,args=` (or `ps -eo pid=,args=`) output and joins recorded process metadata onto confirmed MCP processes.
 func ParseRunningMCPProcesses(psOutput string, selfPID int, recorded []state.MCPProcess, fallbackBuild string) []state.MCPProcess {
 	byPID := make(map[int]state.MCPProcess, len(recorded))
-	var out []state.MCPProcess
-	seen := make(map[int]bool)
 	for _, r := range recorded {
 		if r.PID <= 0 || r.PID == selfPID {
 			continue
 		}
 		byPID[r.PID] = r
-		seen[r.PID] = true
-		out = append(out, r)
 	}
 	fallbackBuild = strings.TrimSpace(fallbackBuild)
 	if fallbackBuild == "" {
 		fallbackBuild = "unknown"
 	}
+	var out []state.MCPProcess
+	seen := make(map[int]bool)
 	for _, rawLine := range strings.Split(strings.ReplaceAll(psOutput, "\r\n", "\n"), "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" {
@@ -516,16 +545,38 @@ func ParseRunningMCPProcesses(psOutput string, selfPID int, recorded []state.MCP
 		if err != nil || pid <= 0 || pid == selfPID || seen[pid] {
 			continue
 		}
-		base := filepath.Base(fields[1])
-		if (base == "ateam" || base == "ateam.exe") && fields[2] == "mcp" {
+		cmdFields := fields[1:]
+		var (
+			psStart    time.Time
+			lstartRaw  string
+			hasPSStart bool
+		)
+		if len(fields) >= 8 {
+			if t, raw, ok := parsePSStartTime(fields[1:6]); ok {
+				psStart = t
+				lstartRaw = raw
+				hasPSStart = true
+				cmdFields = fields[6:]
+			}
+		}
+		if len(cmdFields) < 2 {
+			continue
+		}
+		base := filepath.Base(cmdFields[0])
+		if (base == "ateam" || base == "ateam.exe") && cmdFields[1] == "mcp" {
 			seen[pid] = true
-			if rec, ok := byPID[pid]; ok {
+			if rec, ok := byPID[pid]; ok && canTrustRecordedMCPBuild(rec, lstartRaw, psStart, hasPSStart) {
 				out = append(out, rec)
 			} else {
-				out = append(out, state.MCPProcess{
+				proc := state.MCPProcess{
 					PID:         pid,
 					BuildCommit: fallbackBuild,
-				})
+				}
+				if hasPSStart {
+					utc := psStart.UTC()
+					proc.StartedAt = &utc
+				}
+				out = append(out, proc)
 			}
 		}
 	}
@@ -558,12 +609,13 @@ func InspectRunningMCPProcesses(ctx context.Context, root, headSHA string) ([]st
 	diskRev, _ := state.ReadDiskBinaryBuild(ctx, root)
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, "ps", "-eo", "pid=,args=").Output()
-	var psText string
-	if err == nil {
-		psText = string(out)
+	cmd := exec.CommandContext(cctx, "ps", "-eo", "pid=,lstart=,args=")
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, []string{fmt.Sprintf("unable to inspect running ateam mcp processes via ps: %v", err)}
 	}
-	procs := ParseRunningMCPProcesses(psText, os.Getpid(), recorded, "unknown")
+	procs := ParseRunningMCPProcesses(string(out), os.Getpid(), recorded, "unknown")
 	expected := strings.TrimSpace(headSHA)
 	if expected == "" || expected == "uncommitted" {
 		expected = diskRev

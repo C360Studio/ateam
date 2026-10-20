@@ -97,10 +97,125 @@ type MCPProcess struct {
 	BuildCommit string     `json:"build_commit"`
 	FullCommit  string     `json:"full_commit,omitempty"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
+	StartToken  string     `json:"start_token,omitempty"`
 }
 
 func mcpProcessesPath(root string) string {
 	return filepath.Join(root, ".ateam", "mcp-processes.json")
+}
+
+func mcpRegistryRoot(root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	if commonDir, ok := GitCommonDir(root); ok {
+		if filepath.Base(commonDir) == ".git" {
+			if mainRoot := filepath.Dir(commonDir); mainRoot != "" {
+				return filepath.Clean(mainRoot)
+			}
+		}
+		return filepath.Clean(commonDir)
+	}
+	return filepath.Clean(root)
+}
+
+func mcpCandidateRoots(root string) []string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var roots []string
+	addRoot := func(r string) {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			return
+		}
+		clean := filepath.Clean(r)
+		if !seen[clean] {
+			seen[clean] = true
+			roots = append(roots, clean)
+		}
+	}
+	addRoot(mcpRegistryRoot(root))
+	addRoot(root)
+	if commonDir, ok := GitCommonDir(root); ok {
+		if filepath.Base(commonDir) == ".git" {
+			addRoot(filepath.Dir(commonDir))
+		}
+		wtBase := filepath.Join(commonDir, "worktrees")
+		if entries, err := os.ReadDir(wtBase); err == nil {
+			for _, ent := range entries {
+				if !ent.IsDir() {
+					continue
+				}
+				gitdirFile := filepath.Join(wtBase, ent.Name(), "gitdir")
+				raw, err := os.ReadFile(gitdirFile)
+				if err != nil {
+					continue
+				}
+				gd := strings.TrimSpace(string(raw))
+				if gd == "" {
+					continue
+				}
+				if !filepath.IsAbs(gd) {
+					gd = filepath.Join(wtBase, ent.Name(), filepath.FromSlash(gd))
+				}
+				addRoot(filepath.Dir(filepath.Clean(gd)))
+			}
+		}
+	}
+	return roots
+}
+
+func readProcessStartAndArgs(pid int) (lstart, args string, ok bool) {
+	if pid <= 0 {
+		return "", "", false
+	}
+	cctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "ps", "-p", strconv.Itoa(pid), "-o", "lstart=,args=")
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", "", false
+	}
+	for _, rawLine := range strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {
+		fields := strings.Fields(strings.TrimSpace(rawLine))
+		if len(fields) >= 6 {
+			return strings.Join(fields[:5], " "), strings.Join(fields[5:], " "), true
+		}
+	}
+	return "", "", false
+}
+
+func isRecordedMCPProcessValid(p MCPProcess) bool {
+	if p.PID <= 0 || !IsProcessAlive(p.PID) {
+		return false
+	}
+	if p.PID == os.Getpid() {
+		return true
+	}
+	lstart, args, ok := readProcessStartAndArgs(p.PID)
+	if !ok {
+		return true
+	}
+	if strings.TrimSpace(p.StartToken) != "" && lstart != "" && strings.TrimSpace(p.StartToken) != lstart {
+		return false
+	}
+	cmdFields := strings.Fields(args)
+	if len(cmdFields) == 0 {
+		return false
+	}
+	base := filepath.Base(cmdFields[0])
+	if (base == "ateam" || base == "ateam.exe") && len(cmdFields) >= 2 && cmdFields[1] == "mcp" {
+		return true
+	}
+	if strings.HasSuffix(base, ".test") || strings.HasSuffix(base, ".test.exe") {
+		return true
+	}
+	return false
 }
 
 func writeMCPProcessesAtomic(root string, procs []MCPProcess) error {
@@ -133,17 +248,11 @@ func writeMCPProcessesAtomic(root string, procs []MCPProcess) error {
 	return nil
 }
 
-// LoadLiveMCPProcesses returns active MCPProcess entries recorded in .ateam/mcp-processes.json whose OS PIDs are alive.
+// LoadLiveMCPProcesses returns active MCPProcess entries recorded across the repository and its linked worktrees whose OS PIDs are alive and verified.
 func LoadLiveMCPProcesses(root string) []MCPProcess {
-	if strings.TrimSpace(root) == "" {
+	roots := mcpCandidateRoots(root)
+	if len(roots) == 0 {
 		return nil
-	}
-	roots := []string{root}
-	if commonDir, ok := GitCommonDir(root); ok && filepath.Base(commonDir) == ".git" {
-		mainRoot := filepath.Dir(commonDir)
-		if mainRoot != "" && mainRoot != root {
-			roots = append(roots, mainRoot)
-		}
 	}
 	seen := make(map[int]bool)
 	var live []MCPProcess
@@ -157,7 +266,7 @@ func LoadLiveMCPProcesses(root string) []MCPProcess {
 			continue
 		}
 		for _, p := range all {
-			if p.PID > 0 && !seen[p.PID] && IsProcessAlive(p.PID) {
+			if !seen[p.PID] && isRecordedMCPProcessValid(p) {
 				seen[p.PID] = true
 				live = append(live, p)
 			}
@@ -166,14 +275,16 @@ func LoadLiveMCPProcesses(root string) []MCPProcess {
 	return live
 }
 
-// RegisterMCPProcess records the current process in .ateam/mcp-processes.json and returns an unregister cleanup function.
+// RegisterMCPProcess records the current process in the repository-wide .ateam/mcp-processes.json and returns an unregister cleanup function.
 func RegisterMCPProcess(root, buildLabel, fullCommit string) func() {
-	if strings.TrimSpace(root) == "" {
+	regRoot := mcpRegistryRoot(root)
+	if regRoot == "" {
 		return func() {}
 	}
 	pid := os.Getpid()
 	now := time.Now().UTC()
-	_ = WithLock(root, func() error {
+	lstart, _, _ := readProcessStartAndArgs(pid)
+	_ = WithLock(regRoot, func() error {
 		live := LoadLiveMCPProcesses(root)
 		filtered := make([]MCPProcess, 0, len(live)+1)
 		for _, p := range live {
@@ -186,11 +297,12 @@ func RegisterMCPProcess(root, buildLabel, fullCommit string) func() {
 			BuildCommit: strings.TrimSpace(buildLabel),
 			FullCommit:  strings.TrimSpace(fullCommit),
 			StartedAt:   &now,
+			StartToken:  lstart,
 		})
-		return writeMCPProcessesAtomic(root, filtered)
+		return writeMCPProcessesAtomic(regRoot, filtered)
 	})
 	return func() {
-		_ = WithLock(root, func() error {
+		_ = WithLock(regRoot, func() error {
 			live := LoadLiveMCPProcesses(root)
 			var kept []MCPProcess
 			for _, p := range live {
@@ -198,11 +310,16 @@ func RegisterMCPProcess(root, buildLabel, fullCommit string) func() {
 					kept = append(kept, p)
 				}
 			}
+			for _, cand := range mcpCandidateRoots(root) {
+				if cand != regRoot {
+					_ = os.Remove(mcpProcessesPath(cand))
+				}
+			}
 			if len(kept) == 0 {
-				_ = os.Remove(mcpProcessesPath(root))
+				_ = os.Remove(mcpProcessesPath(regRoot))
 				return nil
 			}
-			return writeMCPProcessesAtomic(root, kept)
+			return writeMCPProcessesAtomic(regRoot, kept)
 		})
 	}
 }
@@ -1018,6 +1135,41 @@ func (st *State) MergeForgeCards(synced []BoardCard, provider ForgeProvider) {
 	st.RefreshHandoffStaleness()
 }
 
+func selectDoneBranchPR(branchPRs []BoardCard, wtHead string, wantMerged bool) *BoardCard {
+	wtHead = strings.TrimSpace(wtHead)
+	betterPR := func(cand, cur *BoardCard) bool {
+		if cur == nil {
+			return true
+		}
+		candNum, curNum := cardPRNumber(*cand), cardPRNumber(*cur)
+		if candNum != curNum {
+			return candNum > curNum
+		}
+		if !cand.UpdatedAt.Equal(cur.UpdatedAt) {
+			return cand.UpdatedAt.After(cur.UpdatedAt)
+		}
+		return true
+	}
+	var headMatched, fallback *BoardCard
+	for i := range branchPRs {
+		c := &branchPRs[i]
+		if c.Column != "done" || c.Merged != wantMerged {
+			continue
+		}
+		if wtHead != "" && c.HeadSHA != "" && SameCommitSHA(wtHead, c.HeadSHA) {
+			if betterPR(c, headMatched) {
+				headMatched = c
+			}
+		} else if betterPR(c, fallback) {
+			fallback = c
+		}
+	}
+	if headMatched != nil {
+		return headMatched
+	}
+	return fallback
+}
+
 // ReconcileWorktrees updates each Worktree.MergedIntoMain using synced PR cards (matching UI's rule) with branch ancestry (ahead == 0) as fallback.
 func (st *State) ReconcileWorktrees() {
 	if st == nil {
@@ -1046,13 +1198,7 @@ func (st *State) ReconcileWorktrees() {
 			wt.MergedIntoMain = false
 			continue
 		}
-		var mergedPR *BoardCard
-		for j := range branchPRs {
-			if branchPRs[j].Column == "done" && branchPRs[j].Merged {
-				mergedPR = &branchPRs[j]
-				break
-			}
-		}
+		mergedPR := selectDoneBranchPR(branchPRs, wt.Head, true)
 		if mergedPR != nil {
 			if mergedPR.HeadSHA != "" && wt.Head != "" {
 				if SameCommitSHA(wt.Head, mergedPR.HeadSHA) {
@@ -1098,30 +1244,26 @@ func (st *State) WorktreePRStatus(wt Worktree) string {
 			return "open PR " + c.ID
 		}
 	}
-	for _, c := range branchPRs {
-		if c.Column == "done" && c.Merged {
-			num := cardPRNumber(c)
-			prRef := c.ID
-			if num > 0 {
-				prRef = fmt.Sprintf("#%d", num)
-			}
-			if c.HeadSHA != "" && wt.Head != "" && !SameCommitSHA(wt.Head, c.HeadSHA) {
-				if !wt.MergedIntoMain || wt.AheadCount > 0 {
-					return fmt.Sprintf("ahead of merged %s", prRef)
-				}
-			} else if c.HeadSHA == "" && wt.AheadCount > 0 && !wt.MergedIntoMain {
-				return "unmerged commits ahead of main"
-			}
-			return fmt.Sprintf("merged via %s", prRef)
+	if c := selectDoneBranchPR(branchPRs, wt.Head, true); c != nil {
+		num := cardPRNumber(*c)
+		prRef := c.ID
+		if num > 0 {
+			prRef = fmt.Sprintf("#%d", num)
 		}
+		if c.HeadSHA != "" && wt.Head != "" && !SameCommitSHA(wt.Head, c.HeadSHA) {
+			if !wt.MergedIntoMain || wt.AheadCount > 0 {
+				return fmt.Sprintf("ahead of merged %s", prRef)
+			}
+		} else if c.HeadSHA == "" && wt.AheadCount > 0 && !wt.MergedIntoMain {
+			return "unmerged commits ahead of main"
+		}
+		return fmt.Sprintf("merged via %s", prRef)
 	}
-	for _, c := range branchPRs {
-		if c.Column == "done" && !c.Merged {
-			if num := cardPRNumber(c); num > 0 {
-				return fmt.Sprintf("closed without merge (#%d)", num)
-			}
-			return fmt.Sprintf("closed without merge (%s)", c.ID)
+	if c := selectDoneBranchPR(branchPRs, wt.Head, false); c != nil {
+		if num := cardPRNumber(*c); num > 0 {
+			return fmt.Sprintf("closed without merge (#%d)", num)
 		}
+		return fmt.Sprintf("closed without merge (%s)", c.ID)
 	}
 	if wt.MergedIntoMain && wt.AheadCount == 0 {
 		return "merged (ancestor of main)"
