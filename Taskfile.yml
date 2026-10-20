@@ -18,6 +18,11 @@ tasks:
     cmds:
       - "go run ./cmd/ateam review check {{.CLI_ARGS}}"
 
+  merge:check:
+    desc: Check active main ruleset, cross-agent PR review, and open class:flake issues
+    cmds:
+      - "scripts/merge-check.sh {{.CLI_ARGS}}"
+
   doctor:
     desc: Check tool versions, OpenSpec state, and multi-agent parity
     cmds:

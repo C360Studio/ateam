@@ -22,7 +22,7 @@
 | `verify` | Canonical skills in `.agents/skills/*/SKILL.md` have matching thin adapters in `.claude/skills/` and `.gemini/commands/` | `internal/bootstrap/parity_test.go` (`TestAgentSetupParity`) |
 | `verify` | Hook configs in `.claude/settings.json`, `.codex/hooks.json`, `.gemini/settings.json`, and `.agents/hooks.json` map native events to `ateam hook` | `internal/bootstrap/parity_test.go` (`TestAgentSetupParity`) |
 | `verify` | `ateam mcp` exposes only the 2 multiplexed tools (`ateam_state`, `ateam_task`) with `<300` total schema tokens | `internal/mcpserver/server_test.go` (`TestMCPTokenBudget`) |
-| `verify` | `ateam hook` executes normalized lifecycle events in `<5ms` with zero external runtime dependencies | `internal/hook/hook_test.go` (`TestHookLatencyBudget`) |
+| `verify` | `ateam hook` executes normalized lifecycle events in `<5ms` target budget (`doctor` warns `>5ms`, fails `--check` `>25ms`) with zero external runtime dependencies | `internal/hook/hook_test.go` (`TestHookLatencyBudget`); `cmd/ateam/main_test.go` (`TestCLISubcommands`) |
 
 ## 3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done
 
@@ -34,3 +34,4 @@
 | `verify` | `ateam bench --selftest` verifies good/bad reference fixtures and mutation detection before any live benchmark run | `internal/bench/bench_test.go` (`TestSelfTest`) |
 | `verify` | `task verify` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | `Taskfile.yml` (`verify`) |
 | `verify+review` | Configured model review requires an independent stronger reviewer, current evidence, and explicit owner exceptions at the model ceiling; effort and provider are not model rank | `internal/review` policy/evidence tests; `internal/bootstrap/review_test.go` setup/drift tests; `ateam review check`; substantive review |
+| `merge:check+review` | Non-draft code PRs carry `implemented-by:` and `reviewed-by:` naming different agents (`claude`, `codex`, `gemini`), checked alongside active `main` ruleset and open `class:flake` issues by `task merge:check` | `scripts/merge-check.sh`; `internal/bootstrap/mergecheck_test.go` (`TestMergeCheckReview`, `TestMergeCheckUpToDateRule`, `TestMergeCheckKnownFlake`, `TestCIWorkflowPinned`) |

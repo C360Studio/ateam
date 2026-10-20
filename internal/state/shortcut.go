@@ -2,6 +2,7 @@ package state
 
 import (
 	"bufio"
+	"bytes"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,6 +23,10 @@ var shortcutPattern = regexp.MustCompile(`(?i)^\s*(?://|#|--)\s*shortcut:\s*(.+)
 var skippedDirs = map[string]bool{
 	".git":         true,
 	".ateam":       true,
+	".agents":      true,
+	".claude":      true,
+	".codex":       true,
+	".gemini":      true,
 	".worktrees":   true,
 	".enjoy-logs":  true,
 	".svelte-kit":  true,
@@ -31,6 +36,10 @@ var skippedDirs = map[string]bool{
 	"build":        true,
 	"bin":          true,
 	"coverage":     true,
+	"openspec":     true,
+	"docs":         true,
+	"testdata":     true,
+	"benchmarks":   true,
 }
 
 var sourceExts = map[string]bool{
@@ -77,18 +86,23 @@ func ScanShortcuts(root string) ([]ShortcutItem, error) {
 }
 
 func scanFileShortcuts(absPath, relPath string) ([]ShortcutItem, error) {
-	f, err := os.Open(absPath)
+	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	if !bytes.Contains(data, []byte("shortcut:")) && !bytes.Contains(bytes.ToLower(data), []byte("shortcut:")) {
+		return nil, nil
+	}
 
 	var out []ShortcutItem
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
 		line := scanner.Text()
+		if !strings.Contains(line, "shortcut:") && !strings.Contains(strings.ToLower(line), "shortcut:") {
+			continue
+		}
 		m := shortcutPattern.FindStringSubmatch(line)
 		if len(m) < 2 {
 			continue
