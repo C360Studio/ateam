@@ -23,18 +23,20 @@ flowchart TD
     I --> K
 ```
 
-The explicit `--event` takes precedence over the payload's `hook_event_name` or `event`. The working directory determines the repository root; the payload's `cwd` field is parsed but does not redirect the hook. Input reading is capped at 1 MiB. The handler loads `.ateam/state.json` and reads Git HEAD without launching Git. Missing state starts with mode `full`.
+The explicit `--event` takes precedence over the payload's `hook_event_name` or `event` (`SessionStart`, `UserPromptSubmit`/`BeforeAgent`/`PreInvocation`, `PreCompact`/`PreCompress`, and `Stop`/`AfterAgent`/`SessionEnd`/`PostInvocation`). The working directory determines the repository root; the payload's `cwd` field is parsed but does not redirect the hook. Input reading is capped at 1 MiB, and session identity reads `session_id` with `conversationId` (used by Antigravity `agy`) as a fallback. The handler loads `.ateam/state.json` and reads Git HEAD without launching Git. Missing state starts with mode `full`.
 
 ## What each event actually does
 
 | Event | Reads and work | Persistent changes | Context returned |
 | --- | --- | --- | --- |
 | `session-start` | Loads cached state/writer information, reads HEAD, scans shortcuts, Holds, and the OpenSpec queue. | None from this handler; the refreshed view is assembled in memory. | Pickup summary: mode, forge, branch/HEAD, cached dirty status, markers, relevant writer warning, recent cached decisions, last handoff and HEAD drift. Adds the Ponytail ladder unless mode is `off`. |
-| `before-prompt` | Reads `prompt` or `user_prompt`, looking for a mode command. | Refreshes `.ateam/writer.json`. A recognized command also saves the mode in `.ateam/state.json`. | Ladder for a recognized non-off mode command. Ordinary prompts and switches to `off` produce no context. |
+| `before-prompt` | Reads `prompt` or `user_prompt`, looking for a mode command. | Refreshes `.ateam/writer.json`. A recognized command also saves the mode in `.ateam/state.json`. | Ladder for a recognized non-off mode command. Ordinary prompts and switches to `off` produce no context (`{}` for `--agent agy`). |
 | `pre-compact` | Reads HEAD and rescans shortcuts and Holds. | Updates those state fields. Creates a generic handoff only if none exists; otherwise only marks the existing handoff auto-compacted and updates its timestamp. | Five-field checkpoint text. Does not post to a forge. |
-| `turn-end` | Refreshes the writer record and scans Holds. | Saves Hold results or their scan error in state. | None. Does not clear the writer record or perform an explicit handoff. |
+| `turn-end` | Refreshes the writer record and scans Holds. | Saves Hold results or their scan error in state. | None for Claude/Codex/Gemini (`{"decision":"allow"}` for `--agent agy`). Does not clear the writer record or perform an explicit handoff. |
 
-Context appears both as top-level `additionalContext` and in `hookSpecificOutput.additionalContext`. The wrapper uses `SessionStart`, `UserPromptSubmit`, or `PreCompact` as appropriate. On a successful silent path, the CLI writes no JSON at all, not an empty object. These are the emitted formats; whether a particular agent consumes them must be checked in that agent.
+For Claude Code, Codex CLI, and Gemini CLI (`--agent claude|codex|gemini`), context appears both as top-level `additionalContext` and in `hookSpecificOutput.additionalContext` (`SessionStart`, `UserPromptSubmit`, or `PreCompact`), and silent paths write no JSON at all. For Antigravity (`--agent agy` or `antigravity`), whose hook unmarshaler uses strict `protojson`, context is emitted as `{"injectSteps":[{"systemMessage":{"systemMessage":"..."}}]}` (omitting `additionalContext` and `hookSpecificOutput`), a no-op `PreInvocation` emits `{}`, and `turn-end` (`Stop`) emits `{"decision":"allow"}`. Antigravity's `.agents/hooks.json` exposes `SessionStart`, `PreInvocation`, and `Stop`; it does not expose a `PreCompact` event and `PreInvocation` stdin omits raw user prompt text (tracked via `// shortcut:`), so Ponytail mode switches in `agy` use `ateam state mode <level>` or `/ponytail`.
+
+To fire `pre-compact` checkpoints before long-context attention drift on 1M-token models, `ateam init` also scaffolds ~500k token auto-compaction defaults in client configs that support them: `.claude/settings.json` (`"autoCompactWindow": 500000`), `.codex/config.toml` (`model_context_window = 500000` and `model_auto_compact_token_limit = 450000`), and `.gemini/settings.json` (`"model": {"chatCompression": {"contextPercentageThreshold": 0.5}}`). Antigravity (`agy`) does not expose a configurable compaction threshold key in `settings.json` and uses built-in checkpointing plus manual `/compact`, `/context`, `/btw`, and subagents.
 
 ## The opinions behind the design
 
@@ -42,6 +44,7 @@ Context appears both as top-level `additionalContext` and in `hookSpecificOutput
 | --- | --- | --- |
 | One canonical instruction/skill set | Reduce drift between agents. | Generated adapters and local parity checks do not prove live CLI compatibility. Existing files are not automatically migrated by `init`. |
 | Compact guidance at session start and mode commands | Put the decision ladder in context without repeating it on every prompt. | The agent may forget or ignore it. Repeating a mode command injects it again even if the mode is unchanged. |
+| ~500k context/auto-compaction defaults | Keep 1M-token models within the 400k–600k range where attention stays sharp and trigger `PreCompact`/`PreCompress` early. | Preserved client config files are not overwritten by `init`; `agy` has no configurable compaction threshold key, and Gemini's percentage scales with model window size. |
 | Local reads and Go-only hook execution | Avoid subprocess and network latency in the prompt path. | The snapshot mixes live HEAD/marker data with cached fields. Dirty status, worktrees, forge cards, and previous handoff details can be stale. Filesystem scans still cost time as repositories grow. |
 | Preserve an explicit handoff during compaction | Keep the human/agent-authored goal and constraints instead of replacing them with generic text. | The existing handoff's branch, checkpoint SHA, dirty flag, and semantic fields are not refreshed by that path. Compaction is a safety net, not a complete handoff. |
 | A writer record plus isolated worktrees | Surface possible concurrent editing and encourage explicit ownership. | The writer record is advisory, not an exclusive lock on editing. |
@@ -62,7 +65,7 @@ The sub-5ms hook budget is a design target. `ateam doctor` currently fails its t
 
 Mode is stored per checkout's local state, not privately per session. It can also be changed through the state CLI, MCP, or board; those changes do not themselves inject a new prompt into an already-running agent. Modes do not select a model or adjust provider settings.
 
-The writer record contains agent, session ID, PID, and last-seen time. Identity comes from `--agent`, then `ATEAM_AGENT`, then an agent-prefixed branch, then the generic `agent` fallback. The PID is the short-lived hook process's PID, not proof of a still-running agent. Inside herdr (`HERDR_ENV=1`) the record also stores the herdr pane and workspace IDs, and pickup lines name the pane; a stray `HERDR_PANE_ID` without `HERDR_ENV=1` is ignored.
+The writer record contains agent, session ID (`session_id` or Antigravity `conversationId`), PID, and last-seen time. Identity comes from `--agent`, then `ATEAM_AGENT`, then an agent-prefixed branch, then the generic `agent` fallback. The PID is the short-lived hook process's PID, not proof of a still-running agent. Inside herdr (`HERDR_ENV=1`) the record also stores the herdr pane and workspace IDs, and pickup lines name the pane; a stray `HERDR_PANE_ID` without `HERDR_ENV=1` is ignored.
 
 Pickup warns when a different nonempty session ID was seen within ten minutes. It does not acquire exclusive edit ownership or check process liveness. `before-prompt` and `turn-end` replace the record; the latter deliberately keeps evidence of recent activity. Explicit handoff attempts to clear it. Separate worktrees and agent cooperation remain necessary.
 
