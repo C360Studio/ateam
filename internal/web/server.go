@@ -566,8 +566,11 @@ func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resolvedSession := state.ResolveActiveSessionID(root, ho.SessionID)
+	resolvedAgent := state.ResolveActiveAgent(root, ho.Agent, st.Git.Branch, st.Writer)
 	var saved state.Handoff
 	_, err = state.Update(root, func(cur *state.State) error {
+		cur.CurrentAgent = resolvedAgent
+		ho.Agent = resolvedAgent
 		ho.SessionID = resolvedSession
 		ho.Branch = st.Git.Branch
 		ho.CheckpointSHA = st.Git.HeadSHA
@@ -576,8 +579,8 @@ func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(ho.Addresses) == "" {
 			ho.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 		}
-		cur.LastHandoff = &ho
-		saved = ho
+		cur.SetHandoff(ho)
+		saved = *cur.LastHandoff
 		return nil
 	})
 	if err != nil {

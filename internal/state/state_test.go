@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -711,4 +712,287 @@ func TestReview65WorktreeRegistryVisibleFromMain(t *testing.T) {
 			t.Fatalf("LoadLiveMCPProcesses(%s) after cleanup = %+v, want empty", name, after)
 		}
 	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPerAgentBranchHandoffSlots(t *testing.T) {
+	t.Setenv("ATEAM_AGENT", "")
+	t.Setenv("ATEAM_SESSION_ID", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CODEX_SESSION_ID", "")
+	t.Setenv("GEMINI_SESSION_ID", "")
+	t.Setenv("CLAUDECODE", "")
+
+	dir := t.TempDir()
+	now := time.Now().UTC()
+
+	// Precedence: explicit > ATEAM_AGENT > writer lease > branch prefix > "agent"
+	if got := ResolveActiveAgent(dir, "codex", "claude/branch", &WriterLease{Agent: "gemini"}); got != "codex" {
+		t.Fatalf("ResolveActiveAgent explicit = %q, want codex", got)
+	}
+	t.Setenv("ATEAM_AGENT", "gemini")
+	if got := ResolveActiveAgent(dir, "", "claude/branch", &WriterLease{Agent: "codex"}); got != "gemini" {
+		t.Fatalf("ResolveActiveAgent ATEAM_AGENT = %q, want gemini", got)
+	}
+	t.Setenv("ATEAM_AGENT", "")
+	if got := ResolveActiveAgent(dir, "", "claude/branch", &WriterLease{Agent: "codex"}); got != "codex" {
+		t.Fatalf("ResolveActiveAgent lease = %q, want codex", got)
+	}
+	if got := ResolveActiveAgent(dir, "", "claude/branch", nil); got != "claude" {
+		t.Fatalf("ResolveActiveAgent branch prefix = %q, want claude", got)
+	}
+	if got := ResolveActiveAgent(dir, "", "main", nil); got != "agent" {
+		t.Fatalf("ResolveActiveAgent default = %q, want agent", got)
+	}
+
+	st := defaultState()
+	st.Git.Branch = "main"
+	st.Git.HeadSHA = "9f11a42"
+	st.Git.Worktrees = []Worktree{
+		{Path: "/repo", Branch: "main", Head: "9f11a42"},
+		{Path: "/repo/.worktrees/codex-71", Branch: "codex/mercury-usage-provenance", Head: "bb11cc2"},
+		{Path: "/repo/.worktrees/gemini-70", Branch: "gemini/merged-slot", Head: "aa00bb1"},
+	}
+	st.Cards = []BoardCard{
+		{ID: "GH-PR-71", Number: 71, Type: "pr", Column: "in-review", Branch: "codex/mercury-usage-provenance", Forge: "github"},
+		{ID: "GH-PR-70", Number: 70, Type: "pr", Column: "done", Merged: true, Branch: "gemini/merged-slot", Forge: "github"},
+	}
+
+	// 1. Codex records a handoff on codex/mercury-usage-provenance (2h ago, PR #71)
+	st.SetHandoff(Handoff{
+		Goal:          "PR #71: finish mercury usage provenance",
+		Addresses:     "PR #71",
+		Constraints:   "none",
+		DoneWhen:      "task verify green",
+		ChecksToRun:   "task verify",
+		Agent:         "codex",
+		Branch:        "codex/mercury-usage-provenance",
+		CheckpointSHA: "bb11cc2",
+		UpdatedAt:     now.Add(-2 * time.Hour),
+	})
+	// 2. Gemini records a handoff on gemini/merged-slot whose PR #70 is now done/merged (stale)
+	st.SetHandoff(Handoff{
+		Goal:          "PR #70: land merged slot",
+		Addresses:     "PR #70",
+		Constraints:   "none",
+		DoneWhen:      "merged",
+		ChecksToRun:   "task verify",
+		Agent:         "gemini",
+		Branch:        "gemini/merged-slot",
+		CheckpointSHA: "aa00bb1",
+		UpdatedAt:     now.Add(-3 * time.Hour),
+	})
+	// 3. Claude records a handoff on main
+	st.SetHandoff(Handoff{
+		Goal:          "Coordinate epic #76 on main",
+		Addresses:     "issue #76",
+		Constraints:   "Wait for PR #71",
+		DoneWhen:      "All epic issues merged",
+		ChecksToRun:   "task verify",
+		Agent:         "claude",
+		Branch:        "main",
+		CheckpointSHA: "9f11a42",
+		UpdatedAt:     now.Add(-5 * time.Minute),
+	})
+
+	if err := Save(dir, st); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	rawJSON, err := os.ReadFile(CacheFilePath(dir))
+	if err != nil {
+		t.Fatalf("ReadFile state.json: %v", err)
+	}
+	if !strings.Contains(string(rawJSON), `"claude@main"`) || !strings.Contains(string(rawJSON), `"codex@codex/mercury-usage-provenance"`) {
+		t.Fatalf("state.json missing expected handoffs map keys:\n%s", string(rawJSON))
+	}
+
+	// Pickup as claude@main: drops stale gemini@gemini/merged-slot, prints claude@main first, then other handoffs line for codex
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	loaded.CurrentAgent = "claude"
+	loaded.RefreshHandoffStaleness()
+	if _, exists := loaded.Handoffs["gemini@gemini/merged-slot"]; exists {
+		t.Fatalf("expected stale gemini@gemini/merged-slot to be dropped on pickup, got %+v", loaded.Handoffs)
+	}
+	if loaded.LastHandoff == nil || loaded.LastHandoff.Goal != "Coordinate epic #76 on main" {
+		t.Fatalf("expected LastHandoff alias for claude@main, got %+v", loaded.LastHandoff)
+	}
+	claudePickup := BuildPickupSummary(loaded)
+	wantClaudePrefix := "Last Handoff:\nGoal: Coordinate epic #76 on main\nAddresses: issue #76\nConstraints: Wait for PR #71\nDone when: All epic issues merged\nChecks to run: task verify\nother handoffs: codex@codex/mercury-usage-provenance (2h ago, PR #71)"
+	if !strings.Contains(claudePickup, wantClaudePrefix) {
+		t.Fatalf("claude@main pickup mismatch:\ngot:\n%s\nwant substring:\n%s", claudePickup, wantClaudePrefix)
+	}
+
+	// Pickup as gemini@main (no handoff for gemini@main): prints "Last Handoff: none for gemini@main" + both other live handoffs sorted
+	loaded.CurrentAgent = "gemini"
+	loaded.RefreshHandoffStaleness()
+	if loaded.LastHandoff != nil {
+		t.Fatalf("expected LastHandoff=nil when gemini@main has no handoff, got %+v", loaded.LastHandoff)
+	}
+	geminiPickup := BuildPickupSummary(loaded)
+	wantGeminiSection := strings.Join([]string{
+		"Last Handoff: none for gemini@main",
+		"other handoffs: claude@main (5m ago)",
+		"other handoffs: codex@codex/mercury-usage-provenance (2h ago, PR #71)",
+	}, "\n")
+	if !strings.Contains(geminiPickup, wantGeminiSection) {
+		t.Fatalf("gemini@main pickup mismatch:\ngot:\n%s\nwant substring:\n%s", geminiPickup, wantGeminiSection)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func FuzzPerAgentHandoffSlotHistory(f *testing.F) {
+	f.Add([]byte{0, 4, 8, 9, 22, 27})
+	f.Add([]byte{0, 3, 7, 12, 18, 28})
+	f.Add([]byte{1, 5, 10, 19, 2, 29})
+
+	agents := []string{"claude", "codex", "gemini"}
+	branches := []string{"main", "codex/feat-a", "gemini/feat-b"}
+
+	f.Fuzz(func(t *testing.T, ops []byte) {
+		t.Setenv("ATEAM_AGENT", "")
+		t.Setenv("ATEAM_SESSION_ID", "")
+		t.Setenv("CLAUDE_SESSION_ID", "")
+		t.Setenv("CODEX_SESSION_ID", "")
+		t.Setenv("GEMINI_SESSION_ID", "")
+		t.Setenv("CLAUDECODE", "")
+
+		st := defaultState()
+		branchHeads := map[string]string{
+			"main":          "1111111",
+			"codex/feat-a":  "2222222",
+			"gemini/feat-b": "3333333",
+		}
+		closedPRs := map[int]bool{}
+		syncGitAndCards := func(curBranch string) {
+			st.Git.Branch = curBranch
+			st.Git.HeadSHA = branchHeads[curBranch]
+			st.Git.Worktrees = []Worktree{
+				{Path: "/repo", Branch: "main", Head: branchHeads["main"]},
+				{Path: "/repo/wt-a", Branch: "codex/feat-a", Head: branchHeads["codex/feat-a"]},
+				{Path: "/repo/wt-b", Branch: "gemini/feat-b", Head: branchHeads["gemini/feat-b"]},
+			}
+			st.Cards = nil
+			for prNum := 1; prNum <= 3; prNum++ {
+				col := "in-review"
+				if closedPRs[prNum] {
+					col = "done"
+				}
+				st.Cards = append(st.Cards, BoardCard{
+					ID:     fmt.Sprintf("GH-PR-%d", prNum),
+					Number: prNum,
+					Type:   "pr",
+					Column: col,
+					Merged: closedPRs[prNum],
+					Forge:  "github",
+				})
+			}
+		}
+		syncGitAndCards("main")
+		st.Handoffs = make(map[string]*Handoff)
+
+		refSlots := make(map[string]Handoff)
+		pruneRef := func() {
+			for k, h := range refSlots {
+				_, br := splitHandoffSlotKey(k)
+				if h.CheckpointSHA != branchHeads[br] {
+					delete(refSlots, k)
+					continue
+				}
+				if m := handoffGoalSubjectPRRe.FindStringSubmatch(h.Goal); len(m) >= 2 {
+					var prNum int
+					_, _ = fmt.Sscanf(m[1], "%d", &prNum)
+					if closedPRs[prNum] {
+						delete(refSlots, k)
+					}
+				}
+			}
+		}
+
+		now := time.Now().UTC().Add(-10 * time.Minute)
+		for i, b := range ops {
+			if i >= 32 {
+				break
+			}
+			ag := agents[int(b)%len(agents)]
+			br := branches[(int(b)/3)%len(branches)]
+			action := (int(b) / 9) % 4
+			switch action {
+			case 0: // SetHandoff
+				prNum := (i % 3) + 1
+				syncGitAndCards(br)
+				st.CurrentAgent = ag
+				h := Handoff{
+					Goal:          fmt.Sprintf("PR #%d: step %d for %s", prNum, i, ag),
+					Addresses:     fmt.Sprintf("PR #%d", prNum),
+					Constraints:   "none",
+					DoneWhen:      "task verify",
+					ChecksToRun:   "task verify",
+					Agent:         ag,
+					Branch:        br,
+					CheckpointSHA: branchHeads[br],
+					UpdatedAt:     now,
+				}
+				st.SetHandoff(h)
+				refSlots[HandoffSlotKey(ag, br)] = h
+			case 1: // Advance branch HEAD
+				branchHeads[br] = fmt.Sprintf("sha%04d", i+1)
+				syncGitAndCards(st.Git.Branch)
+			case 2: // Close PR
+				prNum := (int(b) % 3) + 1
+				closedPRs[prNum] = true
+				syncGitAndCards(st.Git.Branch)
+			case 3: // Pickup as ag@br
+				syncGitAndCards(br)
+				st.CurrentAgent = ag
+				st.RefreshHandoffStaleness()
+				pruneRef()
+			}
+		}
+
+		// Final pickup check across all (agent, branch) pairs
+		for _, ag := range agents {
+			for _, br := range branches {
+				syncGitAndCards(br)
+				st.CurrentAgent = ag
+				st.RefreshHandoffStaleness()
+				pruneRef()
+				curKey := HandoffSlotKey(ag, br)
+				summary := BuildPickupSummary(st)
+
+				if len(st.Handoffs) != len(refSlots) {
+					t.Fatalf("len(st.Handoffs)=%d != len(refSlots)=%d (st=%+v, ref=%+v)", len(st.Handoffs), len(refSlots), st.Handoffs, refSlots)
+				}
+				if wantCur, ok := refSlots[curKey]; ok {
+					if st.LastHandoff == nil || st.LastHandoff.Goal != wantCur.Goal {
+						t.Fatalf("slot %s: LastHandoff=%+v, want Goal=%q", curKey, st.LastHandoff, wantCur.Goal)
+					}
+					if !strings.Contains(summary, "Last Handoff:\nGoal: "+wantCur.Goal) {
+						t.Fatalf("slot %s: summary missing current handoff Goal %q:\n%s", curKey, wantCur.Goal, summary)
+					}
+				} else {
+					if st.LastHandoff != nil {
+						t.Fatalf("slot %s: expected LastHandoff=nil, got %+v", curKey, st.LastHandoff)
+					}
+					if !strings.Contains(summary, "Last Handoff: none for "+curKey) {
+						t.Fatalf("slot %s: summary missing 'Last Handoff: none for %s':\n%s", curKey, curKey, summary)
+					}
+				}
+				var otherKeys []string
+				for k := range refSlots {
+					if k != curKey {
+						otherKeys = append(otherKeys, k)
+					}
+				}
+				sort.Strings(otherKeys)
+				for _, k := range otherKeys {
+					if !strings.Contains(summary, "other handoffs: "+k+" (") {
+						t.Fatalf("slot %s: summary missing other handoff %s:\n%s", curKey, k, summary)
+					}
+				}
+			}
+		}
+	})
 }

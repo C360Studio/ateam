@@ -108,6 +108,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		st.Git.Branch = br
 		st.Git.HeadSHA = sha
 	}
+	st.CurrentAgent = state.ResolveActiveAgent(root, flagAgent, st.Git.Branch, st.Writer)
 
 	switch ev {
 	case "session-start":
@@ -126,7 +127,20 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 			scanErrs = append(scanErrs, err.Error())
 		}
 		st.HoldScanError = strings.Join(scanErrs, "; ")
+		beforeHandoffs := len(st.Handoffs)
 		st.RefreshHandoffStaleness()
+		if st.Handoffs != nil && len(st.Handoffs) != beforeHandoffs {
+			_, _ = state.Update(root, func(cur *state.State) error {
+				cur.CurrentAgent = st.CurrentAgent
+				cur.CurrentSessionID = st.CurrentSessionID
+				if sha != "" {
+					cur.Git.Branch = br
+					cur.Git.HeadSHA = sha
+				}
+				cur.RefreshHandoffStaleness()
+				return nil
+			})
+		}
 		ctxText := state.BuildPickupSummary(st)
 		if sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active") {
 			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
@@ -188,38 +202,58 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 				cur.Git.Branch = br
 				cur.Git.HeadSHA = sha
 			}
+			cur.CurrentAgent = state.ResolveActiveAgent(root, flagAgent, cur.Git.Branch, cur.Writer)
 			cur.Shortcuts = shortcuts
 			cur.Holds = holds
 			cur.HoldScanError = ""
-			sameSessionBranch := cur.LastHandoff != nil &&
+			if cur.LastHandoff != nil && strings.TrimSpace(cur.LastHandoff.Agent) == "" && len(cur.Handoffs) <= 1 {
+				cur.Handoffs = nil
+			}
+			curSlotKey := cur.CurrentHandoffKey()
+			slotForCheck := ""
+			curHandoff := cur.LastHandoff
+			if cur.Handoffs != nil {
+				curHandoff = cur.Handoffs[curSlotKey]
+				slotForCheck = curSlotKey
+			}
+			sameSessionBranch := curHandoff != nil &&
 				sessionID != "" &&
-				cur.LastHandoff.SessionID == sessionID &&
-				(cur.LastHandoff.Branch == "" || cur.Git.Branch == "" || cur.LastHandoff.Branch == cur.Git.Branch) &&
-				!cur.HasNonHeadDriftHandoffStaleness()
+				curHandoff.SessionID == sessionID &&
+				(curHandoff.Branch == "" || cur.Git.Branch == "" || curHandoff.Branch == cur.Git.Branch) &&
+				!cur.HasNonHeadDriftHandoffStalenessFor(slotForCheck, curHandoff)
 			if sameSessionBranch {
-				cur.LastHandoff.Branch = cur.Git.Branch
-				cur.LastHandoff.CheckpointSHA = cur.Git.HeadSHA
-				cur.LastHandoff.Dirty = cur.Git.Dirty
+				curHandoff.Branch = cur.Git.Branch
+				curHandoff.CheckpointSHA = cur.Git.HeadSHA
+				curHandoff.Dirty = cur.Git.Dirty
 			}
 			cur.RefreshHandoffStaleness()
-			foreignSession := cur.LastHandoff != nil && (cur.LastHandoff.SessionID == "" || sessionID == "" || cur.LastHandoff.SessionID != sessionID)
-			if cur.LastHandoff == nil || cur.LastHandoff.Stale || foreignSession {
-				cur.LastHandoff = &state.Handoff{
+			if cur.Handoffs != nil {
+				curHandoff = cur.Handoffs[curSlotKey]
+			} else {
+				curHandoff = cur.LastHandoff
+			}
+			foreignSession := curHandoff != nil && (curHandoff.SessionID == "" || sessionID == "" || curHandoff.SessionID != sessionID)
+			if curHandoff == nil || curHandoff.Stale || foreignSession {
+				cur.SetHandoff(state.Handoff{
 					Goal:          "UNKNOWN — Auto-saved before context compaction",
 					Addresses:     fmt.Sprintf("branch %s, SHA %s", cur.Git.Branch, cur.Git.HeadSHA),
 					Constraints:   fmt.Sprintf("%d active holds, %d shortcuts", len(cur.Holds), len(cur.Shortcuts)),
 					DoneWhen:      "Run task verify and reconcile via /pickup",
 					ChecksToRun:   "ateam state pickup && task verify",
+					Agent:         cur.EffectiveAgent(),
 					SessionID:     sessionID,
 					Branch:        cur.Git.Branch,
 					CheckpointSHA: cur.Git.HeadSHA,
 					Dirty:         cur.Git.Dirty,
 					AutoCompacted: true,
 					UpdatedAt:     time.Now().UTC(),
-				}
+				})
 			} else {
-				cur.LastHandoff.AutoCompacted = true
-				cur.LastHandoff.UpdatedAt = time.Now().UTC()
+				curHandoff.AutoCompacted = true
+				curHandoff.UpdatedAt = time.Now().UTC()
+				if cur.Handoffs != nil {
+					cur.SetHandoff(*curHandoff)
+				}
 			}
 			return nil
 		})

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -380,7 +381,10 @@ func SameCommitSHA(a, b string) bool {
 	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
 }
 
-var handoffGoalSubjectPRRe = regexp.MustCompile(`(?i)^\s*(?:(?:review(?:\s+and\s+merge)?|merge|land|fix|finish|close)\s+)?(?:\bpr\s*#|\bpull[s]?/)([1-9][0-9]*)\b`)
+var (
+	handoffGoalSubjectPRRe = regexp.MustCompile(`(?i)^\s*(?:(?:review(?:\s+and\s+merge)?|merge|land|fix|finish|close)\s+)?(?:\bpr\s*#|\bpull[s]?/)([1-9][0-9]*)\b`)
+	handoffPRRefRe         = regexp.MustCompile(`(?i)\b(?:pr\s*#|pull[s]?/|#)([1-9][0-9]*)\b`)
+)
 
 func isPRCard(c BoardCard) bool {
 	return c.Type == "pr" || strings.Contains(c.ID, "-PR-") || strings.HasPrefix(c.ID, "PR-")
@@ -483,7 +487,9 @@ type State struct {
 	Forges           []ForgeConfig               `json:"forges,omitempty"`
 	ForgesConfigured bool                        `json:"forges_configured,omitempty"`
 	LastHandoff      *Handoff                    `json:"last_handoff,omitempty"`
+	Handoffs         map[string]*Handoff         `json:"handoffs,omitempty"`
 	Writer           *WriterLease                `json:"writer,omitempty"`
+	CurrentAgent     string                      `json:"-"`
 	CurrentSessionID string                      `json:"-"`
 	MCPBuild         string                      `json:"-"`
 	DiskBuild        string                      `json:"-"`
@@ -502,26 +508,166 @@ type State struct {
 	UpdatedAt        time.Time                   `json:"updated_at"`
 }
 
-// HandoffStaleReasons returns human-readable reasons why st.LastHandoff is stale, or nil if fresh.
-func (st *State) HandoffStaleReasons() []string {
-	if st == nil || st.LastHandoff == nil {
+func normalizeAgentKey(raw string) string {
+	a := strings.ToLower(strings.TrimSpace(raw))
+	if a == "antigravity" {
+		return "agy"
+	}
+	return a
+}
+
+func resolveAgentFromEnv() string {
+	if a := normalizeAgentKey(os.Getenv("ATEAM_AGENT")); a != "" {
+		return a
+	}
+	if strings.TrimSpace(os.Getenv("CLAUDE_SESSION_ID")) != "" || strings.TrimSpace(os.Getenv("CLAUDECODE")) != "" {
+		return "claude"
+	}
+	if strings.TrimSpace(os.Getenv("CODEX_SESSION_ID")) != "" {
+		return "codex"
+	}
+	if strings.TrimSpace(os.Getenv("GEMINI_SESSION_ID")) != "" {
+		return "gemini"
+	}
+	return ""
+}
+
+// HandoffSlotKey formats the canonical per-agent, per-branch handoff map key ("<agent>@<branch>").
+func HandoffSlotKey(agent, branch string) string {
+	a := normalizeAgentKey(agent)
+	if a == "" {
+		a = inferAgentFromBranch(branch)
+	}
+	if a == "" {
+		a = "agent"
+	}
+	b := strings.TrimSpace(branch)
+	if b == "" {
+		b = "main"
+	}
+	return a + "@" + b
+}
+
+// ResolveActiveAgent resolves the active agent name from an explicit flag/parameter, ATEAM_AGENT,
+// an active writer lease, the branch prefix (claude/*, codex/*, gemini/*, agy/*), or "agent".
+func ResolveActiveAgent(root, explicit, branch string, lease *WriterLease) string {
+	if a := normalizeAgentKey(explicit); a != "" {
+		return a
+	}
+	if a := resolveAgentFromEnv(); a != "" {
+		return a
+	}
+	if lease == nil && strings.TrimSpace(root) != "" {
+		if wl, err := ReadWriterLease(root); err == nil {
+			lease = wl
+		}
+	}
+	if lease != nil && strings.TrimSpace(lease.Agent) != "" && normalizeAgentKey(lease.Agent) != "agent" {
+		return normalizeAgentKey(lease.Agent)
+	}
+	if strings.TrimSpace(branch) == "" && strings.TrimSpace(root) != "" {
+		branch, _ = ReadFastGitHead(root)
+	}
+	if a := inferAgentFromBranch(branch); a != "" {
+		return a
+	}
+	if lease != nil && strings.TrimSpace(lease.Agent) != "" {
+		return normalizeAgentKey(lease.Agent)
+	}
+	return "agent"
+}
+
+// EffectiveAgent returns the resolved agent identity for st.
+func (st *State) EffectiveAgent() string {
+	if st == nil {
+		return "agent"
+	}
+	return ResolveActiveAgent("", st.CurrentAgent, st.Git.Branch, st.Writer)
+}
+
+// CurrentHandoffKey returns the "<agent>@<branch>" slot key for the current session on st.
+func (st *State) CurrentHandoffKey() string {
+	if st == nil {
+		return HandoffSlotKey("agent", "main")
+	}
+	return HandoffSlotKey(st.EffectiveAgent(), st.Git.Branch)
+}
+
+// SetHandoff records h in st.Handoffs under its "<agent>@<branch>" slot and aliases st.LastHandoff to that slot.
+func (st *State) SetHandoff(h Handoff) {
+	if st == nil {
+		return
+	}
+	branch := strings.TrimSpace(h.Branch)
+	if branch == "" {
+		branch = strings.TrimSpace(st.Git.Branch)
+	}
+	if branch == "" {
+		branch = "main"
+	}
+	h.Branch = branch
+	agent := normalizeAgentKey(h.Agent)
+	if agent == "" {
+		agent = st.EffectiveAgent()
+	}
+	h.Agent = agent
+	if st.Handoffs == nil {
+		st.Handoffs = make(map[string]*Handoff)
+	}
+	cp := h
+	key := HandoffSlotKey(agent, branch)
+	st.Handoffs[key] = &cp
+	st.LastHandoff = &cp
+}
+
+func splitHandoffSlotKey(key string) (agent, branch string) {
+	if a, b, ok := strings.Cut(strings.TrimSpace(key), "@"); ok {
+		return normalizeAgentKey(a), strings.TrimSpace(b)
+	}
+	return "", strings.TrimSpace(key)
+}
+
+func (st *State) headSHAForBranch(branch string) string {
+	if st == nil {
+		return ""
+	}
+	branch = strings.TrimSpace(branch)
+	if branch == "" || branch == strings.TrimSpace(st.Git.Branch) {
+		return strings.TrimSpace(st.Git.HeadSHA)
+	}
+	for _, wt := range st.Git.Worktrees {
+		if strings.TrimSpace(wt.Branch) == branch && strings.TrimSpace(wt.Head) != "" {
+			return strings.TrimSpace(wt.Head)
+		}
+	}
+	return ""
+}
+
+// HandoffStaleReasonsFor returns human-readable reasons why handoff h in slotKey ("<agent>@<branch>", or "" for current branch) is stale, or nil if fresh.
+func (st *State) HandoffStaleReasonsFor(slotKey string, h *Handoff) []string {
+	if st == nil || h == nil {
 		return nil
 	}
-	h := st.LastHandoff
-	var reasons []string
-	headDrifted := h.CheckpointSHA != "" && st.Git.HeadSHA != "" && !SameCommitSHA(h.CheckpointSHA, st.Git.HeadSHA)
-	if headDrifted {
-		reasons = append(reasons, fmt.Sprintf("HEAD drifted from %s -> %s", h.CheckpointSHA, st.Git.HeadSHA))
+	_, slotBranch := splitHandoffSlotKey(slotKey)
+	expectedBranch := slotBranch
+	if expectedBranch == "" {
+		expectedBranch = strings.TrimSpace(st.Git.Branch)
 	}
-	branchChanged := h.Branch != "" && st.Git.Branch != "" && h.Branch != st.Git.Branch
+	headSHA := st.headSHAForBranch(expectedBranch)
+	var reasons []string
+	headDrifted := h.CheckpointSHA != "" && headSHA != "" && !SameCommitSHA(h.CheckpointSHA, headSHA)
+	if headDrifted {
+		reasons = append(reasons, fmt.Sprintf("HEAD drifted from %s -> %s", h.CheckpointSHA, headSHA))
+	}
+	branchChanged := h.Branch != "" && expectedBranch != "" && h.Branch != expectedBranch
 	if branchChanged {
-		reasons = append(reasons, fmt.Sprintf("branch changed from %s -> %s", h.Branch, st.Git.Branch))
+		reasons = append(reasons, fmt.Sprintf("branch changed from %s -> %s", h.Branch, expectedBranch))
 	}
 	curSession := strings.TrimSpace(st.CurrentSessionID)
 	if curSession == "" {
 		curSession = ResolveEnvSessionID()
 	}
-	sameSessionAtHead := !headDrifted && !branchChanged && h.CheckpointSHA != "" && st.Git.HeadSHA != "" && h.Branch != "" && st.Git.Branch != "" && curSession != "" && strings.TrimSpace(h.SessionID) == curSession
+	sameSessionAtHead := !headDrifted && !branchChanged && h.CheckpointSHA != "" && headSHA != "" && h.Branch != "" && expectedBranch != "" && curSession != "" && strings.TrimSpace(h.SessionID) == curSession
 	if !sameSessionAtHead {
 		subjectPRs := make(map[int]bool)
 		if m := handoffGoalSubjectPRRe.FindStringSubmatch(h.Goal); len(m) >= 2 {
@@ -565,17 +711,24 @@ func (st *State) HandoffStaleReasons() []string {
 	return reasons
 }
 
+// HandoffStaleReasons returns human-readable reasons why st.LastHandoff is stale, or nil if fresh.
+func (st *State) HandoffStaleReasons() []string {
+	if st == nil || st.LastHandoff == nil {
+		return nil
+	}
+	return st.HandoffStaleReasonsFor("", st.LastHandoff)
+}
+
 // IsHandoffStale reports whether st.LastHandoff has drifted or references completed work.
 func (st *State) IsHandoffStale() bool {
 	return len(st.HandoffStaleReasons()) > 0
 }
 
-// HasNonHeadDriftHandoffStaleness reports whether st.LastHandoff is stale for any reason other than HEAD SHA drift.
-func (st *State) HasNonHeadDriftHandoffStaleness() bool {
-	if st == nil || st.LastHandoff == nil {
+// HasNonHeadDriftHandoffStalenessFor reports whether h in slotKey is stale for any reason other than HEAD SHA drift.
+func (st *State) HasNonHeadDriftHandoffStalenessFor(slotKey string, h *Handoff) bool {
+	if st == nil || h == nil {
 		return false
 	}
-	h := st.LastHandoff
 	if h.Stale {
 		if strings.TrimSpace(h.StaleReason) == "" {
 			return true
@@ -587,7 +740,7 @@ func (st *State) HasNonHeadDriftHandoffStaleness() bool {
 			}
 		}
 	}
-	for _, r := range st.HandoffStaleReasons() {
+	for _, r := range st.HandoffStaleReasonsFor(slotKey, h) {
 		if !strings.HasPrefix(strings.TrimSpace(r), "HEAD drifted from ") {
 			return true
 		}
@@ -595,9 +748,46 @@ func (st *State) HasNonHeadDriftHandoffStaleness() bool {
 	return false
 }
 
-// RefreshHandoffStaleness updates Stale and StaleReason on st.LastHandoff from live git and board state.
-func (st *State) RefreshHandoffStaleness() {
+// HasNonHeadDriftHandoffStaleness reports whether st.LastHandoff is stale for any reason other than HEAD SHA drift.
+func (st *State) HasNonHeadDriftHandoffStaleness() bool {
 	if st == nil || st.LastHandoff == nil {
+		return false
+	}
+	return st.HasNonHeadDriftHandoffStalenessFor("", st.LastHandoff)
+}
+
+// RefreshHandoffStaleness updates Stale and StaleReason on st.LastHandoff and drops stale entries from st.Handoffs.
+func (st *State) RefreshHandoffStaleness() {
+	if st == nil {
+		return
+	}
+	if st.LastHandoff != nil && strings.TrimSpace(st.LastHandoff.Agent) == "" && len(st.Handoffs) <= 1 {
+		st.Handoffs = nil
+	}
+	if st.Handoffs != nil {
+		for key, h := range st.Handoffs {
+			if h == nil {
+				delete(st.Handoffs, key)
+				continue
+			}
+			reasons := st.HandoffStaleReasonsFor(key, h)
+			if len(reasons) > 0 {
+				delete(st.Handoffs, key)
+				continue
+			}
+			h.Stale = false
+			h.StaleReason = ""
+		}
+		curKey := st.CurrentHandoffKey()
+		if cur, ok := st.Handoffs[curKey]; ok && cur != nil {
+			cp := *cur
+			st.LastHandoff = &cp
+		} else {
+			st.LastHandoff = nil
+		}
+		return
+	}
+	if st.LastHandoff == nil {
 		return
 	}
 	h := st.LastHandoff
@@ -1535,6 +1725,7 @@ func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Dur
 		st.BoardSyncError = err.Error()
 		return st, nil
 	}
+	updated.CurrentAgent = st.CurrentAgent
 	updated.CurrentSessionID = st.CurrentSessionID
 	return updated, nil
 }
@@ -1849,6 +2040,9 @@ func resolveGitDirs(root string) (gitDir, commonDir string, ok bool) {
 // BuildPickupSummary creates a concise reconciliation report for SessionStart or pickup.
 func BuildPickupSummary(st *State) string {
 	st.ReconcileWorktrees()
+	if st.Handoffs != nil {
+		st.RefreshHandoffStaleness()
+	}
 	var b strings.Builder
 	holdsDisplay := fmt.Sprintf("%d", len(st.Holds))
 	if st.HoldScanError != "" {
@@ -1951,15 +2145,92 @@ func BuildPickupSummary(st *State) string {
 			fmt.Fprintf(&b, "  - %s (%s): %s\n", c.ID, c.Title, c.Decision)
 		}
 	}
+	writePickupHandoffs(&b, st)
+	return strings.TrimSpace(b.String())
+}
+
+func writePickupHandoffs(b *strings.Builder, st *State) {
+	curKey := st.CurrentHandoffKey()
+	if st.Handoffs != nil {
+		if cur := st.Handoffs[curKey]; cur != nil {
+			fmt.Fprintf(b, "Last Handoff:\n%s", FormatFiveFieldPrompt(*cur))
+		} else {
+			fmt.Fprintf(b, "Last Handoff: none for %s\n", curKey)
+		}
+		var otherKeys []string
+		for k, h := range st.Handoffs {
+			if k != curKey && h != nil {
+				otherKeys = append(otherKeys, k)
+			}
+		}
+		sort.Strings(otherKeys)
+		for _, k := range otherKeys {
+			fmt.Fprintf(b, "%s\n", st.formatOtherHandoffLine(k, st.Handoffs[k]))
+		}
+		return
+	}
 	if st.LastHandoff != nil {
 		reasons := st.HandoffStaleReasons()
 		if len(reasons) > 0 {
-			fmt.Fprintf(&b, "Last Handoff (%s): STALE — handoff omitted (%s)\n", reasons[0], strings.Join(reasons, "; "))
+			fmt.Fprintf(b, "Last Handoff (%s): STALE — handoff omitted (%s)\n", reasons[0], strings.Join(reasons, "; "))
 		} else {
-			fmt.Fprintf(&b, "Last Handoff:\n%s", FormatFiveFieldPrompt(*st.LastHandoff))
+			fmt.Fprintf(b, "Last Handoff:\n%s", FormatFiveFieldPrompt(*st.LastHandoff))
+		}
+		return
+	}
+	fmt.Fprintf(b, "Last Handoff: none for %s\n", curKey)
+}
+
+func formatHandoffRelativeAge(t time.Time) string {
+	if t.IsZero() {
+		return "just now"
+	}
+	d := time.Since(t)
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds ago", int(d.Round(time.Second)/time.Second))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Round(time.Minute)/time.Minute))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Round(time.Hour)/time.Hour))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+}
+
+func (st *State) handoffPRLabel(h *Handoff) string {
+	if h == nil {
+		return ""
+	}
+	if m := handoffGoalSubjectPRRe.FindStringSubmatch(h.Goal); len(m) >= 2 {
+		return "PR #" + m[1]
+	}
+	for _, s := range []string{h.Addresses, h.Goal} {
+		if m := handoffPRRefRe.FindStringSubmatch(s); len(m) >= 2 {
+			return "PR #" + m[1]
 		}
 	}
-	return strings.TrimSpace(b.String())
+	if st != nil && strings.TrimSpace(h.Branch) != "" {
+		for _, c := range st.Cards {
+			if isPRCard(c) && c.Branch == h.Branch && c.Column != "done" {
+				if num := cardPRNumber(c); num > 0 {
+					return fmt.Sprintf("PR #%d", num)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func (st *State) formatOtherHandoffLine(key string, h *Handoff) string {
+	age := formatHandoffRelativeAge(h.UpdatedAt)
+	if pr := st.handoffPRLabel(h); pr != "" {
+		return fmt.Sprintf("other handoffs: %s (%s, %s)", key, age, pr)
+	}
+	return fmt.Sprintf("other handoffs: %s (%s)", key, age)
 }
 
 func writePickupWorktrees(b *strings.Builder, st *State) {

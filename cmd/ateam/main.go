@@ -146,13 +146,7 @@ func runState(repoRoot string, args []string) int {
 	case "sync":
 		return runStateSync(repoRoot, args[1:])
 	case "pickup":
-		st, err := state.RefreshWithBestEffortSync(context.Background(), repoRoot, 30*time.Second)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ateam state pickup: %v\n", err)
-			return 1
-		}
-		fmt.Println(state.BuildPickupSummary(st))
-		return 0
+		return runStatePickup(repoRoot, args[1:])
 	case "status", "board":
 		return runStateSnapshot(repoRoot, sub)
 	case "herdr":
@@ -212,6 +206,25 @@ func runStateDebt(repoRoot string) int {
 	return 0
 }
 
+func runStatePickup(repoRoot string, args []string) int {
+	fs := flag.NewFlagSet("state pickup", flag.ContinueOnError)
+	agent := fs.String("agent", "", "optional agent identifier (claude, codex, gemini, agy)")
+	session := fs.String("session", "", "optional session identifier")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+	st, err := state.RefreshWithBestEffortSync(context.Background(), repoRoot, 30*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state pickup: %v\n", err)
+		return 1
+	}
+	st.CurrentSessionID = state.ResolveActiveSessionID(repoRoot, *session)
+	st.CurrentAgent = state.ResolveActiveAgent(repoRoot, *agent, st.Git.Branch, st.Writer)
+	st.RefreshHandoffStaleness()
+	fmt.Println(state.BuildPickupSummary(st))
+	return 0
+}
+
 func runStateHandoff(repoRoot string, args []string) int {
 	fs := flag.NewFlagSet("state handoff", flag.ContinueOnError)
 	goal := fs.String("goal", "", "1-sentence goal")
@@ -219,6 +232,7 @@ func runStateHandoff(repoRoot string, args []string) int {
 	constraints := fs.String("constraints", "", "constraints or active holds")
 	doneWhen := fs.String("done-when", "", "definition of done")
 	checks := fs.String("checks", "task verify", "checks to run")
+	agent := fs.String("agent", "", "optional agent identifier (claude, codex, gemini, agy)")
 	session := fs.String("session", "", "optional session identifier")
 	noPost := fs.Bool("no-post", false, "skip posting handoff comment to open PR on forge")
 	if err := fs.Parse(args); err != nil {
@@ -234,12 +248,14 @@ func runStateHandoff(repoRoot string, args []string) int {
 		return 1
 	}
 	sessionID := state.ResolveActiveSessionID(repoRoot, *session)
+	agentName := state.ResolveActiveAgent(repoRoot, *agent, st.Git.Branch, st.Writer)
 	ho := state.Handoff{
 		Goal:          *goal,
 		Addresses:     *addresses,
 		Constraints:   *constraints,
 		DoneWhen:      *doneWhen,
 		ChecksToRun:   *checks,
+		Agent:         agentName,
 		SessionID:     sessionID,
 		Branch:        st.Git.Branch,
 		CheckpointSHA: st.Git.HeadSHA,
@@ -251,7 +267,8 @@ func runStateHandoff(repoRoot string, args []string) int {
 	}
 	_ = state.ClearWriterLease(repoRoot)
 	if _, err := state.Update(repoRoot, func(cur *state.State) error {
-		cur.LastHandoff = &ho
+		cur.CurrentAgent = agentName
+		cur.SetHandoff(ho)
 		cur.Writer = nil
 		return nil
 	}); err != nil {
