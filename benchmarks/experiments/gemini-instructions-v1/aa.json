@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "gemini-instructions-v1-aa",
+  "mode": "aa",
+  "command": [
+    "gemini"
+  ],
+  "agent": "gemini",
+  "model": "gemini-3.8-flash",
+  "tasks": [
+    "safe-path",
+    "sql-user",
+    "gitea-webhook"
+  ],
+  "repetitions": 2,
+  "seed": 42,
+  "timeout_seconds": 120,
+  "max_run_seconds": 900,
+  "max_total_tokens": 180000,
+  "gemini": {
+    "auth": "api-key-env",
+    "reasoning": "low",
+    "output_format": "json-schema"
+  },
+  "bundles": {
+    "baseline": "baseline.json",
+    "candidate": "baseline.json"
+  }
+}

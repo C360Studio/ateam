@@ -167,6 +167,9 @@ func validateExperiment(e Experiment) error {
 		return fmt.Errorf("select exactly one native provider")
 	}
 	if e.Gemini != nil {
+		if e.Gemini.MaxOutputTokens != nil && (*e.Gemini.MaxOutputTokens < 1 || *e.Gemini.MaxOutputTokens > 65536) {
+			return fmt.Errorf("gemini max_output_tokens must be 1..65536")
+		}
 		switch e.Gemini.CLIVersion {
 		case "", geminiLegacyVersion, geminiStableVersion:
 		default:

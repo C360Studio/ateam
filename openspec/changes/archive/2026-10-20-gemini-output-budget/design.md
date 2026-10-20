@@ -1,0 +1,9 @@
+# Design
+
+Add one optional `*int` field to GeminiConfig. Omitted/null remains nil, effective 8192 and omitted in JSON. Explicit integers 1..65536 are validated before native resolution probes. `geminiSettings` selects one effective value for both existing override scopes; the existing resolved original configuration, settings equality and artifact digest bind it. No new provider interface or runner abstraction.
+
+Callers/tests in scope: configuration parsing/validation, Gemini settings generation, resolution/execution/replay validation and native child settings; shared controls stay identical across arms. Finite boundary tests cover omission/null/default/32768/1/65536, invalid boundaries and noninteger input. Existing provenance tests and historical replay cover config/settings disagreement. Use non-destructive mutations for ignored override and bypassed range validation. There is no new input grammar, ordering history or transformation law; finite scalar cases exercise every branch.
+
+Independent plan review approved this shape before implementation. Google documents an output limit of 65536 and low reasoning support: https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash . Installed CLI 0.43.0 bundle settings retain custom model overrides and SDK conversion forwards maxOutputTokens. These are configuration-contract observations, not proof of backend settings or successful output. Native artifacts keep backend-resolved reasoning/finish reason unknown where unavailable.
+
+The versioned protocol at benchmarks/experiments/gemini-instructions-v2/README.md supplies fresh cohort controls and a cumulative known-token reserve including the earlier 14623-token canary. V1 is not pooled with v2. Output-limit changes do not justify repairing invalid responses, dropping failed attempts or silently overriding model/reasoning.
