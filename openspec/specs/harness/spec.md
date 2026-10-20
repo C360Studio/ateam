@@ -39,7 +39,7 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **WHEN** session start or MCP pickup detects changed commit identity, a competing writer lease, or an unavailable Hold scan
 - **THEN** pickup context discloses each condition and never reports zero holds for an unavailable scan
 - **AND** the same session lease (or a lease matching the invoking client process PID or an exited process PID) does not produce a competing-writer warning, and clearing the lease removes that warning
-- **AND** once per session (keyed on the session ID in `.ateam/writer.json`), the hook enumerates `ateam mcp` processes under the same client process tree via `internal/bootstrap` and emits `MCP server PID n (build x) is older than HEAD; restart the client` when a client-tree MCP server has an `unknown` or older build commit than checkout `HEAD`
+- **AND** once per session (persisted by session ID in `.ateam/mcp-checked-sessions.json` independently of the single writer lease), the hook enumerates `ateam mcp` processes under the same client process tree via `internal/bootstrap` and emits `MCP server PID n (build x) is older than HEAD; restart the client` when a client-tree MCP server has an `unknown` or older build commit than checkout `HEAD`
 
 #### Scenario: Unknown lifecycle event
 

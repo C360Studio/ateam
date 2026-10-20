@@ -109,11 +109,6 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		st.Git.HeadSHA = sha
 	}
 
-	prevCheckedSession := ""
-	if st.Writer != nil {
-		prevCheckedSession = strings.TrimSpace(st.Writer.MCPCheckedSessionID)
-	}
-
 	switch ev {
 	case "session-start":
 		if shortcuts, err := state.ScanShortcuts(root); err == nil {
@@ -133,8 +128,10 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		st.HoldScanError = strings.Join(scanErrs, "; ")
 		st.RefreshHandoffStaleness()
 		ctxText := state.BuildPickupSummary(st)
-		takeLease := sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active")
-		if mcpWarnings := checkSessionStaleMCPOnce(root, flagAgent, sessionID, sha, prevCheckedSession, takeLease); len(mcpWarnings) > 0 {
+		if sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active") {
+			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
+		}
+		if mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha); len(mcpWarnings) > 0 {
 			ctxText += "\n" + strings.Join(mcpWarnings, "\n")
 		}
 		if st.Mode != state.ModeOff {
@@ -143,7 +140,8 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		return buildOutputForAgent(flagAgent, "SessionStart", ctxText), nil
 
 	case "before-prompt":
-		mcpWarnings := checkSessionStaleMCPOnce(root, flagAgent, sessionID, sha, prevCheckedSession, true)
+		_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
+		mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha)
 		// shortcut: Antigravity PreInvocation stdin omits prompt text, switch Ponytail mode via ateam state mode or /ponytail skill in agy
 		promptText := firstNonEmpty(in.Prompt, in.UserPrompt)
 		newMode, changed := detectModeSwitch(promptText)
@@ -251,27 +249,17 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	}
 }
 
-func checkSessionStaleMCPOnce(root, agent, sessionID, headSHA, prevCheckedSession string, takeLease bool) []string {
+func checkSessionStaleMCPOnce(root, sessionID, headSHA string) []string {
 	sessionID = strings.TrimSpace(sessionID)
 	headSHA = strings.TrimSpace(headSHA)
 	if sessionID == "" || headSHA == "" {
-		if takeLease {
-			_, _ = state.WriteWriterLease(root, agent, sessionID)
-		}
 		return nil
 	}
-	if prevCheckedSession == sessionID {
-		if takeLease {
-			_, _ = state.WriteWriterLeaseWithMCPCheck(root, agent, sessionID, sessionID)
-		}
+	if state.HasMCPCheckedSession(root, sessionID) {
 		return nil
 	}
 	_, warnings := inspectClientMCP(context.Background(), root, headSHA, state.ResolveClientPID())
-	if takeLease {
-		_, _ = state.WriteWriterLeaseWithMCPCheck(root, agent, sessionID, sessionID)
-	} else {
-		_ = state.RecordMCPCheckedSession(root, sessionID)
-	}
+	_ = state.RecordMCPCheckedSession(root, sessionID)
 	return warnings
 }
 

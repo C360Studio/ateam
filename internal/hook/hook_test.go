@@ -507,4 +507,27 @@ func TestHookWarnsStaleClientMCPOncePerSession(t *testing.T) {
 	if promptSess2Again.AdditionalContext != "" || calls != 2 {
 		t.Fatalf("expected second before-prompt for sess-2 to be silent, got out=%q calls=%d", promptSess2Again.AdditionalContext, calls)
 	}
+
+	// 4. Review #70 Finding 1a: Interleaved sessions (sess-1 -> sess-2 -> sess-1 -> sess-2) must not clobber each other's checked status.
+	for _, sess := range []string{"sess-1", "sess-2"} {
+		interleaved, err := Handle(dir, "before-prompt", strings.NewReader(`{"session_id":"`+sess+`","prompt":"follow-up"}`))
+		if err != nil {
+			t.Fatalf("Handle interleaved before-prompt %s: %v", sess, err)
+		}
+		if interleaved.AdditionalContext != "" || calls != 2 {
+			t.Fatalf("expected interleaved before-prompt for %s to stay silent with calls=2, got out=%q calls=%d", sess, interleaved.AdditionalContext, calls)
+		}
+	}
+
+	// 5. Review #70 Finding 1b: Clearing the writer lease (as handoff does) must preserve the session's checked status.
+	if err := state.ClearWriterLease(dir); err != nil {
+		t.Fatalf("ClearWriterLease: %v", err)
+	}
+	afterHandoff, err := Handle(dir, "before-prompt", strings.NewReader(`{"session_id":"sess-1","prompt":"resume after handoff"}`))
+	if err != nil {
+		t.Fatalf("Handle before-prompt after ClearWriterLease: %v", err)
+	}
+	if afterHandoff.AdditionalContext != "" || calls != 2 {
+		t.Fatalf("expected before-prompt after ClearWriterLease to stay silent with calls=2, got out=%q calls=%d", afterHandoff.AdditionalContext, calls)
+	}
 }

@@ -239,7 +239,7 @@ func cleanTaskText(s string) string {
 			i--
 		}
 		if s[i] != ' ' {
-			if sp := strings.LastIndexByte(s[:i], ' '); sp > 0 && i-sp <= 32 {
+			if sp := strings.LastIndexByte(s[:i], ' '); sp > 0 {
 				i = sp
 			}
 		}

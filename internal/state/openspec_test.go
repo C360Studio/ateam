@@ -108,7 +108,7 @@ This header explains Hold: markers above the first section heading.
 
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestCleanTaskTextKeepsUTF8AtTheCut(t *testing.T) {
-	got := cleanTaskText("- [ ] 1.1 RED: " + strings.Repeat("é", 60))
+	got := cleanTaskText("a" + strings.Repeat("é", 60))
 	if !utf8.ValidString(got) || !strings.HasSuffix(got, "…") || len(strings.TrimSuffix(got, "…")) > 104 {
 		t.Fatalf("cleanTaskText = %q (len %d), want valid UTF-8 truncated at <=104 bytes with trailing ellipsis", got, len(got))
 	}
@@ -118,7 +118,13 @@ func TestCleanTaskTextKeepsUTF8AtTheCut(t *testing.T) {
 	if wordCut != wantWordCut {
 		t.Fatalf("cleanTaskText word boundary = %q, want %q", wordCut, wantWordCut)
 	}
-	if cleanTaskText(got) != got || cleanTaskText(wordCut) != wordCut {
+
+	longToken := cleanTaskText("Hold: waiting for acknowledgement " + strings.Repeat("supercalifragilisticexpialidocious", 3))
+	wantLongToken := "Hold: waiting for acknowledgement…"
+	if longToken != wantLongToken {
+		t.Fatalf("cleanTaskText long token boundary = %q, want %q", longToken, wantLongToken)
+	}
+	if cleanTaskText(got) != got || cleanTaskText(wordCut) != wordCut || cleanTaskText(longToken) != longToken {
 		t.Fatalf("expected cleanTaskText to be idempotent on already-truncated text")
 	}
 }
