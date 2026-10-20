@@ -1,0 +1,48 @@
+{
+  "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "python": "3.14.5",
+  "uv": "0.11.16",
+  "pip": "26.1.1",
+  "claude_version": "2.1.292",
+  "claude_sha256": "97a01e5bc74a199e67189435d0331ea3a24eac2e07db4b76d9148c5b0386138f",
+  "litellm_version": "1.99.0",
+  "litellm_source_commit": "fa647f742d7baefe8eb1181899d9c81b41559772",
+  "litellm_wheel_sha256": "e2b383070656fdbec4bc44602edaaed2a21e99ceee4ea0a4650c8cb381e67b59",
+  "wheel_count": 111,
+  "wheel_startup_pth_or_sitecustomize_files": [],
+  "lock_sha256": "dd807b7d1f0f54e5d8beca2dfdfd63896321d30878954ea3def3b28a428b937a",
+  "offline_install_exit": 0,
+  "managed_policy_files_present": false,
+  "isolation_result": {
+    "results": [
+      {
+        "family": "AF_INET",
+        "child_loopback": "passed"
+      },
+      {
+        "family": "AF_INET6",
+        "child_loopback": "passed"
+      },
+      {
+        "family": "AF_INET",
+        "child_external_errno": 1,
+        "expected": "EPERM or EACCES"
+      },
+      {
+        "family": "AF_INET6",
+        "child_external_errno": 1,
+        "expected": "EPERM or EACCES"
+      }
+    ],
+    "status": "passed"
+  },
+  "runtime_negative_controls": "runtime isolation negative controls passed",
+  "bridge_exit_after_owned_sigterm": -15,
+  "limits": "Metadata and startup-file inspection is not a security audit of all dependency code. Empty startup-file list concerns wheel archives; uv adds its own venv bootstrap hook. No live provider or pricing contract tested.",
+  "runtime_policy_sha256": "bffe9835c79c8f5f41564b964bf4b6e9b32053a48b81de77a8b56d1c725af7b9",
+  "reproducer_sha256": "19892ad9e791aefabd2140ec23e9d3d2b29bc5a6c44acbb20617a85091d0f734",
+  "raw_ledger_sha256": "04e8757f9d909fa25c4eb0af2d0e6826fe6cba9f8a9a06a07353c146bff0549e",
+  "pypi_metadata_sha256": "19933d6ab2685351271cec2dd45dbe5feeb290b7d882ed0a18582f075305167b",
+  "pypi_metadata_url": "https://pypi.org/pypi/litellm/1.99.0/json",
+  "pypi_metadata_received_at_utc": "2026-10-20T16:06:34.823164+00:00"
+}
