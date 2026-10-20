@@ -39,6 +39,11 @@ type OpenSpecChange struct {
 	StrayHolds     []int            `json:"stray_holds,omitempty"`
 }
 
+// IsCompletedUnarchived reports whether all tasks in the change are done and no caveats remain.
+func (ch OpenSpecChange) IsCompletedUnarchived() bool {
+	return ch.TotalTasks > 0 && ch.CompletedTasks == ch.TotalTasks && len(ch.Caveats) == 0
+}
+
 // OpenSpecScenario represents a scenario block (#### Scenario: <Name>) under a requirement.
 type OpenSpecScenario struct {
 	Name  string   `json:"name"`
@@ -317,8 +322,16 @@ func FormatOpenSpecQueue(changes []OpenSpecChange) (string, bool) {
 		return b.String(), false
 	}
 	foundAny := false
+	inFlightCount := 0
+	completedCount := 0
 	for _, ch := range changes {
 		fmt.Fprintf(&b, "  %-42s %d/%d\n", ch.Name, ch.CompletedTasks, ch.TotalTasks)
+		if ch.IsCompletedUnarchived() {
+			completedCount++
+			fmt.Fprintf(&b, "      %-8s done, not archived — move openspec/changes/%s to openspec/changes/archive/<date>-%s\n\n", "done", ch.Name, ch.Name)
+			continue
+		}
+		inFlightCount++
 		if len(ch.Caveats) == 0 {
 			fmt.Fprintf(&b, "      %-8s no halt/hold/deliberate marker in the open tasks\n\n", "ok")
 			continue
@@ -330,7 +343,11 @@ func FormatOpenSpecQueue(changes []OpenSpecChange) (string, bool) {
 		b.WriteString("\n")
 	}
 	b.WriteString("-------------------------------------------------------\n")
-	fmt.Fprintf(&b, "  %d change(s) in flight.\n", len(changes))
+	if completedCount > 0 {
+		fmt.Fprintf(&b, "  %d change(s) in flight, %d completed (done, not archived).\n", inFlightCount, completedCount)
+	} else {
+		fmt.Fprintf(&b, "  %d change(s) in flight.\n", len(changes))
+	}
 	if foundAny {
 		b.WriteString("  Read the flagged lines before treating any fraction above as \"almost done\".\n")
 	}

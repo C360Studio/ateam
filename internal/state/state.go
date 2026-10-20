@@ -47,13 +47,13 @@ func BuildRevision() (shortRev, fullRev string, modified bool) {
 			return shortRev, fullRev, modified
 		}
 	}
-	return "dev", "", false
+	return "unknown", "", false
 }
 
-// BuildLabel returns a compact build provenance identifier (e.g. "9f11a42", "9f11a42-dirty", or "dev").
+// BuildLabel returns a compact build provenance identifier (e.g. "9f11a42", "9f11a42-dirty", or "unknown").
 func BuildLabel() string {
 	shortRev, _, modified := BuildRevision()
-	if modified && shortRev != "dev" {
+	if modified && shortRev != "unknown" && shortRev != "dev" {
 		return shortRev + "-dirty"
 	}
 	return shortRev
@@ -119,7 +119,25 @@ func SameCommitSHA(a, b string) bool {
 	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
 }
 
-var handoffPRRefRe = regexp.MustCompile(`(?i)(?:\bpr\s*#|\bpull[s]?/)([1-9][0-9]*)\b`)
+var handoffGoalSubjectPRRe = regexp.MustCompile(`(?i)^\s*(?:(?:review(?:\s+and\s+merge)?|merge|land|fix|finish|close)\s+)?(?:\bpr\s*#|\bpull[s]?/)([1-9][0-9]*)\b`)
+
+func isPRCard(c BoardCard) bool {
+	return c.Type == "pr" || strings.Contains(c.ID, "-PR-") || strings.HasPrefix(c.ID, "PR-")
+}
+
+func cardPRNumber(c BoardCard) int {
+	if c.Number > 0 {
+		return c.Number
+	}
+	for _, prefix := range []string{"GH-PR-", "GT-PR-", "PR-"} {
+		if raw, ok := strings.CutPrefix(c.ID, prefix); ok {
+			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	return 0
+}
 
 // FormatFiveFieldPrompt formats the canonical 5-field SemEngine pickup block.
 func FormatFiveFieldPrompt(h Handoff) string {
@@ -141,11 +159,15 @@ func FormatFiveFieldPrompt(h Handoff) string {
 
 // Worktree describes an active git worktree.
 type Worktree struct {
-	Path    string `json:"path"`
-	Head    string `json:"head"`
-	Branch  string `json:"branch"`
-	Agent   string `json:"agent,omitempty"`
-	Subject string `json:"subject,omitempty"`
+	Path           string `json:"path"`
+	Head           string `json:"head"`
+	Branch         string `json:"branch"`
+	Agent          string `json:"agent,omitempty"`
+	Subject        string `json:"subject,omitempty"`
+	Dirty          *bool  `json:"dirty,omitempty"`
+	AheadCount     int    `json:"ahead_count,omitempty"`
+	BehindCount    int    `json:"behind_count,omitempty"`
+	MergedIntoMain bool   `json:"merged_into_main,omitempty"`
 }
 
 // GitStatus captures the deterministic git and worktree state of a repository.
@@ -167,6 +189,8 @@ type BoardCard struct {
 	Title      string    `json:"title"`
 	Column     string    `json:"column"` // needs-decision, backlog, in-progress, in-review, blocked, done
 	Type       string    `json:"type"`   // issue, epic, pr, spec
+	Merged     bool      `json:"merged,omitempty"`
+	HeadSHA    string    `json:"head_sha,omitempty"`
 	Labels     []string  `json:"labels,omitempty"`
 	Agent      string    `json:"agent,omitempty"`
 	Branch     string    `json:"branch,omitempty"`
@@ -221,27 +245,49 @@ func (st *State) HandoffStaleReasons() []string {
 	}
 	h := st.LastHandoff
 	var reasons []string
-	if h.CheckpointSHA != "" && st.Git.HeadSHA != "" && !SameCommitSHA(h.CheckpointSHA, st.Git.HeadSHA) {
+	headDrifted := h.CheckpointSHA != "" && st.Git.HeadSHA != "" && !SameCommitSHA(h.CheckpointSHA, st.Git.HeadSHA)
+	if headDrifted {
 		reasons = append(reasons, fmt.Sprintf("HEAD drifted from %s -> %s", h.CheckpointSHA, st.Git.HeadSHA))
 	}
-	if h.Branch != "" && st.Git.Branch != "" && h.Branch != st.Git.Branch {
+	branchChanged := h.Branch != "" && st.Git.Branch != "" && h.Branch != st.Git.Branch
+	if branchChanged {
 		reasons = append(reasons, fmt.Sprintf("branch changed from %s -> %s", h.Branch, st.Git.Branch))
 	}
-	combined := h.Goal + " " + h.Addresses + " " + h.DoneWhen
-	seenPRs := make(map[int]bool)
-	for _, m := range handoffPRRefRe.FindAllStringSubmatch(combined, -1) {
-		if len(m) < 2 {
-			continue
+	curSession := strings.TrimSpace(st.CurrentSessionID)
+	if curSession == "" {
+		curSession = ResolveEnvSessionID()
+	}
+	sameSessionAtHead := !headDrifted && !branchChanged && h.CheckpointSHA != "" && st.Git.HeadSHA != "" && h.Branch != "" && st.Git.Branch != "" && curSession != "" && strings.TrimSpace(h.SessionID) == curSession
+	if !sameSessionAtHead {
+		subjectPRs := make(map[int]bool)
+		if m := handoffGoalSubjectPRRe.FindStringSubmatch(h.Goal); len(m) >= 2 {
+			if prNum, err := strconv.Atoi(m[1]); err == nil && prNum > 0 {
+				subjectPRs[prNum] = true
+			}
 		}
-		prNum, err := strconv.Atoi(m[1])
-		if err != nil || prNum <= 0 || seenPRs[prNum] {
-			continue
+		if h.Branch != "" && h.Branch != "main" && h.Branch != "master" {
+			hasOpenBranchPR := false
+			for _, c := range st.Cards {
+				if isPRCard(c) && c.Branch == h.Branch && c.Column != "done" {
+					hasOpenBranchPR = true
+					break
+				}
+			}
+			if !hasOpenBranchPR {
+				for _, c := range st.Cards {
+					if isPRCard(c) && c.Branch == h.Branch && c.Column == "done" {
+						if prNum := cardPRNumber(c); prNum > 0 {
+							subjectPRs[prNum] = true
+						}
+					}
+				}
+			}
 		}
-		seenPRs[prNum] = true
 		for _, c := range st.Cards {
-			if (c.Type == "pr" || strings.Contains(c.ID, "-PR-")) && c.Number == prNum && c.Column == "done" {
+			prNum := cardPRNumber(c)
+			if isPRCard(c) && prNum > 0 && subjectPRs[prNum] && c.Column == "done" {
 				reasons = append(reasons, fmt.Sprintf("PR #%d is closed/merged", prNum))
-				break
+				delete(subjectPRs, prNum)
 			}
 		}
 	}
@@ -258,6 +304,31 @@ func (st *State) HandoffStaleReasons() []string {
 // IsHandoffStale reports whether st.LastHandoff has drifted or references completed work.
 func (st *State) IsHandoffStale() bool {
 	return len(st.HandoffStaleReasons()) > 0
+}
+
+// HasNonHeadDriftHandoffStaleness reports whether st.LastHandoff is stale for any reason other than HEAD SHA drift.
+func (st *State) HasNonHeadDriftHandoffStaleness() bool {
+	if st == nil || st.LastHandoff == nil {
+		return false
+	}
+	h := st.LastHandoff
+	if h.Stale {
+		if strings.TrimSpace(h.StaleReason) == "" {
+			return true
+		}
+		for _, part := range strings.Split(h.StaleReason, ";") {
+			r := strings.TrimSpace(part)
+			if r != "" && !strings.HasPrefix(r, "HEAD drifted from ") {
+				return true
+			}
+		}
+	}
+	for _, r := range st.HandoffStaleReasons() {
+		if !strings.HasPrefix(strings.TrimSpace(r), "HEAD drifted from ") {
+			return true
+		}
+	}
+	return false
 }
 
 // RefreshHandoffStaleness updates Stale and StaleReason on st.LastHandoff from live git and board state.
@@ -1056,8 +1127,26 @@ func SnapshotGit(ctx context.Context, root string) GitStatus {
 	}
 	gs.Worktrees = parseWorktrees(runGitOutput(ctx, root, "worktree", "list", "--porcelain"))
 	for i := range gs.Worktrees {
-		if gs.Worktrees[i].Head != "" {
-			gs.Worktrees[i].Subject = runGitLine(ctx, root, "log", "-1", "--format=%s", gs.Worktrees[i].Head)
+		wt := &gs.Worktrees[i]
+		if wt.Head != "" {
+			wt.Subject = runGitLine(ctx, root, "log", "-1", "--format=%s", wt.Head)
+		}
+		if wt.Path != "" {
+			if info, err := os.Stat(wt.Path); err == nil && info.IsDir() {
+				wtDirty := strings.TrimSpace(runGitOutput(ctx, wt.Path, "status", "--porcelain")) != ""
+				wt.Dirty = &wtDirty
+			}
+		}
+		if wt.Head != "" && wt.Branch != "main" && wt.Branch != "master" {
+			if counts := strings.Fields(runGitLine(ctx, root, "rev-list", "--left-right", "--count", "main..."+wt.Head)); len(counts) == 2 {
+				behind, errB := strconv.Atoi(counts[0])
+				ahead, errA := strconv.Atoi(counts[1])
+				if errB == nil && errA == nil {
+					wt.BehindCount = behind
+					wt.AheadCount = ahead
+					wt.MergedIntoMain = ahead == 0
+				}
+			}
 		}
 	}
 	return gs
@@ -1282,10 +1371,24 @@ func BuildPickupSummary(st *State) string {
 				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		}
 	}
-	if len(st.OpenSpecQueue) > 0 {
-		fmt.Fprintf(&b, "OpenSpec in-flight changes: %d\n", len(st.OpenSpecQueue))
-		for _, ch := range st.OpenSpecQueue {
+	var inFlightChanges, completedChanges []OpenSpecChange
+	for _, ch := range st.OpenSpecQueue {
+		if ch.IsCompletedUnarchived() {
+			completedChanges = append(completedChanges, ch)
+		} else {
+			inFlightChanges = append(inFlightChanges, ch)
+		}
+	}
+	if len(inFlightChanges) > 0 {
+		fmt.Fprintf(&b, "OpenSpec in-flight changes: %d\n", len(inFlightChanges))
+		for _, ch := range inFlightChanges {
 			fmt.Fprintf(&b, "  - %s (%d/%d tasks, %d caveats)\n", ch.Name, ch.CompletedTasks, ch.TotalTasks, len(ch.Caveats))
+		}
+	}
+	if len(completedChanges) > 0 {
+		fmt.Fprintf(&b, "OpenSpec completed changes (done, not archived): %d\n", len(completedChanges))
+		for _, ch := range completedChanges {
+			fmt.Fprintf(&b, "  - %s (%d/%d tasks, done, not archived)\n", ch.Name, ch.CompletedTasks, ch.TotalTasks)
 		}
 	}
 	if len(st.Holds) > 0 {

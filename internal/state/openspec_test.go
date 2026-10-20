@@ -89,6 +89,21 @@ This header explains Hold: markers above the first section heading.
 	if err == nil || code != 2 {
 		t.Fatalf("expected exit code 2 for invalid UTF-8, got code=%d err=%v", code, err)
 	}
+
+	// #48: Completed unarchived change (N/N, N > 0, 0 caveats) prints "done, not archived".
+	formatted, hasCaveats := FormatOpenSpecQueue([]OpenSpecChange{
+		{Name: "active-change", CompletedTasks: 1, TotalTasks: 3},
+		{Name: "finished-change", CompletedTasks: 4, TotalTasks: 4},
+	})
+	if hasCaveats {
+		t.Fatalf("expected hasCaveats=false when no caveats are present")
+	}
+	if !strings.Contains(formatted, "done, not archived — move openspec/changes/finished-change to openspec/changes/archive/<date>-finished-change") {
+		t.Fatalf("expected done, not archived notice in FormatOpenSpecQueue, got:\n%s", formatted)
+	}
+	if !strings.Contains(formatted, "1 change(s) in flight, 1 completed (done, not archived).") {
+		t.Fatalf("expected split in-flight and completed counts in FormatOpenSpecQueue, got:\n%s", formatted)
+	}
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection

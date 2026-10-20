@@ -38,6 +38,7 @@ task lint           # Run revive with revive.toml
 task test:spec      # Validate attached Go/Vitest test-to-spec references
 task test:unit      # Run Go unit and parity tests with race detector
 task mutate:check   # -- -pkg -test -file -mutant -expect/-expect-text: non-destructive Go -overlay mutation check
+task merge:check    # -- <pr-number>: check main ruleset, cross-agent review, and open class:flake issues
 task bench:selftest # Run offline benchmark self-tests and mutation checks (0 API calls)
 task ui:check       # Run svelte-kit sync and svelte-check
 task ui:test        # Run UI unit tests with vitest
@@ -70,7 +71,7 @@ Domain-grouped reference. `.agents/rules-index.md` carries the matching 3-column
 | `verify` | Canonical skills in `.agents/skills/*/SKILL.md` have matching thin adapters in `.claude/skills/` and `.gemini/commands/` | `internal/bootstrap`; `.agents/README.md` |
 | `verify` | Hook configs in `.claude/settings.json`, `.codex/hooks.json`, `.gemini/settings.json`, and `.agents/hooks.json` map native events to `ateam hook` | `internal/hook`; `internal/bootstrap` |
 | `verify` | `ateam mcp` exposes only the 2 multiplexed tools (`ateam_state`, `ateam_task`) with `<300` total schema tokens | `internal/mcpserver` |
-| `verify` | `ateam hook` executes normalized lifecycle events in `<5ms` with zero external runtime dependencies | `internal/hook` |
+| `verify` | `ateam hook` executes normalized lifecycle events in `<5ms` target budget (`doctor` warns `>5ms`, fails `--check` `>25ms`) with zero external runtime dependencies | `internal/hook`; `cmd/ateam` |
 
 ### 3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done
 
@@ -82,6 +83,7 @@ Domain-grouped reference. `.agents/rules-index.md` carries the matching 3-column
 | `verify` | `ateam bench --selftest` verifies good/bad reference fixtures and mutation detection before any live benchmark run | `internal/bench` |
 | `verify` | `task verify` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | `Taskfile.yml`; `.agents/skills/preflight/SKILL.md` |
 | `verify+review` | Configured model review requires an independent stronger reviewer, current evidence, and explicit owner exceptions at the model ceiling; effort and provider are not model rank | `internal/review`; `internal/bootstrap/review.go`; `docs/model-review.md` |
+| `merge:check+review` | Non-draft code PRs carry `implemented-by:` and `reviewed-by:` naming different agents (`claude`, `codex`, `gemini`), checked alongside active `main` ruleset and open `class:flake` issues by `task merge:check` | `scripts/merge-check.sh`; `.github/workflows/ci.yml`; `.agents/protocol.md` |
 
 ## Four inline workflow gates
 
@@ -89,5 +91,5 @@ Full protocol: `.agents/protocol.md`.
 
 - **Clarify:** Before claiming work or mutating state on an ambiguous prompt, check the tree first, then confirm (1) **Deliverable**, (2) **Scope/non-goals**, (3) **Definition of Done/verification**, and (4) **Stop boundary**.
 - **Claim:** Work in a dedicated worktree on an agent-prefixed branch (`claude/<topic>`, `codex/<topic>`, `gemini/<topic>`), backed by a draft PR (`Closes #n` or `Addresses #n`) on GitHub or Gitea and an OpenSpec change under `openspec/changes/<id>/` for non-trivial work.
-- **Merge (Definition of Done):** `task verify` green on a clean tree, `ateam doctor` parity green, `ateam bench --selftest` green, `implemented-by:` recorded, and Ponytail exit summary stated.
-- **Close:** Squash merge of a PR declaring `Closes #n` or explicit owner decision on the issue.
+- **Merge (Definition of Done):** `task verify` green on a clean tree, `ateam doctor` parity green, `ateam bench --selftest` green, `implemented-by:` and cross-agent `reviewed-by:` recorded (`task merge:check -- <pr>`), and Ponytail exit summary stated.
+- **Close:** Squash merge of a PR declaring `Closes #n` (or explicit owner decision on the issue) with completed `openspec/changes/<id>/` moved to `openspec/changes/archive/<date>-<id>/`.

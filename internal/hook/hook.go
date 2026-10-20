@@ -162,6 +162,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 			return Output{}, err
 		}
 		updated, err := state.Update(root, func(cur *state.State) error {
+			cur.CurrentSessionID = sessionID
 			if sha != "" {
 				cur.Git.Branch = br
 				cur.Git.HeadSHA = sha
@@ -169,11 +170,21 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 			cur.Shortcuts = shortcuts
 			cur.Holds = holds
 			cur.HoldScanError = ""
+			sameSessionBranch := cur.LastHandoff != nil &&
+				sessionID != "" &&
+				cur.LastHandoff.SessionID == sessionID &&
+				(cur.LastHandoff.Branch == "" || cur.Git.Branch == "" || cur.LastHandoff.Branch == cur.Git.Branch) &&
+				!cur.HasNonHeadDriftHandoffStaleness()
+			if sameSessionBranch {
+				cur.LastHandoff.Branch = cur.Git.Branch
+				cur.LastHandoff.CheckpointSHA = cur.Git.HeadSHA
+				cur.LastHandoff.Dirty = cur.Git.Dirty
+			}
 			cur.RefreshHandoffStaleness()
 			foreignSession := cur.LastHandoff != nil && (cur.LastHandoff.SessionID == "" || sessionID == "" || cur.LastHandoff.SessionID != sessionID)
 			if cur.LastHandoff == nil || cur.LastHandoff.Stale || foreignSession {
 				cur.LastHandoff = &state.Handoff{
-					Goal:          "Auto-saved before context compaction",
+					Goal:          "UNKNOWN — Auto-saved before context compaction",
 					Addresses:     fmt.Sprintf("branch %s, SHA %s", cur.Git.Branch, cur.Git.HeadSHA),
 					Constraints:   fmt.Sprintf("%d active holds, %d shortcuts", len(cur.Holds), len(cur.Shortcuts)),
 					DoneWhen:      "Run task verify and reconcile via /pickup",

@@ -4,6 +4,8 @@ export interface BoardCard {
 	title: string;
 	column: string;
 	type: string;
+	merged?: boolean;
+	head_sha?: string;
 	labels?: string[];
 	agent?: string;
 	branch?: string;
@@ -36,6 +38,10 @@ export interface Worktree {
 	branch: string;
 	agent?: string;
 	subject?: string;
+	dirty?: boolean;
+	ahead_count?: number;
+	behind_count?: number;
+	merged_into_main?: boolean;
 }
 
 export interface GitStatus {
@@ -166,6 +172,7 @@ export interface DashboardPayload {
 		last_handoff?: Handoff;
 		git: GitStatus;
 		cards: BoardCard[];
+		board_synced_at?: string;
 		shortcuts?: ShortcutItem[];
 		holds?: HoldItem[];
 		openspec_queue?: OpenSpecChange[];
@@ -299,6 +306,8 @@ export function resolveConfiguredForges(
 	return out;
 }
 
+export type WorktreeMergeStatus = 'merged' | 'active' | 'closed-unmerged' | 'unknown';
+
 export interface OpsItem {
 	id: string;
 	kind: 'worktree' | 'claim';
@@ -312,6 +321,8 @@ export interface OpsItem {
 	statusColumn?: string;
 	prNumber?: string;
 	prUrl?: string;
+	mergeStatus?: WorktreeMergeStatus;
+	mergeEvidence?: string;
 	goal: string;
 	addresses: string;
 	constraints: string;
@@ -319,6 +330,82 @@ export interface OpsItem {
 	checksToRun: string;
 	writerStatus: string;
 	drifted: boolean;
+}
+
+function sameCommitSHA(a?: string, b?: string): boolean {
+	const ca = a?.trim().toLowerCase() ?? '';
+	const cb = b?.trim().toLowerCase() ?? '';
+	if (!ca || !cb || ca === 'uncommitted' || cb === 'uncommitted' || ca === 'head' || cb === 'head') {
+		return ca === cb;
+	}
+	return ca.startsWith(cb) || cb.startsWith(ca);
+}
+
+function isPRCard(c: BoardCard): boolean {
+	return c.type === 'pr' || c.id.includes('-PR-') || c.id.startsWith('PR-');
+}
+
+function formatPRLabel(c: BoardCard): string {
+	const num =
+		c.number ?? (c.id.match(/(\d+)$/) ? Number(c.id.match(/(\d+)$/)![1]) : undefined);
+	return num ? `PR #${num}` : c.id;
+}
+
+function classifyWorktreeMergeStatus(
+	wt: Worktree,
+	cards: BoardCard[],
+	state: DashboardPayload['state']
+): { mergeStatus: WorktreeMergeStatus; mergeEvidence?: string } {
+	const branch = wt.branch || 'detached';
+	if (branch === 'main' || branch === 'master' || branch === 'detached') {
+		return { mergeStatus: 'active' };
+	}
+	const branchPRs = cards.filter((c) => isPRCard(c) && c.branch === branch);
+	if (branchPRs.some((c) => c.column !== 'done')) {
+		return { mergeStatus: 'active' };
+	}
+	const mergedPR = branchPRs.find((c) => c.column === 'done' && c.merged === true);
+	if (mergedPR) {
+		if (mergedPR.head_sha && wt.head && !sameCommitSHA(wt.head, mergedPR.head_sha)) {
+			if (wt.merged_into_main !== true || (wt.ahead_count ?? 0) > 0) {
+				return {
+					mergeStatus: 'active',
+					mergeEvidence: `New commits ahead of merged ${formatPRLabel(mergedPR)}`
+				};
+			}
+		} else if (!mergedPR.head_sha && (wt.ahead_count ?? 0) > 0 && wt.merged_into_main !== true) {
+			return {
+				mergeStatus: 'active',
+				mergeEvidence: `Unmerged commits ahead of main`
+			};
+		}
+		return {
+			mergeStatus: 'merged',
+			mergeEvidence: `Merged via ${formatPRLabel(mergedPR)}`
+		};
+	}
+	const closedUnmergedPR = branchPRs.find((c) => c.column === 'done' && !c.merged);
+	if (closedUnmergedPR) {
+		return {
+			mergeStatus: 'closed-unmerged',
+			mergeEvidence: `${formatPRLabel(closedUnmergedPR)} closed without merge`
+		};
+	}
+	if (wt.merged_into_main === true && (wt.ahead_count ?? 0) === 0) {
+		return {
+			mergeStatus: 'merged',
+			mergeEvidence: 'Branch ancestor of main'
+		};
+	}
+	const remoteConfigured =
+		state.forge?.provider === 'github' || state.forge?.provider === 'gitea';
+	if (remoteConfigured && !state.board_synced_at && branchPRs.length === 0 && wt.merged_into_main === undefined) {
+		return {
+			mergeStatus: 'unknown',
+			mergeEvidence: 'Forge merge status not synced'
+		};
+	}
+	return { mergeStatus: 'active' };
 }
 
 function inferAgentFromBranch(branch?: string): string {
@@ -415,7 +502,13 @@ export function buildOpsItems(state?: DashboardPayload['state'], activeRepo?: st
 			wt.subject
 		);
 
-		const dirty = isSelectedWorktree ? Boolean(state.git?.dirty) : null;
+		const dirty =
+			typeof wt.dirty === 'boolean'
+				? wt.dirty
+				: isSelectedWorktree
+					? Boolean(state.git?.dirty)
+					: null;
+		const { mergeStatus, mergeEvidence } = classifyWorktreeMergeStatus(wt, cards, state);
 		const drifted = Boolean(
 			handoffMatches && handoff?.checkpoint_sha && wt.head && !handoff.checkpoint_sha.startsWith(wt.head) && !wt.head.startsWith(handoff.checkpoint_sha)
 		);
@@ -458,6 +551,11 @@ export function buildOpsItems(state?: DashboardPayload['state'], activeRepo?: st
 			`${branch}@${wt.head || 'HEAD'}`,
 			dirty === null ? 'worktree status not inspected' : dirty ? 'uncommitted changes' : 'clean tree'
 		];
+		if (mergeStatus === 'merged') {
+			statusParts.push(mergeEvidence ? `merged (${mergeEvidence})` : 'merged into main');
+		} else if (mergeStatus === 'closed-unmerged' && mergeEvidence) {
+			statusParts.push(mergeEvidence);
+		}
 		if (drifted && handoff?.checkpoint_sha) {
 			statusParts.push(`HEAD drifted from ${handoff.checkpoint_sha}`);
 		}
@@ -475,6 +573,8 @@ export function buildOpsItems(state?: DashboardPayload['state'], activeRepo?: st
 			statusColumn: matchedCard?.column,
 			prNumber,
 			prUrl: prUrl || (matchedCard?.type === 'pr' ? matchedCard.url : undefined),
+			mergeStatus,
+			mergeEvidence,
 			goal,
 			addresses,
 			constraints,

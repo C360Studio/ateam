@@ -37,10 +37,10 @@ Shared truth lives in the repository's versioned code, `openspec/` specs and cha
    - Tag any deliberate limitation with `// shortcut: <the limit>, <when to upgrade>`.
 4. **Verify (4-Gate Definition of Done):**
    - **Gate 1 (`task verify`):** `fmt:check`, `spec:check`, `test:spec`, `tidy:check`, `vet`, `lint` (`revive`), `test:unit` (`-race`), `ui:check`, `ui:test`, and clean git tree check.
-   - **Gate 2 (`ateam doctor` / Parity):** All canonical skills, `.claude/`, `.codex/`, `.gemini/` adapters/hooks, `<24 KB` `AGENTS.md` cap, `<300` token MCP tool schema budget, and `<5ms` hook latency pass.
-   - **Gate 3 (`ateam bench --selftest` & `task mutate:check`):** Good/bad reference fixtures and mutation checks pass offline.
+   - **Gate 2 (`ateam doctor` / Parity):** All canonical skills, `.claude/`, `.codex/`, `.gemini/` adapters/hooks, `<24 KB` `AGENTS.md` cap, `<300` token MCP tool schema budget, and warm best-of-3 hook latency (`<5ms` target budget, `25ms` `--check` ceiling) pass.
+   - **Gate 3 (`ateam bench --selftest`, `task mutate:check` & `task merge:check`):** Good/bad reference fixtures and mutation checks pass offline, and non-draft code PRs record `implemented-by:` and cross-agent `reviewed-by:` (`task merge:check -- <pr>`).
    - **Gate 4 (Ponytail Exit Summary):** Reply concludes with 1–2 lines naming what was skipped/not checked and any residual risk.
-5. **Handoff or Land:** At a session boundary or before context compaction, run `ateam state handoff` (or `/handoff`) to record the 5-field pickup prompt.
+5. **Handoff or Land (Close):** At a session boundary or before context compaction, run `ateam state handoff` (or `/handoff`) to record the 5-field pickup prompt. When closing an issue/PR that lands an OpenSpec change, move `openspec/changes/<id>/` to `openspec/changes/archive/<date>-<id>/` so `task spec:queue` has zero completed unarchived changes.
 
 ## 3. Mutation & Property-Based Testing (PBT) Discipline
 

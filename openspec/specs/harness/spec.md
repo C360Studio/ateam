@@ -6,7 +6,7 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 ## Requirements
 ### Requirement: Lifecycle hook normalization under 5ms
 
-`ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 5ms using cached `.ateam/state.json`.
+`ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 5ms using cached `.ateam/state.json`. `ateam doctor` SHALL measure warm best-of-3 hook latency, emit a warning when latency exceeds `5000 us` (`<5ms` target budget), and fail `--check` only above `25000 us` (`25ms` hard ceiling).
 
 #### Scenario: Mode switch and Ponytail ladder injection
 
@@ -26,7 +26,8 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 #### Scenario: Automatic compaction handoff
 
 - **WHEN** a pre-compaction event arrives
-- **THEN** the hook saves an automatic handoff for the current branch and HEAD (replacing any stale or prior-session handoff rather than re-saving drifted or closed-PR checkpoints) and returns its pickup context
+- **THEN** if `last_handoff` belongs to the same active `session_id` on the same branch, the hook preserves its 5 semantic fields (`goal`, `addresses`, `constraints`, `done_when`, `checks_to_run`) while refreshing `checkpoint_sha`, `branch`, `dirty`, and `auto_compacted: true`
+- **AND** if `last_handoff` is nil, stale for a non-SHA reason, or belongs to a different or unknown session, the hook writes a fallback auto-handoff whose `goal` begins with `UNKNOWN — Auto-saved before context compaction` and returns its pickup context
 
 #### Scenario: Session identity and coordination warnings
 
@@ -61,6 +62,11 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 - **WHEN** a caveat's text crosses the display limit inside a multibyte character
 - **THEN** the displayed text ends before that character and is valid UTF-8
+
+#### Scenario: Completed unarchived OpenSpec change
+
+- **WHEN** a change directory remains under `openspec/changes/<id>` with all tasks completed (`N/N`, `N > 0`) and zero caveats
+- **THEN** `ateam state spec-queue` prints `done, not archived — move openspec/changes/<id> to openspec/changes/archive/<date>-<id>` instead of `ok`, `BuildPickupSummary` lists it separately under `OpenSpec completed changes (done, not archived)` rather than `OpenSpec in-flight changes`, and `ateam doctor` emits a warning naming the unarchived change
 
 ### Requirement: Dual-forge GitHub and Gitea state sync
 
@@ -112,8 +118,9 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 
 #### Scenario: Stale handoff invalidation on HEAD drift or closed PR
 
-- **WHEN** a recorded handoff's checkpoint SHA no longer matches HEAD, its branch changed, or its referenced PR is closed/merged
+- **WHEN** a recorded handoff's checkpoint SHA no longer matches HEAD, its branch changed, or its subject PR (matched at the start of `goal` or by the handoff's `branch` when no open PR exists for that branch) is closed/merged in a different session
 - **THEN** the handoff is marked stale, pickup reports the staleness reason instead of injecting the outdated five-field goal as active work, and pre-compact does not re-save the stale handoff
+- **AND** historical PR mentions in `addresses`, `done_when`, or mid-sentence in `goal`, or a fresh handoff written in the current session at the current `HEAD` and `branch`, do not mark the handoff stale
 
 ### Requirement: Fast Git identity across worktrees
 
@@ -154,7 +161,7 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 #### Scenario: Build provenance and duplicate server detection in doctor
 
 - **WHEN** `ateam version`, `session-start`, or `ateam doctor` runs
-- **THEN** build provenance (`vcs.revision` or `-ldflags` commit) is reported in `ateam version` and the `[ateam]` session-start line, and `ateam doctor` warns when the binary commit is not an ancestor of checkout `HEAD` or when multiple `ateam serve` processes are running concurrently
+- **THEN** build provenance (`vcs.revision` or `-ldflags` commit) is reported in `ateam version` and the `[ateam]` session-start line (or `unknown` when built without VCS metadata), and `ateam doctor` warns when the binary has no build provenance (`binary has no build provenance; build with task build`), when the binary commit is not an ancestor of checkout `HEAD`, when hook latency exceeds `5000 us` (`<5ms` budget), or when multiple `ateam serve` processes are running concurrently
 
 ### Requirement: Board state and authenticated API access
 
@@ -175,6 +182,12 @@ The board SHALL expose state and support card creation, movement, handoff, and m
 
 - **WHEN** a loopback client requests protected state without the configured token
 - **THEN** the request is unauthorized
+
+#### Scenario: Merged worktree badge in Current Ops
+
+- **WHEN** Current Ops renders worktrees alongside synced pull-request cards and git branch ancestry
+- **THEN** a worktree whose branch PR is merged (and has no newer unmerged commits ahead of `main` or the merged PR head) or whose branch is an ancestor of `main` with no open PR is marked `merged` (`Merged / potentially stale`) with its merge evidence (`Merged via PR #N` or `Branch ancestor of main`) while preserving local dirty status
+- **AND** worktrees with an open PR, a closed-unmerged PR, new commits after a merged PR, or unavailable forge evidence are not marked `merged`
 
 ### Requirement: Optional herdr pane identity in the writer lease
 When `HERDR_ENV=1`, the writer lease SHALL record `HERDR_PANE_ID` and `HERDR_WORKSPACE_ID` from the environment only, and pickup output SHALL name the pane in the writer line and the different-writer warning. Outside herdr the lease SHALL be byte-for-byte unchanged and SHALL ignore herdr variables.
@@ -285,4 +298,18 @@ ATeam initialization SHALL scaffold the context and compaction defaults specifie
 
 - **WHEN** a project client configuration specifies a non-positive or out-of-range context limit (such as `autoCompactWindow < 100000` or `> 1000000`, `model_auto_compact_token_limit > model_context_window`, or `contextPercentageThreshold` outside `(0, 1]`)
 - **THEN** `CheckParity` reports a violation naming the file and field
+
+### Requirement: Merge gate and CI workflow enforcement
+
+`.github/workflows/ci.yml` SHALL trigger on `push` to `main` and `pull_request` (`opened`, `synchronize`, `reopened`, `ready_for_review`), pin every job to `ubuntu-24.04` with read-only permissions, run `Verify` (`15` minute timeout, `ateam doctor --check` and `task verify`) and `Merge check` (`scripts/merge-check.sh`), and gate merges on the aggregate `Required` job (`if: always()`, reading `join(needs.*.result, ' ')`). `scripts/merge-check.sh` (`task merge:check`) SHALL verify the active `main` ruleset requiring `Required` (`strict_required_status_checks_policy=true`), enforce cross-agent review (`implemented-by:` and `reviewed-by:` naming different agents among `claude`, `codex`, `gemini`) on non-draft code pull requests, and block merges while any open `class:flake` issue is not closed by the pull request.
+
+#### Scenario: Pinned CI workflow and Required aggregate
+
+- **WHEN** `.github/workflows/ci.yml` is evaluated against the merge-gate contract
+- **THEN** `pull_request` lists `opened`, `synchronize`, `reopened`, and `ready_for_review`, every job runs on `ubuntu-24.04` without write permissions, `merge-check` has only `contents: read`, `issues: read`, and `pull-requests: read`, and `required` needs `verify` and `merge-check` under `if: always()` and fails unless every needed job succeeded
+
+#### Scenario: Cross-agent review and known-flake merge check
+
+- **WHEN** `scripts/merge-check.sh` runs for a pull request or a `main` push
+- **THEN** it checks the active `main` ruleset for `Required` (`strict_required_status_checks_policy=true`), requires non-draft code PRs to carry one `implemented-by:` and one `reviewed-by:` line naming different agents (`claude`, `codex`, `gemini`), and blocks merges when any open `class:flake` issue is not closed by the pull request
 
