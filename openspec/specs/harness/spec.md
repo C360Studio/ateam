@@ -26,13 +26,13 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 #### Scenario: Automatic compaction handoff
 
 - **WHEN** a pre-compaction event arrives
-- **THEN** the hook saves an automatic handoff and returns its pickup context
+- **THEN** the hook saves an automatic handoff for the current branch and HEAD (replacing any stale or prior-session handoff rather than re-saving drifted or closed-PR checkpoints) and returns its pickup context
 
 #### Scenario: Session identity and coordination warnings
 
-- **WHEN** session start detects changed commit identity, a competing writer lease, or an unavailable Hold scan
+- **WHEN** session start or MCP pickup detects changed commit identity, a competing writer lease, or an unavailable Hold scan
 - **THEN** pickup context discloses each condition and never reports zero holds for an unavailable scan
-- **AND** the same session lease does not produce a competing-writer warning, and clearing the lease removes that warning
+- **AND** the same session lease (or a lease matching the invoking client process PID or an exited process PID) does not produce a competing-writer warning, and clearing the lease removes that warning
 
 #### Scenario: Unknown lifecycle event
 
@@ -64,7 +64,7 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 ### Requirement: Dual-forge GitHub and Gitea state sync
 
-`ateam` SHALL support both GitHub (`gh` CLI and REST API) and Gitea (`tea` CLI and `/api/v1` REST API) for listing issues, pull requests, and bootstrapping standard workflow labels (`type:epic`, `status:needs-decision`, `status:blocked`, `class:flake`). Synchronization SHALL preserve local/dashboard cards and other forges while replacing the selected forge snapshot, reject partial issue/PR failures, and permit a comment-free fallback when optional comment expansion fails.
+`ateam` SHALL support both GitHub (`gh` CLI and REST API) and Gitea (`tea` CLI and `/api/v1` REST API) for listing issues, pull requests, and bootstrapping standard workflow labels (`type:epic`, `status:needs-decision`, `status:blocked`, `class:flake`). Synchronization SHALL reconcile the synced provider's cards into the board (dropping legacy demo cards and stale remote cards for that provider while preserving legitimate local dashboard cards, cards from the other forge, and hold reasons and decision summaries on matching card IDs), record `board_synced_at`, reject partial issue/PR failures, and permit a comment-free fallback when optional comment expansion fails. Explicit `pickup` and `board` queries SHALL attempt a bounded remote forge sync when configured (falling back to cache on failure) and surface sync timestamp and fallback status in both `pickup` and `board` responses.
 
 #### Scenario: Gitea API sync
 
@@ -105,6 +105,11 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 - **WHEN** independent updates set mode and handoff
 - **THEN** both values survive loading the cache
 
+#### Scenario: Stale handoff invalidation on HEAD drift or closed PR
+
+- **WHEN** a recorded handoff's checkpoint SHA no longer matches HEAD, its branch changed, or its referenced PR is closed/merged
+- **THEN** the handoff is marked stale, pickup reports the staleness reason instead of injecting the outdated five-field goal as active work, and pre-compact does not re-save the stale handoff
+
 ### Requirement: Fast Git identity across worktrees
 
 Git identity reads SHALL resolve loose and packed refs, detached HEADs, and linked-worktree gitdir/commondir pointers, returning the branch and seven-character commit identity.
@@ -140,6 +145,11 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 
 - **WHEN** a repository is initialized with default templates
 - **THEN** its agent configuration passes parity checks
+
+#### Scenario: Build provenance and duplicate server detection in doctor
+
+- **WHEN** `ateam version`, `session-start`, or `ateam doctor` runs
+- **THEN** build provenance (`vcs.revision` or `-ldflags` commit) is reported in `ateam version` and the `[ateam]` session-start line, and `ateam doctor` warns when the binary commit is not an ancestor of checkout `HEAD` or when multiple `ateam serve` processes are running concurrently
 
 ### Requirement: Board state and authenticated API access
 

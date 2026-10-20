@@ -66,7 +66,7 @@ func run(args []string) int {
 	case "serve":
 		return runServe(cwd, subArgs)
 	case "version", "--version", "-v":
-		fmt.Println("ateam v0.1.0")
+		fmt.Println(state.VersionString())
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "ateam: unknown command %q\n", cmd)
@@ -146,7 +146,7 @@ func runState(repoRoot string, args []string) int {
 	case "sync":
 		return runStateSync(repoRoot, args[1:])
 	case "pickup":
-		st, err := state.Refresh(context.Background(), repoRoot, false)
+		st, err := state.RefreshWithBestEffortSync(context.Background(), repoRoot, 30*time.Second)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ateam state pickup: %v\n", err)
 			return 1
@@ -219,6 +219,7 @@ func runStateHandoff(repoRoot string, args []string) int {
 	constraints := fs.String("constraints", "", "constraints or active holds")
 	doneWhen := fs.String("done-when", "", "definition of done")
 	checks := fs.String("checks", "task verify", "checks to run")
+	session := fs.String("session", "", "optional session identifier")
 	noPost := fs.Bool("no-post", false, "skip posting handoff comment to open PR on forge")
 	if err := fs.Parse(args); err != nil {
 		return 1
@@ -232,12 +233,14 @@ func runStateHandoff(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam state handoff: %v\n", err)
 		return 1
 	}
+	sessionID := state.ResolveActiveSessionID(repoRoot, *session)
 	ho := state.Handoff{
 		Goal:          *goal,
 		Addresses:     *addresses,
 		Constraints:   *constraints,
 		DoneWhen:      *doneWhen,
 		ChecksToRun:   *checks,
+		SessionID:     sessionID,
 		Branch:        st.Git.Branch,
 		CheckpointSHA: st.Git.HeadSHA,
 		Dirty:         st.Git.Dirty,
@@ -326,13 +329,21 @@ func runStateSync(repoRoot string, args []string) int {
 }
 
 func runStateSnapshot(repoRoot, sub string) int {
-	st, err := state.Refresh(context.Background(), repoRoot, false)
+	var (
+		st  *state.State
+		err error
+	)
+	if sub == "board" {
+		st, err = state.RefreshWithBestEffortSync(context.Background(), repoRoot, 30*time.Second)
+	} else {
+		st, err = state.Refresh(context.Background(), repoRoot, false)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ateam state: %v\n", err)
 		return 1
 	}
 	if sub == "board" {
-		printJSON(st.Cards)
+		printJSON(st.BoardView())
 		return 0
 	}
 	printJSON(st)
@@ -409,9 +420,19 @@ func runDoctor(repoRoot string, args []string) int {
 	if hookUs > 50000 {
 		violations = append(violations, fmt.Sprintf("hook latency exceeded threshold: %d us", hookUs))
 	}
+	_, fullRev, _ := state.BuildRevision()
+	_, headSHA := state.ReadFastGitHead(repoRoot)
+	warnings := bootstrap.CheckBuildProvenance(context.Background(), repoRoot, fullRev, headSHA)
+	servePIDs, procWarnings := bootstrap.InspectRunningServeProcesses(context.Background())
+	warnings = append(warnings, procWarnings...)
+
 	passed := len(violations) == 0
 	printJSON(map[string]any{
 		"passed":                 passed,
+		"build_commit":           state.BuildLabel(),
+		"head_commit":            headSHA,
+		"running_serve_pids":     servePIDs,
+		"warnings":               warnings,
 		"mcp_schema_tokens":      tokens,
 		"mcp_connection_checked": false,
 		"mcp_schema_bytes":       bytesLen,
