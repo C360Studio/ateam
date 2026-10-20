@@ -394,12 +394,21 @@ func checkAntigravityConfigs(root string) []string {
 	return out
 }
 
+// FormatStaleBinaryWarning formats the missing-provenance or behind-HEAD warning shared by doctor and session-start.
+func FormatStaleBinaryWarning(shortBuild, headSHA string) string {
+	shortBuild = strings.TrimSpace(shortBuild)
+	if shortBuild == "" || shortBuild == "dev" || shortBuild == "unknown" {
+		return "binary has no build provenance; build with task build"
+	}
+	return fmt.Sprintf("binary %s is behind HEAD %s; run task build", shortBuild, strings.TrimSpace(headSHA))
+}
+
 // CheckBuildProvenance checks whether the running binary's commit is an ancestor of checkout HEAD.
 func CheckBuildProvenance(ctx context.Context, root, buildRev, headSHA string) []string {
 	buildRev = strings.TrimSpace(buildRev)
 	headSHA = strings.TrimSpace(headSHA)
 	if buildRev == "" || buildRev == "dev" || buildRev == "unknown" {
-		return []string{"binary has no build provenance; build with task build"}
+		return []string{FormatStaleBinaryWarning(buildRev, headSHA)}
 	}
 	if headSHA == "" || headSHA == "uncommitted" {
 		return nil
@@ -418,7 +427,7 @@ func CheckBuildProvenance(ctx context.Context, root, buildRev, headSHA string) [
 	if err := cmd.Run(); err != nil {
 		return []string{fmt.Sprintf("binary build commit %s is not an ancestor of checkout HEAD %s; rebuild ./bin/ateam from this checkout", shortBuild, headSHA)}
 	}
-	return []string{fmt.Sprintf("binary build commit %s is behind checkout HEAD %s; rebuild ./bin/ateam", shortBuild, headSHA)}
+	return []string{FormatStaleBinaryWarning(shortBuild, headSHA)}
 }
 
 // CheckUnarchivedOpenSpecChanges returns a doctor warning for any OpenSpec change under openspec/changes/ whose tasks are all complete.

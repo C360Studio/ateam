@@ -531,3 +531,63 @@ func TestHookWarnsStaleClientMCPOncePerSession(t *testing.T) {
 		t.Fatalf("expected before-prompt after ClearWriterLease to stay silent with calls=2, got out=%q calls=%d", afterHandoff.AdditionalContext, calls)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+func TestSessionStartWarnsWhenBinaryBehindHead(t *testing.T) {
+	dir := t.TempDir()
+	headsDir := filepath.Join(dir, ".git", "refs", "heads")
+	if err := os.MkdirAll(headsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("abad85b343390e142faee9edcf1ba14979e3218a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origBuildCommit := state.BuildCommit
+	t.Cleanup(func() { state.BuildCommit = origBuildCommit })
+
+	// 1. Binary built before HEAD prints "binary <x> is behind HEAD <y>; run task build" at session-start and nothing on subsequent prompts.
+	state.BuildCommit = "990e19c000000000000000000000000000000000"
+	const wantBehind = "binary 990e19c is behind HEAD abad85b; run task build"
+	outBehind, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-behind"}`))
+	if err != nil {
+		t.Fatalf("Handle session-start behind HEAD: %v", err)
+	}
+	if !strings.Contains(outBehind.AdditionalContext, wantBehind) {
+		t.Fatalf("expected stale binary warning %q in session-start output, got:\n%s", wantBehind, outBehind.AdditionalContext)
+	}
+	promptOut, err := Handle(dir, "before-prompt", strings.NewReader(`{"session_id":"sess-behind","prompt":"continue work"}`))
+	if err != nil {
+		t.Fatalf("Handle before-prompt after stale binary session-start: %v", err)
+	}
+	if promptOut.AdditionalContext != "" {
+		t.Fatalf("expected empty output on before-prompt, got %q", promptOut.AdditionalContext)
+	}
+
+	// 2. Binary matching HEAD prints no stale-binary or missing-provenance warning.
+	state.BuildCommit = "abad85b343390e142faee9edcf1ba14979e3218a"
+	outCurrent, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-current"}`))
+	if err != nil {
+		t.Fatalf("Handle session-start current HEAD: %v", err)
+	}
+	for _, unexpected := range []string{"is behind HEAD", "binary has no build provenance; build with task build"} {
+		if strings.Contains(outCurrent.AdditionalContext, unexpected) {
+			t.Fatalf("expected no stale binary warning when current, found %q in:\n%s", unexpected, outCurrent.AdditionalContext)
+		}
+	}
+
+	// 3. build=unknown prints "binary has no build provenance; build with task build".
+	state.BuildCommit = "unknown"
+	const wantUnknown = "binary has no build provenance; build with task build"
+	outUnknown, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-unknown"}`))
+	if err != nil {
+		t.Fatalf("Handle session-start unknown build: %v", err)
+	}
+	if !strings.Contains(outUnknown.AdditionalContext, wantUnknown) {
+		t.Fatalf("expected missing build provenance warning %q in session-start output, got:\n%s", wantUnknown, outUnknown.AdditionalContext)
+	}
+}
