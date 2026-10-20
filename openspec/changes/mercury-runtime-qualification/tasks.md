@@ -19,7 +19,7 @@ PR #64 merged the offline blocker report. The next usage-provenance slice is cla
   Owner authorized the scoped isolated offline setup and implementation by requesting review-ready delivery of PR #64. Production adapter delivery remains out of scope.
 - [x] Exercise the actual pinned CLI/bridge against isolated fixtures and deliver the [offline blocker report](offline-report.md), retained evidence, replay checks and negative-control detections.
 - [ ] Resolve provider-usage provenance and then finish tool histories, permissions, cancellation, error handling and broader replay qualification.
-  Hold: the missing-usage fixture became successful numeric bridge/CLI counters; the route remains unqualified. See offline-report.md.
+  Hold: the missing-usage fixture became successful numeric bridge/CLI counters; the route remains unqualified. The offline reader preserves that unknown; live pre-normalization capture/correlation remains unproved. See usage-provenance-report.md.
 - [x] Reconcile landed PR #43 (`8e52e719`) and PR #32 (`b789cf62`) from main; keep stopped Gemini evidence frozen.
 - [ ] Complete independent implementation review and required checks before claiming a qualified runtime.
 - [ ] Freeze and review the canary/A/A protocol before live calibration.
@@ -27,6 +27,6 @@ PR #64 merged the offline blocker report. The next usage-provenance slice is cla
 
 ## Provider-usage provenance continuation
 
-- [ ] Audit supported pinned bridge controls and independently review the scoped evidence-contract plan.
-- [ ] Implement and test the offline contract against retained and synthetic provider-wire evidence; address the sentinel cwd nit.
+- [x] Audit supported pinned bridge controls and independently review the scoped evidence-contract plan.
+- [x] Implement and test the [offline contract](usage-provenance-report.md) against retained and synthetic provider-wire evidence; address the sentinel cwd nit.
 - [ ] Complete independent technical review, explicit Python evidence checks and clean-tree repository verification; publish review-ready PR.
