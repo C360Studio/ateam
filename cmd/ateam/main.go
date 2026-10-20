@@ -219,6 +219,7 @@ func runStateHandoff(repoRoot string, args []string) int {
 	constraints := fs.String("constraints", "", "constraints or active holds")
 	doneWhen := fs.String("done-when", "", "definition of done")
 	checks := fs.String("checks", "task verify", "checks to run")
+	session := fs.String("session", "", "optional session identifier")
 	noPost := fs.Bool("no-post", false, "skip posting handoff comment to open PR on forge")
 	if err := fs.Parse(args); err != nil {
 		return 1
@@ -232,12 +233,14 @@ func runStateHandoff(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam state handoff: %v\n", err)
 		return 1
 	}
+	sessionID := state.ResolveActiveSessionID(repoRoot, *session)
 	ho := state.Handoff{
 		Goal:          *goal,
 		Addresses:     *addresses,
 		Constraints:   *constraints,
 		DoneWhen:      *doneWhen,
 		ChecksToRun:   *checks,
+		SessionID:     sessionID,
 		Branch:        st.Git.Branch,
 		CheckpointSHA: st.Git.HeadSHA,
 		Dirty:         st.Git.Dirty,
@@ -340,7 +343,7 @@ func runStateSnapshot(repoRoot, sub string) int {
 		return 1
 	}
 	if sub == "board" {
-		printJSON(st.Cards)
+		printJSON(st.BoardView())
 		return 0
 	}
 	printJSON(st)

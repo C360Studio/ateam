@@ -112,6 +112,51 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	if !strings.Contains(outReplaced.AdditionalContext, "Goal: Auto-saved before context compaction") || !strings.Contains(outReplaced.AdditionalContext, "Addresses: branch main, SHA 9f11a42") {
 		t.Fatalf("expected fresh current-HEAD auto-compacted handoff, got:\n%s", outReplaced.AdditionalContext)
 	}
+
+	// Review Finding #3: Same branch/SHA handoff with empty SessionID (unknown ownership) or Session A
+	// must NOT be preserved or silently claimed when Session B runs pre-compact; Session A's own pre-compact preserves it.
+	for _, owner := range []string{"", "session-A"} {
+		st, err = state.Load(dir)
+		if err != nil {
+			t.Fatalf("state.Load: %v", err)
+		}
+		st.LastHandoff = &state.Handoff{
+			Goal:          "Session A goal on same branch/HEAD",
+			Addresses:     "branch main, SHA 9f11a42",
+			DoneWhen:      "done",
+			Branch:        "main",
+			CheckpointSHA: "9f11a42",
+			SessionID:     owner,
+		}
+		if err := state.Save(dir, st); err != nil {
+			t.Fatalf("state.Save: %v", err)
+		}
+		outB, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"session-B"}`))
+		if err != nil {
+			t.Fatalf("Handle pre-compact session-B (owner=%q): %v", owner, err)
+		}
+		if strings.Contains(outB.AdditionalContext, "Session A goal on same branch/HEAD") {
+			t.Fatalf("session-B pre-compact preserved/claimed handoff with owner=%q:\n%s", owner, outB.AdditionalContext)
+		}
+	}
+
+	st, _ = state.Load(dir)
+	st.LastHandoff = &state.Handoff{
+		Goal:          "Session A active goal",
+		Addresses:     "branch main, SHA 9f11a42",
+		DoneWhen:      "done",
+		Branch:        "main",
+		CheckpointSHA: "9f11a42",
+		SessionID:     "session-A",
+	}
+	_ = state.Save(dir, st)
+	outSame, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"session-A"}`))
+	if err != nil {
+		t.Fatalf("Handle pre-compact session-A: %v", err)
+	}
+	if !strings.Contains(outSame.AdditionalContext, "Goal: Session A active goal") {
+		t.Fatalf("expected session-A pre-compact to preserve its own handoff, got:\n%s", outSame.AdditionalContext)
+	}
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms

@@ -367,11 +367,19 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 	}
 	var cards []BoardCard
 
-	// G-06: Attempt issue fetch with comments under a bounded sub-timeout; on timeout/error, fall back to comment-free card sync.
-	issueCtx, issueCancel := context.WithTimeout(ctx, 5*time.Second)
+	// G-06: Attempt issue fetch with comments under a bounded sub-timeout that leaves at least 2/3 of any parent deadline for comment-free fallback + PR queries.
+	issueTimeout := 2500 * time.Millisecond
+	if deadline, ok := ctx.Deadline(); ok {
+		issueTimeout = 750 * time.Millisecond
+		if sub := time.Until(deadline) / 3; sub > 0 && sub < issueTimeout {
+			issueTimeout = sub
+		}
+	}
+	issueCtx, issueCancel := context.WithTimeout(ctx, issueTimeout)
 	issueCmd := exec.CommandContext(issueCtx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body,comments")
 	issueCmd.Args = append(issueCmd.Args, repoArgs...)
 	issueCmd.Dir = root
+	issueCmd.WaitDelay = 100 * time.Millisecond
 	issueOut, err := issueCmd.Output()
 	issueCancel()
 	if err != nil {
@@ -379,6 +387,7 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 		fallbackCmd := exec.CommandContext(fallbackCtx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body")
 		fallbackCmd.Args = append(fallbackCmd.Args, repoArgs...)
 		fallbackCmd.Dir = root
+		fallbackCmd.WaitDelay = 100 * time.Millisecond
 		issueOut, err = fallbackCmd.Output()
 		fallbackCancel()
 		if err != nil {
@@ -400,6 +409,7 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 	prCmd := exec.CommandContext(cctx, "gh", "pr", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,isDraft,headRefName,labels,url")
 	prCmd.Args = append(prCmd.Args, repoArgs...)
 	prCmd.Dir = root
+	prCmd.WaitDelay = 100 * time.Millisecond
 	prOut, err := prCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("gh pr list failed: %w", err)

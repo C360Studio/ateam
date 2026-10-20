@@ -87,3 +87,52 @@ func TestMCPWriterLeaseSameSessionNoWarning(t *testing.T) {
 		t.Fatalf("expected Writer lease summary in pickup output, got:\n%s", out.String())
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestMCPBoardAndPickupStaleCacheFallback(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	fakeGH := filepath.Join(binDir, "gh")
+	if err := os.WriteFile(fakeGH, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	oldSync := time.Date(2026, 10, 19, 13, 3, 0, 0, time.UTC)
+	if _, err := state.Update(dir, func(cur *state.State) error {
+		if err := cur.UpsertForge(state.ForgeConfig{Provider: state.ForgeGitHub, Owner: "c360", Repo: "ateam"}); err != nil {
+			return err
+		}
+		cur.BoardSyncedAt = oldSync
+		cur.Cards = []state.BoardCard{{ID: "GH-1", Number: 1, Title: "Cached card", Column: "backlog", Forge: "github"}}
+		return nil
+	}); err != nil {
+		t.Fatalf("state.Update: %v", err)
+	}
+
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"board"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"ateam://state/board"}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"pickup"}}}`,
+	}, "\n") + "\n"
+
+	var out bytes.Buffer
+	if err := Serve(context.Background(), dir, strings.NewReader(input), &out); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("got %d responses, want 3:\n%s", len(lines), out.String())
+	}
+	for i, name := range []string{"board tool", "board resource"} {
+		for _, want := range []string{"2026-10-19T13:03:00Z", "cached_fallback", "sync_error", "GH-1"} {
+			if !strings.Contains(lines[i], want) {
+				t.Fatalf("%s response missing %q:\n%s", name, want, lines[i])
+			}
+		}
+	}
+	if !strings.Contains(lines[2], "synced=2026-10-19T13:03:00Z") || !strings.Contains(lines[2], "WARNING: Forge board sync failed") {
+		t.Fatalf("pickup response missing sync timestamp or fallback warning:\n%s", lines[2])
+	}
+}

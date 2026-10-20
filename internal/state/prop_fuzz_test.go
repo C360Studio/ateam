@@ -230,14 +230,21 @@ func TestPropMergeForgeCardsHistory(t *testing.T) {
 		var refCards []BoardCard
 
 		for step := 0; step < numSteps; step++ {
-			op := rng.Intn(3)
+			op := rng.Intn(4)
 			switch op {
-			case 0: // Insert unbacked ATEAM-* demo card
-				id := fmt.Sprintf("ATEAM-%d", rng.Intn(5)+1)
-				card := BoardCard{ID: id, Title: fmt.Sprintf("Demo %d", step), Column: "backlog", Forge: "github"}
+			case 0: // Insert legitimate local ATEAM-* card via UpsertCard
+				id := fmt.Sprintf("ATEAM-LOCAL-%d", rng.Intn(4)+1)
+				card := BoardCard{ID: id, Title: fmt.Sprintf("Local %d", step), Column: "backlog", Forge: "local", HoldReason: "hold-local"}
 				st.Cards = append(filterOutID(st.Cards, id), card)
 				refCards = append(filterOutID(refCards, id), card)
-			case 1, 2: // Sync remote forge batch (replaces board snapshot while preserving HoldReason/Decision on matching IDs)
+			case 3: // Insert legacy demo ATEAM-1..5 card (must be pruned on next MergeForgeCards)
+				demoBranches := []string{"gemini/universal-hooks", "gemini/mcp-server", "gemini/openspec-gitea", "claude/bench-suite", "gemini/dual-forge-webhooks"}
+				idx := rng.Intn(len(demoBranches))
+				id := fmt.Sprintf("ATEAM-%d", idx+1)
+				card := BoardCard{ID: id, Number: idx + 1, Title: "Legacy demo", Branch: demoBranches[idx], Column: "done", Forge: "github"}
+				st.Cards = append(filterOutID(st.Cards, id), card)
+				refCards = append(filterOutID(refCards, id), card)
+			case 1, 2: // Sync remote forge batch (prunes legacy demo cards & stale same-forge cards; preserves local & other-forge cards)
 				forgeName := "github"
 				prefix := "gh"
 				if op == 2 {
@@ -246,26 +253,29 @@ func TestPropMergeForgeCardsHistory(t *testing.T) {
 				}
 				batchSize := rng.Intn(4)
 				var batch []BoardCard
+				batchByID := make(map[string]BoardCard, batchSize)
 				for i := 0; i < batchSize; i++ {
 					col := "in-progress"
 					if rng.Intn(2) == 1 {
 						col = "needs-decision"
 					}
-					batch = append(batch, BoardCard{
+					b := BoardCard{
 						ID:         fmt.Sprintf("%s-%d", prefix, i+1),
 						Title:      fmt.Sprintf("%s step %d item %d", forgeName, step, i+1),
 						Column:     col,
 						Forge:      forgeName,
 						HoldReason: fmt.Sprintf("hold-%d", step%2),
-					})
-				}
-				refByID := make(map[string]BoardCard, len(refCards))
-				for _, c := range refCards {
-					refByID[c.ID] = c
+					}
+					batch = append(batch, b)
+					batchByID[b.ID] = b
 				}
 				var nextRef []BoardCard
-				for _, b := range batch {
-					if prev, ok := refByID[b.ID]; ok {
+				seenRef := make(map[string]bool)
+				for _, prev := range refCards {
+					if isLegacyDemoCard(prev) {
+						continue
+					}
+					if b, ok := batchByID[prev.ID]; ok {
 						if b.HoldReason == "" && prev.HoldReason != "" {
 							b.HoldReason = prev.HoldReason
 						}
@@ -275,8 +285,20 @@ func TestPropMergeForgeCardsHistory(t *testing.T) {
 						if b.Decision == "" && prev.Decision != "" {
 							b.Decision = prev.Decision
 						}
+						nextRef = append(nextRef, b)
+						seenRef[prev.ID] = true
+						continue
 					}
-					nextRef = append(nextRef, b)
+					if strings.HasPrefix(prev.ID, "ATEAM-") || prev.Forge == "" || prev.Forge == "local" || prev.Forge != forgeName {
+						nextRef = append(nextRef, prev)
+						seenRef[prev.ID] = true
+					}
+				}
+				for _, b := range batch {
+					if !seenRef[b.ID] && !isLegacyDemoCard(b) {
+						nextRef = append(nextRef, b)
+						seenRef[b.ID] = true
+					}
 				}
 				st.MergeForgeCards(batch, ForgeProvider(forgeName))
 				refCards = nextRef

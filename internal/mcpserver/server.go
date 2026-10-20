@@ -350,7 +350,7 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		}
 		return out, false
 	case "board":
-		data, _ := json.MarshalIndent(st.Cards, "", "  ")
+		data, _ := json.MarshalIndent(st.BoardView(), "", "  ")
 		return string(data), false
 	default:
 		return "unsupported action: " + args.Action, true
@@ -444,7 +444,7 @@ func handleResourceRead(ctx context.Context, root string, req rpcRequest, connSe
 	case "ateam://state/pickup":
 		text = state.BuildPickupSummary(st)
 	case "ateam://state/board":
-		b, _ := json.MarshalIndent(st.Cards, "", "  ")
+		b, _ := json.MarshalIndent(st.BoardView(), "", "  ")
 		text = string(b)
 	case "ateam://state/shortcuts":
 		b, _ := json.MarshalIndent(st.Shortcuts, "", "  ")

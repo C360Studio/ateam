@@ -130,11 +130,13 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 	}
 	st := &State{
 		Cards: []BoardCard{
-			{ID: "LOCAL-1", Title: "Local task card", Column: "backlog", Forge: "local"},
+			{ID: "ATEAM-1", Number: 1, Title: "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms", Branch: "gemini/universal-hooks", Column: "done", Forge: "github"},
+			{ID: "GH-404", Number: 404, Title: "Deleted GitHub issue", Column: "backlog", Forge: "github"},
+			{ID: "GT-7", Number: 7, Title: "Gitea issue", Column: "in-progress", Forge: "gitea"},
 			{ID: "GH-99", Number: 99, Title: "Remote Issue", Column: "backlog", Forge: "github", HoldReason: "Hold: waiting on schema", Decision: "Decision: keep hold"},
 		},
 	}
-	uiCard, err := st.UpsertCard(BoardCard{Title: "Demo ATEAM card", Forge: "github", Column: "backlog"})
+	uiCard, err := st.UpsertCard(BoardCard{Title: "Real dashboard task", Forge: "github", Column: "backlog", HoldReason: "Hold: dashboard hold"})
 	if err != nil {
 		t.Fatalf("UpsertCard: %v", err)
 	}
@@ -142,15 +144,44 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 	if st.BoardSyncedAt.IsZero() {
 		t.Fatal("expected BoardSyncedAt to be recorded after MergeForgeCards")
 	}
-	if len(st.Cards) != 2 {
-		t.Fatalf("expected 2 live github cards after MergeForgeCards (unbacked LOCAL-1 and %s pruned), got %d: %+v", uiCard.ID, len(st.Cards), st.Cards)
-	}
+	byID := make(map[string]BoardCard, len(st.Cards))
 	for _, c := range st.Cards {
-		if c.ID == uiCard.ID || c.ID == "LOCAL-1" {
-			t.Fatalf("unbacked card %s survived MergeForgeCards: %+v", c.ID, st.Cards)
-		}
-		if c.ID == "GH-99" && (c.HoldReason != "Hold: waiting on schema" || c.Decision != "Decision: keep hold") {
-			t.Fatalf("matching card GH-99 lost HoldReason or Decision: %+v", c)
-		}
+		byID[c.ID] = c
+	}
+	if _, ok := byID["ATEAM-1"]; ok {
+		t.Fatalf("legacy demo card ATEAM-1 survived MergeForgeCards: %+v", st.Cards)
+	}
+	if _, ok := byID["GH-404"]; ok {
+		t.Fatalf("stale github card GH-404 survived MergeForgeCards: %+v", st.Cards)
+	}
+	if gotUI, ok := byID[uiCard.ID]; !ok || gotUI.HoldReason != "Hold: dashboard hold" {
+		t.Fatalf("legitimate UpsertCard %s or its HoldReason was lost: %+v", uiCard.ID, st.Cards)
+	}
+	if _, ok := byID["GT-7"]; !ok {
+		t.Fatalf("other-forge card GT-7 was deleted by GitHub sync: %+v", st.Cards)
+	}
+	if got99, ok := byID["GH-99"]; !ok || got99.HoldReason != "Hold: waiting on schema" || got99.Decision != "Decision: keep hold" {
+		t.Fatalf("matching card GH-99 lost HoldReason or Decision: %+v", got99)
+	}
+
+	// Probe 4c (Review Finding #2): Fake gh that blocks on requests containing `comments` and returns instantly otherwise
+	// must NOT exhaust RefreshWithBestEffortSync's 3s parent timeout; comment-free fallback + PR query must succeed and advance BoardSyncedAt.
+	scriptSlowComments := "#!/bin/sh\ncase \"$*\" in\n  *comments*)\n    sleep 5\n    exit 1\n    ;;\nesac\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n"
+	if err := os.WriteFile(fakeGH, []byte(scriptSlowComments), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	syncRoot := t.TempDir()
+	if _, err := Update(syncRoot, func(cur *State) error {
+		return cur.UpsertForge(ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"})
+	}); err != nil {
+		t.Fatalf("UpsertForge: %v", err)
+	}
+	refreshed, err := RefreshWithBestEffortSync(context.Background(), syncRoot, 0)
+	if err != nil {
+		t.Fatalf("RefreshWithBestEffortSync slow comments: %v", err)
+	}
+	if refreshed.BoardSyncedAt.IsZero() || refreshed.BoardSyncError != "" || len(refreshed.Cards) != 2 {
+		t.Fatalf("expected slow comments to fall back and advance BoardSyncedAt, got syncedAt=%v err=%q cards=%+v",
+			refreshed.BoardSyncedAt, refreshed.BoardSyncError, refreshed.Cards)
 	}
 }

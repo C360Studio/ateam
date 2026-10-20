@@ -203,6 +203,7 @@ type State struct {
 	Git              GitStatus        `json:"git"`
 	Cards            []BoardCard      `json:"cards"`
 	BoardSyncedAt    time.Time        `json:"board_synced_at,omitempty"`
+	BoardSyncError   string           `json:"board_sync_error,omitempty"`
 	Shortcuts        []ShortcutItem   `json:"shortcuts,omitempty"`
 	Holds            []HoldItem       `json:"holds,omitempty"`
 	HoldScanError    string           `json:"hold_scan_error,omitempty"`
@@ -288,6 +289,33 @@ func ResolveClientPID() int {
 		return ppid
 	}
 	return os.Getpid()
+}
+
+// ResolveEnvSessionID returns the first non-empty session identifier configured in process environment variables.
+func ResolveEnvSessionID() string {
+	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// ResolveActiveSessionID resolves a caller's session identity from an explicit value, environment variables,
+// or an active writer lease owned by the same client PID.
+func ResolveActiveSessionID(root, explicit string) string {
+	if s := strings.TrimSpace(explicit); s != "" {
+		return s
+	}
+	if s := ResolveEnvSessionID(); s != "" {
+		return s
+	}
+	if root != "" {
+		if wl, err := ReadWriterLease(root); err == nil && wl != nil && (wl.PID == ResolveClientPID() || wl.PID == os.Getpid()) && wl.SessionID != "" {
+			return strings.TrimSpace(wl.SessionID)
+		}
+	}
+	return ""
 }
 
 // IsProcessAlive reports whether pid refers to a currently running OS process.
@@ -411,6 +439,14 @@ func Load(root string) (*State, error) {
 	}
 	if st.Cards == nil {
 		st.Cards = []BoardCard{}
+	} else {
+		filtered := make([]BoardCard, 0, len(st.Cards))
+		for _, c := range st.Cards {
+			if !isLegacyDemoCard(c) {
+				filtered = append(filtered, c)
+			}
+		}
+		st.Cards = filtered
 	}
 	st.Writer = nil
 	if wl, err := ReadWriterLease(root); err == nil && wl != nil {
@@ -547,19 +583,40 @@ func (st *State) UpsertCard(card BoardCard) (BoardCard, error) {
 	return card, nil
 }
 
-// MergeForgeCards replaces the board with newly fetched remote cards for provider, dropping cards with no forge counterpart while preserving hold reasons and decision summaries on matching IDs.
-func (st *State) MergeForgeCards(synced []BoardCard, _ ForgeProvider) {
-	existingByID := make(map[string]BoardCard, len(st.Cards))
-	for _, existing := range st.Cards {
-		existingByID[existing.ID] = existing
+func isLegacyDemoCard(c BoardCard) bool {
+	if !strings.HasPrefix(c.ID, "ATEAM-") {
+		return false
 	}
-	merged := make([]BoardCard, 0, len(synced))
-	seen := make(map[string]bool, len(synced))
-	for _, updated := range synced {
-		if seen[updated.ID] {
+	switch strings.TrimSpace(c.Branch) {
+	case "gemini/universal-hooks", "gemini/mcp-server", "gemini/openspec-gitea", "claude/bench-suite", "gemini/dual-forge-webhooks":
+		return true
+	}
+	switch strings.TrimSpace(c.Title) {
+	case "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms",
+		"2-Tool multiplexed MCP server (ateam_state, ateam_task) <300 tokens",
+		"OpenSpec spec:queue / spec:check & Dual-Forge (GitHub + Gitea) sync",
+		"Agentic benchmark suite (Coding Discipline + Handoff Continuity tiers)",
+		"Cross-repo automatic PR merge-check & dual-forge webhook enforcement":
+		return true
+	}
+	return c.Number > 0 && strings.TrimSpace(c.URL) == "" && (c.Milestone == "v0.1 Foundation" || c.Milestone == "v0.2 Rollout")
+}
+
+// MergeForgeCards reconciles newly fetched remote cards for provider into the board,
+// pruning legacy demo cards and stale remote cards belonging to provider while preserving
+// legitimate local dashboard cards, cards from the other forge, and local hold/decision fields.
+func (st *State) MergeForgeCards(synced []BoardCard, provider ForgeProvider) {
+	syncedByID := make(map[string]BoardCard, len(synced))
+	for _, c := range synced {
+		syncedByID[c.ID] = c
+	}
+	merged := make([]BoardCard, 0, len(st.Cards)+len(synced))
+	seen := make(map[string]bool, len(st.Cards)+len(synced))
+	for _, existing := range st.Cards {
+		if isLegacyDemoCard(existing) {
 			continue
 		}
-		if existing, ok := existingByID[updated.ID]; ok {
+		if updated, ok := syncedByID[existing.ID]; ok {
 			if updated.HoldReason == "" && existing.HoldReason != "" {
 				updated.HoldReason = existing.HoldReason
 			}
@@ -569,13 +626,66 @@ func (st *State) MergeForgeCards(synced []BoardCard, _ ForgeProvider) {
 			if updated.Decision == "" && existing.Decision != "" {
 				updated.Decision = existing.Decision
 			}
+			merged = append(merged, updated)
+			seen[existing.ID] = true
+			continue
+		}
+		isLocalTask := strings.HasPrefix(existing.ID, "ATEAM-") || existing.Forge == "" || existing.Forge == string(ForgeLocal)
+		isOtherForge := provider != "" && existing.Forge != string(provider)
+		if isLocalTask || isOtherForge {
+			merged = append(merged, existing)
+			seen[existing.ID] = true
+		}
+	}
+	for _, updated := range synced {
+		if seen[updated.ID] || isLegacyDemoCard(updated) {
+			continue
 		}
 		merged = append(merged, updated)
 		seen[updated.ID] = true
 	}
 	st.Cards = merged
 	st.BoardSyncedAt = time.Now().UTC()
+	st.BoardSyncError = ""
 	st.RefreshHandoffStaleness()
+}
+
+// BoardSnapshot wraps the board cards with their last remote sync timestamp and any stale-cache fallback notice.
+type BoardSnapshot struct {
+	Forge          ForgeProvider `json:"forge"`
+	SyncedAt       string        `json:"synced_at"`
+	BoardSyncedAt  *time.Time    `json:"board_synced_at,omitempty"`
+	CachedFallback bool          `json:"cached_fallback,omitempty"`
+	SyncError      string        `json:"sync_error,omitempty"`
+	Notice         string        `json:"notice,omitempty"`
+	Cards          []BoardCard   `json:"cards"`
+}
+
+// BoardView returns a BoardSnapshot including sync metadata and fallback status for CLI/MCP board responses.
+func (st *State) BoardView() BoardSnapshot {
+	cards := st.Cards
+	if cards == nil {
+		cards = []BoardCard{}
+	}
+	syncedAt := "never"
+	var tsPtr *time.Time
+	if !st.BoardSyncedAt.IsZero() {
+		utc := st.BoardSyncedAt.UTC()
+		syncedAt = utc.Format(time.RFC3339)
+		tsPtr = &utc
+	}
+	snap := BoardSnapshot{
+		Forge:         st.Forge.Provider,
+		SyncedAt:      syncedAt,
+		BoardSyncedAt: tsPtr,
+		Cards:         cards,
+	}
+	if strings.TrimSpace(st.BoardSyncError) != "" {
+		snap.CachedFallback = true
+		snap.SyncError = strings.TrimSpace(st.BoardSyncError)
+		snap.Notice = fmt.Sprintf("WARNING: forge sync failed (%s); serving cached board (synced=%s)", snap.SyncError, syncedAt)
+	}
+	return snap
 }
 
 // MoveCard moves an existing card by ID to a new column and optional agent assignee.
@@ -664,13 +774,16 @@ func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Dur
 	defer cancel()
 	cards, syncErr := SyncForgeBoard(sctx, root, st.Forge)
 	if syncErr != nil {
+		st.BoardSyncError = syncErr.Error()
 		return st, nil
 	}
 	updated, err := Update(root, func(cur *State) error {
 		cur.MergeForgeCards(cards, st.Forge.Provider)
+		cur.BoardSyncError = ""
 		return nil
 	})
 	if err != nil {
+		st.BoardSyncError = err.Error()
 		return st, nil
 	}
 	updated.CurrentSessionID = st.CurrentSessionID
@@ -975,6 +1088,9 @@ func BuildPickupSummary(st *State) string {
 		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay, BuildLabel(), syncedDisplay)
 	if st.HoldScanError != "" {
 		fmt.Fprintf(&b, "WARNING: Hold/OpenSpec scan failed (%s) — hold status unavailable\n", st.HoldScanError)
+	}
+	if strings.TrimSpace(st.BoardSyncError) != "" {
+		fmt.Fprintf(&b, "WARNING: Forge board sync failed (serving cached board, synced=%s): %s\n", syncedDisplay, strings.TrimSpace(st.BoardSyncError))
 	}
 	if st.Writer != nil && !st.Writer.LastSeen.IsZero() {
 		age := time.Since(st.Writer.LastSeen).Round(time.Second)

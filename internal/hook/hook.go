@@ -97,7 +97,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	if err != nil {
 		return Output{}, err
 	}
-	sessionID := firstNonEmpty(in.SessionID, in.ConversationID)
+	sessionID := firstNonEmpty(in.SessionID, in.ConversationID, state.ResolveEnvSessionID())
 	st.CurrentSessionID = sessionID
 	br, sha := state.ReadFastGitHead(root)
 	if sha != "" {
@@ -170,7 +170,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 			cur.Holds = holds
 			cur.HoldScanError = ""
 			cur.RefreshHandoffStaleness()
-			foreignSession := sessionID != "" && cur.LastHandoff != nil && cur.LastHandoff.SessionID != "" && cur.LastHandoff.SessionID != sessionID
+			foreignSession := cur.LastHandoff != nil && (cur.LastHandoff.SessionID == "" || sessionID == "" || cur.LastHandoff.SessionID != sessionID)
 			if cur.LastHandoff == nil || cur.LastHandoff.Stale || foreignSession {
 				cur.LastHandoff = &state.Handoff{
 					Goal:          "Auto-saved before context compaction",
@@ -187,9 +187,6 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 				}
 			} else {
 				cur.LastHandoff.AutoCompacted = true
-				if cur.LastHandoff.SessionID == "" && sessionID != "" {
-					cur.LastHandoff.SessionID = sessionID
-				}
 				cur.LastHandoff.UpdatedAt = time.Now().UTC()
 			}
 			return nil
