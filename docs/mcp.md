@@ -15,12 +15,16 @@ Run `ateam init` in the repository to create missing project files:
 | Codex | `.codex/config.toml`, `[mcp_servers.ateam]` | `.codex/hooks.json` |
 | Claude Code | `.mcp.json`, `mcpServers.ateam` | `.claude/settings.json` |
 | Gemini CLI | `.gemini/settings.json`, `mcpServers.ateam` | `.gemini/settings.json` |
+| Antigravity (`agy`) | `.agents/plugins/ateam/{plugin.json,mcp_config.json}`, `mcpServers.ateam` | `.agents/hooks.json` |
 
-Codex project configuration requires a trusted project. Claude Code project servers require the client's normal approval/trust process. Gemini also suppresses servers in untrusted folders. Initialization does not grant trust, approve tools, install the binary, or change global configuration.
+Codex project configuration requires a trusted project. Claude Code project servers require the client's normal approval/trust process. Gemini also suppresses servers in untrusted folders. Antigravity loads workspace plugins from `.agents/plugins/<name>/`. Initialization does not grant trust, approve tools, install the binary, or change global configuration.
 
-Codex registration:
+Codex registration (`.codex/config.toml`, alongside the default 500k context limits):
 
 ```toml
+model_context_window = 500000
+model_auto_compact_token_limit = 450000
+
 [mcp_servers.ateam]
 command = "ateam"
 args = ["mcp"]
@@ -36,17 +40,31 @@ Claude Code `.mcp.json`:
 }
 ```
 
-For Gemini, merge `"ateam": {"command":"ateam","args":["mcp"]}` into the top-level `mcpServers` object in `.gemini/settings.json`.
+For Gemini, merge `"ateam": {"command":"ateam","args":["mcp"]}` into the top-level `mcpServers` object in `.gemini/settings.json` (which `ateam init` also populates with `"contextFileName": "AGENTS.md"` and `"model": {"chatCompression": {"contextPercentageThreshold": 0.5}}`).
+
+Antigravity workspace plugin (`.agents/plugins/ateam/plugin.json` and `.agents/plugins/ateam/mcp_config.json`):
+
+```json
+// .agents/plugins/ateam/plugin.json
+{ "name": "ateam" }
+
+// .agents/plugins/ateam/mcp_config.json
+{
+  "mcpServers": {
+    "ateam": { "command": "ateam", "args": ["mcp"] }
+  }
+}
+```
 
 The server uses its process working directory to locate the repository. Start the client from the intended checkout; where the client supports `cwd`, set it explicitly if needed (Codex/Gemini support it). An absolute executable path does **not** select a repository. Verify the branch/HEAD in a pickup result, especially when using worktrees or a desktop client. Registering globally without considering working directory can target the wrong checkout.
 
-Registration formats are based on [Codex MCP documentation](https://developers.openai.com/codex/mcp/), [Claude Code project scope](https://code.claude.com/docs/en/mcp#project-scope), and [Gemini MCP settings](https://geminicli.com/docs/tools/mcp-server/). Check the docs for your installed client version and its policy overrides.
+Registration formats are based on [Codex MCP documentation](https://developers.openai.com/codex/mcp/), [Claude Code project scope](https://code.claude.com/docs/en/mcp#project-scope), [Gemini MCP settings](https://geminicli.com/docs/tools/mcp-server/), and Antigravity workspace plugin conventions (`.agents/plugins/`). Check the docs for your installed client version and its policy overrides.
 
 ## Migrating existing configurations
 
 Earlier ATeam versions embedded `mcpServers` in `.codex/hooks.json` and `.claude/settings.json`. Those entries are not the project registration locations above.
 
-1. Run `ateam init` without `--force`. Missing `.codex/config.toml` and `.mcp.json` files are created.
+1. Run `ateam init` without `--force`. Missing `.codex/config.toml`, `.mcp.json`, and `.agents/plugins/ateam/{plugin.json,mcp_config.json}` files are created.
 2. If a destination already exists, **merge just the ATeam stanza manually**, preserving other servers, permissions, comments, and custom paths. Do the same for an existing Gemini settings file that lacks ATeam. Existing client configuration is left byte-for-byte unchanged even with `--force`; that option only replaces other generated files such as documents and skill adapters.
 3. Remove only the obsolete `mcpServers.ateam` entry from the old Codex/Claude hook/settings files after reviewing their other contents. Keep hook wiring and unrelated settings intact. ATeam does not rewrite existing files to perform this cleanup.
 4. Run `ateam doctor --check`, then the client checks below. If doctor reports missing registration in a preserved file, manually merge the examples; rerunning `--force` will not erase the file to resolve it.
