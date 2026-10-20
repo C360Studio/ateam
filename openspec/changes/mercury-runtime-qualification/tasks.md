@@ -35,4 +35,4 @@ PR #64 merged the offline blocker report. The next usage-provenance slice is cla
 
 - [x] Claim and independently review the [offline capture scope](capture-plan.md), supported hook path and isolation controls.
 - [x] Exercise the pinned native stack with provider-boundary capture and local fixture/history oracles; publish [evidence and the cancellation blocker](capture-report.md).
-- [ ] Complete explicit research checks, mutation evidence, independent technical review and full repository verification; publish review-ready PR.
+- [x] Complete explicit research checks, mutation evidence, independent technical review and full repository verification; deliver [PR #71](https://github.com/C360Studio/ateam/pull/71) for cross-service review. Implementation head `58d0503ecc26ac6936f1c2c2b62d5208e9ea1efb` passed independent native Codex technical review and clean-tree verification; final-head evidence is recorded on the PR. Cross-service approval and runtime qualification remain pending.
