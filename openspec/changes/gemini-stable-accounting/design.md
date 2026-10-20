@@ -1,0 +1,7 @@
+# Design
+
+Optional GeminiConfig.cli_version is a provenance boundary. Omission retains0.43.0 semantics and omitted serialization; only0.64.0 may start new execution. Validate before executable resolution/key use and require the probed version to match. Retained native-version metadata must agree during replay. Legacy settings/arguments and comparisonJSON stay unchanged; new native settings explicitly disable privacy usage statistics in addition to existing telemetry and integrations.
+
+Reuse the native JSON parser and normalized Usage rules. Add an optional comparison accounting record only for0.64.0: CLI-reported best-effort basis, reported/unknown retained-attempt counts, nullable known-primary-token subtotal and unknown cost status. Include normalized usage from failed/unpaired attempts when present; never sum raw partial counters or add cache/thinking subsets twice. Null subtotal means no reported usage; measuredzero is pointer0. Existing paired denominators, quality/time observations and stop rules remain authoritative.
+
+Inspect and exercise the installedCLI with synthetic offline response fixtures in isolated environments. Verify interpreted controls where supported; record source-only versus runtime evidence and outstanding limits. No paid key is needed. New examples select the stableversion; historical reports are immutable. Main callers: Gemini config/validation/settings/native resolution, retained-run validation, comparison rendering, exampleconfigs and tests/docs.
