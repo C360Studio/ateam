@@ -104,9 +104,9 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	sessionID := firstNonEmpty(in.SessionID, in.ConversationID, state.ResolveEnvSessionID())
 	st.CurrentSessionID = sessionID
 	br, sha := state.ReadFastGitHead(root)
+	wtHeadChanged := false
 	if sha != "" {
-		st.Git.Branch = br
-		st.Git.HeadSHA = sha
+		wtHeadChanged = st.SyncBranchHead(br, sha)
 	}
 	st.CurrentAgent = state.ResolveActiveAgent(root, flagAgent, st.Git.Branch, st.Writer)
 
@@ -127,20 +127,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 			scanErrs = append(scanErrs, err.Error())
 		}
 		st.HoldScanError = strings.Join(scanErrs, "; ")
-		beforeHandoffs := len(st.Handoffs)
-		st.RefreshHandoffStaleness()
-		if st.Handoffs != nil && len(st.Handoffs) != beforeHandoffs {
-			_, _ = state.Update(root, func(cur *state.State) error {
-				cur.CurrentAgent = st.CurrentAgent
-				cur.CurrentSessionID = st.CurrentSessionID
-				if sha != "" {
-					cur.Git.Branch = br
-					cur.Git.HeadSHA = sha
-				}
-				cur.RefreshHandoffStaleness()
-				return nil
-			})
-		}
+		reconcileSessionStartHandoffs(root, br, sha, wtHeadChanged, st)
 		ctxText := state.BuildPickupSummary(st)
 		if sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active") {
 			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
@@ -199,16 +186,12 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		updated, err := state.Update(root, func(cur *state.State) error {
 			cur.CurrentSessionID = sessionID
 			if sha != "" {
-				cur.Git.Branch = br
-				cur.Git.HeadSHA = sha
+				cur.SyncBranchHead(br, sha)
 			}
 			cur.CurrentAgent = state.ResolveActiveAgent(root, flagAgent, cur.Git.Branch, cur.Writer)
 			cur.Shortcuts = shortcuts
 			cur.Holds = holds
 			cur.HoldScanError = ""
-			if cur.LastHandoff != nil && strings.TrimSpace(cur.LastHandoff.Agent) == "" && len(cur.Handoffs) <= 1 {
-				cur.Handoffs = nil
-			}
 			curSlotKey := cur.CurrentHandoffKey()
 			slotForCheck := ""
 			curHandoff := cur.LastHandoff
@@ -283,6 +266,45 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 
 	default:
 		return Output{}, nil
+	}
+}
+
+func reconcileSessionStartHandoffs(root, br, sha string, wtHeadChanged bool, st *state.State) {
+	beforeHandoffs := len(st.Handoffs)
+	prevLastNil := st.LastHandoff == nil
+	prevLastGoal, prevLastAgent, prevLastSHA := "", "", ""
+	if st.LastHandoff != nil {
+		prevLastGoal = st.LastHandoff.Goal
+		prevLastAgent = st.LastHandoff.Agent
+		prevLastSHA = st.LastHandoff.CheckpointSHA
+	}
+	if st.Handoffs != nil {
+		st.PruneStaleHandoffs()
+	} else {
+		st.RefreshHandoffStaleness()
+	}
+	afterLastNil := st.LastHandoff == nil
+	afterLastGoal, afterLastAgent, afterLastSHA := "", "", ""
+	if st.LastHandoff != nil {
+		afterLastGoal = st.LastHandoff.Goal
+		afterLastAgent = st.LastHandoff.Agent
+		afterLastSHA = st.LastHandoff.CheckpointSHA
+	}
+	lastChanged := prevLastNil != afterLastNil || prevLastGoal != afterLastGoal || prevLastAgent != afterLastAgent || prevLastSHA != afterLastSHA
+	if wtHeadChanged || (st.Handoffs != nil && (len(st.Handoffs) != beforeHandoffs || lastChanged)) {
+		_, _ = state.Update(root, func(cur *state.State) error {
+			cur.CurrentAgent = st.CurrentAgent
+			cur.CurrentSessionID = st.CurrentSessionID
+			if sha != "" {
+				cur.SyncBranchHead(br, sha)
+			}
+			if cur.Handoffs != nil {
+				cur.PruneStaleHandoffs()
+			} else {
+				cur.RefreshHandoffStaleness()
+			}
+			return nil
+		})
 	}
 }
 

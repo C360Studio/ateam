@@ -220,7 +220,7 @@ func runStatePickup(repoRoot string, args []string) int {
 	}
 	st.CurrentSessionID = state.ResolveActiveSessionID(repoRoot, *session)
 	st.CurrentAgent = state.ResolveActiveAgent(repoRoot, *agent, st.Git.Branch, st.Writer)
-	st.RefreshHandoffStaleness()
+	state.ReconcilePickup(repoRoot, st, *agent, st.CurrentSessionID)
 	fmt.Println(state.BuildPickupSummary(st))
 	return 0
 }

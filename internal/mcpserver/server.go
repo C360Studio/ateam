@@ -282,10 +282,10 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 	}
 	st.CurrentSessionID = resolveEffectiveSessionID(st, args.SessionID, args.ConversationID, connSessionID)
 	st.CurrentAgent = state.ResolveActiveAgent(root, args.Agent, st.Git.Branch, st.Writer)
-	st.RefreshHandoffStaleness()
 
 	switch args.Action {
 	case "pickup":
+		state.ReconcilePickup(root, st, args.Agent, st.CurrentSessionID)
 		st.PopulateMCPProvenance(ctx, root, serverBuildLabel)
 		return state.BuildPickupSummary(st), false
 	case "handoff":
@@ -451,10 +451,10 @@ func handleResourceRead(ctx context.Context, root string, req rpcRequest, connSe
 	}
 	st.CurrentSessionID = resolveEffectiveSessionID(st, connSessionID)
 	st.CurrentAgent = state.ResolveActiveAgent(root, "", st.Git.Branch, st.Writer)
-	st.RefreshHandoffStaleness()
 	var text string
 	switch r.URI {
 	case "ateam://state/pickup":
+		state.ReconcilePickup(root, st, "", st.CurrentSessionID)
 		st.PopulateMCPProvenance(ctx, root, serverBuildLabel)
 		text = state.BuildPickupSummary(st)
 	case "ateam://state/board":

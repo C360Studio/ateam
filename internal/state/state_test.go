@@ -996,3 +996,115 @@ func FuzzPerAgentHandoffSlotHistory(f *testing.F) {
 		}
 	})
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestReview79HandoffPRLabelAndRefreshPreservation(t *testing.T) {
+	t.Setenv("ATEAM_AGENT", "")
+	t.Setenv("ATEAM_SESSION_ID", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CODEX_SESSION_ID", "")
+	t.Setenv("GEMINI_SESSION_ID", "")
+	t.Setenv("CLAUDECODE", "")
+
+	now := time.Now().UTC()
+	st := defaultState()
+	st.Git.Branch = "main"
+	st.Git.HeadSHA = "9f11a42"
+	st.Git.Worktrees = []Worktree{
+		{Path: "/repo", Branch: "main", Head: "9f11a42"},
+		{Path: "/repo/wt-codex", Branch: "codex/feat-open", Head: "bb11cc2"},
+	}
+	st.Cards = []BoardCard{
+		{ID: "GH-PR-45", Number: 45, Type: "pr", Column: "done", Merged: true, Branch: "gemini/old", Forge: "github"},
+		{ID: "GH-PR-71", Number: 71, Type: "pr", Column: "in-review", Branch: "codex/feat-open", Forge: "github"},
+	}
+
+	// Finding 4: Markdown #140 anchor, bare issue #76, and closed context PR #45 must NOT produce a false PR label in other handoffs.
+	st.SetHandoff(Handoff{
+		Goal:          "Post-merge cleanup after PR #45 landed on main",
+		Addresses:     "openspec/specs/harness/spec.md#140, issue #76; context: fixed earlier by PR #45",
+		DoneWhen:      "PR #45 follow-up verified",
+		ChecksToRun:   "task verify",
+		Agent:         "gemini",
+		Branch:        "main",
+		CheckpointSHA: "9f11a42",
+		UpdatedAt:     now.Add(-5 * time.Minute),
+	})
+	// Open branch PR #71 on codex/feat-open should be preferred even if Goal mentions closed PR #45 mid-sentence.
+	st.SetHandoff(Handoff{
+		Goal:          "Follow up after PR #45 on codex branch",
+		Addresses:     "openspec/specs/harness/spec.md#140",
+		DoneWhen:      "task verify",
+		ChecksToRun:   "task verify",
+		Agent:         "codex",
+		Branch:        "codex/feat-open",
+		CheckpointSHA: "bb11cc2",
+		UpdatedAt:     now.Add(-2 * time.Hour),
+	})
+	st.SetHandoff(Handoff{
+		Goal:          "Active claude work on main",
+		Addresses:     "issue #76",
+		DoneWhen:      "done",
+		ChecksToRun:   "task verify",
+		Agent:         "claude",
+		Branch:        "main",
+		CheckpointSHA: "9f11a42",
+		UpdatedAt:     now.Add(-1 * time.Minute),
+	})
+
+	st.CurrentAgent = "claude"
+	summary := BuildPickupSummary(st)
+	if !strings.HasSuffix(summary, "other handoffs: gemini@main (5m ago)") {
+		t.Fatalf("expected gemini@main without false PR #140 or closed PR #45 label, got:\n%s", summary)
+	}
+	if !strings.Contains(summary, "other handoffs: codex@codex/feat-open (2h ago, PR #71)") {
+		t.Fatalf("expected codex@codex/feat-open to prefer open branch PR #71, got:\n%s", summary)
+	}
+
+	// Finding 2: Agent-agnostic Refresh on main must not wipe LastHandoff to nil when handoffs["agent@main"] is absent,
+	// and same-session merged-PR handoff (#53) must survive Refresh + ReconcilePickup.
+	dir := t.TempDir()
+	stDisk := defaultState()
+	stDisk.Git.Branch = "main"
+	stDisk.Git.HeadSHA = "uncommitted"
+	stDisk.Cards = []BoardCard{
+		{ID: "GH-PR-45", Number: 45, Type: "pr", Column: "done", Merged: true, Forge: "github"},
+	}
+	stDisk.SetHandoff(Handoff{
+		Goal:          "PR #45: verify post-merge state on main",
+		Addresses:     "main @ uncommitted",
+		DoneWhen:      "verified",
+		ChecksToRun:   "task verify",
+		Agent:         "claude",
+		SessionID:     "sess-active",
+		Branch:        "main",
+		CheckpointSHA: "uncommitted",
+		UpdatedAt:     now,
+	})
+	if err := Save(dir, stDisk); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	refreshed, err := Refresh(context.Background(), dir, false)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if refreshed.LastHandoff == nil || refreshed.LastHandoff.Goal != "PR #45: verify post-merge state on main" {
+		t.Fatalf("expected agent-agnostic Refresh to preserve LastHandoff alias on disk, got %+v", refreshed.LastHandoff)
+	}
+	if refreshed.Handoffs["claude@main"] == nil {
+		t.Fatalf("expected Refresh not to prematurely delete claude@main before session is resolved")
+	}
+
+	ReconcilePickup(dir, refreshed, "claude", "sess-active")
+	if refreshed.Handoffs["claude@main"] == nil || refreshed.LastHandoff == nil {
+		t.Fatalf("expected ReconcilePickup in same session sess-active to preserve merged-PR handoff, got Handoffs=%+v LastHandoff=%+v", refreshed.Handoffs, refreshed.LastHandoff)
+	}
+	loadedDisk, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load after ReconcilePickup: %v", err)
+	}
+	if loadedDisk.LastHandoff == nil || loadedDisk.LastHandoff.Goal != "PR #45: verify post-merge state on main" {
+		t.Fatalf("expected .ateam/state.json LastHandoff alias preserved on disk, got %+v", loadedDisk.LastHandoff)
+	}
+}
