@@ -1,0 +1,1446 @@
+{
+  "version": 1,
+  "synthetic_provider": true,
+  "paid_calls": 0,
+  "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+  "driver_sha256": "18f0e2295947b7e9253a9055114295b6831a0a1d53c869e9c49c1906d08d1269",
+  "source_pins": {
+    "litellm/utils.py": "6265c8128c49d03574b951f0313c522b9f16b5563c51c1b75edddc05d4829d4b",
+    "litellm/main.py": "a264e4239d2bb5164fe868f5fb6f645b826c59a85c869dff7cb4ebb9312a1930",
+    "litellm/llms/custom_httpx/http_handler.py": "549120ca21739f49874f436be0005fe07815b1f769116ed35570f9377f621568",
+    "litellm/llms/custom_httpx/llm_http_handler.py": "c077f9c7aa20108e6e0efd3b9bcc6c03c329ab3541423a2b89622419aa84da7b",
+    "litellm/llms/anthropic/experimental_pass_through/adapters/handler.py": "8bad650b0d6926b9129a9c73236169a9fd3f28b6538409fe875ee9855fc36f70",
+    "litellm/integrations/custom_logger.py": "bfadb602b7e4e30d8bfb3987853273d8b68f33a62c9525704a49700e69e2603b",
+    "litellm-1.99.0-cp310-abi3-macosx_11_0_arm64.whl": "e2b383070656fdbec4bc44602edaaed2a21e99ceee4ea0a4650c8cb381e67b59",
+    "httpx/_client.py": "c43f941baefe58c91e96d00039e1868fe719d91453026d7db1647194563bff8d",
+    "httpx/_models.py": "e3ffc6bb2bf580bc6e6428708a6f247d036220e709f5a72b785392babbd97e6b",
+    "httpx/_types.py": "272878d4642aec039ebfc20e58a0c083bcc26ef1c07ee7e65b983f3e24ed12b6",
+    "httpx-0.28.1-py3-none-any.whl": "d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad",
+    "litellm/llms/openai/openai.py": "b277243b01df7d65056d8182b7fb302903fa9dda8df7f63e18ae4b96008bc76c",
+    "openai/_client.py": "d101a059e5c7632dff8f791ca8480c5cb07623272d421842ab40d348dd940517",
+    "openai/_base_client.py": "5539c83d01c27e1bbf1ad34e59cc872202feb6c8bf81b56fadbeeb2b81a3e869",
+    "openai/_streaming.py": "3178ebb721f4ff3cda6d479520ba2bddcdc7096e2a99827c6a0bc150fe44534a",
+    "openai-2.54.0-py3-none-any.whl": "89089789197ccdb87f173a03145ed1598d00795220c93e96cf712b1cbf5e5f2b",
+    "litellm/llms/inception/chat/transformation.py": "235c996797b9022c31ccf31199079991e73b346b5fe10a59484e14ab85ab1d0f",
+    "litellm/llms/openai/chat/gpt_transformation.py": "039b387ff7c57f00d72da4c94a0a8886f87b53b70118dac70c6d4d62bb7da740"
+  },
+  "projection": "Native prompts, full requests, private paths and credentials excluded. Synthetic bodies over16KiB are represented by length/hash only; raw files remain ignored. Hashes bind supplied artifacts, not authenticated origins.",
+  "cases": [
+    {
+      "case": "body-fail",
+      "summary": {
+        "case": "body-fail",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 1,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": true,
+        "usage": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "body-fail-1",
+          "request_sha256": "e76f35d6e03cc6d74e87938512b2c7e21f0a722b13958973be9bd497150a108a",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"completion_tokens\": 5, \"total_tokens\": 25, \"prompt_tokens_details\": {\"cached_tokens\": 3}, \"completion_tokens_details\": {\"reasoning_tokens\": 2}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 698,
+          "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "body-fail",
+            "exchange_id": "body-fail-1",
+            "method": "POST",
+            "request_sha256": "e76f35d6e03cc6d74e87938512b2c7e21f0a722b13958973be9bd497150a108a",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0,
+            "chunks": 0,
+            "termination": "capture_error"
+          },
+          "first": null,
+          "body": "",
+          "body_bytes": 0,
+          "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "failure": {
+        "reason": "capture_error"
+      },
+      "deployments": [
+        {
+          "attempt_id": "body-fail",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "body-fail",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "9f96e31b931ba8a971d7ca0f49da010bcee74bffa42a4e3e7586088d3ea9bcab",
+        "cli.stdout": "76b7c35c2a393d7187608ca96bb3957b51e5af13590308572f802500f43e7f7c",
+        "proxy.yaml": "53878114f24a38ad0e3ea6b907e18d02829c8661fe1e7552c9f1f720a09f0fcf",
+        "bridge.sb": "85d52357a00dfcaa838920876ed285a7862d0ba208263d8bc451574673106f59",
+        "cli.sb": "b274b9d2209368d844f6788a42af0dabeae9047cbf423315da9ac6636ccee24f"
+      }
+    },
+    {
+      "case": "cancel",
+      "summary": {
+        "case": "cancel",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cancelled_after_durable_first_chunk": true,
+        "cli_exit": 143,
+        "bridge_exit": -15
+      },
+      "native": null,
+      "fixture": [
+        {
+          "exchange_id": "cancel-1",
+          "request_sha256": "03f5f9d1b4c47b57bce96cd3d49f4ea2229bb617b5b3220bbbc81d9dc117e530",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "connection_closed_after_cli_exit": false,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\n",
+          "body_bytes": 219,
+          "body_sha256": "cf6bd87e043d02ff3d2859b7106c370923811bcd2c3336323d9bf2effd8a4cc7",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "cancel",
+            "exchange_id": "cancel-1",
+            "method": "POST",
+            "request_sha256": "03f5f9d1b4c47b57bce96cd3d49f4ea2229bb617b5b3220bbbc81d9dc117e530",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "cf6bd87e043d02ff3d2859b7106c370923811bcd2c3336323d9bf2effd8a4cc7",
+            "bytes": 219,
+            "chunks": 1,
+            "termination": "transport_error"
+          },
+          "first": {
+            "bytes": 219
+          },
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\n",
+          "body_bytes": 219,
+          "body_sha256": "cf6bd87e043d02ff3d2859b7106c370923811bcd2c3336323d9bf2effd8a4cc7"
+        }
+      ],
+      "failure": null,
+      "deployments": [
+        {
+          "attempt_id": "cancel",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "cancel",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "82782464eb1091f0fc58693a3ce21618c6d52bfd6d8052fc0c66b004970a41cc",
+        "cli.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "proxy.yaml": "137f56b7e3222b073fe1240cd01702ada913dbf88b67360517b04e602b7141ab",
+        "bridge.sb": "eca44c52773fdb3ffe3952d19cae22cde474e8125d34da1e4dfcca9daa4ad62d",
+        "cli.sb": "31ab6c0499cbe9c22d0efd08b31d05660881724f002858048de5e52e3dde0283"
+      }
+    },
+    {
+      "case": "disabled",
+      "summary": {
+        "case": "disabled",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 0,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "usage": {
+          "input_tokens": 17,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 3,
+          "output_tokens": 5
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": null,
+          "request_sha256": "c466289f8d69c3f43ee16948cab24eabf61a4eb785df150fb5a71ca8ad9775e3",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"completion_tokens\": 5, \"total_tokens\": 25, \"prompt_tokens_details\": {\"cached_tokens\": 3}, \"completion_tokens_details\": {\"reasoning_tokens\": 2}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 698,
+          "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [],
+      "failure": null,
+      "deployments": [],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "4fff26a1dabcc2306ccddce6f1f74a09916ca1b046a7389d8bf149742fd28f1b",
+        "cli.stdout": "bf0124e561add291b38412e02d6d9a3340ad4349a1bbce53fe22720c801e603b",
+        "proxy.yaml": "24421faf850f241a46d5400546cb3cc3743785e85685e8938943e461c57dc077",
+        "bridge.sb": "93c6db576c83ddf2c25a0216c94bb6a458dda70b102d69b9bea107fcf9ff44f4",
+        "cli.sb": "3024bed14a6e988e409177c9f46dde3b2b2d9372de3e6eb2303d9668ec39aeee"
+      }
+    },
+    {
+      "case": "disconnect",
+      "summary": {
+        "case": "disconnect",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 1,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": true,
+        "usage": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "disconnect-1",
+          "request_sha256": "8da099aa5398ee0a13b22a4a5d189627489e2c87a8cb5a99194dc24a1f2599f5",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\n",
+          "body_bytes": 219,
+          "body_sha256": "cf6bd87e043d02ff3d2859b7106c370923811bcd2c3336323d9bf2effd8a4cc7",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "disconnect",
+            "exchange_id": "disconnect-1",
+            "method": "POST",
+            "request_sha256": "8da099aa5398ee0a13b22a4a5d189627489e2c87a8cb5a99194dc24a1f2599f5",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "cf6bd87e043d02ff3d2859b7106c370923811bcd2c3336323d9bf2effd8a4cc7",
+            "bytes": 219,
+            "chunks": 1,
+            "termination": "transport_error"
+          },
+          "first": {
+            "bytes": 219
+          },
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\n",
+          "body_bytes": 219,
+          "body_sha256": "cf6bd87e043d02ff3d2859b7106c370923811bcd2c3336323d9bf2effd8a4cc7"
+        }
+      ],
+      "failure": null,
+      "deployments": [
+        {
+          "attempt_id": "disconnect",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "disconnect",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "41bed47f28cfd9eac2115fd149659fdf58cde268a53af6fcb1c7eb50781fe368",
+        "cli.stdout": "7c9cb2e662f47d05f384a9cd6da0a53f92046c43a721f86d28a811f2ed693c70",
+        "proxy.yaml": "b14babf8c00c3286c82ba03580620439e9dfacdf538929b3ff2dfc07599d183c",
+        "bridge.sb": "167f5da9ba143acc694a9c6775c6f5f1225089d69658239b74f83348018a0fba",
+        "cli.sb": "d7fa9589edd06777084bc9865024b5616f77e840e9a3b9def003db624daeb3cd"
+      }
+    },
+    {
+      "case": "end-dir-fail",
+      "summary": {
+        "case": "end-dir-fail",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 1,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": true,
+        "usage": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "end-dir-fail-1",
+          "request_sha256": "1b3cea3808d0218dcf3474a759d0aa47f5a8c342762e0aee8f871c202210e806",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"completion_tokens\": 5, \"total_tokens\": 25, \"prompt_tokens_details\": {\"cached_tokens\": 3}, \"completion_tokens_details\": {\"reasoning_tokens\": 2}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 698,
+          "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "end-dir-fail",
+            "exchange_id": "end-dir-fail-1",
+            "method": "POST",
+            "request_sha256": "1b3cea3808d0218dcf3474a759d0aa47f5a8c342762e0aee8f871c202210e806",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa",
+            "bytes": 698,
+            "chunks": 2,
+            "termination": "eof"
+          },
+          "first": {
+            "bytes": 117
+          },
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"completion_tokens\": 5, \"total_tokens\": 25, \"prompt_tokens_details\": {\"cached_tokens\": 3}, \"completion_tokens_details\": {\"reasoning_tokens\": 2}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 698,
+          "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa"
+        }
+      ],
+      "failure": {
+        "reason": "capture_error"
+      },
+      "deployments": [
+        {
+          "attempt_id": "end-dir-fail",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "end-dir-fail",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "0c1813b90e508bd983852c478dc58a4aa7f085f67f8c7d1dfecb3275fe149642",
+        "cli.stdout": "5c72cb2bbced94d1a384d773918acb7af88a3e14ab4492bd2058d7b477119ffa",
+        "proxy.yaml": "bc18d1f010ec1fcfb2c6cd08202375a7b352d0916c9a1dc8751c03a6a7be6344",
+        "bridge.sb": "7be923d622b57edcb401fadfbd56f787a9e5666572db70c130b80d5f8f6f76a7",
+        "cli.sb": "78b7d1e2f8130d48f2f4e1762f21c92621e27a969ac6a66c611ab9c9639d44b5"
+      }
+    },
+    {
+      "case": "end-file-fail",
+      "summary": {
+        "case": "end-file-fail",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 1,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": true,
+        "usage": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "end-file-fail-1",
+          "request_sha256": "67328ca09b9130118df8e2b6d5f649d2c7ca121bc915249ed9b5831212e9ed1d",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"completion_tokens\": 5, \"total_tokens\": 25, \"prompt_tokens_details\": {\"cached_tokens\": 3}, \"completion_tokens_details\": {\"reasoning_tokens\": 2}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 698,
+          "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "end-file-fail",
+            "exchange_id": "end-file-fail-1",
+            "method": "POST",
+            "request_sha256": "67328ca09b9130118df8e2b6d5f649d2c7ca121bc915249ed9b5831212e9ed1d",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa",
+            "bytes": 698,
+            "chunks": 2,
+            "termination": "eof"
+          },
+          "first": {
+            "bytes": 117
+          },
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"completion_tokens\": 5, \"total_tokens\": 25, \"prompt_tokens_details\": {\"cached_tokens\": 3}, \"completion_tokens_details\": {\"reasoning_tokens\": 2}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 698,
+          "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa"
+        }
+      ],
+      "failure": {
+        "reason": "capture_error"
+      },
+      "deployments": [
+        {
+          "attempt_id": "end-file-fail",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "end-file-fail",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "cec02587d771dedc56ecf63ac7e7b60a0a8c94ed5ce5a24c1db42f72f0624d08",
+        "cli.stdout": "a4048693ab713543e6feacecdd74ad67cb215c0b95fb9ad827bed57ae7d08244",
+        "proxy.yaml": "bce918918f210a39aa994b7ad57be0c57c3bf177733f6c1806bf3756bfe3fb36",
+        "bridge.sb": "0633e78e69b529806931294853a1be342d295a7b2ceb9af69435f19532cb7357",
+        "cli.sb": "ac3cc1d04a186c962bebad54cacf8b86b128122a46c32ae3a16c706c5fde7faa"
+      }
+    },
+    {
+      "case": "http-error",
+      "summary": {
+        "case": "http-error",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 1,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": true,
+        "usage": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "http-error-1",
+          "request_sha256": "dd2bfada1473e1387a2b95a8c61192d03c606107068f8aa96ebb7b589b103a54",
+          "path": "/v1/chat/completions",
+          "response_status": 429,
+          "body": "{\"error\":{\"message\":\"offline rate limit\",\"type\":\"rate_limit\"}}",
+          "body_bytes": 62,
+          "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "http-error",
+            "exchange_id": "http-error-1",
+            "method": "POST",
+            "request_sha256": "dd2bfada1473e1387a2b95a8c61192d03c606107068f8aa96ebb7b589b103a54",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "application/json",
+            "status": 429
+          },
+          "end": {
+            "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf",
+            "bytes": 62,
+            "chunks": 1,
+            "termination": "eof"
+          },
+          "first": {
+            "bytes": 62
+          },
+          "body": "{\"error\":{\"message\":\"offline rate limit\",\"type\":\"rate_limit\"}}",
+          "body_bytes": 62,
+          "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf"
+        }
+      ],
+      "failure": null,
+      "deployments": [
+        {
+          "attempt_id": "http-error",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "http-error",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "236074d2244336c24d94c5a08fad8582cc5240f2e0e3bd0445f276b0c74c57b7",
+        "cli.stdout": "201d2c3121a43ae08282a60754fd4b3d466de9862eba05b624bce797e19dfc87",
+        "proxy.yaml": "75fd2134bf40991ce309fa8fbcefc18d3de8a61e19b9c128384ced5de656740a",
+        "bridge.sb": "c150c84b3e68f9a75a6361e22d79deb9bcfde51b5270ad08eab07d0f32a4c59d",
+        "cli.sb": "134d861f1bc45718ba50779f5640df03ae01164352809743b758626218b98b21"
+      }
+    },
+    {
+      "case": "intent-fail",
+      "summary": {
+        "case": "intent-fail",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 1,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": true,
+        "usage": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        }
+      },
+      "fixture": [],
+      "captures": [],
+      "failure": {
+        "reason": "capture_error"
+      },
+      "deployments": [
+        {
+          "attempt_id": "intent-fail",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "intent-fail",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "cli.stdout": "967e382ed27e3307b1f77a6b636e77e4fc6ca6231cf4082ed36ea5dff426f8c2",
+        "proxy.yaml": "e2b3df5c51bc8ad00742b3289f5ac5f2c35e0eaa9a9b8411e95759d18939747e",
+        "bridge.sb": "f0a247db794d3908e61e0a65e71e3832bee5e6a472b1d8bfe3ba40dac990fbbe",
+        "cli.sb": "749e7d5c8f264cc6ccd63e51e31d294cf3f2c6ffc66bedac97c3ab91a07593a6"
+      }
+    },
+    {
+      "case": "known",
+      "summary": {
+        "case": "known",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 0,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "usage": {
+          "input_tokens": 17,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 3,
+          "output_tokens": 5
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "known-1",
+          "request_sha256": "ee9a403deea9f182e7cdfe20558d48029d20332b6faf69083c6db39ae8691e45",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"completion_tokens\": 5, \"total_tokens\": 25, \"prompt_tokens_details\": {\"cached_tokens\": 3}, \"completion_tokens_details\": {\"reasoning_tokens\": 2}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 698,
+          "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "known",
+            "exchange_id": "known-1",
+            "method": "POST",
+            "request_sha256": "ee9a403deea9f182e7cdfe20558d48029d20332b6faf69083c6db39ae8691e45",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa",
+            "bytes": 698,
+            "chunks": 2,
+            "termination": "eof"
+          },
+          "first": {
+            "bytes": 117
+          },
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"completion_tokens\": 5, \"total_tokens\": 25, \"prompt_tokens_details\": {\"cached_tokens\": 3}, \"completion_tokens_details\": {\"reasoning_tokens\": 2}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 698,
+          "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa"
+        }
+      ],
+      "failure": null,
+      "deployments": [
+        {
+          "attempt_id": "known",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "known",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "733d33f2ed63c2cd1f6578426a733f17b94f08ba7cba2c4878252c42320e15f9",
+        "cli.stdout": "b518367f6b0af1baa4dad92b7d1d0a455bfa9920535540503cfb70f298bd8f9a",
+        "proxy.yaml": "89297a99fff088fa783fcfc4bca800a0e2ab1f03ee60c4102ae8934e55b0d0b8",
+        "bridge.sb": "76f76101865f73026ce1257bb2c15a781499ca0b92d7c1cccdf1d5ee305a498c",
+        "cli.sb": "1b7cf29038d3db419535c346b0876c0179e18bfe5d5401b5ed9db3f683457be1"
+      }
+    },
+    {
+      "case": "missing",
+      "summary": {
+        "case": "missing",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 0,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "usage": {
+          "input_tokens": 22,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 4
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "missing-1",
+          "request_sha256": "e1ca61de06696c2ceadc701ed0eef1e228f7826be8e7bbacdea3225829666f90",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: [DONE]\n\n",
+          "body_bytes": 402,
+          "body_sha256": "59f27910c0db5c7960b46dda5cdc5fa81744748133518ad300d2f876dabc6aaf",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "missing",
+            "exchange_id": "missing-1",
+            "method": "POST",
+            "request_sha256": "e1ca61de06696c2ceadc701ed0eef1e228f7826be8e7bbacdea3225829666f90",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "59f27910c0db5c7960b46dda5cdc5fa81744748133518ad300d2f876dabc6aaf",
+            "bytes": 402,
+            "chunks": 2,
+            "termination": "eof"
+          },
+          "first": {
+            "bytes": 117
+          },
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: [DONE]\n\n",
+          "body_bytes": 402,
+          "body_sha256": "59f27910c0db5c7960b46dda5cdc5fa81744748133518ad300d2f876dabc6aaf"
+        }
+      ],
+      "failure": null,
+      "deployments": [
+        {
+          "attempt_id": "missing",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "missing",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "4f99cb74ca0057d163d651d087aa3aeac91c5f48dc18c1bfc3a416f5da64618f",
+        "cli.stdout": "6727bee7432b83f21d6f971763bf3464ae66a59072eb1fc7dbcf5964c8696d3a",
+        "proxy.yaml": "60163b29e11ac3d02b77eaa500e7701a02c0854a8751096c53b698652efbd7bf",
+        "bridge.sb": "13d8573e9b049ea8170210d263626210e601bad82bbdaf543a4a7ef8fabd66d0",
+        "cli.sb": "07395f7394590bad9b35ce9412c67bbb1f7e205ed80d6a13cfd842bff852c91c"
+      }
+    },
+    {
+      "case": "oversize",
+      "summary": {
+        "case": "oversize",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 1,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": true,
+        "usage": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "oversize-1",
+          "request_sha256": "304ad9557cf36984b5996f54f36abb2d0de2113fe430c504500ae8b655552995",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": null,
+          "body_bytes": 1049277,
+          "body_sha256": "1cb74a8ce089130fc7abd0bdf1f68c448901dfb0f6c1bb353d19faed13feed1f",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "oversize",
+            "exchange_id": "oversize-1",
+            "method": "POST",
+            "request_sha256": "304ad9557cf36984b5996f54f36abb2d0de2113fe430c504500ae8b655552995",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "4eec375efb6a248745c93c36ad78abcee698e94d4c9045cf26af083e78daecad",
+            "bytes": 997245,
+            "chunks": 18,
+            "termination": "capture_error"
+          },
+          "first": {
+            "bytes": 117
+          },
+          "body": null,
+          "body_bytes": 997245,
+          "body_sha256": "4eec375efb6a248745c93c36ad78abcee698e94d4c9045cf26af083e78daecad"
+        }
+      ],
+      "failure": {
+        "reason": "capture_error"
+      },
+      "deployments": [
+        {
+          "attempt_id": "oversize",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "oversize",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "711f56008a92443e9fd45877ad75e88a37f537c213040e3d519800169c17e3bf",
+        "cli.stdout": "0ef7639766c2892ee8da1a143c1d59d4f42f6d7794c57bf71a6d20d56df3920e",
+        "proxy.yaml": "5d1a8f19681ab3327c95031bb63b034209e12560c9e19de92217dc3bc6222dad",
+        "bridge.sb": "785e1dbfc582b60ddb71094e875e7558b6f126a5e8a3fb31510becedaa3429d9",
+        "cli.sb": "168dfa87959ff9f55ad1e999d0f333289cc23659b41a1baba98778a50a3c2eb7"
+      }
+    },
+    {
+      "case": "partial",
+      "summary": {
+        "case": "partial",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 0,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "usage": {
+          "input_tokens": 17,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 3,
+          "output_tokens": 4
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "partial-1",
+          "request_sha256": "2ec7eff4bb87f49aa4b3e2fe5b859eb4c6adc9d1c7b9869fb6ceb1ec2ef611c2",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"prompt_tokens_details\": {\"cached_tokens\": 3}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 600,
+          "body_sha256": "7a3696df7e2bc4cbca352b767f89e0f0876caa9ca5aebb6d38e8e7483d08cd52",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "partial",
+            "exchange_id": "partial-1",
+            "method": "POST",
+            "request_sha256": "2ec7eff4bb87f49aa4b3e2fe5b859eb4c6adc9d1c7b9869fb6ceb1ec2ef611c2",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "7a3696df7e2bc4cbca352b767f89e0f0876caa9ca5aebb6d38e8e7483d08cd52",
+            "bytes": 600,
+            "chunks": 2,
+            "termination": "eof"
+          },
+          "first": {
+            "bytes": 117
+          },
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"prompt_tokens_details\": {\"cached_tokens\": 3}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 600,
+          "body_sha256": "7a3696df7e2bc4cbca352b767f89e0f0876caa9ca5aebb6d38e8e7483d08cd52"
+        }
+      ],
+      "failure": null,
+      "deployments": [
+        {
+          "attempt_id": "partial",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "partial",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "e23815e67613ca07a3b35fe238bfce19af1eab19d1f6a9623a6854e0600f162f",
+        "cli.stdout": "7b29d893bcb746a42d711f0d9a4c20e61be30f81401f6750083a2f505a797cc0",
+        "proxy.yaml": "2b46b5bd3a4804cb5019c11e3d544aff5cd90e02fa040e2b675b799fe866e68c",
+        "bridge.sb": "c1caf42b07571d39b4822fd3bec656f6e4781efc40fd709eaa83ab01282e7c95",
+        "cli.sb": "e276a829e9bea1d5e55871a251ceaeb2e65d0fc6cbc7b41a059c2e3e4174e76f"
+      }
+    },
+    {
+      "case": "zero",
+      "summary": {
+        "case": "zero",
+        "hook_sha256": "3fd98944e892d07564bf9c754ac626a5da977c17e43c9233f6a7d91d64fdf691",
+        "cli_exit": 0,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "usage": {
+          "input_tokens": 22,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 4
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "zero-1",
+          "request_sha256": "eccf2f929ac7e6f9e70a36ea68d19496ba5a6d6ffb38e943c4619531334aa55b",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 0, \"completion_tokens\": 0, \"total_tokens\": 0, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 696,
+          "body_sha256": "5ad2510d0af5c2ff999da7c9d9a65a1a4db751d1d728a6ccfb1892f82617ebc5",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "zero",
+            "exchange_id": "zero-1",
+            "method": "POST",
+            "request_sha256": "eccf2f929ac7e6f9e70a36ea68d19496ba5a6d6ffb38e943c4619531334aa55b",
+            "sdk_max_retries": 0,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "5ad2510d0af5c2ff999da7c9d9a65a1a4db751d1d728a6ccfb1892f82617ebc5",
+            "bytes": 696,
+            "chunks": 2,
+            "termination": "eof"
+          },
+          "first": {
+            "bytes": 117
+          },
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 0, \"completion_tokens\": 0, \"total_tokens\": 0, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 696,
+          "body_sha256": "5ad2510d0af5c2ff999da7c9d9a65a1a4db751d1d728a6ccfb1892f82617ebc5"
+        }
+      ],
+      "failure": null,
+      "deployments": [
+        {
+          "attempt_id": "zero",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "zero",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "f9b2bcb2bd1d8103f0699ffdc723342fb3daa03b383bdc5f0a469ef53428deac",
+        "cli.stdout": "00916632263e8b77a220b803d323f85e1a1212ace4687c9d706e556c74404668",
+        "proxy.yaml": "7ab44252626c988ebc69370eedc2f6a0051a8212ac35430d66b1861269720165",
+        "bridge.sb": "b6735cc30cb2c61b60c41d9662c2619d1bb043eb3ae19007a26630491ba74ab9",
+        "cli.sb": "79ab0eeba2998a53c50760f6d8ac6193a3861d6b5efc619397563608428dc0ec"
+      }
+    }
+  ],
+  "prior_trials": [
+    {
+      "case": "known",
+      "summary": {
+        "case": "known",
+        "hook_sha256": "a36f9fc91875447667ad38d7de0c74ffb8b6f7100b9160f35296566b4258515d",
+        "cli_exit": 1,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": true,
+        "usage": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        }
+      },
+      "fixture": [],
+      "captures": [],
+      "failure": null,
+      "deployments": [
+        {
+          "attempt_id": "known",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "known",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "cli.stdout": "944b1672cf051a5eb0ffa37d85042ea2781e14e8c197bca7c2b24e0fc9bc5132",
+        "proxy.yaml": "8241416b7781a299392f89acaaeb87e06f565acf8c0f62af4e447347f31a65fd",
+        "bridge.sb": "6047d12521d63048e8be90e1de167fdd66cbebfbe795db6549bddd19ae6abbbd",
+        "cli.sb": "2017cee29ebd15677109a3db5343ea8638b37d02bb9694f1c1d6e8f541935722"
+      }
+    },
+    {
+      "case": "known",
+      "summary": {
+        "case": "known",
+        "hook_sha256": "44053bd27c688fcc30095f7d7feb7e92f6037a726e8ee6e6e183e1d2ee7800c3",
+        "cli_exit": 0,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "usage": {
+          "input_tokens": 17,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 3,
+          "output_tokens": 5
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "known-1",
+          "request_sha256": "10926ab5fa136ed522d770bb81544378721234340ba3f171d1ea4797eabffa49",
+          "path": "/v1/chat/completions",
+          "response_status": 200,
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"completion_tokens\": 5, \"total_tokens\": 25, \"prompt_tokens_details\": {\"cached_tokens\": 3}, \"completion_tokens_details\": {\"reasoning_tokens\": 2}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 698,
+          "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "known",
+            "exchange_id": "known-1",
+            "method": "POST",
+            "request_sha256": "10926ab5fa136ed522d770bb81544378721234340ba3f171d1ea4797eabffa49"
+          },
+          "headers": {
+            "content_type": "text/event-stream",
+            "status": 200
+          },
+          "end": {
+            "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa",
+            "bytes": 698,
+            "chunks": 2,
+            "termination": "closed"
+          },
+          "first": {
+            "bytes": 117
+          },
+          "body": "data: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"offline-fixture-ok\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: {\"id\": \"capture-fixture\", \"object\": \"chat.completion.chunk\", \"created\": 1, \"model\": \"mercury-3\", \"choices\": [], \"usage\": {\"prompt_tokens\": 20, \"completion_tokens\": 5, \"total_tokens\": 25, \"prompt_tokens_details\": {\"cached_tokens\": 3}, \"completion_tokens_details\": {\"reasoning_tokens\": 2}}}\n\ndata: [DONE]\n\n",
+          "body_bytes": 698,
+          "body_sha256": "a523a177824f152e9eaf95865346037e67276274085de4b4f87adae9435c31aa"
+        }
+      ],
+      "failure": null,
+      "deployments": [
+        {
+          "attempt_id": "known",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "known",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "09ec7233673eac10d78449a6d83c29b02fe85badbd6b67bfb82603e687adb22b",
+        "cli.stdout": "8c1180bad192d7dc113bb14fe0fa84117bf7e7452f4bbecc8f82b033130dfa17",
+        "proxy.yaml": "473c048240279680304abbced5403f9a2ed8726745be18cc2e8564163ecf83e8",
+        "bridge.sb": "bdb1c7735389e43e3e0ccde101c64de45200b3c3e64bd85ad935598bd78cd9f2",
+        "cli.sb": "773ee156e79704496da781f00d7028603eca0cab2763e2dabebf1db257f04b6c"
+      }
+    },
+    {
+      "case": "http-error",
+      "summary": {
+        "case": "http-error",
+        "hook_sha256": "9cd8a869ef039257bcc2d067b57d6d62e7d0bf930217a16ea4f809dfabca2619",
+        "cli_exit": 1,
+        "bridge_exit": -15
+      },
+      "native": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": true,
+        "usage": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        }
+      },
+      "fixture": [
+        {
+          "exchange_id": "http-error-1",
+          "request_sha256": "2c1541d7773290c6253bb6771459b89d8cf224f8e6333428c76677081c6b1d4e",
+          "path": "/v1/chat/completions",
+          "response_status": 429,
+          "body": "{\"error\":{\"message\":\"offline rate limit\",\"type\":\"rate_limit\"}}",
+          "body_bytes": 62,
+          "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        },
+        {
+          "exchange_id": "http-error-2",
+          "request_sha256": "2c1541d7773290c6253bb6771459b89d8cf224f8e6333428c76677081c6b1d4e",
+          "path": "/v1/chat/completions",
+          "response_status": 429,
+          "body": "{\"error\":{\"message\":\"offline rate limit\",\"type\":\"rate_limit\"}}",
+          "body_bytes": 62,
+          "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        },
+        {
+          "exchange_id": "http-error-3",
+          "request_sha256": "2c1541d7773290c6253bb6771459b89d8cf224f8e6333428c76677081c6b1d4e",
+          "path": "/v1/chat/completions",
+          "response_status": 429,
+          "body": "{\"error\":{\"message\":\"offline rate limit\",\"type\":\"rate_limit\"}}",
+          "body_bytes": 62,
+          "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf",
+          "request_controls": {
+            "model": "mercury-3",
+            "stream": true,
+            "max_tokens": 1024,
+            "reasoning_effort": "low",
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "unexpected_retry_fields": []
+        }
+      ],
+      "captures": [
+        {
+          "intent": {
+            "attempt_id": "http-error",
+            "exchange_id": "http-error-1",
+            "method": "POST",
+            "request_sha256": "2c1541d7773290c6253bb6771459b89d8cf224f8e6333428c76677081c6b1d4e",
+            "sdk_max_retries": 2,
+            "sdk_retry_header": "0"
+          },
+          "headers": {
+            "content_type": "application/json",
+            "status": 429
+          },
+          "end": {
+            "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf",
+            "bytes": 62,
+            "chunks": 1,
+            "termination": "eof"
+          },
+          "first": {
+            "bytes": 62
+          },
+          "body": "{\"error\":{\"message\":\"offline rate limit\",\"type\":\"rate_limit\"}}",
+          "body_bytes": 62,
+          "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf"
+        },
+        {
+          "intent": {
+            "attempt_id": "http-error",
+            "exchange_id": "http-error-2",
+            "method": "POST",
+            "request_sha256": "2c1541d7773290c6253bb6771459b89d8cf224f8e6333428c76677081c6b1d4e",
+            "sdk_max_retries": 2,
+            "sdk_retry_header": "1"
+          },
+          "headers": {
+            "content_type": "application/json",
+            "status": 429
+          },
+          "end": {
+            "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf",
+            "bytes": 62,
+            "chunks": 1,
+            "termination": "eof"
+          },
+          "first": {
+            "bytes": 62
+          },
+          "body": "{\"error\":{\"message\":\"offline rate limit\",\"type\":\"rate_limit\"}}",
+          "body_bytes": 62,
+          "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf"
+        },
+        {
+          "intent": {
+            "attempt_id": "http-error",
+            "exchange_id": "http-error-3",
+            "method": "POST",
+            "request_sha256": "2c1541d7773290c6253bb6771459b89d8cf224f8e6333428c76677081c6b1d4e",
+            "sdk_max_retries": 2,
+            "sdk_retry_header": "2"
+          },
+          "headers": {
+            "content_type": "application/json",
+            "status": 429
+          },
+          "end": {
+            "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf",
+            "bytes": 62,
+            "chunks": 1,
+            "termination": "eof"
+          },
+          "first": {
+            "bytes": 62
+          },
+          "body": "{\"error\":{\"message\":\"offline rate limit\",\"type\":\"rate_limit\"}}",
+          "body_bytes": 62,
+          "body_sha256": "5376a8a4109e0526793bcefdc6449556c98e6fce40002206ffa8cfb285f400cf"
+        }
+      ],
+      "failure": null,
+      "deployments": [
+        {
+          "attempt_id": "http-error",
+          "call_type": "CallTypes.anthropic_messages"
+        },
+        {
+          "attempt_id": "http-error",
+          "call_type": "CallTypes.acompletion"
+        }
+      ],
+      "controls": {
+        "bridge": true,
+        "cli": true
+      },
+      "raw_sha256": {
+        "fixture.json": "af4b07b2fd5aa1a9e0c4bef1c4c3b831e5b44ad4ba45e15dde4bb739757050c4",
+        "cli.stdout": "87c38beb22ed5bd29b398d656a432721cce301b6898bea747e59c72dcabd8f93",
+        "proxy.yaml": "3012fe3f57d330f53bbeadb2516b9f28e487e07bbbdfbd29e2cd3eeceb523746",
+        "bridge.sb": "ab4e0577f1bfb7120ce9d0eb2256bf54fd9364a36bc63a4d56a73ce8495b71b5",
+        "cli.sb": "d83df331305476569e38cc24a8c4d4fdc244daf98fa4a6848287ef6120ee8c3f"
+      }
+    }
+  ]
+}

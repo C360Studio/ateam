@@ -21,3 +21,9 @@ Files/callers in scope: this plan, `tasks.md`, a capture report and new opt-in r
 ## Stop boundary
 
 Stop at a review-ready PR with actual capture evidence and bounded demonstrated guarantees or a concrete blocker. No production integration, additional runtime, fresh paid calibration, automatic retry or broader skill/tool qualification. Runtime/spending holds stay active until their remaining gates are independently demonstrated. This research instrument is not authorization for a paid run and does not turn arbitrary client counters into provider billing.
+
+## Candidate refinements observed during execution
+
+The first actual probe showed the Inception route expects an OpenAI SDK client (`AsyncHTTPHandler` lacked `.chat`); no provider request occurred. The supported refinement supplies the already pinned `AsyncOpenAI` with HTTPX hooks and explicit deployment-level zero retries. An actual tee-only probe then captured all fixture bytes but observed SDK close at DONE without iterator EOF. The independently reviewed bounded-buffered profile wraps the public stream to enforce limits and persist chunks, then uses public `response.aread()` before returning to the SDK. This demonstrates actual EOF without private response mutation, at the explicit cost of buffering/timing changes. Completion-record file/directory sync failures are separate negative controls: valid-looking EOF JSON alone cannot authorize capture acceptance.
+
+A further independently reviewed local control tests `allowed_openai_params=["max_retries"]` with explicit zero after actual HTTP429 evidence showed SDK retry setting2 and three dispatches. Preserve existing allowed parameters, record the original failure, and require measured SDK0, exactly one fixture request, and no retry-control field in provider JSON before adopting this configuration in the final fixture set. This is limited to the tested path, not a general retry guarantee.

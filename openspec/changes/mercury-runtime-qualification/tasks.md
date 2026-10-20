@@ -19,7 +19,7 @@ PR #64 merged the offline blocker report. The next usage-provenance slice is cla
   Owner authorized the scoped isolated offline setup and implementation by requesting review-ready delivery of PR #64. Production adapter delivery remains out of scope.
 - [x] Exercise the actual pinned CLI/bridge against isolated fixtures and deliver the [offline blocker report](offline-report.md), retained evidence, replay checks and negative-control detections.
 - [ ] Resolve provider-usage provenance and then finish tool histories, permissions, cancellation, error handling and broader replay qualification.
-  Hold: the missing-usage fixture became successful numeric bridge/CLI counters; the route remains unqualified. The offline reader preserves that unknown; live pre-normalization capture/correlation remains unproved. See usage-provenance-report.md.
+  Hold: the missing-usage fixture became successful numeric bridge/CLI counters; the route remains unqualified. The offline reader preserves that unknown. Bounded native fixture capture/correlation is now demonstrated in capture-report.md; production streaming, cancellation propagation and broader native histories remain unqualified.
 - [x] Reconcile landed PR #43 (`8e52e719`) and PR #32 (`b789cf62`) from main; keep stopped Gemini evidence frozen.
 - [ ] Complete independent implementation review and required checks before claiming a qualified runtime.
 - [ ] Freeze and review the canary/A/A protocol before live calibration.
@@ -33,6 +33,6 @@ PR #64 merged the offline blocker report. The next usage-provenance slice is cla
 
 ## Native provider-boundary capture continuation
 
-- [ ] Claim and independently review the [offline capture scope](capture-plan.md), supported hook path and isolation controls.
-- [ ] Exercise the pinned native stack with provider-boundary capture and local fixture/history oracles; publish evidence or a concrete blocker.
+- [x] Claim and independently review the [offline capture scope](capture-plan.md), supported hook path and isolation controls.
+- [x] Exercise the pinned native stack with provider-boundary capture and local fixture/history oracles; publish [evidence and the cancellation blocker](capture-report.md).
 - [ ] Complete explicit research checks, mutation evidence, independent technical review and full repository verification; publish review-ready PR.
