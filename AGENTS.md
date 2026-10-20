@@ -83,7 +83,7 @@ Domain-grouped reference. `.agents/rules-index.md` carries the matching 3-column
 | `verify` | `ateam bench --selftest` verifies good/bad reference fixtures and mutation detection before any live benchmark run | `internal/bench` |
 | `verify` | `task verify` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | `Taskfile.yml`; `.agents/skills/preflight/SKILL.md` |
 | `verify+review` | Configured model review requires an independent stronger reviewer, current evidence, and explicit owner exceptions at the model ceiling; effort and provider are not model rank | `internal/review`; `internal/bootstrap/review.go`; `docs/model-review.md` |
-| `merge:check+review` | Non-draft code PRs carry `implemented-by:` and `reviewed-by:` naming different agents (`claude`, `codex`, `gemini`), checked alongside active `main` ruleset and open `class:flake` issues by `task merge:check` | `scripts/merge-check.sh`; `.github/workflows/ci.yml`; `.agents/protocol.md` |
+| `merge:check+review` | Non-draft code PRs (any file outside `.md` and `openspec/**/*.{md,yml,yaml,json}`, plus `.claude/agents/` and `.agents/contracts/`) carry `implemented-by:` and `reviewed-by:` naming different agents (`claude`, `codex`, `gemini`), checked alongside active `main` ruleset and open `class:flake` issues by `task merge:check` | `scripts/merge-check.sh`; `.github/workflows/ci.yml`; `.agents/protocol.md` |
 
 ## Four inline workflow gates
 
