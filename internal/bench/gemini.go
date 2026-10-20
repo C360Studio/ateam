@@ -3,6 +3,7 @@ package bench
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -79,6 +80,13 @@ func executeGemini(ctx context.Context, e Experiment, request AdapterRequest, di
 		return response, out, diagnostic, status, bounded.Err()
 	}
 	if runErr != nil {
+		var exit *exec.ExitError
+		if out == "" && errors.As(runErr, &exit) && exit.ExitCode() == 53 {
+			if failure := parseGeminiTurnLimit(diagnostic); failure != nil {
+				response.Native.GeminiFailure = failure
+				return response, out, diagnostic, "adapter-error", fmt.Errorf("%s", geminiTurnLimitDiagnostic)
+			}
+		}
 		return response, out, diagnostic, "adapter-error", fmt.Errorf("gemini execution: %w", runErr)
 	}
 	if parseErr != nil {

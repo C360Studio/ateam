@@ -24,22 +24,31 @@ type GeminiReportedUsage struct {
 	API    map[string]*GeminiAPIUsage `json:"api"`
 }
 
+// GeminiFailureEvidence retains a reported CLI fatal error, not token or backend identity evidence.
+type GeminiFailureEvidence struct {
+	SessionID string `json:"session_id"`
+	Type      string `json:"type"`
+	Message   string `json:"message"`
+	ExitCode  int    `json:"exit_code"`
+}
+
 // NativeEvidence describes a CLI report; backend identity remains unknown unless reported.
 type NativeEvidence struct {
-	Codex               *CodexEvidence       `json:"codex,omitempty"`
-	ClaudeReportedUsage *ClaudeReportedUsage `json:"claude_reported_usage,omitempty"`
-	SessionID           string               `json:"session_id"`
-	Terminal            string               `json:"terminal"`
-	UsageStatus         string               `json:"usage_status"`
-	ReportedUsage       *GeminiReportedUsage `json:"reported_usage"`
-	ReportedModels      []string             `json:"reported_models"`
-	ObservedItemTypes   []string             `json:"observed_item_types"`
-	CompletedItemTypes  []string             `json:"completed_item_types"`
-	EventCount          int                  `json:"event_count"`
-	ResolvedModel       *string              `json:"resolved_model"`
-	ResolvedReasoning   *string              `json:"resolved_reasoning"`
-	Warnings            []string             `json:"warnings,omitempty"`
-	OutputTruncated     bool                 `json:"output_truncated,omitempty"`
+	GeminiFailure       *GeminiFailureEvidence `json:"gemini_failure,omitempty"`
+	Codex               *CodexEvidence         `json:"codex,omitempty"`
+	ClaudeReportedUsage *ClaudeReportedUsage   `json:"claude_reported_usage,omitempty"`
+	SessionID           string                 `json:"session_id"`
+	Terminal            string                 `json:"terminal"`
+	UsageStatus         string                 `json:"usage_status"`
+	ReportedUsage       *GeminiReportedUsage   `json:"reported_usage"`
+	ReportedModels      []string               `json:"reported_models"`
+	ObservedItemTypes   []string               `json:"observed_item_types"`
+	CompletedItemTypes  []string               `json:"completed_item_types"`
+	EventCount          int                    `json:"event_count"`
+	ResolvedModel       *string                `json:"resolved_model"`
+	ResolvedReasoning   *string                `json:"resolved_reasoning"`
+	Warnings            []string               `json:"warnings,omitempty"`
+	OutputTruncated     bool                   `json:"output_truncated,omitempty"`
 }
 
 // GeminiEvidence is retained for existing Gemini integrations and artifact compatibility.

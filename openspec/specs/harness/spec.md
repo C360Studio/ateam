@@ -168,7 +168,7 @@ When `HERDR_ENV=1`, the writer lease SHALL record `HERDR_PANE_ID` and `HERDR_WOR
 - **THEN** the pickup warning names that pane
 
 ### Requirement: Optional herdr caveat notifications
-`ateam state herdr on-event` SHALL do nothing unless `HERDR_ENV=1` and `HERDR_BIN_PATH` are set. On `worktree.created` and non-working `pane.agent_status_changed` events in an ateam repository, it SHALL toast each `HALT`, `RED`, or `BLOCKED` caveat at most once per repository. Identity SHALL be the change, marker, and full caveat text, shared across path spellings and linked worktrees of one git common dir. The record SHALL be saved under a file lock before toasting. A failed toast SHALL NOT prevent the remaining claimed toasts from being attempted. It SHALL never run on the synchronous hook path.
+`ateam state herdr on-event` SHALL do nothing unless `HERDR_ENV=1` and `HERDR_BIN_PATH` are set. On `worktree.created` and non-working `pane.agent_status_changed` events in an ateam repository, it SHALL toast each `HALT`, `RED`, or `BLOCKED` caveat at most once per repository. A failed toast SHALL NOT prevent the remaining claimed toasts from being attempted. It SHALL never run on the synchronous hook path.
 
 #### Scenario: Gate closed
 - **WHEN** `HERDR_ENV` is unset
@@ -177,6 +177,8 @@ When `HERDR_ENV=1`, the writer lease SHALL record `HERDR_PANE_ID` and `HERDR_WOR
 #### Scenario: Repeat and concurrent events
 - **WHEN** the same caveat is seen by repeated or concurrent events, or from a linked worktree
 - **THEN** exactly one toast is shown
+- **AND** identity SHALL be the change, marker, and full caveat text, shared across path spellings and linked worktrees of one git common dir
+- **AND** the record SHALL be saved under a file lock before toasting
 
 #### Scenario: Partial delivery failure
 - **WHEN** the first of two claimed toasts fails
