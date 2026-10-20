@@ -485,3 +485,88 @@ func InspectRunningServeProcesses(ctx context.Context) ([]int, []string) {
 	pids := ParseRunningServeProcesses(string(out), os.Getpid())
 	return pids, CheckDuplicateServeProcesses(pids)
 }
+
+// ParseRunningMCPProcesses extracts active `ateam mcp` processes from `ps -eo pid=,args=` output and merges recorded process metadata.
+func ParseRunningMCPProcesses(psOutput string, selfPID int, recorded []state.MCPProcess, fallbackBuild string) []state.MCPProcess {
+	byPID := make(map[int]state.MCPProcess, len(recorded))
+	var out []state.MCPProcess
+	seen := make(map[int]bool)
+	for _, r := range recorded {
+		if r.PID <= 0 || r.PID == selfPID {
+			continue
+		}
+		byPID[r.PID] = r
+		seen[r.PID] = true
+		out = append(out, r)
+	}
+	fallbackBuild = strings.TrimSpace(fallbackBuild)
+	if fallbackBuild == "" {
+		fallbackBuild = "unknown"
+	}
+	for _, rawLine := range strings.Split(strings.ReplaceAll(psOutput, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid <= 0 || pid == selfPID || seen[pid] {
+			continue
+		}
+		base := filepath.Base(fields[1])
+		if (base == "ateam" || base == "ateam.exe") && fields[2] == "mcp" {
+			seen[pid] = true
+			if rec, ok := byPID[pid]; ok {
+				out = append(out, rec)
+			} else {
+				out = append(out, state.MCPProcess{
+					PID:         pid,
+					BuildCommit: fallbackBuild,
+				})
+			}
+		}
+	}
+	return out
+}
+
+// CheckRunningMCPProcesses returns doctor warnings for any running `ateam mcp` process whose build commit differs from expectedCommit.
+func CheckRunningMCPProcesses(procs []state.MCPProcess, expectedCommit string) []string {
+	expectedCommit = strings.TrimSuffix(strings.TrimSpace(expectedCommit), "-dirty")
+	if expectedCommit == "" || expectedCommit == "unknown" || expectedCommit == "dev" || expectedCommit == "uncommitted" {
+		return nil
+	}
+	var warnings []string
+	for _, p := range procs {
+		procRev := strings.TrimSuffix(strings.TrimSpace(p.BuildCommit), "-dirty")
+		if procRev == "" || procRev == "unknown" || procRev == "dev" || !state.SameCommitSHA(procRev, expectedCommit) {
+			label := strings.TrimSpace(p.BuildCommit)
+			if label == "" {
+				label = "unknown"
+			}
+			warnings = append(warnings, fmt.Sprintf("running ateam mcp process (PID %d, build %s) is older than %s; restart the MCP client", p.PID, label, expectedCommit))
+		}
+	}
+	return warnings
+}
+
+// InspectRunningMCPProcesses queries recorded and OS `ateam mcp` processes and warns if any are behind checkout HEAD or on-disk binary.
+func InspectRunningMCPProcesses(ctx context.Context, root, headSHA string) ([]state.MCPProcess, []string) {
+	recorded := state.LoadLiveMCPProcesses(root)
+	diskRev, _ := state.ReadDiskBinaryBuild(ctx, root)
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, "ps", "-eo", "pid=,args=").Output()
+	var psText string
+	if err == nil {
+		psText = string(out)
+	}
+	procs := ParseRunningMCPProcesses(psText, os.Getpid(), recorded, "unknown")
+	expected := strings.TrimSpace(headSHA)
+	if expected == "" || expected == "uncommitted" {
+		expected = diskRev
+	}
+	return procs, CheckRunningMCPProcesses(procs, expected)
+}

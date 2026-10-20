@@ -513,3 +513,104 @@ ateam hook SHALL normalize events in under 5ms.
 		t.Fatalf("unexpected scenarios: %+v", req.Scenarios)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestReconcileWorktreesAndPickupWorktreeSection(t *testing.T) {
+	dirtyFalse := false
+	dirtyTrue := true
+	st := defaultState()
+	st.Git.Branch = "main"
+	st.Git.HeadSHA = "e37563b"
+	st.Git.Worktrees = []Worktree{
+		{Path: "/repo/.worktrees/wt-57", Branch: "gemini/mvp-hardening-52", Head: "aa11bb2", Dirty: &dirtyFalse, AheadCount: 2, MergedIntoMain: false},
+		{Path: "/repo/.worktrees/wt-64", Branch: "gemini/pickup-mcp-62-63", Head: "cc33dd4", Dirty: &dirtyTrue, AheadCount: 1, MergedIntoMain: false},
+		{Path: "/repo/.worktrees/wt-55", Branch: "codex/follow-up", Head: "ff99ee0", Dirty: &dirtyFalse, AheadCount: 3, MergedIntoMain: true},
+		{Path: "/repo/.worktrees/wt-56", Branch: "claude/abandoned", Head: "1122334", Dirty: &dirtyFalse, AheadCount: 1, MergedIntoMain: false},
+	}
+	st.Cards = []BoardCard{
+		{ID: "GH-PR-57", Number: 57, Type: "pr", Column: "done", Merged: true, Branch: "gemini/mvp-hardening-52", HeadSHA: "aa11bb29999"},
+		{ID: "GH-PR-64", Number: 64, Type: "pr", Column: "in_progress", Merged: false, Branch: "gemini/pickup-mcp-62-63", HeadSHA: "cc33dd40000"},
+		{ID: "GH-PR-55", Number: 55, Type: "pr", Column: "done", Merged: true, Branch: "codex/follow-up", HeadSHA: "0011223344"},
+		{ID: "GH-PR-56", Number: 56, Type: "pr", Column: "done", Merged: false, Branch: "claude/abandoned", HeadSHA: "1122334"},
+	}
+
+	st.ReconcileWorktrees()
+
+	if !st.Git.Worktrees[0].MergedIntoMain {
+		t.Fatalf("expected squash-merged worktree wt-57 with matching head_sha to have MergedIntoMain=true, got false")
+	}
+	if st.Git.Worktrees[1].MergedIntoMain {
+		t.Fatalf("expected open-PR worktree wt-64 to have MergedIntoMain=false, got true")
+	}
+	if st.Git.Worktrees[2].MergedIntoMain {
+		t.Fatalf("expected worktree wt-55 with commits ahead of merged PR head_sha to have MergedIntoMain=false, got true")
+	}
+	if st.Git.Worktrees[3].MergedIntoMain {
+		t.Fatalf("expected closed-unmerged worktree wt-56 to have MergedIntoMain=false, got true")
+	}
+
+	summary := BuildPickupSummary(st)
+	for _, want := range []string{
+		"Worktrees: 4",
+		"- gemini/mvp-hardening-52 (head=aa11bb2, dirty=false, ahead=2, merged via #57)",
+		"- gemini/pickup-mcp-62-63 (head=cc33dd4, dirty=true, ahead=1, open PR #64)",
+		"- codex/follow-up (head=ff99ee0, dirty=false, ahead=3, ahead of merged #55)",
+		"- claude/abandoned (head=1122334, dirty=false, ahead=1, closed without merge (#56))",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("expected pickup summary to contain %q, got:\n%s", want, summary)
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+func TestPopulateMCPProvenanceAndRegisterMCPProcess(t *testing.T) {
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeAteam := filepath.Join(binDir, "ateam")
+	if err := os.WriteFile(fakeAteam, []byte("#!/bin/sh\necho 'ateam v0.1.0 (e37563b)'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanup := RegisterMCPProcess(dir, "7606b7e", "7606b7e111111111111111111111111111111111")
+	live := LoadLiveMCPProcesses(dir)
+	if len(live) != 1 || live[0].PID != os.Getpid() || live[0].BuildCommit != "7606b7e" {
+		t.Fatalf("expected registered MCP process for current PID, got: %+v", live)
+	}
+	cleanup()
+	if after := LoadLiveMCPProcesses(dir); len(after) != 0 {
+		t.Fatalf("expected MCP process list to be empty after cleanup, got: %+v", after)
+	}
+
+	st := defaultState()
+	st.Git.Branch = "main"
+	st.Git.HeadSHA = "e37563b"
+	st.PopulateMCPProvenance(context.Background(), dir, "7606b7e")
+
+	if st.MCPBuild != "7606b7e" || st.DiskBuild != "e37563b" || st.MCPStaleTarget != "e37563b" {
+		t.Fatalf("unexpected MCP provenance fields: MCPBuild=%q DiskBuild=%q MCPStaleTarget=%q", st.MCPBuild, st.DiskBuild, st.MCPStaleTarget)
+	}
+	summary := BuildPickupSummary(st)
+	for _, want := range []string{
+		"build=e37563b mcp=7606b7e",
+		"WARNING: MCP server binary is stale; restart the client to pick up e37563b",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("expected pickup summary to contain %q, got:\n%s", want, summary)
+		}
+	}
+
+	stFresh := defaultState()
+	stFresh.Git.Branch = "main"
+	stFresh.Git.HeadSHA = "e37563b"
+	stFresh.PopulateMCPProvenance(context.Background(), dir, "e37563b")
+	if stFresh.MCPStaleTarget != "" {
+		t.Fatalf("expected matching MCP build not to set MCPStaleTarget, got %q", stFresh.MCPStaleTarget)
+	}
+	if strings.Contains(BuildPickupSummary(stFresh), "WARNING: MCP server binary is stale") {
+		t.Fatalf("expected fresh MCP build not to warn, got:\n%s", BuildPickupSummary(stFresh))
+	}
+}

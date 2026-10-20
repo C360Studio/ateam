@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/c360studio/ateam/internal/state"
 )
 
 func repoRoot(t *testing.T) string {
@@ -169,5 +171,22 @@ func TestDoctorBuildProvenanceAndDuplicateServeDetection(t *testing.T) {
 	}
 	if v := CheckDuplicateServeProcesses(procs[:1]); len(v) > 0 {
 		t.Fatalf("expected single serve process not to report violation, got: %v", v)
+	}
+
+	// 3. Running ateam mcp process parsing and stale build warning:
+	mcpPS := strings.Join([]string{
+		"  PID COMMAND",
+		"41001 ./bin/ateam mcp",
+		"41002 /repo/bin/ateam mcp",
+	}, "\n")
+	mcpProcs := ParseRunningMCPProcesses(mcpPS, 99999, []state.MCPProcess{
+		{PID: 41001, BuildCommit: "7606b7e"},
+	}, "e37563b")
+	if len(mcpProcs) != 2 || mcpProcs[0].BuildCommit != "7606b7e" || mcpProcs[1].BuildCommit != "e37563b" {
+		t.Fatalf("unexpected parsed MCP processes: %+v", mcpProcs)
+	}
+	mcpWarnings := CheckRunningMCPProcesses(mcpProcs, "e37563b")
+	if len(mcpWarnings) != 1 || !strings.Contains(mcpWarnings[0], "PID 41001, build 7606b7e") {
+		t.Fatalf("expected stale MCP warning only for PID 41001, got: %v", mcpWarnings)
 	}
 }

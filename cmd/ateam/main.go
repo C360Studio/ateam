@@ -441,6 +441,8 @@ func runDoctor(repoRoot string, args []string) int {
 	}
 	servePIDs, procWarnings := bootstrap.InspectRunningServeProcesses(context.Background())
 	warnings = append(warnings, procWarnings...)
+	mcpProcs, mcpWarnings := bootstrap.InspectRunningMCPProcesses(context.Background(), repoRoot, headSHA)
+	warnings = append(warnings, mcpWarnings...)
 
 	passed := len(violations) == 0
 	printJSON(map[string]any{
@@ -448,6 +450,7 @@ func runDoctor(repoRoot string, args []string) int {
 		"build_commit":           state.BuildLabel(),
 		"head_commit":            headSHA,
 		"running_serve_pids":     servePIDs,
+		"running_mcp_processes":  mcpProcs,
 		"warnings":               warnings,
 		"mcp_schema_tokens":      tokens,
 		"mcp_connection_checked": false,
