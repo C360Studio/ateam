@@ -465,6 +465,7 @@ Existing client configuration is preserved even with --force; merge missing MCP 
 | Skill Adapters | ` + "`.claude/skills/<name>/SKILL.md`" + ` | Reads ` + "`.agents/skills/`" + ` directly | ` + "`.gemini/commands/<name>.toml`" + ` | Reads ` + "`.agents/skills/`" + ` directly |
 | Hook Config | ` + "`.claude/settings.json`" + ` | ` + "`.codex/hooks.json`" + ` | ` + "`.gemini/settings.json`" + ` | ` + "`.agents/hooks.json`" + ` |
 | MCP Config | ` + "`.mcp.json`" + ` | ` + "`.codex/config.toml`" + ` | ` + "`.gemini/settings.json`" + ` | ` + "`.agents/plugins/ateam/mcp_config.json`" + ` |
+| Auto-Compaction / Context Cap | ` + "`.claude/settings.json`" + ` (` + "`autoCompactWindow: 500000`" + `) | ` + "`.codex/config.toml`" + ` (` + "`model_context_window = 500000`" + `, ` + "`model_auto_compact_token_limit = 450000`" + `) | ` + "`.gemini/settings.json`" + ` (` + "`model.chatCompression.contextPercentageThreshold: 0.5`" + `) | Built-in checkpointing + manual ` + "`/compact`" + `, ` + "`/context`" + `, ` + "`/btw`" + `, subagents |
 `
 
 func defaultTemplateFiles() map[string]string {
