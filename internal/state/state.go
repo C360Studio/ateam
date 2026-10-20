@@ -94,6 +94,7 @@ func ReadDiskBinaryBuild(ctx context.Context, root string) (shortRev, label stri
 // MCPProcess describes a running `ateam mcp` server process recorded in .ateam/mcp-processes.json.
 type MCPProcess struct {
 	PID         int        `json:"pid"`
+	PPID        int        `json:"ppid,omitempty"`
 	BuildCommit string     `json:"build_commit"`
 	FullCommit  string     `json:"full_commit,omitempty"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
@@ -725,6 +726,88 @@ func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
 		wl.HerdrPaneID = strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
 		wl.HerdrWorkspaceID = strings.TrimSpace(os.Getenv("HERDR_WORKSPACE_ID"))
 	}
+	return writeWriterLeaseStruct(dir, root, wl)
+}
+
+func mcpCheckedSessionsPath(root string) string {
+	return filepath.Join(root, ".ateam", "mcp-checked-sessions.json")
+}
+
+// HasMCPCheckedSession reports whether sessionID has already completed its once-per-session MCP staleness check.
+func HasMCPCheckedSession(root, sessionID string) bool {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return false
+	}
+	data, err := os.ReadFile(mcpCheckedSessionsPath(root))
+	if err != nil {
+		return false
+	}
+	var sessions []string
+	if err := json.Unmarshal(data, &sessions); err != nil {
+		return false
+	}
+	for _, s := range sessions {
+		if strings.TrimSpace(s) == sessionID {
+			return true
+		}
+	}
+	return false
+}
+
+// RecordMCPCheckedSession records that sessionID has completed its once-per-session MCP staleness check, independent of writer lease ownership.
+func RecordMCPCheckedSession(root, sessionID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil
+	}
+	return WithLock(root, func() error {
+		dir := filepath.Join(root, ".ateam")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		var existing []string
+		if data, err := os.ReadFile(mcpCheckedSessionsPath(root)); err == nil {
+			_ = json.Unmarshal(data, &existing)
+		}
+		var updated []string
+		for _, s := range existing {
+			s = strings.TrimSpace(s)
+			if s != "" && s != sessionID {
+				updated = append(updated, s)
+			}
+		}
+		updated = append(updated, sessionID)
+		if len(updated) > 128 {
+			updated = updated[len(updated)-128:]
+		}
+		raw, err := json.Marshal(updated)
+		if err != nil {
+			return err
+		}
+		tmp, err := os.CreateTemp(dir, "mcp-checked-sessions.json.*.tmp")
+		if err != nil {
+			return err
+		}
+		tmpPath := tmp.Name()
+		if _, err := tmp.Write(append(raw, '\n')); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+			return err
+		}
+		if err := tmp.Close(); err != nil {
+			_ = os.Remove(tmpPath)
+			return err
+		}
+		if err := os.Rename(tmpPath, mcpCheckedSessionsPath(root)); err != nil {
+			_ = os.Remove(tmpPath)
+			return err
+		}
+		return nil
+	})
+}
+
+func writeWriterLeaseStruct(dir, root string, wl *WriterLease) (*WriterLease, error) {
 	data, err := json.MarshalIndent(wl, "", "  ")
 	if err != nil {
 		return nil, err
@@ -1850,7 +1933,7 @@ func BuildPickupSummary(st *State) string {
 	if len(st.Holds) > 0 {
 		fmt.Fprintf(&b, "Active Hold items:\n")
 		for _, h := range st.Holds {
-			fmt.Fprintf(&b, "  - %s:%d %s\n", h.File, h.Line, h.Text)
+			fmt.Fprintf(&b, "  - %s:%d %s\n", h.File, h.Line, cleanTaskText(normalizeHoldPrefix(h.Text)))
 		}
 	}
 	var decisions []BoardCard

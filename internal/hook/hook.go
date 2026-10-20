@@ -2,6 +2,7 @@
 package hook
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c360studio/ateam/internal/bootstrap"
 	"github.com/c360studio/ateam/internal/state"
 )
+
+var inspectClientMCP = bootstrap.InspectClientMCPProcesses
 
 // Input represents the normalized JSON payload passed on stdin by Claude, Codex, Gemini, or Antigravity hooks.
 type Input struct {
@@ -127,6 +131,9 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		if sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active") {
 			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
 		}
+		if mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha); len(mcpWarnings) > 0 {
+			ctxText += "\n" + strings.Join(mcpWarnings, "\n")
+		}
 		if st.Mode != state.ModeOff {
 			ctxText += "\n\n" + LadderPrompt(st.Mode)
 		}
@@ -134,10 +141,14 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 
 	case "before-prompt":
 		_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
+		mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha)
 		// shortcut: Antigravity PreInvocation stdin omits prompt text, switch Ponytail mode via ateam state mode or /ponytail skill in agy
 		promptText := firstNonEmpty(in.Prompt, in.UserPrompt)
 		newMode, changed := detectModeSwitch(promptText)
 		if !changed {
+			if len(mcpWarnings) > 0 {
+				return buildOutputForAgent(flagAgent, "UserPromptSubmit", strings.Join(mcpWarnings, "\n")), nil
+			}
 			return emptyOutputForAgent(flagAgent), nil
 		}
 		updated, err := state.Update(root, func(cur *state.State) error {
@@ -147,10 +158,17 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		if err != nil {
 			return Output{}, err
 		}
-		if updated.Mode == state.ModeOff {
+		var parts []string
+		if len(mcpWarnings) > 0 {
+			parts = append(parts, strings.Join(mcpWarnings, "\n"))
+		}
+		if updated.Mode != state.ModeOff {
+			parts = append(parts, LadderPrompt(updated.Mode))
+		}
+		if len(parts) == 0 {
 			return emptyOutputForAgent(flagAgent), nil
 		}
-		return buildOutputForAgent(flagAgent, "UserPromptSubmit", LadderPrompt(updated.Mode)), nil
+		return buildOutputForAgent(flagAgent, "UserPromptSubmit", strings.Join(parts, "\n\n")), nil
 
 	case "pre-compact":
 		shortcuts, err := state.ScanShortcuts(root)
@@ -229,6 +247,20 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	default:
 		return Output{}, nil
 	}
+}
+
+func checkSessionStaleMCPOnce(root, sessionID, headSHA string) []string {
+	sessionID = strings.TrimSpace(sessionID)
+	headSHA = strings.TrimSpace(headSHA)
+	if sessionID == "" || headSHA == "" {
+		return nil
+	}
+	if state.HasMCPCheckedSession(root, sessionID) {
+		return nil
+	}
+	_, warnings := inspectClientMCP(context.Background(), root, headSHA, state.ResolveClientPID())
+	_ = state.RecordMCPCheckedSession(root, sessionID)
+	return warnings
 }
 
 func isAntigravityAgent(agent string) bool {
