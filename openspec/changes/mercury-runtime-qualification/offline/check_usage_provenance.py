@@ -115,6 +115,30 @@ class Contract(unittest.TestCase):
             body = FINISH + 'data: {"id":"fixture-response","object":"chat.completion.chunk","model":"mercury-3","choices":[],"usage":' + raw + '}\n\n' + DONE
             self.assertEqual(u.inspect_exchange(exchange(body))['usage_state'], 'invalid')
 
+    def test_overflow_anywhere_refused(self):
+        for token in ('1e999', '-1e999'):
+            for before, after in [('"total_tokens": 25', '"total_tokens": 25, "extra": '+token),
+                                  ('"total_tokens": 25', '"total_tokens": 25, "extra": {"nested": ['+token+']}'),
+                                  ('"object": "chat.completion.chunk"', '"created": '+token+', "object": "chat.completion.chunk"')]:
+                body = wire().replace(before, after)
+                with self.subTest(token=token, after=after):
+                    result = u.inspect_exchange(exchange(body))
+                    self.assertEqual(result['usage_state'], 'invalid')
+                    self.assertFalse(result['primary_complete'])
+
+    def test_partial_total_subset_lower_bounds(self):
+        raws = [{'prompt_tokens':20, 'total_tokens':20, 'completion_tokens_details':{'reasoning_tokens':2}},
+                {'completion_tokens':5, 'total_tokens':5, 'prompt_tokens_details':{'cached_tokens':3}},
+                {'total_tokens':4, 'prompt_tokens_details':{'cached_tokens':3}, 'completion_tokens_details':{'reasoning_tokens':2}}]
+        for raw in raws:
+            with self.subTest(raw=raw):
+                self.assertEqual(u.inspect_exchange(exchange(wire(raw)))['usage_state'], 'invalid')
+        possible = {'prompt_tokens':20, 'total_tokens':25, 'completion_tokens_details':{'reasoning_tokens':2}}
+        result = u.inspect_exchange(exchange(wire(possible)))
+        self.assertEqual(result['usage_state'], 'reported')
+        self.assertIsNone(result['fields']['completion_tokens'])
+        self.assertFalse(result['primary_complete'])
+
     def test_duplicate_usage_and_orderings(self):
         usage = event(chunk([], usage=KNOWN))
         for parts in itertools.permutations((FINISH, usage, DONE)):

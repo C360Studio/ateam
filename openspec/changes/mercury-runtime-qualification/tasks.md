@@ -29,4 +29,4 @@ PR #64 merged the offline blocker report. The next usage-provenance slice is cla
 
 - [x] Audit supported pinned bridge controls and independently review the scoped evidence-contract plan.
 - [x] Implement and test the [offline contract](usage-provenance-report.md) against retained and synthetic provider-wire evidence; address the sentinel cwd nit.
-- [ ] Complete independent technical review, explicit Python evidence checks and clean-tree repository verification; publish review-ready PR.
+- [x] Complete independent technical review, explicit Python evidence checks and clean-tree repository verification; publish [review-ready PR #69](https://github.com/C360Studio/ateam/pull/69). Exact-head review and verification evidence is recorded in that PR; this does not qualify the runtime or authorize spending.

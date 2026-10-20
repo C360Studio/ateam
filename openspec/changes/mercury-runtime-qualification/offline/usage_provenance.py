@@ -1,7 +1,9 @@
 """Offline research contract for supplied Chat Completions wire evidence, not a capture tool."""
 import hashlib
 import json
+import math
 
+# // shortcut: finite offline SSE profile; expand only with reviewed provider/capture fixtures before integration.
 MAX_BYTES = 1_048_576
 MAX_EXCHANGES = 256
 MAX_COUNT = 2**53 - 1
@@ -19,7 +21,13 @@ def strict_json(text):
     def constant(_):
         raise ValueError('nonfinite JSON number')
 
-    return json.loads(text, object_pairs_hook=pairs, parse_constant=constant)
+    def finite_float(text):
+        value = float(text)
+        if not math.isfinite(value):
+            raise ValueError('nonfinite JSON number')
+        return value
+
+    return json.loads(text, object_pairs_hook=pairs, parse_constant=constant, parse_float=finite_float)
 
 
 def count(obj, key):
@@ -47,6 +55,10 @@ def usage_fields(raw):
     for subset, primary in [('cached_tokens', p), ('reasoning_tokens', c)]:
         if primary is not None and values[subset] is not None and values[subset] > primary:
             raise ValueError('subset exceeds primary')
+    # Subsets supply lower bounds only; absent primary values stay None above.
+    minimum_total = max(p or 0, values['cached_tokens'] or 0) + max(c or 0, values['reasoning_tokens'] or 0)
+    if t is not None and minimum_total > t:
+        raise ValueError('known lower bounds exceed total')
     return values
 
 

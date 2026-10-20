@@ -25,6 +25,8 @@ def passed(result):
 
 passed(run(TEST, SOURCE))
 mutations = [
+    ('allow-exponent-overflow', 'parse_float=finite_float', 'parse_float=float', 'test_overflow_anywhere_refused'),
+    ('ignore-partial-lower-bounds', 'if t is not None and minimum_total > t:', 'if False:', 'test_partial_total_subset_lower_bounds'),
     ('missing-to-zero', 'value = obj.get(key)', 'value = obj.get(key, 0)', 'test_zero_partial_and_absent_matrix'),
     ('ignore-cancellation', "result['done'] and end == 'eof' and", "result['done'] and", 'test_transport_outcomes_retain_observed_counts'),
     ('double-count-reasoning', "subtotal[key] += row['fields'][key]", "subtotal[key] += row['fields'][key] + (row['fields'].get('reasoning_tokens') or 0)", 'test_retained_provider_evidence'),
