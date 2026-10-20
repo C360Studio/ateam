@@ -72,7 +72,7 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle pre-compact: %v", err)
 	}
-	if !strings.Contains(out.AdditionalContext, "Goal: Auto-saved before context compaction") {
+	if !strings.Contains(out.AdditionalContext, "Goal: UNKNOWN — Auto-saved before context compaction") {
 		t.Errorf("unexpected pre-compact output: %q", out.AdditionalContext)
 	}
 	st, err := state.Load(dir)
@@ -109,7 +109,7 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	if strings.Contains(outReplaced.AdditionalContext, "Old merged PR #38 goal") {
 		t.Fatalf("pre-compact re-emitted stale handoff:\n%s", outReplaced.AdditionalContext)
 	}
-	if !strings.Contains(outReplaced.AdditionalContext, "Goal: Auto-saved before context compaction") || !strings.Contains(outReplaced.AdditionalContext, "Addresses: branch main, SHA 9f11a42") {
+	if !strings.Contains(outReplaced.AdditionalContext, "Goal: UNKNOWN — Auto-saved before context compaction") || !strings.Contains(outReplaced.AdditionalContext, "Addresses: branch main, SHA 9f11a42") {
 		t.Fatalf("expected fresh current-HEAD auto-compacted handoff, got:\n%s", outReplaced.AdditionalContext)
 	}
 
@@ -140,22 +140,72 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 		}
 	}
 
+	// #50: Same session on same branch preserves 5 semantic fields even when HEAD advances during the session,
+	// including when an intermediate state.Refresh / RefreshHandoffStaleness already persisted HEAD-only staleness.
+	for _, preRefresh := range []bool{false, true} {
+		st, _ = state.Load(dir)
+		st.Git.Branch = "main"
+		st.Git.HeadSHA = "9f11a42"
+		st.CurrentSessionID = "session-A"
+		st.LastHandoff = &state.Handoff{
+			Goal:          "Session A active goal",
+			Addresses:     "PR #50 on branch main",
+			Constraints:   "zero external dependencies",
+			DoneWhen:      "task verify green",
+			ChecksToRun:   "task test:unit",
+			Branch:        "main",
+			CheckpointSHA: "1111111",
+			SessionID:     "session-A",
+		}
+		if preRefresh {
+			st.RefreshHandoffStaleness()
+			if !st.LastHandoff.Stale {
+				t.Fatalf("expected intermediate RefreshHandoffStaleness to mark HEAD-drifted handoff stale before pre-compact")
+			}
+		}
+		_ = state.Save(dir, st)
+		outSame, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"session-A"}`))
+		if err != nil {
+			t.Fatalf("Handle pre-compact session-A (preRefresh=%v): %v", preRefresh, err)
+		}
+		for _, want := range []string{
+			"Goal: Session A active goal",
+			"Addresses: PR #50 on branch main",
+			"Constraints: zero external dependencies",
+			"Done when: task verify green",
+			"Checks to run: task test:unit",
+		} {
+			if !strings.Contains(outSame.AdditionalContext, want) {
+				t.Fatalf("expected session-A pre-compact (preRefresh=%v) to preserve %q across SHA advance, got:\n%s", preRefresh, want, outSame.AdditionalContext)
+			}
+		}
+		stAfter, _ := state.Load(dir)
+		if stAfter.LastHandoff == nil || stAfter.LastHandoff.CheckpointSHA != "9f11a42" || stAfter.LastHandoff.Stale {
+			t.Fatalf("expected refreshed CheckpointSHA=9f11a42 and Stale=false (preRefresh=%v), got: %+v", preRefresh, stAfter.LastHandoff)
+		}
+	}
+
+	// #50: Same session on same branch still rejects a handoff invalidated by non-HEAD-drift staleness (e.g. merged subject PR).
 	st, _ = state.Load(dir)
+	st.Git.Branch = "main"
+	st.Git.HeadSHA = "9f11a42"
+	st.CurrentSessionID = "session-A"
 	st.LastHandoff = &state.Handoff{
-		Goal:          "Session A active goal",
-		Addresses:     "branch main, SHA 9f11a42",
-		DoneWhen:      "done",
+		Goal:          "PR #38: ship model routing UI",
+		Addresses:     "PR #38",
+		DoneWhen:      "merged",
 		Branch:        "main",
-		CheckpointSHA: "9f11a42",
+		CheckpointSHA: "1111111",
 		SessionID:     "session-A",
 	}
+	st.RefreshHandoffStaleness()
 	_ = state.Save(dir, st)
-	outSame, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"session-A"}`))
+	outNonHeadStale, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"session-A"}`))
 	if err != nil {
-		t.Fatalf("Handle pre-compact session-A: %v", err)
+		t.Fatalf("Handle pre-compact non-HEAD stale: %v", err)
 	}
-	if !strings.Contains(outSame.AdditionalContext, "Goal: Session A active goal") {
-		t.Fatalf("expected session-A pre-compact to preserve its own handoff, got:\n%s", outSame.AdditionalContext)
+	if !strings.Contains(outNonHeadStale.AdditionalContext, "Goal: UNKNOWN — Auto-saved before context compaction") {
+		t.Fatalf("expected non-HEAD-drift stale handoff to be replaced with UNKNOWN fallback, got:\n%s", outNonHeadStale.AdditionalContext)
 	}
 }
 

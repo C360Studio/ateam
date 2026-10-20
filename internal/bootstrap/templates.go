@@ -209,7 +209,7 @@ You are a lazy senior developer. The best code is the code never written. Solve 
 | ` + "`verify`" + ` | Canonical skills in ` + "`.agents/skills/*/SKILL.md`" + ` have matching thin adapters in ` + "`.claude/skills/`" + ` and ` + "`.gemini/commands/`" + ` | ` + "`.agents/README.md`" + ` |
 | ` + "`verify`" + ` | Hook configs in ` + "`.claude/settings.json`" + `, ` + "`.codex/hooks.json`" + `, ` + "`.gemini/settings.json`" + `, and ` + "`.agents/hooks.json`" + ` map native events to ` + "`ateam hook`" + ` | ` + "`.agents/README.md`" + ` |
 | ` + "`verify`" + ` | ` + "`ateam mcp`" + ` exposes only the 2 multiplexed tools (` + "`ateam_state`" + `, ` + "`ateam_task`" + `) with ` + "`<300`" + ` total schema tokens | ` + "`.agents/README.md`" + ` |
-| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<5ms`" + ` with zero external runtime dependencies | ` + "`.agents/README.md`" + ` |
+| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<5ms`" + ` target budget (` + "`doctor`" + ` warns ` + "`>5ms`" + `, fails ` + "`--check`" + ` ` + "`>25ms`" + `) with zero external runtime dependencies | ` + "`.agents/README.md`" + ` |
 
 ### 3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done
 
@@ -221,6 +221,7 @@ You are a lazy senior developer. The best code is the code never written. Solve 
 | ` + "`verify`" + ` | ` + "`ateam bench --selftest`" + ` verifies good/bad reference fixtures and mutation detection before any live benchmark run | ` + "`.agents/protocol.md`" + ` |
 | ` + "`verify`" + ` | ` + "`task verify`" + ` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | ` + "`Taskfile.yml`" + ` |
 | verify+review | Configured model review requires a stronger independent reviewer, explicit scoped owner ceiling exceptions, optional provider separation and current trusted-base evidence | ateam review; .agents/contracts/reviewer.md |
+| ` + "`merge:check+review`" + ` | Non-draft code PRs carry ` + "`implemented-by:`" + ` and ` + "`reviewed-by:`" + ` naming different agents (` + "`claude`" + `, ` + "`codex`" + `, ` + "`gemini`" + `), checked alongside active ` + "`main`" + ` ruleset and open ` + "`class:flake`" + ` issues by ` + "`task merge:check`" + ` | ` + "`scripts/merge-check.sh`" + `; ` + "`.agents/protocol.md`" + ` |
 
 `
 
@@ -246,7 +247,7 @@ const defaultRulesIndexMD = `# Rules Enforcement Index
 | ` + "`verify`" + ` | Canonical skills in ` + "`.agents/skills/*/SKILL.md`" + ` have matching thin adapters in ` + "`.claude/skills/`" + ` and ` + "`.gemini/commands/`" + ` | ` + "`ateam doctor`" + ` |
 | ` + "`verify`" + ` | Hook configs in ` + "`.claude/settings.json`" + `, ` + "`.codex/hooks.json`" + `, ` + "`.gemini/settings.json`" + `, and ` + "`.agents/hooks.json`" + ` map native events to ` + "`ateam hook`" + ` | ` + "`ateam doctor`" + ` |
 | ` + "`verify`" + ` | ` + "`ateam mcp`" + ` exposes only the 2 multiplexed tools (` + "`ateam_state`" + `, ` + "`ateam_task`" + `) with ` + "`<300`" + ` total schema tokens | ` + "`ateam doctor`" + ` |
-| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<5ms`" + ` with zero external runtime dependencies | ` + "`ateam doctor`" + ` |
+| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<5ms`" + ` target budget (` + "`doctor`" + ` warns ` + "`>5ms`" + `, fails ` + "`--check`" + ` ` + "`>25ms`" + `) with zero external runtime dependencies | ` + "`ateam doctor`" + ` |
 
 ## 3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done
 
@@ -258,6 +259,7 @@ const defaultRulesIndexMD = `# Rules Enforcement Index
 | ` + "`verify`" + ` | ` + "`ateam bench --selftest`" + ` verifies good/bad reference fixtures and mutation detection before any live benchmark run | ` + "`ateam bench --selftest`" + ` |
 | ` + "`verify`" + ` | ` + "`task verify`" + ` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | ` + "`task verify`" + ` |
 | verify+review | Configured model review requires a stronger independent reviewer, explicit scoped owner ceiling exceptions, optional provider separation and current trusted-base evidence | ateam review; .agents/contracts/reviewer.md |
+| ` + "`merge:check+review`" + ` | Non-draft code PRs carry ` + "`implemented-by:`" + ` and ` + "`reviewed-by:`" + ` naming different agents (` + "`claude`" + `, ` + "`codex`" + `, ` + "`gemini`" + `), checked alongside active ` + "`main`" + ` ruleset and open ` + "`class:flake`" + ` issues by ` + "`task merge:check`" + ` | ` + "`scripts/merge-check.sh`" + ` |
 
 `
 
@@ -282,8 +284,8 @@ Shared truth lives in the repository's versioned code, ` + "`openspec/`" + ` spe
 1. **Clarify:** Before mutating state on an underspecified request, inspect the tree first, then confirm Deliverable, Scope/non-goals, Definition of Done, and Stop boundary.
 2. **Claim:** Create or switch to an isolated worktree on an agent-prefixed branch (` + "`claude/…`" + `, ` + "`codex/…`" + `, ` + "`gemini/…`" + `), backed by a draft PR on GitHub or Gitea.
 3. **Execute (Ponytail Decision Ladder):** Take the smallest complete change that solves the task, reuse stdlib/existing code, add a focused test using an independent oracle for every non-trivial branch/parser, and tag deliberate limits with ` + "`// shortcut: <the limit>, <when to upgrade>`" + `.
-4. **Verify (4-Gate Definition of Done):** ` + "`task verify`" + ` green, ` + "`ateam doctor`" + ` parity green, ` + "`ateam bench --selftest`" + ` green, and Ponytail exit summary stated.
-5. **Handoff or Land:** At a session boundary or before context compaction, run ` + "`ateam state handoff`" + ` to record the 5-field pickup prompt.
+4. **Verify (4-Gate Definition of Done):** ` + "`task verify`" + ` green, ` + "`ateam doctor`" + ` parity green, ` + "`ateam bench --selftest`" + ` green, ` + "`implemented-by:`" + ` and cross-agent ` + "`reviewed-by:`" + ` recorded (` + "`task merge:check -- <pr>`" + `), and Ponytail exit summary stated.
+5. **Handoff or Land (Close):** At a session boundary or before context compaction, run ` + "`ateam state handoff`" + ` to record the 5-field pickup prompt. When closing an issue/PR that lands an OpenSpec change, move ` + "`openspec/changes/<id>/`" + ` to ` + "`openspec/changes/archive/<date>-<id>/`" + `.
 
 ## 3. Mutation & Property-Based Testing (PBT) Discipline
 

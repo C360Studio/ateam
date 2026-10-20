@@ -225,3 +225,162 @@ it('attributes dirtiness only to the selected checkout and compares abbreviated 
 	state.last_handoff.branch = 'removed-branch';
 	expect(buildOpsItems(state, '/feature').every((item) => item.goal !== 'Feature work')).toBe(true);
 });
+
+// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
+it('classifies worktree merge status across merged, open, closed-unmerged, post-merge commits, and unsynced forge states', () => {
+	// Parse from JSON matching Go encoding/json omitempty output (false/0/"" fields omitted).
+	const apiState = JSON.parse(
+		JSON.stringify({
+			mode: 'full',
+			forge: { provider: 'github', owner: 'C360Studio', repo: 'ateam' },
+			board_synced_at: '2026-10-20T12:00:00Z',
+			git: {
+				branch: 'main',
+				head_sha: '3ec9dca',
+				dirty: false,
+				worktrees: [
+					{
+						path: '/wt/merged-squash',
+						branch: 'claude/test-spec-attribution',
+						head: 'a1b2c3d4',
+						dirty: true,
+						ahead_count: 1
+					},
+					{
+						path: '/wt/open-pr',
+						branch: 'codex/open-work',
+						head: 'b2c3d4e5',
+						dirty: false,
+						ahead_count: 2
+					},
+					{
+						path: '/wt/closed-unmerged',
+						branch: 'gemini/abandoned',
+						head: 'c3d4e5f6',
+						dirty: false,
+						ahead_count: 1
+					},
+					{
+						path: '/wt/reused-after-merge',
+						branch: 'claude/reused-branch',
+						head: '99999999',
+						dirty: false,
+						ahead_count: 2
+					},
+					{
+						path: '/wt/missing-pr-head-ahead',
+						branch: 'codex/no-pr-sha',
+						head: '77777777',
+						dirty: false,
+						ahead_count: 2
+					},
+					{
+						path: '/wt/ancestor-main',
+						branch: 'gemini/fast-forward-merged',
+						head: '3ec9dca0',
+						dirty: false,
+						merged_into_main: true
+					}
+				]
+			},
+			cards: [
+				{
+					id: 'GH-PR-22',
+					number: 22,
+					title: 'feat: test-spec attribution',
+					column: 'done',
+					type: 'pr',
+					merged: true,
+					head_sha: 'a1b2c3d400000000',
+					branch: 'claude/test-spec-attribution',
+					forge: 'github'
+				},
+				{
+					id: 'GH-PR-24',
+					number: 24,
+					title: 'feat: open work',
+					column: 'in-review',
+					type: 'pr',
+					head_sha: 'b2c3d4e500000000',
+					branch: 'codex/open-work',
+					forge: 'github'
+				},
+				{
+					id: 'GH-PR-25',
+					number: 25,
+					title: 'chore: abandoned experiment',
+					column: 'done',
+					type: 'pr',
+					head_sha: 'c3d4e5f600000000',
+					branch: 'gemini/abandoned',
+					forge: 'github'
+				},
+				{
+					id: 'GH-PR-26',
+					number: 26,
+					title: 'feat: first PR on branch',
+					column: 'done',
+					type: 'pr',
+					merged: true,
+					head_sha: '1111111100000000',
+					branch: 'claude/reused-branch',
+					forge: 'github'
+				},
+				{
+					id: 'GH-PR-27',
+					number: 27,
+					title: 'feat: merged PR without head_sha',
+					column: 'done',
+					type: 'pr',
+					merged: true,
+					branch: 'codex/no-pr-sha',
+					forge: 'github'
+				}
+			],
+			updated_at: '2026-10-20T12:00:00Z'
+		})
+	);
+	const items = buildOpsItems(apiState);
+
+	const byPath = Object.fromEntries(items.filter((i) => i.kind === 'worktree').map((i) => [i.path, i]));
+	// 1. Squash-merged PR with matching head_sha is marked merged while preserving local dirty=true.
+	expect(byPath['/wt/merged-squash'].mergeStatus).toBe('merged');
+	expect(byPath['/wt/merged-squash'].mergeEvidence).toBe('Merged via PR #22');
+	expect(byPath['/wt/merged-squash'].dirty).toBe(true);
+	expect(byPath['/wt/merged-squash'].writerStatus).toContain('uncommitted changes');
+	expect(byPath['/wt/merged-squash'].writerStatus).toContain('merged (Merged via PR #22)');
+
+	// 2. Open PR is active (not merged).
+	expect(byPath['/wt/open-pr'].mergeStatus).toBe('active');
+
+	// 3. Closed-unmerged PR is closed-unmerged (never marked merged).
+	expect(byPath['/wt/closed-unmerged'].mergeStatus).toBe('closed-unmerged');
+	expect(byPath['/wt/closed-unmerged'].mergeEvidence).toBe('PR #25 closed without merge');
+
+	// 4. Branch with new commits after a merged PR is active (not stale/merged).
+	expect(byPath['/wt/reused-after-merge'].mergeStatus).toBe('active');
+	expect(byPath['/wt/reused-after-merge'].mergeEvidence).toContain('New commits ahead of merged PR #26');
+
+	// 5. Merged PR lacking head_sha with ahead_count > 0 and omitted merged_into_main (Go omitempty false) stays active.
+	expect(byPath['/wt/missing-pr-head-ahead'].mergeStatus).toBe('active');
+	expect(byPath['/wt/missing-pr-head-ahead'].mergeEvidence).toBe('Unmerged commits ahead of main');
+
+	// 6. Branch that is an ancestor of main with 0 ahead commits is marked merged.
+	expect(byPath['/wt/ancestor-main'].mergeStatus).toBe('merged');
+	expect(byPath['/wt/ancestor-main'].mergeEvidence).toBe('Branch ancestor of main');
+
+	// 7. Unavailable forge evidence (unsynced remote forge and no local ancestry) reports unknown, not merged.
+	const unsynced = buildOpsItems({
+		mode: 'full',
+		forge: { provider: 'github', owner: 'C360Studio', repo: 'ateam' },
+		git: {
+			branch: 'main',
+			head_sha: '3ec9dca',
+			dirty: false,
+			worktrees: [{ path: '/wt/unsynced', branch: 'claude/unverified', head: 'deadbeef' }]
+		},
+		cards: [],
+		updated_at: '2026-10-20T12:00:00Z'
+	});
+	expect(unsynced[0].mergeStatus).toBe('unknown');
+});

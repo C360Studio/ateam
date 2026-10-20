@@ -403,6 +403,11 @@ func runInit(repoRoot string, args []string) int {
 	return 0
 }
 
+const (
+	hookLatencyBudgetUs = 5000
+	hookLatencyMaxUs    = 25000
+)
+
 func runDoctor(repoRoot string, args []string) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	_ = fs.Bool("check", false, "exit non-zero if any parity check fails")
@@ -414,15 +419,26 @@ func runDoctor(repoRoot string, args []string) int {
 	if tokens >= mcpserver.MaxSchemaTokens {
 		violations = append(violations, fmt.Sprintf("MCP schema budget exceeded: %d tokens >= %d", tokens, mcpserver.MaxSchemaTokens))
 	}
-	t0 := time.Now()
 	_, _ = hook.Handle(repoRoot, "session-start", strings.NewReader(`{}`))
-	hookUs := time.Since(t0).Microseconds()
-	if hookUs > 50000 {
-		violations = append(violations, fmt.Sprintf("hook latency exceeded threshold: %d us", hookUs))
+	var hookUs int64
+	for i := 0; i < 3; i++ {
+		t0 := time.Now()
+		_, _ = hook.Handle(repoRoot, "session-start", strings.NewReader(`{}`))
+		d := time.Since(t0).Microseconds()
+		if i == 0 || d < hookUs {
+			hookUs = d
+		}
 	}
 	_, fullRev, _ := state.BuildRevision()
 	_, headSHA := state.ReadFastGitHead(repoRoot)
 	warnings := bootstrap.CheckBuildProvenance(context.Background(), repoRoot, fullRev, headSHA)
+	warnings = append(warnings, bootstrap.CheckUnarchivedOpenSpecChanges(repoRoot)...)
+	if hookUs > hookLatencyBudgetUs {
+		warnings = append(warnings, fmt.Sprintf("hook latency %d us exceeds <5ms (%d us) target budget", hookUs, hookLatencyBudgetUs))
+	}
+	if hookUs > hookLatencyMaxUs {
+		violations = append(violations, fmt.Sprintf("hook latency %d us exceeded %d us hard ceiling (target budget <%d us)", hookUs, hookLatencyMaxUs, hookLatencyBudgetUs))
+	}
 	servePIDs, procWarnings := bootstrap.InspectRunningServeProcesses(context.Background())
 	warnings = append(warnings, procWarnings...)
 
@@ -437,6 +453,7 @@ func runDoctor(repoRoot string, args []string) int {
 		"mcp_connection_checked": false,
 		"mcp_schema_bytes":       bytesLen,
 		"hook_latency_us":        hookUs,
+		"hook_latency_budget_us": hookLatencyBudgetUs,
 		"violations":             violations,
 	})
 	if !passed {
