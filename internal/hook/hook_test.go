@@ -1,8 +1,11 @@
 package hook
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -79,6 +82,81 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	if st.LastHandoff == nil || !st.LastHandoff.AutoCompacted {
 		t.Errorf("expected AutoCompacted handoff in state, got: %+v", st.LastHandoff)
 	}
+
+	// #40: Stale or foreign-session handoff must be replaced on pre-compact rather than re-emitted.
+	headsDir := filepath.Join(dir, ".git", "refs", "heads")
+	_ = os.MkdirAll(headsDir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(headsDir, "main"), []byte("9f11a42000000000000000000000000000000000\n"), 0o644)
+
+	st.Cards = []state.BoardCard{{ID: "PR-38", Title: "PR #38", Column: "done"}}
+	st.LastHandoff = &state.Handoff{
+		Goal:          "Old merged PR #38 goal",
+		Addresses:     "PR #38",
+		DoneWhen:      "merged",
+		Branch:        "codex/model-routing-ui",
+		CheckpointSHA: "6c32197",
+		SessionID:     "sess-old",
+	}
+	if err := state.Save(dir, st); err != nil {
+		t.Fatalf("state.Save stale handoff: %v", err)
+	}
+
+	outReplaced, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"sess-new"}`))
+	if err != nil {
+		t.Fatalf("Handle pre-compact on stale handoff: %v", err)
+	}
+	if strings.Contains(outReplaced.AdditionalContext, "Old merged PR #38 goal") {
+		t.Fatalf("pre-compact re-emitted stale handoff:\n%s", outReplaced.AdditionalContext)
+	}
+	if !strings.Contains(outReplaced.AdditionalContext, "Goal: Auto-saved before context compaction") || !strings.Contains(outReplaced.AdditionalContext, "Addresses: branch main, SHA 9f11a42") {
+		t.Fatalf("expected fresh current-HEAD auto-compacted handoff, got:\n%s", outReplaced.AdditionalContext)
+	}
+
+	// Review Finding #3: Same branch/SHA handoff with empty SessionID (unknown ownership) or Session A
+	// must NOT be preserved or silently claimed when Session B runs pre-compact; Session A's own pre-compact preserves it.
+	for _, owner := range []string{"", "session-A"} {
+		st, err = state.Load(dir)
+		if err != nil {
+			t.Fatalf("state.Load: %v", err)
+		}
+		st.LastHandoff = &state.Handoff{
+			Goal:          "Session A goal on same branch/HEAD",
+			Addresses:     "branch main, SHA 9f11a42",
+			DoneWhen:      "done",
+			Branch:        "main",
+			CheckpointSHA: "9f11a42",
+			SessionID:     owner,
+		}
+		if err := state.Save(dir, st); err != nil {
+			t.Fatalf("state.Save: %v", err)
+		}
+		outB, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"session-B"}`))
+		if err != nil {
+			t.Fatalf("Handle pre-compact session-B (owner=%q): %v", owner, err)
+		}
+		if strings.Contains(outB.AdditionalContext, "Session A goal on same branch/HEAD") {
+			t.Fatalf("session-B pre-compact preserved/claimed handoff with owner=%q:\n%s", owner, outB.AdditionalContext)
+		}
+	}
+
+	st, _ = state.Load(dir)
+	st.LastHandoff = &state.Handoff{
+		Goal:          "Session A active goal",
+		Addresses:     "branch main, SHA 9f11a42",
+		DoneWhen:      "done",
+		Branch:        "main",
+		CheckpointSHA: "9f11a42",
+		SessionID:     "session-A",
+	}
+	_ = state.Save(dir, st)
+	outSame, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"session-A"}`))
+	if err != nil {
+		t.Fatalf("Handle pre-compact session-A: %v", err)
+	}
+	if !strings.Contains(outSame.AdditionalContext, "Goal: Session A active goal") {
+		t.Fatalf("expected session-A pre-compact to preserve its own handoff, got:\n%s", outSame.AdditionalContext)
+	}
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
@@ -104,6 +182,7 @@ func TestHookLatencyBudget(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
 // spec: openspec/specs/harness/spec.md#Requirement: Fast Git identity across worktrees
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 func TestSessionStartDetectsHeadDrift(t *testing.T) {
 	dir := t.TempDir()
 	headsDir := filepath.Join(dir, ".git", "refs", "heads")
@@ -138,9 +217,12 @@ func TestSessionStartDetectsHeadDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle session-start: %v", err)
 	}
-	wantDrift := "Last Handoff (HEAD drifted from 148420d -> cd8ea79):"
+	wantDrift := "Last Handoff (HEAD drifted from 148420d -> cd8ea79): STALE — handoff omitted"
 	if !strings.Contains(out.AdditionalContext, wantDrift) {
 		t.Errorf("expected %q in SessionStart AdditionalContext, got:\n%s", wantDrift, out.AdditionalContext)
+	}
+	if strings.Contains(out.AdditionalContext, "Complete dual-forge webhook receiver") {
+		t.Errorf("expected stale handoff 5-field block to be omitted, got:\n%s", out.AdditionalContext)
 	}
 }
 
@@ -158,9 +240,23 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 		t.Fatalf("expected empty Output for unknown event, got: %+v", unknownOut)
 	}
 
-	// F-06: Active writer lease from another session must be surfaced in session-start pickup summary.
-	leaseData := []byte(`{"agent":"claude","session_id":"sess-other","pid":999999,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"}`)
+	// #42: Dead PID (999999) in writer lease must report (exited) and NOT trigger competing-writer warning.
+	deadLease := []byte(`{"agent":"claude","session_id":"sess-dead","pid":999999,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"}`)
 	_ = os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755)
+	if err := os.WriteFile(state.WriterLeasePath(dir), deadLease, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deadOut, err := Handle(dir, "session-start", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("Handle session-start with dead PID lease: %v", err)
+	}
+	if !strings.Contains(deadOut.AdditionalContext, "pid=999999 (exited)") || strings.Contains(deadOut.AdditionalContext, "WARNING: another writer may be active") {
+		t.Fatalf("expected dead PID lease to report (exited) without warning, got:\n%s", deadOut.AdditionalContext)
+	}
+
+	// F-06: Active writer lease from another live session must be surfaced in session-start pickup summary.
+	livePID := strconv.Itoa(os.Getpid())
+	leaseData := []byte(`{"agent":"claude","session_id":"sess-other","pid":` + livePID + `,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"}`)
 	if err := os.WriteFile(state.WriterLeasePath(dir), leaseData, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -208,5 +304,82 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 	}
 	if strings.Contains(afterHandoffOut.AdditionalContext, "WARNING: another writer may be active") {
 		t.Fatalf("cleared writer lease still triggered warning:\n%s", afterHandoffOut.AdditionalContext)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+func TestAntigravityHookContract(t *testing.T) {
+	dir := t.TempDir()
+
+	// Strict protojson-style oracle for Antigravity SessionStart/PreInvocation stdout.
+	type agyStepOracle struct {
+		InjectSteps []struct {
+			SystemMessage struct {
+				SystemMessage string `json:"systemMessage"`
+			} `json:"systemMessage"`
+		} `json:"injectSteps"`
+	}
+	// Strict protojson-style oracle for Antigravity Stop stdout.
+	type agyStopOracle struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason,omitempty"`
+	}
+
+	// 1. SessionStart with --agent agy emits strictly injectSteps (no unknown additionalContext field).
+	startOut, err := HandleWithAgent(dir, "session-start", "agy", strings.NewReader(`{"conversationId":"conv-agy-123","modelName":"auto"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent agy session-start: %v", err)
+	}
+	if !startOut.HasPayload() {
+		t.Fatal("expected agy session-start HasPayload() == true")
+	}
+	rawStart, err := json.Marshal(startOut)
+	if err != nil {
+		t.Fatalf("marshal startOut: %v", err)
+	}
+	decStart := json.NewDecoder(bytes.NewReader(rawStart))
+	decStart.DisallowUnknownFields()
+	var parsedStart agyStepOracle
+	if err := decStart.Decode(&parsedStart); err != nil {
+		t.Fatalf("agy session-start output violated strict protojson schema (%s): %v", string(rawStart), err)
+	}
+	if len(parsedStart.InjectSteps) != 1 || !strings.Contains(parsedStart.InjectSteps[0].SystemMessage.SystemMessage, "PONYTAIL MODE [full]") {
+		t.Fatalf("expected agy injectSteps with Ponytail ladder, got: %s", string(rawStart))
+	}
+
+	// 2. PreInvocation normalizes to before-prompt, records conversationId in writer lease, and emits {} when no mode switch occurs.
+	preOut, err := HandleWithAgent(dir, "", "agy", strings.NewReader(`{"event":"PreInvocation","conversationId":"conv-agy-123","invocationNum":1}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent agy PreInvocation: %v", err)
+	}
+	if !preOut.HasPayload() {
+		t.Fatal("expected agy PreInvocation HasPayload() == true for empty JSON object")
+	}
+	rawPre, err := json.Marshal(preOut)
+	if err != nil || string(rawPre) != "{}" {
+		t.Fatalf("expected agy PreInvocation stdout {}, got %q (err=%v)", string(rawPre), err)
+	}
+	wl, err := state.ReadWriterLease(dir)
+	if err != nil || wl == nil {
+		t.Fatalf("expected writer lease after agy PreInvocation, got wl=%+v err=%v", wl, err)
+	}
+	if wl.Agent != "agy" || wl.SessionID != "conv-agy-123" {
+		t.Fatalf("expected writer lease agent=agy session=conv-agy-123, got %+v", wl)
+	}
+
+	// 3. Stop (turn-end) with --agent agy emits {"decision":"allow"} and does not trigger competing-writer warning on same conversationId.
+	stopOut, err := HandleWithAgent(dir, "turn-end", "agy", strings.NewReader(`{"conversationId":"conv-agy-123","terminationReason":"NO_TOOL_CALL","fullyIdle":true}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent agy turn-end: %v", err)
+	}
+	rawStop, err := json.Marshal(stopOut)
+	if err != nil {
+		t.Fatalf("marshal stopOut: %v", err)
+	}
+	decStop := json.NewDecoder(bytes.NewReader(rawStop))
+	decStop.DisallowUnknownFields()
+	var parsedStop agyStopOracle
+	if err := decStop.Decode(&parsedStop); err != nil || parsedStop.Decision != "allow" {
+		t.Fatalf("expected agy Stop output {\"decision\":\"allow\"}, got %s (err=%v)", string(rawStop), err)
 	}
 }

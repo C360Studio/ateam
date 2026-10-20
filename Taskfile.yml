@@ -117,7 +117,7 @@ tasks:
     cmds:
       - task: ui:build
       - mkdir -p bin
-      - go build -o bin/ateam ./cmd/ateam
+      - go build -ldflags "-X github.com/c360studio/ateam/internal/state.BuildCommit=$(git rev-parse HEAD)" -o bin/ateam ./cmd/ateam
 
   serve:
     desc: Start ateam PM board and API server

@@ -52,12 +52,14 @@ func parseNativeOutput(e Experiment, output string) (AdapterResponse, error) {
 		}
 		return parseClaudeOutput(output)
 	}
-	return parseGeminiOutput(output)
+	return parseGeminiVersionedOutput(e.Gemini, output)
 }
 
 func resolveNative(r *ResolvedExperiment, e Experiment) error {
-	if e.Gemini != nil && e.Gemini.OutputFormat != "json-schema" {
-		return fmt.Errorf("gemini new execution requires output_format json-schema; legacy text format is replay-only")
+	if e.Gemini != nil {
+		if err := validateNewGeminiExecution(e.Gemini); err != nil {
+			return err
+		}
 	}
 	if e.Claude != nil && e.Claude.OutputFormat != "json-schema" {
 		return fmt.Errorf("claude new execution requires output_format json-schema; legacy text format is replay-only")
@@ -74,7 +76,7 @@ func resolveNative(r *ResolvedExperiment, e Experiment) error {
 		return fmt.Errorf("probe %s version: %w", e.Agent, err)
 	}
 	version := strings.TrimSpace(out.String())
-	want := "0.43.0"
+	want := geminiStableVersion
 	if e.Codex != nil {
 		want = "codex-cli 0.160.1"
 	}
@@ -92,7 +94,7 @@ func resolveNative(r *ResolvedExperiment, e Experiment) error {
 		r.BudgetPolicy = "ANTHROPIC_API_KEY only via bare mode; local managed configuration refused; remote policy remains enforced and requires live preflight; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported whole-call modelUsage; 4 agentic turns/attempt, requested 8192 output tokens/request, MAX_STRUCTURED_OUTPUT_RETRIES=1 (one structured-output attempt) and 0 transport retries; no fallback accepted; native cost is a client estimate, not billing"
 	} else {
 		r.GeminiVersion = version
-		r.BudgetPolicy = fmt.Sprintf("GEMINI_API_KEY only; GEMINI_CLI_TRUST_WORKSPACE=true only in the generated workspace child process; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported usage; 4 model turns/attempt and %d output tokens/turn; no fallback accepted; cost unknown", geminiMaxOutputTokens(e.Gemini))
+		r.BudgetPolicy = fmt.Sprintf("GEMINI_API_KEY only; GEMINI_CLI_TRUST_WORKSPACE=true only in the generated workspace child process; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; best-effort CLI-reported usage, missing usage stays unknown and cost is not reconciled; 4 model turns/attempt and %d output tokens/turn; no fallback accepted; cost unknown", geminiMaxOutputTokens(e.Gemini))
 	}
 	settings, err := nativeSettings(e)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 
 // Comparison summarizes paired pilot evidence with explicit denominators and no inference claims.
 type Comparison struct {
+	Accounting                   *UsageAccounting      `json:"accounting,omitempty"`
 	Mode                         string                `json:"mode"`
 	Arms                         map[string]ArmSummary `json:"arms"`
 	StopReason                   string                `json:"stop_reason,omitempty"`
@@ -30,11 +31,40 @@ type Comparison struct {
 	TotalTokenDelta              *int64                `json:"total_token_delta"`
 }
 
+// UsageAccounting describes observed primary usage without implying complete provider billing.
+type UsageAccounting struct {
+	Basis                 string `json:"basis"`
+	ReportedUsageAttempts int    `json:"reported_usage_attempts"`
+	UnknownUsageAttempts  int    `json:"unknown_usage_attempts"`
+	KnownTokenSubtotal    *int64 `json:"known_token_subtotal"`
+	CostStatus            string `json:"cost_status"`
+}
+
+func summarizeUsageAccounting(attempts []Attempt) *UsageAccounting {
+	accounting := &UsageAccounting{Basis: "cli-reported-best-effort", CostStatus: "unknown"}
+	var subtotal int64
+	for _, attempt := range attempts {
+		if attempt.Response == nil || attempt.Response.Usage == nil {
+			accounting.UnknownUsageAttempts++
+			continue
+		}
+		accounting.ReportedUsageAttempts++
+		subtotal += attempt.Response.Usage.InputTokens + attempt.Response.Usage.OutputTokens
+	}
+	if accounting.ReportedUsageAttempts > 0 {
+		accounting.KnownTokenSubtotal = &subtotal
+	}
+	return accounting
+}
+
 // CompareExperiment compares the two configured arms only after retained-history validation.
 func CompareExperiment(run ExperimentRun) (Comparison, error) {
 	c := Comparison{StatusCounts: map[string]int{}}
 	if err := validateRun(run); err != nil {
 		return c, err
+	}
+	if cfg := run.Resolved.Experiment; cfg.Gemini != nil && cfg.Gemini.CLIVersion == "0.64.0" {
+		c.Accounting = summarizeUsageAccounting(run.Attempts)
 	}
 	c.Mode = run.Resolved.Experiment.Mode
 	if c.Mode == "" {
@@ -123,6 +153,15 @@ func FormatComparison(c Comparison) string {
 		fmt.Fprintf(&b, "Candidate-minus-baseline reported tokens: %d (%d known-usage pairs; %d missing)\n", *c.TotalTokenDelta, c.UsagePairs, c.MissingUsagePairs)
 	} else {
 		fmt.Fprintf(&b, "Token comparison: unknown (%d missing-usage pairs)\n", c.MissingUsagePairs)
+	}
+	if accounting := c.Accounting; accounting != nil {
+		fmt.Fprintf(&b, "Accounting (%s): primary usage reported for %d/%d retained attempts; %d unknown.\n", accounting.Basis, accounting.ReportedUsageAttempts, c.CompletedAttempts, accounting.UnknownUsageAttempts)
+		if accounting.KnownTokenSubtotal == nil {
+			b.WriteString("Known token subtotal: unknown (no reported primary usage); cost is unknown.\n")
+		} else {
+			fmt.Fprintf(&b, "Known token subtotal: %d; cost is unknown.\n", *accounting.KnownTokenSubtotal)
+		}
+		b.WriteString("These are known observations from CLI telemetry, not complete provider usage or actual cost; retries and failed calls may be unaccounted for.\n")
 	}
 	b.WriteString("Exploratory evidence only: no statistical significance, quality equivalence, or actual tool-activation claim. Usage is adapter-reported; cost is unknown.\n")
 	return b.String()

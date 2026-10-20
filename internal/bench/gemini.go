@@ -3,6 +3,7 @@ package bench
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 
 // GeminiConfig opts into the built-in, API-key-only Gemini CLI adapter.
 type GeminiConfig struct {
+	CLIVersion      string `json:"cli_version,omitempty"`
 	Reasoning       string `json:"reasoning"`
 	Auth            string `json:"auth"`
 	OutputFormat    string `json:"output_format,omitempty"`
@@ -32,8 +34,8 @@ func executeGemini(ctx context.Context, e Experiment, request AdapterRequest, di
 	if e.Gemini == nil || e.Gemini.Auth != "api-key-env" || len(e.Command) != 1 {
 		return empty, "", "", "adapter-error", fmt.Errorf("gemini requires api-key-env authentication and one executable")
 	}
-	if e.Gemini.OutputFormat != "json-schema" {
-		return empty, "", "", "adapter-error", fmt.Errorf("gemini new execution requires output_format json-schema; legacy text format is replay-only")
+	if err := validateNewGeminiExecution(e.Gemini); err != nil {
+		return empty, "", "", "adapter-error", err
 	}
 	key := os.Getenv("GEMINI_API_KEY")
 	if key == "" {
@@ -74,7 +76,7 @@ func executeGemini(ctx context.Context, e Experiment, request AdapterRequest, di
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
 	out, diagnostic := redactGeminiOutput(stdout.String(), key), redactGeminiOutput(stderr.String(), key)
-	response, parseErr := parseGeminiOutput(out)
+	response, parseErr := parseGeminiVersionedOutput(e.Gemini, out)
 	if stdout.overflow || stderr.overflow {
 		markGeminiTruncated(&response)
 		return response, out, diagnostic, "adapter-error", fmt.Errorf("gemini output exceeded 1 MiB per stream")
@@ -87,6 +89,13 @@ func executeGemini(ctx context.Context, e Experiment, request AdapterRequest, di
 		return response, out, diagnostic, status, bounded.Err()
 	}
 	if runErr != nil {
+		var exit *exec.ExitError
+		if out == "" && errors.As(runErr, &exit) && exit.ExitCode() == 53 {
+			if failure := parseGeminiTurnLimit(diagnostic); failure != nil {
+				response.Native.GeminiFailure = failure
+				return response, out, diagnostic, "adapter-error", fmt.Errorf("%s", geminiTurnLimitDiagnostic)
+			}
+		}
 		return response, out, diagnostic, "adapter-error", fmt.Errorf("gemini execution: %w", runErr)
 	}
 	if parseErr != nil {
@@ -137,6 +146,9 @@ func geminiSettings(e Experiment) ([]byte, error) {
 			map[string]any{"match": map[string]any{"overrideScope": "core"}, "modelConfig": map[string]any{"model": e.Model, "generateContentConfig": generation}},
 			map[string]any{"match": map[string]any{"model": e.Model}, "modelConfig": map[string]any{"model": e.Model, "generateContentConfig": generation}},
 		}},
+	}
+	if geminiCLIVersion(e.Gemini) == geminiStableVersion {
+		settings["privacy"] = map[string]any{"usageStatisticsEnabled": false}
 	}
 	return json.MarshalIndent(settings, "", "  ")
 }

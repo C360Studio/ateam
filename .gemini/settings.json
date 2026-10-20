@@ -1,5 +1,10 @@
 {
   "contextFileName": "AGENTS.md",
+  "model": {
+    "chatCompression": {
+      "contextPercentageThreshold": 0.5
+    }
+  },
   "hooks": {
     "SessionStart": [
       {

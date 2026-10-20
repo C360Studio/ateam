@@ -15,3 +15,7 @@ Run canary, inspect evidence, then A/A, inspect calibration, then A/B if gates p
 ## Owner-authorized v2 amendment
 
 After the v1 canary failure, the owner raised the combined target to $5. `gemini-output-budget` adds the minimal explicit shared output control in this PR. The v2 protocol preserves the treatment text and sample size, uses fresh evidence, and advances only after new gates. V1 files and results stay frozen; the original no-runtime-change scope applied to v1.
+
+## Owner-authorized v3 reconciliation and pilot
+
+Reconcile PRs #43 and #32 with main and run a fresh canary → A/A → A/B within the existing combined $5 target. V3 pins stable CLI 0.64.0, preserves the output allowance/model/reasoning/sample and adds the same self-contained-task sentence to both arms. The candidate-only six-point treatment remains unchanged. See the frozen v3 protocol for accounting, advancement and no-retry rules; prior cohorts remain separate. Protected merges require the repository’s actual required check and must not be bypassed.

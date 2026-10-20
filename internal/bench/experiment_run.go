@@ -393,8 +393,20 @@ func validateRun(r ExperimentRun) error {
 		if !reflect.DeepEqual(a.Request, newAdapterRequest(cfg, schedule[i])) || a.AgentNanos < 0 || a.GradeNanos < 0 || a.AgentNanos > int64(24*time.Hour) || a.GradeNanos > int64(24*time.Hour) {
 			return fmt.Errorf("attempt %d: request/timing mismatch", i)
 		}
+		if a.Response != nil && a.Response.Native != nil && a.Response.Native.GeminiFailure != nil && cfg.Gemini == nil {
+			return fmt.Errorf("attempt %d: Gemini failure evidence on another adapter", i)
+		}
 		if cfg.IsNative() {
 			parsed, parseErr := parseNativeOutput(cfg, a.Stdout)
+			if a.Response != nil && a.Response.Native != nil && a.Response.Native.GeminiFailure != nil {
+				if a.Status != "adapter-error" || a.Stdout != "" || a.Diagnostic != geminiTurnLimitDiagnostic || a.Response.Native.OutputTruncated || a.Grade != (CandidateEvaluation{}) || a.GradeNanos != 0 || a.SourceSHA != "" {
+					return fmt.Errorf("attempt %d: invalid Gemini fatal outcome", i)
+				}
+				parsed.Native.GeminiFailure = parseGeminiTurnLimit(a.Stderr)
+				if parsed.Native.GeminiFailure == nil {
+					return fmt.Errorf("attempt %d: invalid Gemini fatal stderr", i)
+				}
+			}
 			if a.Response != nil && a.Response.Native != nil && a.Response.Native.OutputTruncated {
 				if a.Status != "adapter-error" || a.Diagnostic != cfg.Agent+" output exceeded 1 MiB per stream" {
 					return fmt.Errorf("attempt %d: invalid truncation outcome", i)

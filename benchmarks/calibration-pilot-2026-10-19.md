@@ -54,7 +54,7 @@ Google returned one explicit 503 before the CLI produced a native terminal repor
 
 - Artifact: `benchmarks/runs/gemini-capacity-canary/experiment-1711254730/run.json`; SHA-256 `aceca6f2e4446b5cb326132ab1101678e8e315971dd4b5760898e729235e67e7`.
 - Offline replay: `rescore-3159759801/run.json`; retains the adapter error without a model call.
-- Native schema correction is tracked separately in `openspec/changes/gemini-structured-output/`; old configuration/evidence must stay replayable.
+- Native schema correction is tracked separately in `openspec/changes/archive/2026-10-19-gemini-structured-output/`; old configuration/evidence must stay replayable.
 
 This is evidence that at least one request returned during the retry, not proof that provider capacity is stable. Reported token counts are partial observations, not a full bill or a quality result.
 

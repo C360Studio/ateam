@@ -170,6 +170,11 @@ func validateExperiment(e Experiment) error {
 		if e.Gemini.MaxOutputTokens != nil && (*e.Gemini.MaxOutputTokens < 1 || *e.Gemini.MaxOutputTokens > 65536) {
 			return fmt.Errorf("gemini max_output_tokens must be 1..65536")
 		}
+		switch e.Gemini.CLIVersion {
+		case "", geminiLegacyVersion, geminiStableVersion:
+		default:
+			return fmt.Errorf("gemini cli_version must be %s (%s is historical replay-only)", geminiStableVersion, geminiLegacyVersion)
+		}
 		// Empty format preserves the original prompt-only canary for offline replay.
 		if e.Gemini.OutputFormat != "" && e.Gemini.OutputFormat != "json-schema" {
 			return fmt.Errorf("gemini output_format must be json-schema")
@@ -298,6 +303,11 @@ func ResolveExperiment(e Experiment, base string) (ResolvedExperiment, error) {
 	r := ResolvedExperiment{Original: e, ConfigSHA: jsonDigest(e), CommandFiles: map[string]string{}, Runtime: runtime.Version() + " " + runtime.GOOS + "/" + runtime.GOARCH}
 	if err := validateExperiment(e); err != nil {
 		return r, err
+	}
+	if e.Gemini != nil {
+		if err := validateNewGeminiExecution(e.Gemini); err != nil {
+			return r, err
+		}
 	}
 	if e.Bundles != nil {
 		bundles, err := resolveBundles(e.Bundles, base)

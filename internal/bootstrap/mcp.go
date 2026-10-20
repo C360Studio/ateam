@@ -1,10 +1,12 @@
 package bootstrap
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -64,6 +66,52 @@ func checkMCPConfigs(root string) []string {
 			(server.Enabled != nil && !*server.Enabled) ||
 			(server.Type != "" && server.Type != "stdio") || server.URL != "" || server.HTTPURL != "" {
 			out = append(out, fmt.Sprintf("%s: expected enabled ateam stdio registration with command ateam (or path to it) and args [mcp]; preserve other settings and merge https://github.com/C360Studio/ateam/blob/main/docs/mcp.md", rel))
+		}
+	}
+	out = append(out, checkContextConfigs(root)...)
+	return out
+}
+
+func checkContextConfigs(root string) []string {
+	var out []string
+	if data, err := os.ReadFile(filepath.Join(root, ".claude/settings.json")); err == nil {
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
+		var raw map[string]any
+		if err := dec.Decode(&raw); err == nil {
+			if val, ok := raw["autoCompactWindow"]; ok {
+				num, ok := val.(json.Number)
+				n, err := num.Int64()
+				if !ok || err != nil || strings.ContainsAny(num.String(), ".eE") || n < 100000 || n > 1000000 {
+					out = append(out, ".claude/settings.json: autoCompactWindow must be an integer between 100000 and 1000000")
+				}
+			}
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(root, ".codex/config.toml")); err == nil {
+		var raw map[string]any
+		if err := toml.Unmarshal(data, &raw); err == nil {
+			wVal, hasW := raw["model_context_window"]
+			cVal, hasC := raw["model_auto_compact_token_limit"]
+			w, wOK := wVal.(int64)
+			c, cOK := cVal.(int64)
+			if (hasW && (!wOK || w <= 0)) || (hasC && (!cOK || c <= 0)) || (hasW && hasC && c > w) {
+				out = append(out, ".codex/config.toml: model_context_window and model_auto_compact_token_limit must be positive integers with model_auto_compact_token_limit <= model_context_window")
+			}
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(root, ".gemini/settings.json")); err == nil {
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err == nil {
+			if mMap, ok := raw["model"].(map[string]any); ok {
+				if ccMap, ok := mMap["chatCompression"].(map[string]any); ok {
+					if tVal, ok := ccMap["contextPercentageThreshold"]; ok {
+						if thresh, ok := tVal.(float64); !ok || thresh <= 0 || thresh > 1 {
+							out = append(out, ".gemini/settings.json: model.chatCompression.contextPercentageThreshold must be a number in (0, 1]")
+						}
+					}
+				}
+			}
 		}
 	}
 	return out
