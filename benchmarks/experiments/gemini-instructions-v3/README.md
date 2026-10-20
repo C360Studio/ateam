@@ -23,7 +23,7 @@ Two repetitions per task are a deliberately small pilot, chosen before outcomes 
 
 Before sampling, pass full repository verification, doctor, offline self-test and independent protocol review. Record exact commit, binary/configuration hashes and dry-run snapshots. Do not run verification workloads concurrently with inference sampling.
 
-Canary acceptance: both attempts finish, pass independent grading, have distinct native sessions, expected reported model, complete normalized primary usage and no API-error/incomplete-accounting evidence. Rescore offline and confirm identical grades/comparison with original bytes unchanged. Otherwise stop the live sequence.
+Canary acceptance: both attempts finish, pass independent grading, have distinct native sessions, expected reported model, CLI-reported normalized primary usage and no observed API-error or accounting gaps. This means the adapter’s required usage schema is present and nonzero; it does not prove complete provider accounting. A positive native aggregate can still hide a request whose upstream metadata was absent. Rescore offline and confirm identical grades/comparison with original bytes unchanged. Otherwise stop the live sequence.
 
 A/A acceptance for proceeding: all 12 attempts and six pairs are present; no execution/grading infrastructure errors, timeouts, reused sessions, model mismatch or unknown usage; independent rescore reproduces outcomes and original bytes. Inspect every asymmetric quality outcome against source and grader diagnostics before advancing. Also check session uniqueness across phases. Record explanations as observations, not causal proof. If anomalies cannot be distinguished from a measurement defect, stop. Real quality failures are retained and do not by themselves invalidate the instrument. No low-variance or equivalence threshold is inferred from six pairs.
 
@@ -56,7 +56,7 @@ Build `bin/ateam` from the recorded commit. For each phase:
 ```sh
 bin/ateam bench run benchmarks/experiments/gemini-instructions-v3/canary.json --dry-run
 # After explicit authorization and setting GEMINI_API_KEY externally:
-bin/ateam bench run benchmarks/experiments/gemini-instructions-v3/canary.json --output benchmarks/runs/gemini-instructions-v2-canary
+bin/ateam bench run benchmarks/experiments/gemini-instructions-v3/canary.json --output benchmarks/runs/gemini-instructions-v3-canary
 bin/ateam bench compare <retained-run.json> --json
 bin/ateam bench rescore <retained-run.json>
 ```
