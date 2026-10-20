@@ -185,25 +185,31 @@ func SyncForgeBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardC
 }
 
 type forgeIssuePayload struct {
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	Body    string `json:"body,omitempty"`
-	State   string `json:"state"`
-	HTMLURL string `json:"html_url"`
-	URL     string `json:"url"`
-	Draft   bool   `json:"draft"`
-	HeadRef string `json:"headRefName"`
-	Labels  []struct {
+	Number        int    `json:"number"`
+	Title         string `json:"title"`
+	Body          string `json:"body,omitempty"`
+	State         string `json:"state"`
+	HTMLURL       string `json:"html_url"`
+	URL           string `json:"url"`
+	Draft         bool   `json:"draft"`
+	Merged        bool   `json:"merged,omitempty"`
+	MergedAt      string `json:"mergedAt,omitempty"`
+	GiteaMergedAt string `json:"merged_at,omitempty"`
+	HeadRef       string `json:"headRefName"`
+	HeadRefOid    string `json:"headRefOid,omitempty"`
+	Labels        []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
 	Milestone *struct {
 		Title string `json:"title"`
 	} `json:"milestone"`
 	PullRequest *struct {
-		Draft bool `json:"draft"`
+		Draft  bool `json:"draft"`
+		Merged bool `json:"merged,omitempty"`
 	} `json:"pull_request,omitempty"`
 	Head *struct {
 		Ref string `json:"ref"`
+		SHA string `json:"sha,omitempty"`
 	} `json:"head,omitempty"`
 	Comments      json.RawMessage `json:"comments,omitempty"`
 	CommentBodies []string        `json:"-"`
@@ -406,7 +412,7 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 		cards = append(cards, mapForgeItemToCard(it, false, "github"))
 	}
 
-	prCmd := exec.CommandContext(cctx, "gh", "pr", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,isDraft,headRefName,labels,url")
+	prCmd := exec.CommandContext(cctx, "gh", "pr", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,isDraft,headRefName,headRefOid,mergedAt,labels,url")
 	prCmd.Args = append(prCmd.Args, repoArgs...)
 	prCmd.Dir = root
 	prCmd.WaitDelay = 100 * time.Millisecond
@@ -439,7 +445,12 @@ func mapForgeItemToCard(it forgeIssuePayload, isPR bool, forgeName string) Board
 	if branch == "" && it.Head != nil {
 		branch = it.Head.Ref
 	}
+	headSHA := strings.TrimSpace(it.HeadRefOid)
+	if headSHA == "" && it.Head != nil {
+		headSHA = strings.TrimSpace(it.Head.SHA)
+	}
 	draft := it.Draft || (it.PullRequest != nil && it.PullRequest.Draft)
+	merged := isPR && (it.Merged || (it.PullRequest != nil && it.PullRequest.Merged) || strings.EqualFold(it.State, "merged") || strings.TrimSpace(it.MergedAt) != "" || strings.TrimSpace(it.GiteaMergedAt) != "")
 	cardType := "issue"
 	if isPR {
 		cardType = "pr"
@@ -471,6 +482,8 @@ func mapForgeItemToCard(it forgeIssuePayload, isPR bool, forgeName string) Board
 		Title:     it.Title,
 		Column:    col,
 		Type:      cardType,
+		Merged:    merged,
+		HeadSHA:   headSHA,
 		Labels:    labels,
 		Agent:     inferAgentFromBranch(branch),
 		Branch:    branch,

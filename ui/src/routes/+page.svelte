@@ -480,7 +480,7 @@
 							type="button"
 							role="option"
 							aria-selected={isSelected}
-							class="ops-row {isSelected ? 'selected' : ''}"
+							class="ops-row {isSelected ? 'selected' : ''} {item.mergeStatus === 'merged' ? 'merged-stale' : ''}"
 							onclick={() => (selectedOpsId = item.id)}
 						>
 							<div class="ops-row-main">
@@ -489,6 +489,19 @@
 								<span class="ops-row-title">{item.title}</span>
 							</div>
 							<div class="ops-row-meta">
+								{#if item.mergeStatus === 'merged'}
+									<span
+										class="badge merged-badge"
+										title={item.mergeEvidence ? `${item.mergeEvidence} — worktree already merged` : 'Worktree already merged'}
+										aria-label="Merged worktree ({item.mergeEvidence || 'already merged into main'})"
+									>
+										✓ Merged
+									</span>
+								{:else if item.mergeStatus === 'closed-unmerged'}
+									<span class="badge warn" title={item.mergeEvidence || 'PR closed without merging'}>
+										Closed (unmerged)
+									</span>
+								{/if}
 								{#if item.prNumber}
 									<span class="badge pr-badge">{item.prNumber}</span>
 								{/if}
@@ -508,11 +521,20 @@
 						<strong>Selected Session Context</strong>
 						{#if selectedOps}
 							<span class="agent-tag {selectedOps.agent}">{selectedOps.agent}</span>
+							{#if selectedOps.mergeStatus === 'merged'}
+								<span
+									class="badge merged-badge"
+									title={selectedOps.mergeEvidence || 'Branch already merged into main'}
+									aria-label="Merged or potentially stale worktree"
+								>
+									✓ Merged / potentially stale
+								</span>
+							{/if}
 							{#if selectedOps.drifted}
 								<span class="badge warn">HEAD DRIFTED</span>
-							{:else if selectedOps.kind === 'worktree'}
+							{:else if selectedOps.kind === 'worktree' && selectedOps.mergeStatus !== 'merged'}
 								<span class="badge ok">Active Worktree</span>
-							{:else}
+							{:else if selectedOps.kind !== 'worktree'}
 								<span class="badge">{selectedOps.statusColumn || 'Claim'}</span>
 							{/if}
 						{/if}
@@ -1743,6 +1765,14 @@
 	.ops-row.selected {
 		border-color: #3b82f6;
 		background: rgba(59, 130, 246, 0.12);
+	}
+	.ops-row.merged-stale {
+		opacity: 0.85;
+	}
+	.badge.merged-badge {
+		background: rgba(16, 185, 129, 0.16);
+		border: 1px solid rgba(16, 185, 129, 0.45);
+		color: #6ee7b7;
 	}
 	.ops-row-main {
 		display: flex;

@@ -127,6 +127,7 @@ func requireViolation(t *testing.T, violations []string, substrings ...string) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestDoctorBuildProvenanceAndDuplicateServeDetection(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -137,8 +138,19 @@ func TestDoctorBuildProvenanceAndDuplicateServeDetection(t *testing.T) {
 	if v := CheckBuildProvenance(ctx, dir, "9f11a4200000", "9f11a42"); len(v) > 0 {
 		t.Fatalf("expected matching build provenance to pass, got: %v", v)
 	}
-	if v := CheckBuildProvenance(ctx, dir, "dev", "9f11a42"); len(v) > 0 {
-		t.Fatalf("expected dev build provenance to skip violation, got: %v", v)
+	for _, emptyRev := range []string{"", "dev", "unknown"} {
+		v := CheckBuildProvenance(ctx, dir, emptyRev, "9f11a42")
+		if len(v) == 0 || !strings.Contains(v[0], "binary has no build provenance; build with task build") {
+			t.Fatalf("expected missing build provenance warning for %q, got: %v", emptyRev, v)
+		}
+	}
+
+	// 1b. Completed unarchived OpenSpec change warning:
+	doneDir := filepath.Join(dir, "openspec", "changes", "done-change")
+	_ = os.MkdirAll(doneDir, 0o755)
+	_ = os.WriteFile(filepath.Join(doneDir, "tasks.md"), []byte("## 1. Tasks\n\n- [x] 1.1 Finished task\n"), 0o644)
+	if w := CheckUnarchivedOpenSpecChanges(dir); len(w) != 1 || !strings.Contains(w[0], "openspec/changes/done-change is completed (1/1 tasks) and not archived") {
+		t.Fatalf("expected unarchived OpenSpec change warning, got: %v", w)
 	}
 
 	// 2. Duplicate ateam serve process parsing and detection:

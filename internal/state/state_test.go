@@ -363,12 +363,19 @@ func TestPickupWarningNamesHerdrPane(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestHandoffStaleInvalidationAndRefreshWithBestEffortSync(t *testing.T) {
+	t.Setenv("ATEAM_SESSION_ID", "")
 	st := &State{
 		Mode: ModeFull,
 		Git:  GitStatus{Branch: "main", HeadSHA: "9f11a42"},
 		Cards: []BoardCard{
 			{ID: "GH-PR-2", Number: 2, Title: "Merged Astra PR", Type: "pr", Column: "done", Forge: "github"},
+			{ID: "GH-PR-45", Number: 45, Title: "Merged context PR", Type: "pr", Column: "done", Forge: "github"},
+		},
+		OpenSpecQueue: []OpenSpecChange{
+			{Name: "in-flight-change", CompletedTasks: 1, TotalTasks: 2},
+			{Name: "completed-change", CompletedTasks: 3, TotalTasks: 3},
 		},
 		LastHandoff: &Handoff{
 			Goal:          "Review and merge PR #2 remediating all 8 Astra findings",
@@ -394,6 +401,42 @@ func TestHandoffStaleInvalidationAndRefreshWithBestEffortSync(t *testing.T) {
 	}
 	if strings.Contains(summary, "Goal: Review and merge PR #2") {
 		t.Fatalf("stale handoff Goal should not be injected in pickup summary:\n%s", summary)
+	}
+	if !strings.Contains(summary, "OpenSpec in-flight changes: 1\n  - in-flight-change (1/2 tasks, 0 caveats)") {
+		t.Fatalf("expected active in-flight change in pickup summary, got:\n%s", summary)
+	}
+	if !strings.Contains(summary, "OpenSpec completed changes (done, not archived): 1\n  - completed-change (3/3 tasks, done, not archived)") {
+		t.Fatalf("expected completed unarchived change in pickup summary, got:\n%s", summary)
+	}
+
+	// #53: Context PR mentions in Addresses/DoneWhen or mid-sentence in Goal must NOT mark a current-HEAD handoff stale.
+	st.LastHandoff = &Handoff{
+		Goal:          "Post-merge cleanup after PR #45 landed on main",
+		Addresses:     "main @ 9f11a42; context: fixed earlier by PR #45",
+		DoneWhen:      "PR #45 follow-up verified",
+		ChecksToRun:   "task verify",
+		Branch:        "main",
+		CheckpointSHA: "9f11a42",
+	}
+	st.RefreshHandoffStaleness()
+	if st.LastHandoff.Stale || len(st.HandoffStaleReasons()) != 0 {
+		t.Fatalf("context PR mention falsely marked handoff stale: %+v", st.LastHandoff)
+	}
+
+	// #53: Same-session handoff at current HEAD and branch is fresh even if Goal starts with a merged PR reference.
+	st.CurrentSessionID = "sess-active"
+	st.LastHandoff = &Handoff{
+		Goal:          "PR #45: verify post-merge state on main",
+		Addresses:     "main @ 9f11a42",
+		DoneWhen:      "verified",
+		ChecksToRun:   "task verify",
+		SessionID:     "sess-active",
+		Branch:        "main",
+		CheckpointSHA: "9f11a42",
+	}
+	st.RefreshHandoffStaleness()
+	if st.LastHandoff.Stale {
+		t.Fatalf("same-session current-HEAD handoff should not be marked stale: %+v", st.LastHandoff)
 	}
 }
 

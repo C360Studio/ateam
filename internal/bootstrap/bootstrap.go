@@ -398,7 +398,10 @@ func checkAntigravityConfigs(root string) []string {
 func CheckBuildProvenance(ctx context.Context, root, buildRev, headSHA string) []string {
 	buildRev = strings.TrimSpace(buildRev)
 	headSHA = strings.TrimSpace(headSHA)
-	if buildRev == "" || buildRev == "dev" || headSHA == "" || headSHA == "uncommitted" {
+	if buildRev == "" || buildRev == "dev" || buildRev == "unknown" {
+		return []string{"binary has no build provenance; build with task build"}
+	}
+	if headSHA == "" || headSHA == "uncommitted" {
 		return nil
 	}
 	shortBuild := buildRev
@@ -416,6 +419,21 @@ func CheckBuildProvenance(ctx context.Context, root, buildRev, headSHA string) [
 		return []string{fmt.Sprintf("binary build commit %s is not an ancestor of checkout HEAD %s; rebuild ./bin/ateam from this checkout", shortBuild, headSHA)}
 	}
 	return []string{fmt.Sprintf("binary build commit %s is behind checkout HEAD %s; rebuild ./bin/ateam", shortBuild, headSHA)}
+}
+
+// CheckUnarchivedOpenSpecChanges returns a doctor warning for any OpenSpec change under openspec/changes/ whose tasks are all complete.
+func CheckUnarchivedOpenSpecChanges(root string) []string {
+	changes, err := state.ScanOpenSpecQueue(root)
+	if err != nil {
+		return nil
+	}
+	var warnings []string
+	for _, ch := range changes {
+		if ch.IsCompletedUnarchived() {
+			warnings = append(warnings, fmt.Sprintf("openspec/changes/%s is completed (%d/%d tasks) and not archived; move to openspec/changes/archive/<date>-%s", ch.Name, ch.CompletedTasks, ch.TotalTasks, ch.Name))
+		}
+	}
+	return warnings
 }
 
 // ParseRunningServeProcesses extracts PIDs of active `ateam serve` processes from `ps -eo pid=,args=` output.

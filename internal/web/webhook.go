@@ -86,6 +86,7 @@ type webhookEventPayload struct {
 		HTMLURL string `json:"html_url"`
 		Head    struct {
 			Ref string `json:"ref"`
+			SHA string `json:"sha,omitempty"`
 		} `json:"head"`
 		Labels []struct {
 			Name string `json:"name"`
@@ -191,15 +192,17 @@ func cardFromWebhook(ev webhookEventPayload, forge string) (state.BoardCard, boo
 			col = "in-progress"
 		}
 		return state.BoardCard{
-			ID:     fmt.Sprintf("%s-PR-%d", prefix, pr.Number),
-			Number: pr.Number,
-			Title:  pr.Title,
-			Column: col,
-			Type:   "pr",
-			Labels: labels,
-			Branch: pr.Head.Ref,
-			Forge:  forge,
-			URL:    pr.HTMLURL,
+			ID:      fmt.Sprintf("%s-PR-%d", prefix, pr.Number),
+			Number:  pr.Number,
+			Title:   pr.Title,
+			Column:  col,
+			Type:    "pr",
+			Merged:  pr.Merged || strings.EqualFold(pr.State, "merged"),
+			HeadSHA: strings.TrimSpace(pr.Head.SHA),
+			Labels:  labels,
+			Branch:  pr.Head.Ref,
+			Forge:   forge,
+			URL:     pr.HTMLURL,
 		}, true
 	}
 	if ev.Issue != nil && ev.Issue.Number > 0 {

@@ -1,0 +1,1136 @@
+package bootstrap
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+const fakeGH = `#!/bin/sh
+d="$FAKE_GH_DIR"
+echo "$*" >> "$d/argv.log"
+args=" $* "
+need() { case "$args" in *" $1 "*) ;; *) echo "fake gh: '$*' lacks '$1'" >&2; exit 3 ;; esac; }
+case "$1 $2" in
+  "label list")
+    key=labels; need "--json name"
+    case "$args" in *" --search "*) exit 0 ;; esac ;;
+  "issue list") key=issues; need "--label class:flake"; need "--state open"; need "--limit 100" ;;
+  "pr view")
+    key=pr
+    [ "$3" = "$FAKE_GH_PR" ] || { echo "fake gh: pr view of '$3', want '$FAKE_GH_PR'" >&2; exit 3; }
+    need "--json closingIssuesReferences" ;;
+  *)
+    case "$*" in
+      "api repos/{owner}/{repo}/rules/branches/main") key=rules ;;
+      "api repos/{owner}/{repo}/rulesets/"*) key=ruleset ;;
+      "api repos/{owner}/{repo}/pulls/$FAKE_GH_PR") key=pull ;;
+      "api --paginate repos/{owner}/{repo}/pulls/$FAKE_GH_PR/files?per_page=100") key=files ;;
+      *) echo "fake gh: unexpected call: $*" >&2; exit 3 ;;
+    esac ;;
+esac
+if [ -e "$d/$key.fail" ]; then echo "HTTP 502: Bad Gateway (fake)" >&2; exit 1; fi
+cat "$d/$key.json"
+`
+
+const (
+	flakeRepo = "https://github.com/C360Studio/ateam/issues/"
+	otherRepo = "https://github.com/C360Studio/semstreams/issues/"
+)
+
+func issueJSON(n int) string {
+	return fmt.Sprintf(`{"number":%d,"url":"%s%d","title":"flaky test %d"}`, n, flakeRepo, n, n)
+}
+
+func refJSON(url string, n int) string {
+	return fmt.Sprintf(`{"number":%d,"url":"%s%d","repository":{"name":"x","owner":{"login":"C360Studio"}}}`, n, url, n)
+}
+
+func listJSON(items ...string) string { return "[" + strings.Join(items, ",") + "]" }
+
+type ghState struct {
+	labels, issues, pr, rules, ruleset string
+	pull, files                        string
+	fail                               []string
+	jqFail                             string
+}
+
+const fakeJQ = `#!/bin/sh
+case "$*" in *"$FAKE_JQ_FAIL"*) echo "jq: error (fake)" >&2; exit 5 ;; esac
+exec "$REAL_JQ" "$@"
+`
+
+const (
+	requiredRule = `{"type":"required_status_checks","ruleset_id":24272345,"ruleset_source":"C360Studio/ateam",` +
+		`"parameters":{"strict_required_status_checks_policy":true,"do_not_enforce_on_create":false,` +
+		`"required_status_checks":[{"context":"Required","integration_id":15368}]}}`
+	otherRules = `{"type":"deletion","ruleset_id":24272345},{"type":"non_fast_forward","ruleset_id":24272345}`
+)
+
+func healthyGH() ghState {
+	return ghState{
+		labels:  listJSON(`{"name":"bug"}`, `{"name":"class:flake"}`),
+		issues:  listJSON(),
+		pr:      `{"closingIssuesReferences":[]}`,
+		rules:   listJSON(otherRules, requiredRule),
+		ruleset: `{"id":24272345,"name":"main","enforcement":"active"}`,
+		pull:    pullJSON(false, "User", "", 1),
+		files:   filesJSON("docs/a.md"),
+	}
+}
+
+func pullJSON(draft bool, userType, body string, changedFiles int) string {
+	b, err := json.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`{"number":12,"state":"open","draft":%t,"user":{"login":"x","type":%q},"body":%s,"changed_files":%d,"base":{"ref":"main"}}`,
+		draft, userType, b, changedFiles)
+}
+
+func filesJSON(names ...string) string {
+	entries := make([]string, len(names))
+	for i, n := range names {
+		entries[i] = fmt.Sprintf(`{"filename":%q,"status":"modified","additions":1,"deletions":0}`, n)
+	}
+	return listJSON(entries...)
+}
+
+type mergeRun struct {
+	out    string
+	status int
+	argv   string
+}
+
+func fakeBin(t *testing.T, tools map[string]string, extra ...string) []string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range tools {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "PATH=") {
+			kv = "PATH=" + dir + ":" + strings.TrimPrefix(kv, "PATH=")
+		}
+		env = append(env, kv)
+	}
+	return append(env, extra...)
+}
+
+func copyScript(t *testing.T, name string) string {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "scripts", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scripts", name), src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func runMergeCheck(t *testing.T, st ghState, pr string, actionsEnv ...string) mergeRun {
+	t.Helper()
+	root := copyScript(t, "merge-check.sh")
+	dir := t.TempDir()
+	for key, body := range map[string]string{
+		"labels":  st.labels,
+		"issues":  st.issues,
+		"pr":      st.pr,
+		"rules":   st.rules,
+		"ruleset": st.ruleset,
+		"pull":    st.pull,
+		"files":   st.files,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, key+".json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, key := range st.fail {
+		if err := os.WriteFile(filepath.Join(dir, key+".fail"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tools := map[string]string{"gh": fakeGH}
+	extra := []string{"FAKE_GH_DIR=" + dir, "FAKE_GH_PR=" + pr}
+	if st.jqFail != "" {
+		realJQ, err := exec.LookPath("jq")
+		if err != nil {
+			t.Fatalf("jq is needed to run merge-check.sh: %v", err)
+		}
+		tools["jq"] = fakeJQ
+		extra = append(extra, "REAL_JQ="+realJQ, "FAKE_JQ_FAIL="+st.jqFail)
+	}
+	var env []string
+	for _, kv := range fakeBin(t, tools, extra...) {
+		if strings.HasPrefix(kv, "GITHUB_ACTIONS=") || strings.HasPrefix(kv, "GITHUB_EVENT_NAME=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	args := []string{filepath.Join(root, "scripts", "merge-check.sh")}
+	if pr != "" {
+		args = append(args, pr)
+	}
+	cmd := exec.Command("bash", args...)
+	cmd.Dir = root
+	cmd.Env = append(env, actionsEnv...)
+	out, err := cmd.CombinedOutput()
+	r := mergeRun{out: string(out)}
+	var exit *exec.ExitError
+	switch {
+	case errors.As(err, &exit):
+		r.status = exit.ExitCode()
+	case err != nil:
+		t.Fatalf("run merge-check.sh: %v", err)
+	}
+	argv, _ := os.ReadFile(filepath.Join(dir, "argv.log"))
+	r.argv = string(argv)
+	return r
+}
+
+func (r mergeRun) requirePass(t *testing.T, fragments ...string) {
+	t.Helper()
+	if r.status != 0 {
+		t.Fatalf("exit %d, want 0\n%s", r.status, r.out)
+	}
+	r.requireOutput(t, fragments...)
+}
+
+func (r mergeRun) requireFail(t *testing.T, fragments ...string) {
+	t.Helper()
+	if r.status == 0 {
+		t.Fatalf("exit 0, want non-zero\n%s", r.out)
+	}
+	r.requireOutput(t, fragments...)
+}
+
+func (r mergeRun) requireOutput(t *testing.T, fragments ...string) {
+	t.Helper()
+	for _, f := range fragments {
+		if !strings.Contains(r.out, f) {
+			t.Errorf("output does not contain %q:\n%s", f, r.out)
+		}
+	}
+}
+
+func (r mergeRun) requireReadPullAndFiles(t *testing.T) {
+	t.Helper()
+	for _, call := range []string{
+		"api repos/{owner}/{repo}/pulls/12\n",
+		"api --paginate repos/{owner}/{repo}/pulls/12/files?per_page=100\n",
+	} {
+		if !strings.Contains(r.argv, call) {
+			t.Errorf("the run did not call gh %q:\n%s", strings.TrimSpace(call), r.argv)
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
+func TestMergeCheckKnownFlake(t *testing.T) {
+	open40 := healthyGH()
+	open40.issues = listJSON(issueJSON(40))
+	open40And52 := healthyGH()
+	open40And52.issues = listJSON(issueJSON(40), issueJSON(52))
+	closes := func(st ghState, refs ...string) ghState {
+		st.pr = `{"closingIssuesReferences":` + listJSON(refs...) + `}`
+		return st
+	}
+
+	t.Run("open flake and an unrelated pull request", func(t *testing.T) {
+		runMergeCheck(t, closes(open40, refJSON(flakeRepo, 7)), "12").requireFail(t, "#40")
+	})
+	t.Run("pull request that closes the only open flake", func(t *testing.T) {
+		r := runMergeCheck(t, closes(open40, refJSON(flakeRepo, 40)), "12")
+		r.requirePass(t, "closing #40 exempts pull request #12", "::warning::")
+		if !strings.Contains(r.out[strings.Index(r.out, "::warning::"):], "#40") {
+			t.Errorf("the ::warning:: line does not name #40:\n%s", r.out)
+		}
+	})
+	t.Run("two open flakes and a pull request that closes one", func(t *testing.T) {
+		r := runMergeCheck(t, closes(open40And52, refJSON(flakeRepo, 40)), "12")
+		r.requireFail(t, "#52")
+		if strings.Contains(r.out, "\n  #40 ") {
+			t.Errorf("#40 is closed by the pull request but reported as not closed:\n%s", r.out)
+		}
+	})
+	t.Run("two open flakes and a pull request that closes both", func(t *testing.T) {
+		runMergeCheck(t, closes(open40And52, refJSON(flakeRepo, 40), refJSON(flakeRepo, 52)), "12").
+			requirePass(t, "closing #40 exempts", "closing #52 exempts")
+	})
+	t.Run("same number in another repository", func(t *testing.T) {
+		runMergeCheck(t, closes(open40, refJSON(otherRepo, 40)), "12").requireFail(t, "#40")
+	})
+	t.Run("no open flake", func(t *testing.T) {
+		r := runMergeCheck(t, healthyGH(), "12")
+		r.requirePass(t, "no open class:flake issue")
+		r.requireReadPullAndFiles(t)
+	})
+	t.Run("label missing", func(t *testing.T) {
+		st := open40
+		st.labels = listJSON(`{"name":"bug"}`)
+		runMergeCheck(t, st, "12").requireFail(t, "label class:flake is missing")
+	})
+	t.Run("push run", func(t *testing.T) {
+		r := runMergeCheck(t, open40, "", "GITHUB_ACTIONS=true", "GITHUB_EVENT_NAME=push")
+		r.requirePass(t, "push run", "known-flake check does not apply")
+		if strings.Contains(r.argv, "issue list") || strings.Contains(r.argv, "pr view") || strings.Contains(r.argv, "/pulls/") {
+			t.Errorf("a push run read issues, a pull request or its files:\n%s", r.argv)
+		}
+		if !strings.Contains(r.argv, "rules/branches/main") {
+			t.Errorf("a push run did not read the rules in force on main:\n%s", r.argv)
+		}
+	})
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
+func TestMergeCheckUpToDateRule(t *testing.T) {
+	t.Run("setting turned off in GitHub", func(t *testing.T) {
+		st := healthyGH()
+		st.rules = listJSON(otherRules, strings.Replace(requiredRule, `"strict_required_status_checks_policy":true`, `"strict_required_status_checks_policy":false`, 1))
+		runMergeCheck(t, st, "12").requireFail(t, "strict_required_status_checks_policy=false", "ruleset_id=24272345")
+	})
+	t.Run("no rule requires the check", func(t *testing.T) {
+		st := healthyGH()
+		st.rules = listJSON(otherRules, strings.Replace(requiredRule, `"context":"Required"`, `"context":"Verify"`, 1))
+		runMergeCheck(t, st, "12").requireFail(t, "no rule in force on main requires Required")
+	})
+	t.Run("ruleset not active", func(t *testing.T) {
+		for _, enforcement := range []string{"evaluate", "disabled"} {
+			st := healthyGH()
+			st.ruleset = `{"id":24272345,"name":"main","enforcement":"` + enforcement + `"}`
+			r := runMergeCheck(t, st, "12")
+			r.requireFail(t, "enforcement="+enforcement)
+			if !strings.Contains(r.argv, "rulesets/24272345") {
+				t.Errorf("did not read the ruleset the rule names:\n%s", r.argv)
+			}
+		}
+	})
+}
+
+func reviewGH(draft bool, author, body string, files ...string) ghState {
+	st := healthyGH()
+	st.pull = pullJSON(draft, author, body, len(files))
+	st.files = filesJSON(files...)
+	return st
+}
+
+const codeFilePrefix = "merge-check: code file: "
+
+func (r mergeRun) requireCodeNames(t *testing.T, want ...string) {
+	t.Helper()
+	var got []string
+	for _, line := range strings.Split(r.out, "\n") {
+		if name, ok := strings.CutPrefix(line, codeFilePrefix); ok {
+			got = append(got, name)
+		}
+	}
+	slices.Sort(got)
+	want = slices.Clone(want)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("code names printed %q, want %q\n%s", got, want, r.out)
+	}
+}
+
+func (r mergeRun) requireNotInOutput(t *testing.T, fragments ...string) {
+	t.Helper()
+	for _, f := range fragments {
+		if strings.Contains(r.out, f) {
+			t.Errorf("output contains %q:\n%s", f, r.out)
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
+func TestMergeCheckReview(t *testing.T) {
+	const implClaude = "Summary.\n\nimplemented-by: claude (opus)\n"
+
+	t.Run("documents only", func(t *testing.T) {
+		r := runMergeCheck(t, reviewGH(false, "User", "", "docs/a.md", "openspec/config.yaml"), "12")
+		r.requirePass(t, "documents only")
+		r.requireCodeNames(t)
+	})
+	t.Run("one code file among documents", func(t *testing.T) {
+		r := runMergeCheck(t, reviewGH(false, "User", implClaude, "docs/a.md", "scripts/x.sh"), "12")
+		r.requireFail(t, "is a code pull request", "no line starts reviewed-by:")
+		r.requireCodeNames(t, "scripts/x.sh")
+	})
+	t.Run("the other agent is named", func(t *testing.T) {
+		for _, tc := range []struct{ body, reviewer string }{
+			{implClaude + "reviewed-by: codex (gpt-5.4) — APPROVE\n", "codex"},
+			{"Summary.\n\nimplemented-by: gemini (pro)\nreviewed-by: claude (opus)\n", "claude"},
+		} {
+			r := runMergeCheck(t, reviewGH(false, "User", tc.body, "docs/a.md", "scripts/x.sh"), "12")
+			r.requirePass(t, "reviewing agent: "+tc.reviewer)
+			r.requireNotInOutput(t, "editing the description starts no run")
+		}
+	})
+	t.Run("same agent implements and reviews", func(t *testing.T) {
+		for _, tc := range []struct{ body, says string }{
+			{"implemented-by: claude-fable-5-1\nreviewed-by: Claude (opus)\n", "another agent (codex or gemini) reviews"},
+			{"implemented-by: gemini (pro)\nreviewed-by: Gemini (pro)\n", "another agent (claude or codex) reviews"},
+		} {
+			runMergeCheck(t, reviewGH(false, "User", tc.body, "scripts/x.sh"), "12").requireFail(t, tc.says)
+		}
+	})
+	t.Run("draft", func(t *testing.T) {
+		runMergeCheck(t, reviewGH(true, "User", implClaude, "docs/a.md", "scripts/x.sh"), "12").
+			requirePass(t, "no line starts reviewed-by:", "does not fail a draft")
+	})
+}
+
+var (
+	requiredNeeds         = []string{"verify", "merge-check"}
+	mergeCheckPermissions = map[string]string{"contents": "read", "issues": "read", "pull-requests": "read"}
+	pullRequestTypes      = []string{"opened", "synchronize", "reopened", "ready_for_review"}
+)
+
+const (
+	verifyTimeoutMinutes = 15
+	runnerLabel          = "ubuntu-24.04"
+)
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
+func TestCIWorkflowPinned(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := ciWorkflowViolations(t, data); len(v) > 0 {
+		t.Fatalf("ci.yml violations:\n- %s", strings.Join(v, "\n- "))
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
+func TestCIWorkflowPinnedSensitivity(t *testing.T) {
+	const good = `on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps: [{run: task verify}]
+  merge-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps: [{run: scripts/merge-check.sh}]
+  required:
+    runs-on: ubuntu-24.04
+    needs: [verify, merge-check]
+    if: always()
+    steps:
+      - name: Require every needed job to succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "needed job results: ${RESULTS:-<none>}"
+          if [ -z "$RESULTS" ]; then echo "no needed jobs reported"; exit 1; fi
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then echo "required check did not succeed: $r"; exit 1; fi
+          done
+`
+	if v := ciWorkflowViolations(t, []byte(good)); len(v) > 0 {
+		t.Fatalf("clean fixture violations:\n- %s", strings.Join(v, "\n- "))
+	}
+
+	plant := func(t *testing.T, old, repl string) []byte {
+		t.Helper()
+		if !strings.Contains(good, old) {
+			t.Fatalf("fixture lacks %q", old)
+		}
+		return []byte(strings.Replace(good, old, repl, 1))
+	}
+	for _, tc := range []struct {
+		name, old, repl string
+		wants           []string
+	}{
+		{"required needs only verify", "needs: [verify, merge-check]", "needs: [verify]",
+			[]string{"job required", "merge-check", "missing"}},
+		{"write permission on a job", "    timeout-minutes: 15\n", "    timeout-minutes: 15\n    permissions:\n      issues: write\n",
+			[]string{"job verify", "issues: write"}},
+		{"fourth permission on merge-check", "      pull-requests: read\n", "      pull-requests: read\n      actions: read\n",
+			[]string{"job merge-check", "actions: read"}},
+		{"verify limit changed", "timeout-minutes: 15", "timeout-minutes: 30",
+			[]string{"job verify", "30", "15 minutes"}},
+		{"write-all on the workflow", "permissions:\n  contents: read\njobs:", "permissions: write-all\njobs:",
+			[]string{"workflow", "write-all"}},
+		{"required without if: always()", "    if: always()\n", "",
+			[]string{"job required", "if: always()"}},
+		{"step exits 0 for skipped", `if [ "$r" != "success" ]`, `if [ "$r" != "success" ] && [ "$r" != "skipped" ]`,
+			[]string{"job required", "exits 0", "skipped"}},
+		{"step reads verify alone", "${{ join(needs.*.result, ' ') }}", "${{ needs.verify.result }}",
+			[]string{"job required", "does not take its results from needs.*.result"}},
+		{"ready type missing", "types: [opened, synchronize, reopened, ready_for_review]", "types: [opened, synchronize, reopened]",
+			[]string{"pull_request", "ready_for_review"}},
+		{"a fourth job on the moving label", "jobs:\n", "jobs:\n  lint: {runs-on: ubuntu-latest, steps: [{run: echo}]}\n",
+			[]string{"job lint", "ubuntu-latest", "ubuntu-24.04"}},
+		{"verify on a list of labels", "  verify:\n    runs-on: ubuntu-24.04\n", "  verify:\n    runs-on: [self-hosted, ubuntu-24.04]\n",
+			[]string{"job verify", "[self-hosted ubuntu-24.04]"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requireViolation(t, ciWorkflowViolations(t, plant(t, tc.old, tc.repl)), tc.wants...)
+		})
+	}
+}
+
+type ciWorkflow struct {
+	On          any
+	Permissions any
+	Defaults    ciDefaults
+	Jobs        map[string]ciJob
+}
+
+type ciJob struct {
+	RunsOn          any
+	Needs           any
+	If              any
+	ContinueOnError any
+	Permissions     any
+	TimeoutMinutes  any
+	Env             map[string]any
+	Defaults        ciDefaults
+	Steps           []ciStep
+}
+
+type ciDefaults struct {
+	Run struct {
+		Shell string
+	}
+}
+
+type ciStep struct {
+	Name            string
+	If              any
+	ContinueOnError any
+	Uses            string
+	Shell           string
+	Env             map[string]any
+	Run             string
+}
+
+func ciWorkflowViolations(t *testing.T, data []byte) []string {
+	wf, err := parseCIWorkflowYAML(data)
+	if err != nil {
+		return []string{fmt.Sprintf("ci.yml: %v", err)}
+	}
+	violations := pullRequestTriggerViolations(wf.On)
+	violations = append(violations, writeGrants("workflow", wf.Permissions)...)
+	names := make([]string, 0, len(wf.Jobs))
+	for name := range wf.Jobs {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		job := wf.Jobs[name]
+		violations = append(violations, writeGrants("job "+name, job.Permissions)...)
+		if job.RunsOn == nil {
+			violations = append(violations, fmt.Sprintf("ci.yml: job %s has no runs-on; the merge-gate spec (\"Pinned runner image\") requires runs-on: %s", name, runnerLabel))
+		} else if label, ok := job.RunsOn.(string); !ok || label != runnerLabel {
+			violations = append(violations, fmt.Sprintf("ci.yml: job %s runs on %v; the merge-gate spec (\"Pinned runner image\") requires the one label %s", name, job.RunsOn, runnerLabel))
+		}
+	}
+
+	if mc, ok := wf.Jobs["merge-check"]; !ok {
+		violations = append(violations, "ci.yml: no job merge-check; the merge-gate spec requires it")
+	} else {
+		violations = append(violations, mergeCheckPermissionViolations(mc.Permissions)...)
+	}
+
+	if req, ok := wf.Jobs["required"]; !ok {
+		violations = append(violations, "ci.yml: no job required; the merge-gate spec requires it")
+	} else {
+		var needs []string
+		switch n := req.Needs.(type) {
+		case string:
+			needs = []string{n}
+		case []any:
+			for _, v := range n {
+				needs = append(needs, fmt.Sprint(v))
+			}
+		}
+		for _, want := range requiredNeeds {
+			if !slices.Contains(needs, want) {
+				violations = append(violations, fmt.Sprintf("ci.yml: job required needs %v; %s is missing, and the merge-gate spec requires it to need %v", needs, want, requiredNeeds))
+			}
+		}
+		for _, d := range []struct{ where, shell string }{{"workflow", wf.Defaults.Run.Shell}, {"job required", req.Defaults.Run.Shell}} {
+			if d.shell != "" && d.shell != "bash" {
+				violations = append(violations, fmt.Sprintf("ci.yml: %s sets defaults.run.shell %q; the test runs required's step as GitHub runs bash", d.where, d.shell))
+			}
+		}
+		violations = append(violations, requiredStepViolations(t, req, needs)...)
+	}
+
+	if v, ok := wf.Jobs["verify"]; !ok {
+		violations = append(violations, "ci.yml: no job verify; the merge-gate spec requires it")
+	} else if limit, ok := v.TimeoutMinutes.(int); !ok || limit != verifyTimeoutMinutes {
+		violations = append(violations, fmt.Sprintf("ci.yml: job verify has timeout-minutes %v; the merge-gate spec requires %d minutes", v.TimeoutMinutes, verifyTimeoutMinutes))
+	}
+	return violations
+}
+
+func pullRequestTriggerViolations(on any) []string {
+	var trigger any
+	found := false
+	switch o := on.(type) {
+	case string:
+		found = o == "pull_request"
+	case []any:
+		found = slices.Contains(o, any("pull_request"))
+	case map[string]any:
+		trigger, found = o["pull_request"]
+	}
+	if !found {
+		return []string{fmt.Sprintf("ci.yml: no pull_request trigger; the merge-gate spec requires one listing the activity types %v", pullRequestTypes)}
+	}
+	var types []string
+	if m, ok := trigger.(map[string]any); ok {
+		switch ty := m["types"].(type) {
+		case string:
+			types = []string{ty}
+		case []any:
+			for _, v := range ty {
+				types = append(types, fmt.Sprint(v))
+			}
+		}
+	}
+	var violations []string
+	for _, want := range pullRequestTypes {
+		if !slices.Contains(types, want) {
+			violations = append(violations, fmt.Sprintf("ci.yml: the pull_request trigger lists activity types %v; %s is missing, and the merge-gate spec requires %v", types, want, pullRequestTypes))
+		}
+	}
+	return violations
+}
+
+func writeGrants(where string, perms any) []string {
+	switch p := perms.(type) {
+	case string:
+		if p != "read-all" {
+			return []string{fmt.Sprintf("ci.yml: %s is granted permissions: %s; the merge-gate spec allows no write", where, p)}
+		}
+	case map[string]any:
+		var out []string
+		for _, scope := range slices.Sorted(maps.Keys(p)) {
+			if level := fmt.Sprint(p[scope]); level == "write" {
+				out = append(out, fmt.Sprintf("ci.yml: %s is granted %s: %s; the merge-gate spec allows no write", where, scope, level))
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func mergeCheckPermissionViolations(perms any) []string {
+	p, ok := perms.(map[string]any)
+	if !ok {
+		return []string{fmt.Sprintf("ci.yml: job merge-check has no permissions of its own (%v); the merge-gate spec requires exactly %v", perms, mergeCheckPermissions)}
+	}
+	var out []string
+	for _, scope := range slices.Sorted(maps.Keys(p)) {
+		level := fmt.Sprint(p[scope])
+		if mergeCheckPermissions[scope] != level {
+			out = append(out, fmt.Sprintf("ci.yml: job merge-check is granted %s: %s; the merge-gate spec allows only %v", scope, level, mergeCheckPermissions))
+		}
+	}
+	for _, scope := range slices.Sorted(maps.Keys(mergeCheckPermissions)) {
+		if _, ok := p[scope]; !ok {
+			out = append(out, fmt.Sprintf("ci.yml: job merge-check is missing %s: %s; the merge-gate spec requires exactly %v", scope, mergeCheckPermissions[scope], mergeCheckPermissions))
+		}
+	}
+	return out
+}
+
+func requiredResultSets() []map[string]string {
+	sets := []map[string]string{{}}
+	for _, j := range requiredNeeds {
+		sets[0][j] = "success"
+	}
+	for _, bad := range []string{"failure", "cancelled", "skipped"} {
+		for _, j := range requiredNeeds {
+			set := maps.Clone(sets[0])
+			set[j] = bad
+			sets = append(sets, set)
+		}
+	}
+	return append(sets, nil)
+}
+
+var ghExpression = regexp.MustCompile(`\$\{\{\s*(.*?)\s*\}\}`)
+
+var (
+	joinNeedsResults = regexp.MustCompile(`^join\(\s*needs\.\*\.result\s*(?:,\s*'([^']*)'\s*)?\)$`)
+	oneNeedResult    = regexp.MustCompile(`^needs\.([A-Za-z0-9_-]+)\.result$`)
+)
+
+func evalNeedsExpression(expr string, needs []string, results map[string]string) (string, bool) {
+	if m := joinNeedsResults.FindStringSubmatch(expr); m != nil {
+		sep := ","
+		if strings.Contains(expr, "'") {
+			sep = m[1]
+		}
+		var rs []string
+		for _, j := range needs {
+			if r, ok := results[j]; ok {
+				rs = append(rs, r)
+			}
+		}
+		return strings.Join(rs, sep), true
+	}
+	if m := oneNeedResult.FindStringSubmatch(expr); m != nil {
+		return results[m[1]], true
+	}
+	return "", false
+}
+
+func requiredStepViolations(t *testing.T, req ciJob, needs []string) []string {
+	var out []string
+	if cond := strings.TrimSpace(fmt.Sprint(req.If)); req.If == nil || (cond != "always()" && cond != "${{ always() }}") {
+		out = append(out, fmt.Sprintf("ci.yml: job required runs under if: %v; the merge-gate spec requires if: always(), or a failed or cancelled needed job leaves Required skipped, which GitHub reports as success", req.If))
+	}
+	if req.ContinueOnError != nil {
+		out = append(out, fmt.Sprintf("ci.yml: job required sets continue-on-error: %v; the merge-gate spec requires it to fail", req.ContinueOnError))
+	}
+	if len(req.Steps) == 0 {
+		return append(out, "ci.yml: job required has no steps; the merge-gate spec requires a step that reads the results of its needed jobs")
+	}
+
+	var texts []string
+	for _, v := range req.Env {
+		texts = append(texts, fmt.Sprint(v))
+	}
+	runnable := true
+	for i, st := range req.Steps {
+		where := fmt.Sprintf("ci.yml: job required, step %d (%s)", i+1, st.Name)
+		switch {
+		case st.If != nil:
+			out = append(out, fmt.Sprintf("%s has the condition %v; the merge-gate spec requires the step to run on every result", where, st.If))
+		case st.ContinueOnError != nil:
+			out = append(out, fmt.Sprintf("%s sets continue-on-error: %v; the merge-gate spec requires the step's failure to fail Required", where, st.ContinueOnError))
+		case st.Uses != "" || st.Run == "":
+			out = append(out, fmt.Sprintf("%s is not a run step (uses %q); the test runs the step's script as the workflow writes it", where, st.Uses))
+			runnable = false
+		case st.Shell != "" && st.Shell != "bash":
+			out = append(out, fmt.Sprintf("%s runs under shell %q; the test runs it as GitHub runs bash", where, st.Shell))
+			runnable = false
+		}
+		texts = append(texts, st.Run)
+		for _, v := range st.Env {
+			texts = append(texts, fmt.Sprint(v))
+		}
+	}
+	readsAll := false
+	for _, text := range texts {
+		for _, m := range ghExpression.FindAllStringSubmatch(text, -1) {
+			if joinNeedsResults.MatchString(m[1]) {
+				readsAll = true
+			}
+			if _, ok := evalNeedsExpression(m[1], needs, nil); !ok {
+				out = append(out, fmt.Sprintf("ci.yml: job required carries the expression ${{ %s }}, which the test cannot evaluate; the merge-gate spec requires its step to read join(needs.*.result, ...)", m[1]))
+				runnable = false
+			}
+		}
+	}
+	if !readsAll {
+		out = append(out, "ci.yml: job required: its step does not take its results from needs.*.result; the merge-gate spec requires it to read the result of every job it needs")
+	}
+	if !runnable {
+		return out
+	}
+
+	for _, results := range requiredResultSets() {
+		label := "no results"
+		if results != nil {
+			var parts []string
+			for _, j := range requiredNeeds {
+				parts = append(parts, j+"="+results[j])
+			}
+			label = strings.Join(parts, " ")
+		}
+		subst := func(text string) string {
+			return ghExpression.ReplaceAllStringFunc(text, func(e string) string {
+				v, _ := evalNeedsExpression(ghExpression.FindStringSubmatch(e)[1], needs, results)
+				return v
+			})
+		}
+		ok, output, err := runRequiredSteps(t, req, subst)
+		if err != nil {
+			return append(out, fmt.Sprintf("ci.yml: job required: running its step for %s: %v", label, err))
+		}
+		allSuccess := results != nil && !slices.ContainsFunc(requiredNeeds, func(j string) bool { return results[j] != "success" })
+		switch {
+		case allSuccess && !ok:
+			out = append(out, fmt.Sprintf("ci.yml: job required: its step exits non-zero when every needed job succeeded (%s): %s", label, output))
+		case !allSuccess && ok:
+			out = append(out, fmt.Sprintf("ci.yml: job required: its step exits 0 for %s; the merge-gate spec requires it to fail unless every needed job succeeded", label))
+		}
+	}
+	return out
+}
+
+func runRequiredSteps(t *testing.T, req ciJob, subst func(string) string) (bool, string, error) {
+	for _, st := range req.Steps {
+		env := []string{"PATH=" + os.Getenv("PATH")}
+		for _, m := range []map[string]any{req.Env, st.Env} {
+			for _, k := range slices.Sorted(maps.Keys(m)) {
+				env = append(env, k+"="+subst(fmt.Sprint(m[k])))
+			}
+		}
+		cmd := exec.Command("bash", "--noprofile", "--norc", "-e", "-c", subst(st.Run))
+		cmd.Env = env
+		cmd.Dir = t.TempDir()
+		output, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		switch {
+		case errors.As(err, &exit):
+			return false, strings.TrimSpace(string(output)), nil
+		case err != nil:
+			return false, "", err
+		}
+	}
+	return true, "", nil
+}
+
+// Minimal stdlib YAML parser for GitHub Actions workflow structures (avoids external yaml dependency).
+func parseCIWorkflowYAML(data []byte) (ciWorkflow, error) {
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	root, _ := parseYAMLBlockMap(lines, 0, 0)
+	var wf ciWorkflow
+	wf.On = root["on"]
+	wf.Permissions = root["permissions"]
+	wf.Defaults = decodeCIDefaults(root["defaults"])
+	if jobsMap, ok := root["jobs"].(map[string]any); ok {
+		wf.Jobs = make(map[string]ciJob, len(jobsMap))
+		for name, rawJob := range jobsMap {
+			wf.Jobs[name] = decodeCIJob(rawJob)
+		}
+	}
+	return wf, nil
+}
+
+func decodeCIDefaults(raw any) ciDefaults {
+	var d ciDefaults
+	if m, ok := raw.(map[string]any); ok {
+		if runMap, ok := m["run"].(map[string]any); ok {
+			if sh, ok := runMap["shell"]; ok {
+				d.Run.Shell = fmt.Sprint(sh)
+			}
+		}
+	}
+	return d
+}
+
+func decodeCIJob(raw any) ciJob {
+	var j ciJob
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return j
+	}
+	j.RunsOn = m["runs-on"]
+	j.Needs = m["needs"]
+	j.If = m["if"]
+	j.ContinueOnError = m["continue-on-error"]
+	j.Permissions = m["permissions"]
+	j.TimeoutMinutes = m["timeout-minutes"]
+	if envMap, ok := m["env"].(map[string]any); ok {
+		j.Env = envMap
+	}
+	j.Defaults = decodeCIDefaults(m["defaults"])
+	if stepsSlice, ok := m["steps"].([]any); ok {
+		for _, item := range stepsSlice {
+			if sm, ok := item.(map[string]any); ok {
+				var st ciStep
+				if v, ok := sm["name"]; ok {
+					st.Name = fmt.Sprint(v)
+				}
+				st.If = sm["if"]
+				st.ContinueOnError = sm["continue-on-error"]
+				if v, ok := sm["uses"]; ok {
+					st.Uses = fmt.Sprint(v)
+				}
+				if v, ok := sm["shell"]; ok {
+					st.Shell = fmt.Sprint(v)
+				}
+				if envMap, ok := sm["env"].(map[string]any); ok {
+					st.Env = envMap
+				}
+				if v, ok := sm["run"]; ok {
+					st.Run = fmt.Sprint(v)
+				}
+				j.Steps = append(j.Steps, st)
+			}
+		}
+	}
+	return j
+}
+
+func stripYAMLComment(s string) string {
+	inSingle := false
+	inDouble := false
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '#':
+			if !inSingle && !inDouble && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t') {
+				return strings.TrimRight(s[:i], " \t")
+			}
+		}
+	}
+	return strings.TrimRight(s, " \t")
+}
+
+func lineIndent(s string) int {
+	n := 0
+	for n < len(s) && s[n] == ' ' {
+		n++
+	}
+	return n
+}
+
+func nextSignificantLine(lines []string, idx int) (int, int, string) {
+	for i := idx; i < len(lines); i++ {
+		cleaned := stripYAMLComment(lines[i])
+		if strings.TrimSpace(cleaned) == "" {
+			continue
+		}
+		return i, lineIndent(cleaned), strings.TrimSpace(cleaned)
+	}
+	return len(lines), -1, ""
+}
+
+func parseYAMLBlockMap(lines []string, startIdx, minIndent int) (map[string]any, int) {
+	out := make(map[string]any)
+	idx := startIdx
+	for {
+		nextIdx, indent, trimmed := nextSignificantLine(lines, idx)
+		if nextIdx >= len(lines) || indent < minIndent || strings.HasPrefix(trimmed, "- ") {
+			return out, nextIdx
+		}
+		key, valPart, hasColon := splitYAMLKeyValue(trimmed)
+		if !hasColon {
+			idx = nextIdx + 1
+			continue
+		}
+		if valPart == "|" {
+			var blockLines []string
+			blockIndent := -1
+			i := nextIdx + 1
+			for ; i < len(lines); i++ {
+				raw := lines[i]
+				if strings.TrimSpace(raw) == "" {
+					if blockIndent >= 0 {
+						blockLines = append(blockLines, "")
+					}
+					continue
+				}
+				ind := lineIndent(raw)
+				if ind <= indent {
+					break
+				}
+				if blockIndent < 0 {
+					blockIndent = ind
+				}
+				if len(raw) >= blockIndent {
+					blockLines = append(blockLines, raw[blockIndent:])
+				} else {
+					blockLines = append(blockLines, strings.TrimLeft(raw, " "))
+				}
+			}
+			out[key] = strings.Join(blockLines, "\n") + "\n"
+			idx = i
+			continue
+		}
+		if valPart != "" {
+			out[key] = parseYAMLValue(valPart)
+			idx = nextIdx + 1
+			continue
+		}
+		childIdx, childIndent, childTrimmed := nextSignificantLine(lines, nextIdx+1)
+		if childIdx >= len(lines) || childIndent <= indent {
+			out[key] = nil
+			idx = nextIdx + 1
+			continue
+		}
+		if strings.HasPrefix(childTrimmed, "- ") {
+			seq, afterSeq := parseYAMLBlockSeq(lines, childIdx, childIndent)
+			out[key] = seq
+			idx = afterSeq
+		} else {
+			subMap, afterMap := parseYAMLBlockMap(lines, childIdx, childIndent)
+			out[key] = subMap
+			idx = afterMap
+		}
+	}
+}
+
+func parseYAMLBlockSeq(lines []string, startIdx, seqIndent int) ([]any, int) {
+	var out []any
+	idx := startIdx
+	for {
+		nextIdx, indent, trimmed := nextSignificantLine(lines, idx)
+		if nextIdx >= len(lines) || indent < seqIndent || !strings.HasPrefix(trimmed, "- ") {
+			return out, nextIdx
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+		itemKey, itemVal, hasColon := splitYAMLKeyValue(rest)
+		if !hasColon {
+			out = append(out, parseYAMLValue(rest))
+			idx = nextIdx + 1
+			continue
+		}
+		synthLines := slices.Clone(lines)
+		prefixSpaces := strings.Repeat(" ", indent+2)
+		synthLines[nextIdx] = prefixSpaces + itemKey + ": " + itemVal
+		itemMap, afterItem := parseYAMLBlockMap(synthLines, nextIdx, indent+2)
+		out = append(out, itemMap)
+		idx = afterItem
+	}
+}
+
+func splitYAMLKeyValue(s string) (string, string, bool) {
+	depth := 0
+	inSingle := false
+	inDouble := false
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '[', '{':
+			if !inSingle && !inDouble {
+				depth++
+			}
+		case ']', '}':
+			if !inSingle && !inDouble && depth > 0 {
+				depth--
+			}
+		case ':':
+			if !inSingle && !inDouble && depth == 0 && (i+1 == len(s) || s[i+1] == ' ' || s[i+1] == '\t') {
+				return strings.TrimSpace(s[:i]), strings.TrimSpace(s[i+1:]), true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func splitFlowItems(s string) []string {
+	var items []string
+	depth := 0
+	inSingle := false
+	inDouble := false
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '[', '{', '(':
+			if !inSingle && !inDouble {
+				depth++
+			}
+		case ']', '}', ')':
+			if !inSingle && !inDouble && depth > 0 {
+				depth--
+			}
+		case ',':
+			if !inSingle && !inDouble && depth == 0 {
+				if part := strings.TrimSpace(s[start:i]); part != "" {
+					items = append(items, part)
+				}
+				start = i + 1
+			}
+		}
+	}
+	if last := strings.TrimSpace(s[start:]); last != "" {
+		items = append(items, last)
+	}
+	return items
+}
+
+func parseYAMLValue(s string) any {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		inner := strings.TrimSpace(s[1 : len(s)-1])
+		if inner == "" {
+			return []any{}
+		}
+		parts := splitFlowItems(inner)
+		out := make([]any, 0, len(parts))
+		for _, p := range parts {
+			out = append(out, parseYAMLValue(p))
+		}
+		return out
+	}
+	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") && !strings.HasPrefix(s, "${{") {
+		inner := strings.TrimSpace(s[1 : len(s)-1])
+		out := make(map[string]any)
+		if inner == "" {
+			return out
+		}
+		for _, p := range splitFlowItems(inner) {
+			if k, v, ok := splitYAMLKeyValue(p); ok {
+				out[k] = parseYAMLValue(v)
+			}
+		}
+		return out
+	}
+	if (strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) || (strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")) {
+		return s[1 : len(s)-1]
+	}
+	if n, err := strconv.Atoi(s); err == nil {
+		return n
+	}
+	if s == "true" {
+		return true
+	}
+	if s == "false" {
+		return false
+	}
+	return s
+}
