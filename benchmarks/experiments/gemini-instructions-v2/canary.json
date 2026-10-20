@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "gemini-instructions-v2-canary",
+  "mode": "aa",
+  "command": [
+    "gemini"
+  ],
+  "agent": "gemini",
+  "model": "gemini-3.8-flash",
+  "tasks": [
+    "safe-path"
+  ],
+  "repetitions": 1,
+  "seed": 42,
+  "timeout_seconds": 180,
+  "max_run_seconds": 600,
+  "max_total_tokens": 100000,
+  "gemini": {
+    "auth": "api-key-env",
+    "reasoning": "low",
+    "output_format": "json-schema",
+    "max_output_tokens": 32768
+  },
+  "bundles": {
+    "baseline": "baseline.json",
+    "candidate": "baseline.json"
+  }
+}

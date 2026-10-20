@@ -15,6 +15,6 @@ Initial planning head `c50248803995e0e0e2dde659a9d5b76a61a6bb15` passed independ
 
 - [ ] Hold: owner authorization required before bridge installation, downloaded-code execution or adapter implementation; freeze full dependency/API/config contract first.
 - [ ] Prove isolated actual-runtime request translation, controls, cancellation, permissions, accounting and replay using offline stubs and mutation checks.
-- [ ] Hold: reconcile/land PR #43 and PR #32 before depending on their implementation; keep stopped Gemini evidence frozen.
+- [x] Reconcile landed PR #43 (`8e52e719`) and PR #32 (`b789cf62`) from main; keep stopped Gemini evidence frozen.
 - [ ] Complete independent implementation review and required checks before claiming a qualified runtime.
 - [ ] Hold: separately reviewed frozen canary/A/A protocol and explicit new spending authorization required before any paid call.

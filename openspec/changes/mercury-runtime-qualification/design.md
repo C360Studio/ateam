@@ -10,17 +10,15 @@ This is a planning claim, not permission to add a fourth runtime or a replacemen
 
 On October 20, 2026, local main was clean at `e37563b688182fb975e1013d28231fccec66a747`; remote main and merged PR #60 were `c660e71eb0b4f1d99d3049e7ba1d48dd28119ab3`. Pickup reported a possible Claude writer on main and an unrelated older handoff. No existing worktree was taken over. This new `codex/mercury-offline-qualification` worktree was fast-forwarded to remote main before edits.
 
-PR #43 remains open at `64770752c23814b26dffa7d0824fbe110af407f1`; PR #32 remains open at `76d3d87d88b11d723d08a2e80b49e32f27ff2607`. Their current bodies and October 20 review comments now record Claude `fable-5.1` approval, unlike the stale roadmap/handoff assertion that cross-agent review was missing. API check status during pickup showed Merge check SUCCESS and Verify IN_PROGRESS; historical body text reports earlier Verify passes. Do not equate historical passes with completion of an in-progress run. Neither PR is merged by this task. Reconcile their final landing before implementation depends on their changes.
+Review-ready baseline: PR #43 merged as `8e52e719914a655d5b70c5e35b29b9e071916a11`, and PR #32 merged as `b789cf62e36855d93bfd9315892cec71132866d6`. This branch includes current main `b789cf62`; the landing prerequisite is satisfied. The merged changes add Gemini failure evidence and output-budget support. Inspection confirms that the existing Claude/Codex configuration and execution boundaries cited below are unchanged; shared replay now also refuses misplaced Gemini failure metadata. The frozen Gemini evidence is included from main without modification.
 
-PR #29 claims #28 on `codex/benchmark-native-skills`; do not duplicate that work. No `.agents/review-policy.json` exists at this baseline, so no configured stronger-model ranking can be asserted. Independent same-session-model review of this plan is not cross-provider review or approval of a future code PR.
-
-Publication refresh: PR #32's Verify, Merge check and Required checks are now SUCCESS at the same head. PR #43 advanced to `92a0c1422c8303fbb0a4b9d423e749b3a67be1ca`; Merge check is SUCCESS and Verify is IN_PROGRESS. Its prior review cited above belongs to the older head and is not asserted as exact-head review of this update. Both remain open; remote main remains `c660e71`. These observations are snapshots, not promises about subsequent landing.
+PR #29 claims #28 on `codex/benchmark-native-skills`; do not duplicate that work. No `.agents/review-policy.json` exists at this baseline, so no configured stronger-model ranking can be asserted. The prior independent technical review covered planning head `6913b1fe37d4a1649fa0661a3132b7f0fcbb2724`; it is not approval of the reconciled head. The owner will arrange cross-service review once PR #61 is ready. Readiness does not authorize installation, implementation, paid calls or merge.
 
 ## Audited execution stack
 
 | Layer | Evidence / proposed pin | What remains unknown |
 | --- | --- | --- |
-| ATeam | Main `c660e71`; existing native Claude contract in `internal/bench/native.go` | New integration schema is not implemented |
+| ATeam | Source audit at `c660e71`, reconciled with main `b789cf62`; existing native Claude contract in `internal/bench/native.go` | New integration schema is not implemented |
 | Native CLI | Installed `claude --version`: `2.1.292 (Claude Code)`, matching ATeam's current pin | Actual Mercury request shape, custom-model effort and safe/bare gateway behavior |
 | Interpreter | Installed Python `3.14.5`; source package declares `>=3.10,<3.15` | Dependency resolution and supported installed environment |
 | Bridge | Documented `litellm[proxy]==1.99.0`; upstream tag resolves to `fa647f742d7baefe8eb1181899d9c81b41559772` | Wheel/source equivalence, hashes and complete transitive lock; no installed bridge detected on PATH |

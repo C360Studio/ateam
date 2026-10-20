@@ -76,6 +76,25 @@ Native pilots SHALL expose attempt counts, time limits, authentication policy an
 - **WHEN** a native attempt omits complete usage
 - **THEN** no subsequent native attempt starts and retained evidence identifies the stop reason
 
+### Requirement: Explicit Gemini output allowance
+Gemini experiments MAY set shared `gemini.max_output_tokens` to an integer from 1 through 65536. Omission or null SHALL preserve the historical 8192 allowance and absent-field serialization. Both generation override scopes SHALL request the same effective allowance for both arms. Dry runs and retained settings SHALL expose that allowance; invalid values SHALL fail before native CLI inspection or inference.
+
+#### Scenario: Explicit allowance is delivered
+- **WHEN** a Gemini experiment selects 32768 output tokens
+- **THEN** both core and selected-model generation overrides request 32768 while model, reasoning and other controls remain unchanged
+
+#### Scenario: Invalid allowance is rejected
+- **WHEN** an experiment specifies zero, a negative value, more than 65536 or a non-integer allowance
+- **THEN** configuration resolution refuses it before inspecting the native executable or reading credentials
+
+#### Scenario: Historical evidence remains replayable
+- **WHEN** an older experiment omits the output allowance
+- **THEN** regenerated native settings retain 8192 and serialization omits the new field, preserving historical artifact validation and offline replay
+
+#### Scenario: Retained allowance disagrees with configuration
+- **WHEN** saved native generation settings or original configuration have been altered to a different output allowance
+- **THEN** execution and retained-evidence validation refuse the inconsistent provenance rather than silently accepting the new allowance
+
 ### Requirement: Fixed-model harness treatments
 The native pilot SHALL use gemini-3.8-flash with the same requested model and generation settings for both arms. A/B SHALL vary explicit harness instruction treatment; A/A SHALL hold that treatment identical. Observed usage from an unexpected model or missing per-model identity SHALL stop the pilot and SHALL NOT contribute a valid same-model quality result. Model routing and role-to-model defaults SHALL remain outside this benchmark change.
 
@@ -200,6 +219,19 @@ Bundle provenance SHALL distinguish requested and delivered instruction content 
 #### Scenario: Skill text is included as instructions
 - **WHEN** a bundle includes text describing a skill
 - **THEN** evidence records instruction delivery without asserting native skill execution
+
+### Requirement: Gemini fatal stderr evidence
+The runner SHALL retain recognized Gemini turn-limit error evidence without treating absent native usage as zero or executing later attempts. Historical artifacts without this evidence SHALL remain replayable unchanged.
+
+#### Scenario: Stderr-only turn limit
+- **WHEN** Gemini exits with code53, empty stdout and an unambiguous bounded native FatalTurnLimitedError envelope on stderr
+- **THEN** the runner retains reported error/session details and a local four-turn-limit diagnostic
+- **AND** usage stays unknown, the attempt has no grade and no subsequent attempt executes
+
+#### Scenario: Untrusted framing and compatibility
+- **WHEN** stderr contains malformed, conflicting or duplicate-key candidate envelopes, streams are truncated, or the process times out or exits with another code
+- **THEN** the runner does not synthesize recognized turn-limit evidence
+- **AND** replay of newly normalized evidence re-derives it from raw stderr while historical artifacts preserve their original outcomes
 
 ### Requirement: Versioned Gemini best-effort accounting
 New Gemini execution SHALL explicitly select the verified stable CLI 0.64.0. Historical 0.43.0 configurations and artifacts SHALL remain replayable without changing their settings or comparison interpretation. Reports SHALL distinguish known normalized usage from unknown usage and SHALL NOT claim reconciled cost.
