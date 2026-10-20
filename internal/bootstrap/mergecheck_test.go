@@ -370,6 +370,26 @@ func TestMergeCheckReview(t *testing.T) {
 		r.requirePass(t, "documents only")
 		r.requireCodeNames(t)
 	})
+	t.Run("openspec markdown and json only", func(t *testing.T) {
+		r := runMergeCheck(t, reviewGH(false, "User", "",
+			"openspec/changes/mercury-runtime-qualification/tasks.md",
+			"openspec/changes/mercury-runtime-qualification/offline/stack.json",
+			"openspec/changes/mercury-runtime-qualification/offline/observations.json",
+			"openspec/changes/mercury-runtime-qualification/offline/config.yml"), "12")
+		r.requirePass(t, "documents only")
+		r.requireCodeNames(t)
+	})
+	t.Run("openspec script and lockfile are code", func(t *testing.T) {
+		r := runMergeCheck(t, reviewGH(false, "User", implClaude,
+			"openspec/changes/mercury-runtime-qualification/tasks.md",
+			"openspec/changes/mercury-runtime-qualification/offline/stack.json",
+			"openspec/changes/mercury-runtime-qualification/offline/reproduce.py",
+			"openspec/changes/mercury-runtime-qualification/offline/selected-wheels.lock"), "12")
+		r.requireFail(t, "is a code pull request", "no line starts reviewed-by:")
+		r.requireCodeNames(t,
+			"openspec/changes/mercury-runtime-qualification/offline/reproduce.py",
+			"openspec/changes/mercury-runtime-qualification/offline/selected-wheels.lock")
+	})
 	t.Run("one code file among documents", func(t *testing.T) {
 		r := runMergeCheck(t, reviewGH(false, "User", implClaude, "docs/a.md", "scripts/x.sh"), "12")
 		r.requireFail(t, "is a code pull request", "no line starts reviewed-by:")
