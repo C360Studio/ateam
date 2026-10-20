@@ -17,6 +17,10 @@ Work belongs in this OpenSpec change and the smallest necessary offline test/fix
 - Record independent review and the repository checks relevant to the eventual implementation.
 - Stop after the offline contract report. Production adapter delivery and live calibration are subsequent gates.
 
-This claim publication contains tracking and task-formatting changes only. It does not install or execute downloaded code, implement the adapter, or authorize paid calls. The existing installation/implementation and spending holds remain explicit in [tasks.md](tasks.md); the owner can authorize the next execution slice separately.
+The initial publication was claim-only. The owner subsequently requested driving this PR to review readiness, authorizing the scoped isolated offline setup and implementation. Installation/execution remains subject to distribution inspection and enforced isolation. Production adapter delivery and paid calls remain outside this slice; the spending hold remains in [tasks.md](tasks.md).
 
 The discussed two-attempt canary followed by twelve A/A attempts, 100,000 reported tokens, 120 seconds per attempt, 30 minutes overall and $1 spending target are provisional planning values, not a frozen or authorized run protocol. Verify pricing, supported output/turn controls and overshoot limits before proposing live authorization. The earlier Gemini budget is not reused.
+
+## Delivered investigation result
+
+The [offline report](offline-report.md) records actual pinned CLI/bridge execution and a provider-usage provenance blocker. The scoped report and fixtures are delivered; the runtime is not qualified. Production adapter delivery and paid calibration remain deferred pending a separately reviewed resolution and the remaining qualification gates.
