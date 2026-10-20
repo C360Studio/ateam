@@ -6,8 +6,10 @@
 - [x] Isolate this documentation claim on `codex/mercury-offline-qualification`.
 - [x] Inspect documented launcher and pinned bridge source; identify effective-control and evidence blockers.
 - [x] Define scoped compatibility plan, source pins, offline checks and stop boundary.
-- [ ] Complete independent read-only plan review and record repository verification in draft PR.
-- [ ] Publish the scoped draft PR with `Addresses #58` and `Addresses #16`.
+- [x] Complete independent read-only plan review and record repository verification in draft PR.
+- [x] Publish the scoped draft PR with `Addresses #58` and `Addresses #16`: [PR #61](https://github.com/C360Studio/ateam/pull/61).
+
+Initial planning head `c50248803995e0e0e2dde659a9d5b76a61a6bb15` passed independent technical review, full clean-tree `task verify && task doctor`, separate strict OpenSpec validation and diff checks. Exact-head follow-up review/check evidence lives in PR #61. This is plan review only; it is not configured stronger-model or cross-provider approval. The initial sandbox loopback failure remains recorded separately from the successful approved rerun.
 
 ## Later qualification gates
 

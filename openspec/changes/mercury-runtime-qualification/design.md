@@ -14,6 +14,8 @@ PR #43 remains open at `64770752c23814b26dffa7d0824fbe110af407f1`; PR #32 remain
 
 PR #29 claims #28 on `codex/benchmark-native-skills`; do not duplicate that work. No `.agents/review-policy.json` exists at this baseline, so no configured stronger-model ranking can be asserted. Independent same-session-model review of this plan is not cross-provider review or approval of a future code PR.
 
+Publication refresh: PR #32's Verify, Merge check and Required checks are now SUCCESS at the same head. PR #43 advanced to `92a0c1422c8303fbb0a4b9d423e749b3a67be1ca`; Merge check is SUCCESS and Verify is IN_PROGRESS. Its prior review cited above belongs to the older head and is not asserted as exact-head review of this update. Both remain open; remote main remains `c660e71`. These observations are snapshots, not promises about subsequent landing.
+
 ## Audited execution stack
 
 | Layer | Evidence / proposed pin | What remains unknown |
@@ -26,6 +28,8 @@ PR #29 claims #28 on `codex/benchmark-native-skills`; do not duplicate that work
 | Provider/model | `https://api.inceptionlabs.ai/v1/chat/completions`, `mercury-3`; proposed alias recorded separately | Provider model revision is not exposed/pinned by the alias |
 | Incoming API | Anthropic-compatible `/v1/messages`; example header `anthropic-version: 2023-06-01` | Full CLI beta-header and streaming contract |
 | Outgoing API | Inception Chat Completions documentation retrieved October 20, 2026 | No immutable API revision advertised; freeze contract snapshot/hash before execution |
+
+The installed Claude executable's observed SHA-256 is `97a01e5bc74a199e67189435d0331ea3a24eac2e07db4b76d9148c5b0386138f`; recheck it before a later run. This identifies the inspected local binary, not an independently authenticated vendor distribution.
 
 This is a source-audit stack, not a completed dry-run manifest. The [Inception guide](https://docs.inceptionlabs.ai/integrations/claude-code) documents the bridge and states that Anthropic does not support non-Claude routing. Record that support limitation without inventing endorsement or a terms-violation finding. The [Claude gateway guide](https://code.claude.com/docs/en/llm-gateway) is a protocol reference, not certification of Mercury.
 
