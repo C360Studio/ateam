@@ -1,11 +1,13 @@
 """Exercise only the stdlib negative-control fragment, never the CLI or bridge."""
 import pathlib, tempfile, json, subprocess, sys
 assert sys.platform == 'darwin', 'this OS-policy regression requires macOS'
-pathlib.Path('.ateam/mercury-contract').mkdir(parents=True, exist_ok=True)
+test_root = pathlib.Path('.ateam/mercury-contract').resolve()
+assert test_root.is_relative_to(pathlib.Path.home().resolve()), 'cwd must be under the user home for the file-denial control'
+test_root.mkdir(parents=True, exist_ok=True)
 source_path=pathlib.Path(sys.argv[1]) if len(sys.argv)>1 else pathlib.Path(__file__).with_name('reproduce.py')
 source=source_path.read_text()
 fragment=source.split('# Negative controls use documentation-only external IPs and a benign local sentinel.\n',1)[1].split('(R/"proxy.yaml").write_text',1)[0]
-with tempfile.TemporaryDirectory(dir='.ateam/mercury-contract',prefix='ownership-check-') as temporary:
+with tempfile.TemporaryDirectory(dir=test_root,prefix='ownership-check-') as temporary:
     parent=pathlib.Path(temporary).resolve(); R=parent/'root'; R.mkdir(); OUT=R/'out';OUT.mkdir()
     existing=parent/'mercury-outside-sentinel'; existing.write_text('preserve-existing-content')
     before=set(parent.iterdir())
