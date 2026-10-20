@@ -1,8 +1,12 @@
 # ATeam (`ateam`)
 
+**Bootstrap a reproducible configuration, show which settings differ between experiments, and measure the outcome through one workflow.** Users keep their preferred coding-agent runtime. ATeam helps teams replace assumptions about its configuration with evidence.
+
 `ateam` is an **opinionated lab for experimenting with coding-agent harnesses, primarily in Go projects**. It provides a command-line tool, MCP server, and local web board for work with **Claude Code**, **Codex CLI**, **Gemini CLI**, and **Antigravity (`agy`)**.
 
-The aim is to test—and eventually measure—how shared instructions, agent configuration, lifecycle hooks, and verification practices affect agent behavior. The current benchmark suite checks reference fixtures, harness mechanisms, and controlled API A/A calibrations; it does **not** establish that this configuration improves agent performance.
+The questions are practical: does a change to shared instructions, skills, hooks or verification improve outcomes within a runtime? With the same model and ATeam policy, do different runtimes behave differently? Shared bootstrap files alone do not prove that each runtime loaded or executed the same configuration.
+
+Today, the benchmark workflow supports versioned instruction comparisons with shared runner/model settings, independent grading, retained failures and offline replay. Native skill/hook activation evidence and same-model cross-runtime comparisons remain roadmap work. Existing fixtures and small API calibrations do **not** establish that ATeam improves agent performance. See the [benchmark roadmap](https://github.com/C360Studio/ateam/issues/16) for delivered capabilities, open work and evidence limits.
 
 For the event-by-event lifecycle, state changes, and design rationale, read [how the harness runs](docs/hook-flow.md). For optional stronger-model review, setup, and scoped owner exceptions, read [model routing and independent review](docs/model-review.md). For paired benchmark runs, native API adapters, and versioned instruction bundles, read [benchmark experiments](benchmarks/README.md).
 
