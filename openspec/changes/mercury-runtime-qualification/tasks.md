@@ -9,3 +9,10 @@ Completed research and review records live in the [October 20 archive](../archiv
 - [ ] Complete independent implementation review and required checks before claiming a qualified runtime.
 - [ ] Freeze and review the canary/A/A protocol before live calibration.
   Hold: explicit new spending authorization required before any paid call; no Gemini budget or prior offline approval supplies it.
+
+## Offline cancellation and teardown slice
+
+- [x] Reconcile #58, current main and prior capture evidence; define the [scoped cancellation claim](cancellation-plan.md) on `codex/mercury-cancellation-qualification`.
+- [x] Complete independent read-only technical plan review; exact-head verification and publication evidence belongs in the draft claim PR. This is not implementation or cross-service approval.
+- [ ] After a request to drive this PR, implement and exercise the bounded offline teardown controls and publish evidence or a concrete blocker.
+- [ ] Complete explicit research/mutation checks, independent implementation review and full verification before review-ready delivery.

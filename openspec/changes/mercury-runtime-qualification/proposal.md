@@ -6,7 +6,7 @@ Issue #58 remains open. The completed offline audit, usage-provenance and bounde
 
 ## What Changes
 
-Carry forward the three unfinished qualification gates and their existing spec delta. This is a continuation record, not a new implementation claim or permission to spend. The next proposed offline slice is native cancellation/failure teardown and descendant cleanup; scope and claim it separately before implementation.
+Carry forward the three unfinished qualification gates and their existing spec delta. The next offline cancellation/failure teardown and descendant-cleanup slice is claimed on `codex/mercury-cancellation-qualification`; see [its scope and acceptance checks](cancellation-plan.md). This documentation claim does not start implementation or authorize spending.
 
 ## Impact
 
