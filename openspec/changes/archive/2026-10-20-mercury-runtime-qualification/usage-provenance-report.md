@@ -50,10 +50,10 @@ Cancellation, timeout, disconnect or absent DONE preserves any valid observed us
 Run from the repository worktree; the last two commands require macOS Seatbelt permission for the stdlib-only negative control, not a bridge installation:
 
 ```sh
-python3 -I openspec/changes/mercury-runtime-qualification/offline/check_usage_provenance.py
-python3 -I openspec/changes/mercury-runtime-qualification/offline/replay.py
-python3 -I openspec/changes/mercury-runtime-qualification/offline/check_sentinel_cwd.py
-python3 -I openspec/changes/mercury-runtime-qualification/offline/mutate_usage_provenance.py
+python3 -I openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/check_usage_provenance.py
+python3 -I openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/replay.py
+python3 -I openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/check_sentinel_cwd.py
+python3 -I openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/mutate_usage_provenance.py
 ```
 
 - **Decision:** exhaustive bounded generated examples plus independent fixed expectations; no random fuzz campaign. The finite parser deliberately refuses broader profiles.

@@ -48,7 +48,7 @@ The capture proxy buffers the complete bridge response and forwards selected hea
 Run the no-network replay with:
 
 ```sh
-python3 -I openspec/changes/mercury-runtime-qualification/offline/replay.py
+python3 -I openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/replay.py
 ```
 
 It prints `PASS: retained evidence reproduces; provider-usage contract remains BLOCKED`. Passing verifies the evidence of the defect, not compatibility.
@@ -71,4 +71,4 @@ Earlier attempts remain in ignored logs. One resolver invocation rejected mutual
 
 This completes the scoped offline investigation with a concrete blocker. It does not complete #58. Stop before production adapter delivery and paid calibration. The next proposed slice must address provider-usage provenance, then re-run qualification and complete the deferred behavior checks before independent review can qualify the route.
 
-The independent report review found an ownership bug in the research reproducer: its fixed sibling sentinel name could overwrite a pre-existing file. A failing source-fragment regression reproduced that overwrite, then the fix switched to an exclusively created temporary sentinel with context-managed cleanup. `python3 -I openspec/changes/mercury-runtime-qualification/offline/check_sentinel.py` now proves pre-existing content is unchanged and the owned sentinel is removed; it executes only stdlib negative controls, not the bridge or CLI. A copied-source mutation restoring the unsafe fixed-name write was detected at `prior sentinel content changed`; baseline and after-run passed and the original source hash stayed unchanged. The corrected full reproducer was re-run before retaining the final observations.
+The independent report review found an ownership bug in the research reproducer: its fixed sibling sentinel name could overwrite a pre-existing file. A failing source-fragment regression reproduced that overwrite, then the fix switched to an exclusively created temporary sentinel with context-managed cleanup. `python3 -I openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/check_sentinel.py` now proves pre-existing content is unchanged and the owned sentinel is removed; it executes only stdlib negative controls, not the bridge or CLI. A copied-source mutation restoring the unsafe fixed-name write was detected at `prior sentinel content changed`; baseline and after-run passed and the original source hash stayed unchanged. The corrected full reproducer was re-run before retaining the final observations.

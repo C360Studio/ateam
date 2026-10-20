@@ -1,0 +1,29 @@
+# Offline native capture qualification claim
+
+Addresses #58 and #16; follows PR #69 merged as `2623320a1906be42c21ed089cb723f18dbc0776a`. Claim branch: `codex/mercury-offline-capture`, based on that main. Pickup confirmed the prior worktree clean/merged and no competing Mercury claim. PR #29 retains #28; the unrelated dirty Gemini worktree is untouched. The owner explicitly requested this offline implementation through review readiness. No new paid call or production adapter is authorized.
+
+## Deliverable and scope
+
+Demonstrate a provider-side capture point in the actual pinned Claude Code 2.1.292 → LiteLLM 1.99.0 → local synthetic provider stack, with reproducible execution evidence and replay; return a concrete blocker if the chosen point cannot meet the contract. Reuse the locked existing isolated installation after hash inspection; no dependency upgrade or global installation. Use fresh per-run storage, fake credentials, fresh allowlisted child environments, external-network-denied OS policies and owned loopback fixtures. Preserve original PR #64/#69 code/evidence and frozen Gemini cohorts.
+
+First candidate: a documented LiteLLM custom request/deployment callback supplies an `AsyncHTTPHandler` with HTTPX request/response hooks. Verify the pinned call path accepts and uses it; do not infer activation from configuration. HTTPX response hooks precede caller consumption, allowing bounded raw-body capture before normalization. A buffered capture is acceptable as an explicitly labelled research instrument; it does not qualify production streaming latency/backpressure. Do not silently replace the native runtime, monkeypatch bridge internals, fork dependencies or build a proxy if this candidate fails.
+
+Files/callers in scope: this plan, `tasks.md`, a capture report and new opt-in research driver/hook/checks/evidence under this OpenSpec change. Read/reuse the existing reproducer's isolation, CLI launch and synthetic fixtures plus the usage reader contract. Keep those historical artifacts unchanged. Installed bridge/HTTPX source is inspected as data before any execution. Native benchmark adapters/configs and #28/#59 implementation stay out of scope.
+
+## Acceptance and plan
+
+1. Pin hook/HTTP source and dependency/binary hashes; inspect supported injection and exception semantics. Independently review this plan before executing the bridge.
+2. Record capture-owned attempt/exchange IDs, exact request/body hashes and bounded raw response bytes before transformation. Persist intent before network dispatch and completion only after capture succeeds. Separate missing/incomplete records from zero; retain raw usage/detail fields and failed histories. Never call a supplied inventory exhaustive without matching the independent fixture's observed requests and IDs. Reject duplicate/missing/unexpected exchanges.
+3. Exercise actual native CLI/bridge known, zero, missing, partial usage and HTTP failure cases, plus interruption/cancellation and capture-write failure. Include controls proving the instrumentation is used and failed capture cannot be mistaken for a complete successful run. Prove no hidden retry/fallback or follow-on request in the tested bounded histories. Close and wait for owned processes; use explicit fixture synchronization for cancellation, not guessed sleep timing.
+4. Prevent native CLI writes to capture evidence with separate child policies where practicable. Keep raw native prompts/credentials/private paths in ignored storage; publish synthetic response bodies and minimal projections/hashes only. Disclose crash/durability limits, buffered transport behavior, unobserved branches and any still-blocked guarantees.
+5. Run focused offline tests with independent fixture/ledger oracles, bounded generated histories and non-destructive mutations; preserve a meaningful failing regression for corrections. Run explicit research checks, full clean-tree repository verification, doctor and strict OpenSpec. Complete independent read-only technical review; cross-service review remains owner-arranged before merge.
+
+## Stop boundary
+
+Stop at a review-ready PR with actual capture evidence and bounded demonstrated guarantees or a concrete blocker. No production integration, additional runtime, fresh paid calibration, automatic retry or broader skill/tool qualification. Runtime/spending holds stay active until their remaining gates are independently demonstrated. This research instrument is not authorization for a paid run and does not turn arbitrary client counters into provider billing.
+
+## Candidate refinements observed during execution
+
+The first actual probe showed the Inception route expects an OpenAI SDK client (`AsyncHTTPHandler` lacked `.chat`); no provider request occurred. The supported refinement supplies the already pinned `AsyncOpenAI` with HTTPX hooks and explicit deployment-level zero retries. An actual tee-only probe then captured all fixture bytes but observed SDK close at DONE without iterator EOF. The independently reviewed bounded-buffered profile wraps the public stream to enforce limits and persist chunks, then uses public `response.aread()` before returning to the SDK. This demonstrates actual EOF without private response mutation, at the explicit cost of buffering/timing changes. Completion-record file/directory sync failures are separate negative controls: valid-looking EOF JSON alone cannot authorize capture acceptance.
+
+A further independently reviewed local control tests `allowed_openai_params=["max_retries"]` with explicit zero after actual HTTP429 evidence showed SDK retry setting2 and three dispatches. Preserve existing allowed parameters, record the original failure, and require measured SDK0, exactly one fixture request, and no retry-control field in provider JSON before adopting this configuration in the final fixture set. This is limited to the tested path, not a general retry guarantee.

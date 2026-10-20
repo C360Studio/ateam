@@ -9,7 +9,7 @@ mkdir -p .ateam/mercury-contract-reproduction .enjoy-logs
 /usr/bin/env -i PATH=/opt/homebrew/bin:/usr/bin:/bin PIP_CONFIG_FILE=/dev/null \
   /opt/homebrew/bin/python3 -m pip --isolated --disable-pip-version-check --no-cache-dir \
   download --only-binary=:all: --require-hashes --index-url https://pypi.org/simple \
-  -r openspec/changes/mercury-runtime-qualification/offline/selected-wheels.lock \
+  -r openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/selected-wheels.lock \
   --dest .ateam/mercury-contract-reproduction/wheelhouse
 ```
 
@@ -37,7 +37,7 @@ PY
 Copy the lock into the root, then create/install with the root as the working directory. No global environment or user configuration is changed:
 
 ```sh
-cp openspec/changes/mercury-runtime-qualification/offline/selected-wheels.lock \
+cp openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/selected-wheels.lock \
   .ateam/mercury-contract-reproduction/selected-wheels.lock
 cd .ateam/mercury-contract-reproduction
 /usr/bin/env -i PATH=/opt/homebrew/bin:/usr/bin:/bin \
@@ -55,7 +55,7 @@ Return to the repository worktree before the following command. Inspect applicab
 ```sh
 /usr/bin/env -i PATH=/opt/homebrew/bin:/usr/bin:/bin \
   /opt/homebrew/bin/python3 -I \
-  openspec/changes/mercury-runtime-qualification/offline/reproduce.py \
+  openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/reproduce.py \
   .ateam/mercury-contract-reproduction \
   /Users/coby/.local/bin/claude \
   .ateam/mercury-contract-reproduction/run-1
