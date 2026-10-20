@@ -7,9 +7,9 @@ These are opt-in research scripts, not production adapters. Read [the report](..
 From the repository root, with Python3:
 
 ```sh
-python3 -I openspec/changes/mercury-runtime-qualification/offline/capture/replay_capture.py
-python3 -I openspec/changes/mercury-runtime-qualification/offline/capture/check_capture_replay.py
-python3 -I openspec/changes/mercury-runtime-qualification/offline/capture/check_mutations.py replay
+python3 -I openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/capture/replay_capture.py
+python3 -I openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/capture/check_capture_replay.py
+python3 -I openspec/changes/archive/2026-10-20-mercury-runtime-qualification/offline/capture/check_mutations.py replay
 ```
 
 These read the retained synthetic evidence, import only stdlib plus the existing local usage reader, and make no network/model calls. They do not rerun the native stack or authenticate the supplied artifacts. The mutation runner writes temporary copies and never changes originals.

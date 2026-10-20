@@ -1,38 +1,11 @@
-# Tasks
+# Remaining qualification gates
 
-## Claim and static qualification
+Completed research and review records live in the [October 20 archive](../archive/2026-10-20-mercury-runtime-qualification/README.md). PR #71 received [Gemini approval](https://github.com/C360Studio/ateam/pull/71#issuecomment-6301633449) at `cd84f0041425206d4c6af282f996243ffdea27e0`; its archive-only closeout preserves implementation/evidence bytes. Issue #58 remains open.
 
-- [x] Reconcile pickup, current guidance, main, #16/#58/#59/#28 and open PR review evidence.
-- [x] Isolate this documentation claim on `codex/mercury-offline-qualification`.
-- [x] Inspect documented launcher and pinned bridge source; identify effective-control and evidence blockers.
-- [x] Define scoped compatibility plan, source pins, offline checks and stop boundary.
-- [x] Complete independent read-only plan review and record repository verification in draft PR.
-- [x] Publish the scoped draft PR with `Addresses #58` and `Addresses #16`: [PR #61](https://github.com/C360Studio/ateam/pull/61).
+## Runtime and spending boundaries
 
-Initial planning head `c50248803995e0e0e2dde659a9d5b76a61a6bb15` passed independent technical review, full clean-tree `task verify && task doctor`, separate strict OpenSpec validation and diff checks. Exact-head follow-up review/check evidence lives in PR #61. This is plan review only; it is not configured stronger-model or cross-provider approval. The initial sandbox loopback failure remains recorded separately from the successful approved rerun.
-
-## Later qualification gates
-
-PR #64 merged the offline blocker report. The next usage-provenance slice is claimed on `codex/mercury-usage-provenance`; see [its scope and checks](usage-provenance-plan.md). Issue #58 remains open.
-
-- [x] Freeze the inspected offline stack, dependency hashes and synthetic API/config fixtures before isolated bridge installation and offline implementation.
-  Owner authorized the scoped isolated offline setup and implementation by requesting review-ready delivery of PR #64. Production adapter delivery remains out of scope.
-- [x] Exercise the actual pinned CLI/bridge against isolated fixtures and deliver the [offline blocker report](offline-report.md), retained evidence, replay checks and negative-control detections.
-- [ ] Resolve provider-usage provenance and then finish tool histories, permissions, cancellation, error handling and broader replay qualification.
-  Hold: the missing-usage fixture became successful numeric bridge/CLI counters; the route remains unqualified. The offline reader preserves that unknown. Bounded native fixture capture/correlation is now demonstrated in capture-report.md; production streaming, cancellation propagation and broader native histories remain unqualified.
-- [x] Reconcile landed PR #43 (`8e52e719`) and PR #32 (`b789cf62`) from main; keep stopped Gemini evidence frozen.
+- [ ] Resolve remaining provider-usage provenance and finish tool histories, permissions, cancellation, error handling and broader replay qualification.
+  Hold: bounded native fixture capture/correlation is demonstrated, but production streaming, cancellation propagation and broader native histories remain unqualified. Missing provider usage remains unknown; the provider connection did not close during the two-second cancellation observation. See the [capture report](../archive/2026-10-20-mercury-runtime-qualification/capture-report.md).
 - [ ] Complete independent implementation review and required checks before claiming a qualified runtime.
 - [ ] Freeze and review the canary/A/A protocol before live calibration.
-  Hold: explicit new spending authorization required before any paid call.
-
-## Provider-usage provenance continuation
-
-- [x] Audit supported pinned bridge controls and independently review the scoped evidence-contract plan.
-- [x] Implement and test the [offline contract](usage-provenance-report.md) against retained and synthetic provider-wire evidence; address the sentinel cwd nit.
-- [x] Complete independent technical review, explicit Python evidence checks and clean-tree repository verification; publish [review-ready PR #69](https://github.com/C360Studio/ateam/pull/69). Exact-head review and verification evidence is recorded in that PR; this does not qualify the runtime or authorize spending.
-
-## Native provider-boundary capture continuation
-
-- [x] Claim and independently review the [offline capture scope](capture-plan.md), supported hook path and isolation controls.
-- [x] Exercise the pinned native stack with provider-boundary capture and local fixture/history oracles; publish [evidence and the cancellation blocker](capture-report.md).
-- [x] Complete explicit research checks, mutation evidence, independent technical review and full repository verification; deliver [PR #71](https://github.com/C360Studio/ateam/pull/71) for cross-service review. Implementation head `58d0503ecc26ac6936f1c2c2b62d5208e9ea1efb` passed independent native Codex technical review and clean-tree verification; final-head evidence is recorded on the PR. Cross-service approval and runtime qualification remain pending.
+  Hold: explicit new spending authorization required before any paid call; no Gemini budget or prior offline approval supplies it.
