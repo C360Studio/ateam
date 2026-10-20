@@ -6,7 +6,12 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 ## Requirements
 ### Requirement: Lifecycle hook normalization under 5ms
 
-`ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 5ms using cached `.ateam/state.json`. `ateam doctor` SHALL measure warm best-of-3 hook latency, emit a warning when latency exceeds `5000 us` (`<5ms` target budget), and fail `--check` only above `25000 us` (`25ms` hard ceiling).
+`ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 5ms using cached `.ateam/state.json`.
+
+#### Scenario: Warm hook latency thresholds
+
+- **WHEN** doctor evaluates hook latency
+- **THEN** `ateam doctor` SHALL measure warm best-of-3 hook latency, emit a warning when latency exceeds `5000 us` (`<5ms` target budget), and fail `--check` only above `25000 us` (`25ms` hard ceiling).
 
 #### Scenario: Mode switch and Ponytail ladder injection
 
@@ -301,7 +306,12 @@ ATeam initialization SHALL scaffold the context and compaction defaults specifie
 
 ### Requirement: Merge gate and CI workflow enforcement
 
-`.github/workflows/ci.yml` SHALL trigger on `push` to `main` and `pull_request` (`opened`, `synchronize`, `reopened`, `ready_for_review`), pin every job to `ubuntu-24.04` with read-only permissions, run `Verify` (`15` minute timeout, `ateam doctor --check` and `task verify`) and `Merge check` (`scripts/merge-check.sh`), and gate merges on the aggregate `Required` job (`if: always()`, reading `join(needs.*.result, ' ')`). `scripts/merge-check.sh` (`task merge:check`) SHALL verify the active `main` ruleset requiring `Required` (`strict_required_status_checks_policy=true`), enforce cross-agent review (`implemented-by:` and `reviewed-by:` naming different agents among `claude`, `codex`, `gemini`) on non-draft code pull requests, and block merges while any open `class:flake` issue is not closed by the pull request.
+CI SHALL enforce the pinned verification workflow and aggregate `Required` check. The merge check SHALL require an active strict `main` ruleset, cross-agent review for non-draft code PRs, and no open known flakes unless the PR closes them.
+
+#### Scenario: Complete workflow and merge-check contract
+
+- **WHEN** the workflow and merge check are evaluated
+- **THEN** `.github/workflows/ci.yml` SHALL trigger on `push` to `main` and `pull_request` (`opened`, `synchronize`, `reopened`, `ready_for_review`), pin every job to `ubuntu-24.04` with read-only permissions, run `Verify` (`15` minute timeout, `ateam doctor --check` and `task verify`) and `Merge check` (`scripts/merge-check.sh`), and gate merges on the aggregate `Required` job (`if: always()`, reading `join(needs.*.result, ' ')`). `scripts/merge-check.sh` (`task merge:check`) SHALL verify the active `main` ruleset requiring `Required` (`strict_required_status_checks_policy=true`), enforce cross-agent review (`implemented-by:` and `reviewed-by:` naming different agents among `claude`, `codex`, `gemini`) on non-draft code pull requests, and block merges while any open `class:flake` issue is not closed by the pull request.
 
 #### Scenario: Pinned CI workflow and Required aggregate
 
