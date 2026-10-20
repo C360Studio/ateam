@@ -222,28 +222,42 @@ func sanitizeRefName(in string) string {
 func TestPropMergeForgeCardsHistory(t *testing.T) {
 	var assertionsRun int
 
+	seededDemos := []BoardCard{
+		{ID: "ATEAM-1", Number: 1, Title: "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms", Column: "done", Type: "epic", Agent: "gemini", Branch: "gemini/universal-hooks", Milestone: "v0.1 Foundation", Forge: "github"},
+		{ID: "ATEAM-2", Number: 2, Title: "2-Tool multiplexed MCP server (ateam_state, ateam_task) <300 tokens", Column: "done", Type: "issue", Agent: "gemini", Branch: "gemini/mcp-server", Milestone: "v0.1 Foundation", Forge: "github"},
+		{ID: "ATEAM-3", Number: 3, Title: "OpenSpec spec:queue / spec:check & Dual-Forge (GitHub + Gitea) sync", Column: "done", Type: "issue", Agent: "gemini", Branch: "gemini/openspec-gitea", Milestone: "v0.1 Foundation", Forge: "github"},
+		{ID: "ATEAM-4", Number: 4, Title: "Agentic benchmark suite (Coding Discipline + Handoff Continuity tiers)", Column: "done", Type: "issue", Agent: "claude", Branch: "claude/bench-suite", Milestone: "v0.1 Foundation", Forge: "github"},
+		{ID: "ATEAM-5", Number: 5, Title: "Cross-repo automatic PR merge-check & dual-forge webhook enforcement", Column: "done", Type: "issue", Agent: "gemini", Branch: "gemini/dual-forge-webhooks", Milestone: "v0.2 Rollout", Forge: "gitea"},
+	}
+
 	prop := func(seed int64, steps uint8) bool {
 		rng := rand.New(rand.NewSource(seed))
 		numSteps := int(steps%12) + 3 // 3..14 steps per history
 
 		var st State
 		var refCards []BoardCard
+		refIsDemo := make(map[string]bool)
 
 		for step := 0; step < numSteps; step++ {
 			op := rng.Intn(4)
 			switch op {
-			case 0: // Insert legitimate local ATEAM-* card via UpsertCard
+			case 0: // Insert legitimate local ATEAM-* card (including cards that reuse a demo title or branch)
 				id := fmt.Sprintf("ATEAM-LOCAL-%d", rng.Intn(4)+1)
-				card := BoardCard{ID: id, Title: fmt.Sprintf("Local %d", step), Column: "backlog", Forge: "local", HoldReason: "hold-local"}
+				title := fmt.Sprintf("Local %d", step)
+				branch := ""
+				if step%2 == 0 {
+					title = "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms"
+					branch = "gemini/universal-hooks"
+				}
+				card := BoardCard{ID: id, Title: title, Branch: branch, Column: "backlog", Forge: "local", HoldReason: "hold-local"}
 				st.Cards = append(filterOutID(st.Cards, id), card)
 				refCards = append(filterOutID(refCards, id), card)
+				delete(refIsDemo, id)
 			case 3: // Insert legacy demo ATEAM-1..5 card (must be pruned on next MergeForgeCards)
-				demoBranches := []string{"gemini/universal-hooks", "gemini/mcp-server", "gemini/openspec-gitea", "claude/bench-suite", "gemini/dual-forge-webhooks"}
-				idx := rng.Intn(len(demoBranches))
-				id := fmt.Sprintf("ATEAM-%d", idx+1)
-				card := BoardCard{ID: id, Number: idx + 1, Title: "Legacy demo", Branch: demoBranches[idx], Column: "done", Forge: "github"}
-				st.Cards = append(filterOutID(st.Cards, id), card)
-				refCards = append(filterOutID(refCards, id), card)
+				card := seededDemos[rng.Intn(len(seededDemos))]
+				st.Cards = append(filterOutID(st.Cards, card.ID), card)
+				refCards = append(filterOutID(refCards, card.ID), card)
+				refIsDemo[card.ID] = true
 			case 1, 2: // Sync remote forge batch (prunes legacy demo cards & stale same-forge cards; preserves local & other-forge cards)
 				forgeName := "github"
 				prefix := "gh"
@@ -272,7 +286,8 @@ func TestPropMergeForgeCardsHistory(t *testing.T) {
 				var nextRef []BoardCard
 				seenRef := make(map[string]bool)
 				for _, prev := range refCards {
-					if isLegacyDemoCard(prev) {
+					if refIsDemo[prev.ID] {
+						delete(refIsDemo, prev.ID)
 						continue
 					}
 					if b, ok := batchByID[prev.ID]; ok {
@@ -295,7 +310,7 @@ func TestPropMergeForgeCardsHistory(t *testing.T) {
 					}
 				}
 				for _, b := range batch {
-					if !seenRef[b.ID] && !isLegacyDemoCard(b) {
+					if !seenRef[b.ID] && !refIsDemo[b.ID] {
 						nextRef = append(nextRef, b)
 						seenRef[b.ID] = true
 					}

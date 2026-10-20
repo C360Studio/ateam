@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
@@ -130,7 +131,7 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 	}
 	st := &State{
 		Cards: []BoardCard{
-			{ID: "ATEAM-1", Number: 1, Title: "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms", Branch: "gemini/universal-hooks", Column: "done", Forge: "github"},
+			{ID: "ATEAM-1", Number: 1, Title: "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms", Column: "done", Type: "epic", Agent: "gemini", Branch: "gemini/universal-hooks", Milestone: "v0.1 Foundation", Forge: "github"},
 			{ID: "GH-404", Number: 404, Title: "Deleted GitHub issue", Column: "backlog", Forge: "github"},
 			{ID: "GT-7", Number: 7, Title: "Gitea issue", Column: "in-progress", Forge: "gitea"},
 			{ID: "GH-99", Number: 99, Title: "Remote Issue", Column: "backlog", Forge: "github", HoldReason: "Hold: waiting on schema", Decision: "Decision: keep hold"},
@@ -139,6 +140,22 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 	uiCard, err := st.UpsertCard(BoardCard{Title: "Real dashboard task", Forge: "github", Column: "backlog", HoldReason: "Hold: dashboard hold"})
 	if err != nil {
 		t.Fatalf("UpsertCard: %v", err)
+	}
+	demoTitleTask, err := st.UpsertCard(BoardCard{Title: "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms", Column: "backlog", HoldReason: "Hold: user hold"})
+	if err != nil {
+		t.Fatalf("UpsertCard demoTitleTask: %v", err)
+	}
+	demoBranchTask, err := st.UpsertCard(BoardCard{Title: "Follow-up on universal hooks", Branch: "gemini/universal-hooks", Column: "in-progress"})
+	if err != nil {
+		t.Fatalf("UpsertCard demoBranchTask: %v", err)
+	}
+	cardSaveDir := t.TempDir()
+	if err := Save(cardSaveDir, st); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	st, err = Load(cardSaveDir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
 	}
 	st.MergeForgeCards(synced, ForgeGitHub)
 	if st.BoardSyncedAt.IsZero() {
@@ -149,13 +166,19 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 		byID[c.ID] = c
 	}
 	if _, ok := byID["ATEAM-1"]; ok {
-		t.Fatalf("legacy demo card ATEAM-1 survived MergeForgeCards: %+v", st.Cards)
+		t.Fatalf("legacy demo card ATEAM-1 survived Load/MergeForgeCards: %+v", st.Cards)
 	}
 	if _, ok := byID["GH-404"]; ok {
 		t.Fatalf("stale github card GH-404 survived MergeForgeCards: %+v", st.Cards)
 	}
 	if gotUI, ok := byID[uiCard.ID]; !ok || gotUI.HoldReason != "Hold: dashboard hold" {
 		t.Fatalf("legitimate UpsertCard %s or its HoldReason was lost: %+v", uiCard.ID, st.Cards)
+	}
+	if gotTitle, ok := byID[demoTitleTask.ID]; !ok || gotTitle.HoldReason != "Hold: user hold" {
+		t.Fatalf("legitimate UpsertCard with demo title %s was deleted: %+v", demoTitleTask.ID, st.Cards)
+	}
+	if gotBranch, ok := byID[demoBranchTask.ID]; !ok || gotBranch.Branch != "gemini/universal-hooks" {
+		t.Fatalf("legitimate UpsertCard with demo branch %s was deleted: %+v", demoBranchTask.ID, st.Cards)
 	}
 	if _, ok := byID["GT-7"]; !ok {
 		t.Fatalf("other-forge card GT-7 was deleted by GitHub sync: %+v", st.Cards)
@@ -183,5 +206,60 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 	if refreshed.BoardSyncedAt.IsZero() || refreshed.BoardSyncError != "" || len(refreshed.Cards) != 2 {
 		t.Fatalf("expected slow comments to fall back and advance BoardSyncedAt, got syncedAt=%v err=%q cards=%+v",
 			refreshed.BoardSyncedAt, refreshed.BoardSyncError, refreshed.Cards)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestDualForgeSyncTimestampIsolation(t *testing.T) {
+	binDir := t.TempDir()
+	fakeGH := filepath.Join(binDir, "gh")
+	scriptGH := "#!/bin/sh\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n"
+	if err := os.WriteFile(fakeGH, []byte(scriptGH), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	dualRoot := t.TempDir()
+	oldGHSync := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	if _, err := Update(dualRoot, func(cur *State) error {
+		if err := cur.UpsertForge(ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"}); err != nil {
+			return err
+		}
+		cur.BoardSyncedAt = oldGHSync
+		cur.Cards = []BoardCard{{ID: "GH-1", Number: 1, Title: "Stale GitHub card", Column: "backlog", Forge: "github"}}
+		cur.MergeForgeCards([]BoardCard{{ID: "GT-1", Number: 1, Title: "Gitea item", Column: "backlog", Forge: "gitea"}}, ForgeGitea)
+		return nil
+	}); err != nil {
+		t.Fatalf("Update dualRoot: %v", err)
+	}
+	afterGiteaMerge, err := Load(dualRoot)
+	if err != nil {
+		t.Fatalf("Load dualRoot: %v", err)
+	}
+	if !afterGiteaMerge.BoardSyncedAt.Equal(oldGHSync) {
+		t.Fatalf("BoardSyncedAt after Gitea merge = %v, want %v", afterGiteaMerge.BoardSyncedAt, oldGHSync)
+	}
+	if snap := afterGiteaMerge.BoardView(); snap.Forge != ForgeGitHub || snap.SyncedAt != oldGHSync.Format(time.RFC3339) {
+		t.Fatalf("BoardView after Gitea merge reported (%s, %s), want (github, %s)", snap.Forge, snap.SyncedAt, oldGHSync.Format(time.RFC3339))
+	}
+	dualRefreshed, err := RefreshWithBestEffortSync(context.Background(), dualRoot, 30*time.Second)
+	if err != nil {
+		t.Fatalf("RefreshWithBestEffortSync dualRoot: %v", err)
+	}
+	if !dualRefreshed.SyncedAtFor(dualRefreshed.Forge).After(oldGHSync) {
+		t.Fatalf("expected RefreshWithBestEffortSync to sync stale GitHub board despite recent Gitea merge, got %v", dualRefreshed.SyncedAtFor(dualRefreshed.Forge))
+	}
+	dualByID := make(map[string]BoardCard, len(dualRefreshed.Cards))
+	for _, c := range dualRefreshed.Cards {
+		dualByID[c.ID] = c
+	}
+	if _, ok := dualByID["GH-1"]; ok {
+		t.Fatalf("stale GH-1 card survived RefreshWithBestEffortSync after Gitea merge: %+v", dualRefreshed.Cards)
+	}
+	if _, ok := dualByID["GH-99"]; !ok {
+		t.Fatalf("expected fresh GH-99 card from GitHub sync, got: %+v", dualRefreshed.Cards)
+	}
+	if _, ok := dualByID["GT-1"]; !ok {
+		t.Fatalf("expected Gitea card GT-1 to remain preserved, got: %+v", dualRefreshed.Cards)
 	}
 }

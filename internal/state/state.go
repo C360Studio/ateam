@@ -193,23 +193,25 @@ type WriterLease struct {
 
 // State is the cached local state stored in gitignored .ateam/state.json.
 type State struct {
-	Mode             DisciplineMode   `json:"mode"`
-	Forge            ForgeConfig      `json:"forge"`
-	Forges           []ForgeConfig    `json:"forges,omitempty"`
-	ForgesConfigured bool             `json:"forges_configured,omitempty"`
-	LastHandoff      *Handoff         `json:"last_handoff,omitempty"`
-	Writer           *WriterLease     `json:"writer,omitempty"`
-	CurrentSessionID string           `json:"-"`
-	Git              GitStatus        `json:"git"`
-	Cards            []BoardCard      `json:"cards"`
-	BoardSyncedAt    time.Time        `json:"board_synced_at,omitempty"`
-	BoardSyncError   string           `json:"board_sync_error,omitempty"`
-	Shortcuts        []ShortcutItem   `json:"shortcuts,omitempty"`
-	Holds            []HoldItem       `json:"holds,omitempty"`
-	HoldScanError    string           `json:"hold_scan_error,omitempty"`
-	OpenSpecQueue    []OpenSpecChange `json:"openspec_queue,omitempty"`
-	OpenSpecSpecs    []OpenSpecSpec   `json:"openspec_specs,omitempty"`
-	UpdatedAt        time.Time        `json:"updated_at"`
+	Mode             DisciplineMode              `json:"mode"`
+	Forge            ForgeConfig                 `json:"forge"`
+	Forges           []ForgeConfig               `json:"forges,omitempty"`
+	ForgesConfigured bool                        `json:"forges_configured,omitempty"`
+	LastHandoff      *Handoff                    `json:"last_handoff,omitempty"`
+	Writer           *WriterLease                `json:"writer,omitempty"`
+	CurrentSessionID string                      `json:"-"`
+	Git              GitStatus                   `json:"git"`
+	Cards            []BoardCard                 `json:"cards"`
+	BoardSyncedAt    time.Time                   `json:"board_synced_at,omitempty"`
+	ForgeSyncedAt    map[ForgeProvider]time.Time `json:"forge_synced_at,omitempty"`
+	ForgeSyncTarget  map[ForgeProvider]string    `json:"forge_sync_target,omitempty"`
+	BoardSyncError   string                      `json:"board_sync_error,omitempty"`
+	Shortcuts        []ShortcutItem              `json:"shortcuts,omitempty"`
+	Holds            []HoldItem                  `json:"holds,omitempty"`
+	HoldScanError    string                      `json:"hold_scan_error,omitempty"`
+	OpenSpecQueue    []OpenSpecChange            `json:"openspec_queue,omitempty"`
+	OpenSpecSpecs    []OpenSpecSpec              `json:"openspec_specs,omitempty"`
+	UpdatedAt        time.Time                   `json:"updated_at"`
 }
 
 // HandoffStaleReasons returns human-readable reasons why st.LastHandoff is stale, or nil if fresh.
@@ -583,23 +585,153 @@ func (st *State) UpsertCard(card BoardCard) (BoardCard, error) {
 	return card, nil
 }
 
+type legacyDemoSpec struct {
+	id        string
+	number    int
+	title     string
+	cardType  string
+	agent     string
+	branch    string
+	milestone string
+	forge     string
+}
+
+var legacyDemoCards = []legacyDemoSpec{
+	{
+		id:        "ATEAM-1",
+		number:    1,
+		title:     "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms",
+		cardType:  "epic",
+		agent:     "gemini",
+		branch:    "gemini/universal-hooks",
+		milestone: "v0.1 Foundation",
+		forge:     "github",
+	},
+	{
+		id:        "ATEAM-2",
+		number:    2,
+		title:     "2-Tool multiplexed MCP server (ateam_state, ateam_task) <300 tokens",
+		cardType:  "issue",
+		agent:     "gemini",
+		branch:    "gemini/mcp-server",
+		milestone: "v0.1 Foundation",
+		forge:     "github",
+	},
+	{
+		id:        "ATEAM-3",
+		number:    3,
+		title:     "OpenSpec spec:queue / spec:check & Dual-Forge (GitHub + Gitea) sync",
+		cardType:  "issue",
+		agent:     "gemini",
+		branch:    "gemini/openspec-gitea",
+		milestone: "v0.1 Foundation",
+		forge:     "github",
+	},
+	{
+		id:        "ATEAM-4",
+		number:    4,
+		title:     "Agentic benchmark suite (Coding Discipline + Handoff Continuity tiers)",
+		cardType:  "issue",
+		agent:     "claude",
+		branch:    "claude/bench-suite",
+		milestone: "v0.1 Foundation",
+		forge:     "github",
+	},
+	{
+		id:        "ATEAM-5",
+		number:    5,
+		title:     "Cross-repo automatic PR merge-check & dual-forge webhook enforcement",
+		cardType:  "issue",
+		agent:     "gemini",
+		branch:    "gemini/dual-forge-webhooks",
+		milestone: "v0.2 Rollout",
+		forge:     "gitea",
+	},
+}
+
 func isLegacyDemoCard(c BoardCard) bool {
-	if !strings.HasPrefix(c.ID, "ATEAM-") {
+	if c.HoldReason != "" || c.Decision != "" || c.URL != "" || c.Spec != "" {
 		return false
 	}
-	switch strings.TrimSpace(c.Branch) {
-	case "gemini/universal-hooks", "gemini/mcp-server", "gemini/openspec-gitea", "claude/bench-suite", "gemini/dual-forge-webhooks":
-		return true
+	for _, d := range legacyDemoCards {
+		if c.ID == d.id &&
+			c.Number == d.number &&
+			c.Title == d.title &&
+			c.Type == d.cardType &&
+			c.Agent == d.agent &&
+			c.Branch == d.branch &&
+			c.Milestone == d.milestone &&
+			c.Forge == d.forge {
+			return true
+		}
 	}
-	switch strings.TrimSpace(c.Title) {
-	case "Universal CLI lifecycle hooks (Claude, Codex, Gemini) <5ms",
-		"2-Tool multiplexed MCP server (ateam_state, ateam_task) <300 tokens",
-		"OpenSpec spec:queue / spec:check & Dual-Forge (GitHub + Gitea) sync",
-		"Agentic benchmark suite (Coding Discipline + Handoff Continuity tiers)",
-		"Cross-repo automatic PR merge-check & dual-forge webhook enforcement":
-		return true
+	return false
+}
+
+func forgeTargetKey(cfg ForgeConfig) string {
+	p := ForgeProvider(strings.ToLower(strings.TrimSpace(string(cfg.Provider))))
+	if p != ForgeGitHub && p != ForgeGitea {
+		return ""
 	}
-	return c.Number > 0 && strings.TrimSpace(c.URL) == "" && (c.Milestone == "v0.1 Foundation" || c.Milestone == "v0.2 Rollout")
+	base := strings.TrimRight(strings.ToLower(strings.TrimSpace(cfg.BaseURL)), "/")
+	owner := strings.ToLower(strings.TrimSpace(cfg.Owner))
+	repo := strings.ToLower(strings.TrimSpace(cfg.Repo))
+	if base == "" && owner == "" && repo == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%s|%s", p, base, owner, repo)
+}
+
+func (st *State) preserveActiveForgeSync() {
+	if st == nil || st.BoardSyncedAt.IsZero() {
+		return
+	}
+	p := st.Forge.Provider
+	if p != ForgeGitHub && p != ForgeGitea {
+		return
+	}
+	if st.ForgeSyncedAt == nil {
+		st.ForgeSyncedAt = make(map[ForgeProvider]time.Time)
+	}
+	if _, ok := st.ForgeSyncedAt[p]; !ok {
+		st.ForgeSyncedAt[p] = st.BoardSyncedAt.UTC()
+	}
+	if key := forgeTargetKey(st.Forge); key != "" {
+		if st.ForgeSyncTarget == nil {
+			st.ForgeSyncTarget = make(map[ForgeProvider]string)
+		}
+		if st.ForgeSyncTarget[p] == "" {
+			st.ForgeSyncTarget[p] = key
+		}
+	}
+}
+
+// SyncedAtFor returns the last successful remote sync timestamp for cfg's provider and target.
+func (st *State) SyncedAtFor(cfg ForgeConfig) time.Time {
+	if st == nil {
+		return time.Time{}
+	}
+	p := cfg.Provider
+	if p != ForgeGitHub && p != ForgeGitea {
+		return st.BoardSyncedAt
+	}
+	if len(st.ForgeSyncTarget) > 0 {
+		if recorded := st.ForgeSyncTarget[p]; recorded != "" {
+			if cur := forgeTargetKey(cfg); cur != "" && cur != recorded {
+				return time.Time{}
+			}
+		}
+	}
+	if len(st.ForgeSyncedAt) > 0 {
+		if ts, ok := st.ForgeSyncedAt[p]; ok {
+			return ts
+		}
+		return time.Time{}
+	}
+	if st.Forge.Provider == p {
+		return st.BoardSyncedAt
+	}
+	return time.Time{}
 }
 
 // MergeForgeCards reconciles newly fetched remote cards for provider into the board,
@@ -645,8 +777,26 @@ func (st *State) MergeForgeCards(synced []BoardCard, provider ForgeProvider) {
 		seen[updated.ID] = true
 	}
 	st.Cards = merged
-	st.BoardSyncedAt = time.Now().UTC()
-	st.BoardSyncError = ""
+	st.preserveActiveForgeSync()
+	now := time.Now().UTC()
+	if provider == ForgeGitHub || provider == ForgeGitea {
+		if st.ForgeSyncedAt == nil {
+			st.ForgeSyncedAt = make(map[ForgeProvider]time.Time)
+		}
+		st.ForgeSyncedAt[provider] = now
+		if key := forgeTargetKey(st.ResolveForge(provider)); key != "" {
+			if st.ForgeSyncTarget == nil {
+				st.ForgeSyncTarget = make(map[ForgeProvider]string)
+			}
+			st.ForgeSyncTarget[provider] = key
+		}
+	}
+	if st.Forge.Provider == "" || st.Forge.Provider == ForgeLocal || st.Forge.Provider == provider {
+		st.BoardSyncedAt = now
+		st.BoardSyncError = ""
+	} else {
+		st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
+	}
 	st.RefreshHandoffStaleness()
 }
 
@@ -669,8 +819,9 @@ func (st *State) BoardView() BoardSnapshot {
 	}
 	syncedAt := "never"
 	var tsPtr *time.Time
-	if !st.BoardSyncedAt.IsZero() {
-		utc := st.BoardSyncedAt.UTC()
+	activeSync := st.SyncedAtFor(st.Forge)
+	if !activeSync.IsZero() {
+		utc := activeSync.UTC()
 		syncedAt = utc.Format(time.RFC3339)
 		tsPtr = &utc
 	}
@@ -767,7 +918,8 @@ func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Dur
 	if st.Forge.Provider != ForgeGitHub && st.Forge.Provider != ForgeGitea {
 		return st, nil
 	}
-	if maxAge > 0 && !st.BoardSyncedAt.IsZero() && time.Since(st.BoardSyncedAt) < maxAge {
+	activeSync := st.SyncedAtFor(st.Forge)
+	if maxAge > 0 && !activeSync.IsZero() && time.Since(activeSync) < maxAge {
 		return st, nil
 	}
 	sctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -795,6 +947,7 @@ func (st *State) refreshForgeConfig(detected ForgeConfig) {
 	if st.ForgesConfigured {
 		return
 	}
+	st.preserveActiveForgeSync()
 	// In automatic mode, the current origin replaces its previously detected target.
 	st.Forges = MergeConfiguredForges(ForgeConfig{}, append(st.Forges, detected))
 	st.Forge = ForgeConfig{Provider: ForgeLocal}
@@ -804,6 +957,7 @@ func (st *State) refreshForgeConfig(detected ForgeConfig) {
 			break
 		}
 	}
+	st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
 }
 
 // UpsertForge adds or updates a configured forge provider on the state.
@@ -813,6 +967,7 @@ func (st *State) UpsertForge(cfg ForgeConfig) error {
 	if err != nil {
 		return err
 	}
+	st.preserveActiveForgeSync()
 	st.Forges = MergeConfiguredForges(st.Forge, st.Forges)
 	st.ForgesConfigured = true
 	updated := false
@@ -829,6 +984,7 @@ func (st *State) UpsertForge(cfg ForgeConfig) error {
 	if st.Forge.Provider == "" || st.Forge.Provider == ForgeLocal || st.Forge.Provider == cfg.Provider {
 		st.Forge = cfg
 	}
+	st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
 	return nil
 }
 
@@ -838,6 +994,7 @@ func (st *State) RemoveForge(provider ForgeProvider) {
 	if p != ForgeGitHub && p != ForgeGitea {
 		return
 	}
+	st.preserveActiveForgeSync()
 	st.ForgesConfigured = true
 	var kept []ForgeConfig
 	for _, f := range MergeConfiguredForges(st.Forge, st.Forges) {
@@ -853,6 +1010,7 @@ func (st *State) RemoveForge(provider ForgeProvider) {
 			st.Forge = ForgeConfig{Provider: ForgeLocal}
 		}
 	}
+	st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
 }
 
 // ResolveForge returns the ForgeConfig for provider from st.Forges, or falls back to st.Forge.
@@ -1081,8 +1239,8 @@ func BuildPickupSummary(st *State) string {
 		holdsDisplay = "unavailable"
 	}
 	syncedDisplay := "never"
-	if !st.BoardSyncedAt.IsZero() {
-		syncedDisplay = st.BoardSyncedAt.UTC().Format(time.RFC3339)
+	if activeSync := st.SyncedAtFor(st.Forge); !activeSync.IsZero() {
+		syncedDisplay = activeSync.UTC().Format(time.RFC3339)
 	}
 	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%s | build=%s | synced=%s\n",
 		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay, BuildLabel(), syncedDisplay)
