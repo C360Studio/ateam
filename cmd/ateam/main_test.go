@@ -5,8 +5,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/c360studio/ateam/internal/hook"
+	"github.com/c360studio/ateam/internal/state"
 )
 
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
@@ -49,5 +53,28 @@ func TestCLISubcommands(t *testing.T) {
 	}
 	if code := run([]string{"unknown-subcommand"}); code == 0 {
 		t.Fatalf("expected non-zero exit code for unknown subcommand")
+	}
+
+	// Review Finding #3: CLI runStateHandoff populates SessionID from ATEAM_SESSION_ID,
+	// and a subsequent session-B pre-compact replaces rather than claims session-A's handoff.
+	handoffDir := t.TempDir()
+	t.Setenv("ATEAM_SESSION_ID", "cli-session-A")
+	if code := runStateHandoff(handoffDir, []string{"--goal", "CLI session A checkpoint", "--done-when", "verified", "--no-post"}); code != 0 {
+		t.Fatalf("runStateHandoff = %d, want 0", code)
+	}
+	loaded, err := state.Load(handoffDir)
+	if err != nil || loaded.LastHandoff == nil || loaded.LastHandoff.SessionID != "cli-session-A" {
+		t.Fatalf("expected CLI handoff SessionID=cli-session-A, got %+v (err=%v)", loaded.LastHandoff, err)
+	}
+	t.Setenv("ATEAM_SESSION_ID", "")
+	compactOut, err := hook.Handle(handoffDir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"cli-session-B"}`))
+	if err != nil {
+		t.Fatalf("hook.Handle pre-compact: %v", err)
+	}
+	if strings.Contains(compactOut.AdditionalContext, "CLI session A checkpoint") {
+		t.Fatalf("session-B pre-compact preserved CLI session-A handoff:\n%s", compactOut.AdditionalContext)
+	}
+	if got := runStateSnapshot(handoffDir, "board"); got != 0 {
+		t.Fatalf("runStateSnapshot(board) = %d, want 0", got)
 	}
 }

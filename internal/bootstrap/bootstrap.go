@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/c360studio/ateam/internal/state"
 )
@@ -342,5 +345,125 @@ func checkHookConfigs(root string) []string {
 			out = append(out, fmt.Sprintf("%s: missing contextFileName AGENTS.md", rel))
 		}
 	}
+	out = append(out, checkAntigravityConfigs(root)...)
 	return out
+}
+
+func checkAntigravityConfigs(root string) []string {
+	var out []string
+	// shortcut: Antigravity hooks.json omits pre-compact, add pre-compact hook when Antigravity exposes a compaction event
+	agyRel := ".agents/hooks.json"
+	if agyData, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(agyRel))); err != nil {
+		out = append(out, fmt.Sprintf("%s: missing hook config file", agyRel))
+	} else {
+		var parsed map[string]any
+		if err := json.Unmarshal(agyData, &parsed); err != nil {
+			out = append(out, fmt.Sprintf("%s: invalid JSON: %v", agyRel, err))
+		} else {
+			text := string(agyData)
+			for _, ev := range []string{"session-start", "before-prompt", "turn-end"} {
+				if !strings.Contains(text, "ateam hook --event "+ev) {
+					out = append(out, fmt.Sprintf("%s: missing hook command for event %s", agyRel, ev))
+				}
+			}
+			if !strings.Contains(text, "--agent agy") {
+				out = append(out, fmt.Sprintf("%s: missing --agent agy in hook commands", agyRel))
+			}
+		}
+	}
+
+	for _, rel := range []string{".agents/plugins/ateam/plugin.json", ".agents/plugins/ateam/mcp_config.json"} {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			out = append(out, fmt.Sprintf("%s: missing Antigravity plugin file", rel))
+			continue
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			out = append(out, fmt.Sprintf("%s: invalid JSON: %v", rel, err))
+			continue
+		}
+		text := string(data)
+		if rel == ".agents/plugins/ateam/plugin.json" && !strings.Contains(text, `"ateam"`) {
+			out = append(out, fmt.Sprintf("%s: missing plugin name ateam", rel))
+		}
+		if rel == ".agents/plugins/ateam/mcp_config.json" && (!strings.Contains(text, `"ateam"`) || !strings.Contains(text, `"mcp"`)) {
+			out = append(out, fmt.Sprintf("%s: missing ateam mcp server entry", rel))
+		}
+	}
+	return out
+}
+
+// CheckBuildProvenance checks whether the running binary's commit is an ancestor of checkout HEAD.
+func CheckBuildProvenance(ctx context.Context, root, buildRev, headSHA string) []string {
+	buildRev = strings.TrimSpace(buildRev)
+	headSHA = strings.TrimSpace(headSHA)
+	if buildRev == "" || buildRev == "dev" || headSHA == "" || headSHA == "uncommitted" {
+		return nil
+	}
+	shortBuild := buildRev
+	if len(shortBuild) > 7 {
+		shortBuild = shortBuild[:7]
+	}
+	if state.SameCommitSHA(shortBuild, headSHA) {
+		return nil
+	}
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "git", "merge-base", "--is-ancestor", buildRev, "HEAD")
+	cmd.Dir = root
+	if err := cmd.Run(); err != nil {
+		return []string{fmt.Sprintf("binary build commit %s is not an ancestor of checkout HEAD %s; rebuild ./bin/ateam from this checkout", shortBuild, headSHA)}
+	}
+	return []string{fmt.Sprintf("binary build commit %s is behind checkout HEAD %s; rebuild ./bin/ateam", shortBuild, headSHA)}
+}
+
+// ParseRunningServeProcesses extracts PIDs of active `ateam serve` processes from `ps -eo pid=,args=` output.
+func ParseRunningServeProcesses(psOutput string, selfPID int) []int {
+	var pids []int
+	seen := make(map[int]bool)
+	for _, rawLine := range strings.Split(strings.ReplaceAll(psOutput, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid <= 0 || pid == selfPID || seen[pid] {
+			continue
+		}
+		base := filepath.Base(fields[1])
+		if (base == "ateam" || base == "ateam.exe") && fields[2] == "serve" {
+			seen[pid] = true
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+// CheckDuplicateServeProcesses returns a doctor warning when multiple `ateam serve` processes are running concurrently.
+func CheckDuplicateServeProcesses(pids []int) []string {
+	if len(pids) <= 1 {
+		return nil
+	}
+	parts := make([]string, len(pids))
+	for i, p := range pids {
+		parts[i] = strconv.Itoa(p)
+	}
+	return []string{fmt.Sprintf("multiple ateam serve processes detected (%d running: PIDs %s); stop extra servers to prevent .ateam/state.json cache races", len(pids), strings.Join(parts, ", "))}
+}
+
+// InspectRunningServeProcesses queries OS processes and warns if duplicate `ateam serve` instances are running.
+func InspectRunningServeProcesses(ctx context.Context) ([]int, []string) {
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, "ps", "-eo", "pid=,args=").Output()
+	if err != nil {
+		return nil, nil
+	}
+	pids := ParseRunningServeProcesses(string(out), os.Getpid())
+	return pids, CheckDuplicateServeProcesses(pids)
 }

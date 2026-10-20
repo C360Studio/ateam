@@ -565,8 +565,10 @@ func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	resolvedSession := state.ResolveActiveSessionID(root, ho.SessionID)
 	var saved state.Handoff
 	_, err = state.Update(root, func(cur *state.State) error {
+		ho.SessionID = resolvedSession
 		ho.Branch = st.Git.Branch
 		ho.CheckpointSHA = st.Git.HeadSHA
 		ho.Dirty = st.Git.Dirty
