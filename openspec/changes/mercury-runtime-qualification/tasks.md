@@ -13,7 +13,7 @@ Initial planning head `c50248803995e0e0e2dde659a9d5b76a61a6bb15` passed independ
 
 ## Later qualification gates
 
-The next work is claimed on `codex/mercury-offline-contract`; see [the scoped claim](claim.md). PR #61's static plan is merged; issue #58 remains open.
+PR #64 merged the offline blocker report. The next usage-provenance slice is claimed on `codex/mercury-usage-provenance`; see [its scope and checks](usage-provenance-plan.md). Issue #58 remains open.
 
 - [x] Freeze the inspected offline stack, dependency hashes and synthetic API/config fixtures before isolated bridge installation and offline implementation.
   Owner authorized the scoped isolated offline setup and implementation by requesting review-ready delivery of PR #64. Production adapter delivery remains out of scope.
@@ -24,3 +24,9 @@ The next work is claimed on `codex/mercury-offline-contract`; see [the scoped cl
 - [ ] Complete independent implementation review and required checks before claiming a qualified runtime.
 - [ ] Freeze and review the canary/A/A protocol before live calibration.
   Hold: explicit new spending authorization required before any paid call.
+
+## Provider-usage provenance continuation
+
+- [ ] Audit supported pinned bridge controls and independently review the scoped evidence-contract plan.
+- [ ] Implement and test the offline contract against retained and synthetic provider-wire evidence; address the sentinel cwd nit.
+- [ ] Complete independent technical review, explicit Python evidence checks and clean-tree repository verification; publish review-ready PR.
