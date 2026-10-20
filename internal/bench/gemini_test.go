@@ -33,7 +33,7 @@ func fakeGeminiExperiment(t *testing.T) Experiment {
 	e := testExperiment()
 	e.Command = []string{launcher}
 	e.Model = "explicit-test-model"
-	e.Gemini = &GeminiConfig{Reasoning: "low", Auth: "api-key-env", OutputFormat: "json-schema"}
+	e.Gemini = &GeminiConfig{CLIVersion: "0.64.0", Reasoning: "low", Auth: "api-key-env", OutputFormat: "json-schema"}
 	t.Setenv("GEMINI_API_KEY", geminiTestKey)
 	t.Setenv("ATEAM_SECRET_PROBE", "must-not-inherit")
 	for _, name := range []string{"OPENAI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_GENAI_USE_VERTEXAI", "NODE_OPTIONS"} {

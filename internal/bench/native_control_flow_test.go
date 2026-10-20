@@ -41,7 +41,7 @@ func TestNativeFailureStopPrecedesAccounting(t *testing.T) {
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestNativeEarlyFailureStopAndLegacyReplay(t *testing.T) {
 	cfg := nativeTestExperiment(t, `null`)
-	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '0.43.0'; exit 0; fi\ncat >/dev/null\necho provider-unavailable >&2\nexit 1\n"
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '0.64.0'; exit 0; fi\ncat >/dev/null\necho provider-unavailable >&2\nexit 1\n"
 	if err := os.WriteFile(cfg.Command[0], []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestNativeReusedSessionNeverExecutesCandidate(t *testing.T) {
 			"api":    map[string]int{"totalRequests": 1, "totalErrors": 0},
 		}}},
 	})
-	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '0.43.0'; exit 0; fi\ncat >/dev/null\nprintf '%s\\n' '" + strings.ReplaceAll(string(output), "'", "'\\''") + "'\n"
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '0.64.0'; exit 0; fi\ncat >/dev/null\nprintf '%s\\n' '" + strings.ReplaceAll(string(output), "'", "'\\''") + "'\n"
 	if err := os.WriteFile(cfg.Command[0], []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}

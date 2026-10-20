@@ -6,7 +6,7 @@ The owner revised #38 from complete fatal billing evidence to a bounded stable-C
 
 ## What changes
 
-Require explicit Gemini cli_version0.64.0 for new execution, preserve omitted/0.43.0 historical replay, revalidate native isolation/output contracts, and expose known normalized token subtotals with attempt coverage. Update examples and docs. Claim #38 under #16; PR32/43 remain separate.
+Require explicit Gemini cli_version 0.64.0 for new execution, preserve omitted/0.43.0 historical replay, revalidate native isolation/output contracts, and expose known normalized token subtotals with attempt coverage. Update examples and docs. Claim #38 under #16; PR32/43 remain separate.
 
 ## Stop boundary
 

@@ -64,12 +64,17 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 ### Requirement: Dual-forge GitHub and Gitea state sync
 
-`ateam` SHALL support both GitHub (`gh` CLI and REST API) and Gitea (`tea` CLI and `/api/v1` REST API) for listing issues, pull requests, and bootstrapping standard workflow labels (`type:epic`, `status:needs-decision`, `status:blocked`, `class:flake`). Synchronization SHALL reconcile the synced provider's cards into the board (dropping legacy demo cards and stale remote cards for that provider while preserving legitimate local dashboard cards, cards from the other forge, and hold reasons and decision summaries on matching card IDs), record `board_synced_at`, reject partial issue/PR failures, and permit a comment-free fallback when optional comment expansion fails. Explicit `pickup` and `board` queries SHALL attempt a bounded remote forge sync when configured (falling back to cache on failure) and surface sync timestamp and fallback status in both `pickup` and `board` responses.
+`ateam` SHALL support both GitHub (`gh` CLI and REST API) and Gitea (`tea` CLI and `/api/v1` REST API) for listing issues, pull requests, and bootstrapping standard workflow labels (`type:epic`, `status:needs-decision`, `status:blocked`, `class:flake`).
 
 #### Scenario: Gitea API sync
 
 - **WHEN** a repository is configured with a Gitea remote or `GITEA_URL`
 - **THEN** `ateam` maps Gitea issues and pull requests into unified board cards (`needs-decision`, `backlog`, `in-progress`, `in-review`, `blocked`, `done`)
+
+#### Scenario: Reconciled bounded forge queries
+
+- **WHEN** a configured forge is synchronized or pickup/board queries request its state
+- **THEN** Synchronization SHALL reconcile the synced provider's cards into the board (dropping legacy demo cards and stale remote cards for that provider while preserving legitimate local dashboard cards, cards from the other forge, and hold reasons and decision summaries on matching card IDs), record `board_synced_at`, reject partial issue/PR failures, and permit a comment-free fallback when optional comment expansion fails. Explicit `pickup` and `board` queries SHALL attempt a bounded remote forge sync when configured (falling back to cache on failure) and surface sync timestamp and fallback status in both `pickup` and `board` responses.
 
 ### Requirement: Constant-time forge webhook verification and rate limiting
 
@@ -183,7 +188,7 @@ When `HERDR_ENV=1`, the writer lease SHALL record `HERDR_PANE_ID` and `HERDR_WOR
 - **THEN** the pickup warning names that pane
 
 ### Requirement: Optional herdr caveat notifications
-`ateam state herdr on-event` SHALL do nothing unless `HERDR_ENV=1` and `HERDR_BIN_PATH` are set. On `worktree.created` and non-working `pane.agent_status_changed` events in an ateam repository, it SHALL toast each `HALT`, `RED`, or `BLOCKED` caveat at most once per repository. Identity SHALL be the change, marker, and full caveat text, shared across path spellings and linked worktrees of one git common dir. The record SHALL be saved under a file lock before toasting. A failed toast SHALL NOT prevent the remaining claimed toasts from being attempted. It SHALL never run on the synchronous hook path.
+`ateam state herdr on-event` SHALL do nothing unless `HERDR_ENV=1` and `HERDR_BIN_PATH` are set. On `worktree.created` and non-working `pane.agent_status_changed` events in an ateam repository, it SHALL toast each `HALT`, `RED`, or `BLOCKED` caveat at most once per repository. A failed toast SHALL NOT prevent the remaining claimed toasts from being attempted. It SHALL never run on the synchronous hook path.
 
 #### Scenario: Gate closed
 - **WHEN** `HERDR_ENV` is unset
@@ -192,6 +197,8 @@ When `HERDR_ENV=1`, the writer lease SHALL record `HERDR_PANE_ID` and `HERDR_WOR
 #### Scenario: Repeat and concurrent events
 - **WHEN** the same caveat is seen by repeated or concurrent events, or from a linked worktree
 - **THEN** exactly one toast is shown
+- **AND** identity SHALL be the change, marker, and full caveat text, shared across path spellings and linked worktrees of one git common dir
+- **AND** the record SHALL be saved under a file lock before toasting
 
 #### Scenario: Partial delivery failure
 - **WHEN** the first of two claimed toasts fails
@@ -267,7 +274,7 @@ The MCP guide SHALL document the implemented tools and actions, prompts, resourc
 
 ### Requirement: Default client context compaction limits
 
-ATeam initialization SHALL scaffold 500k-token context and compaction defaults into newly created client configurations (`.claude/settings.json` `autoCompactWindow: 500000`, `.codex/config.toml` `model_context_window = 500000` and `model_auto_compact_token_limit = 450000`, and `.gemini/settings.json` `model.chatCompression.contextPercentageThreshold: 0.5`) while preserving pre-existing client files unchanged. Parity checks SHALL validate any configured context compaction fields in those files and reject out-of-range or non-numeric values while permitting custom valid values or omitted fields in preserved configurations.
+ATeam initialization SHALL scaffold the context and compaction defaults specified below into newly created client configurations while preserving pre-existing client files unchanged. Parity checks SHALL validate configured fields, reject out-of-range or non-numeric values, and permit valid custom or omitted fields in preserved configurations.
 
 #### Scenario: Newly initialized repository context limits
 
