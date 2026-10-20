@@ -1,0 +1,10 @@
+# Context window limits verification
+
+## Test design & evidence
+
+- **Decision:** Deterministic boundary and type examples in `TestClientContextCompactionLimits` (`internal/bootstrap/mcp_test.go`) suffice; no new fuzz target is needed because JSON/TOML parsing is delegated to `encoding/json` and `github.com/pelletier/go-toml/v2`, and `checkContextConfigs` evaluates fixed scalar bounds (`[100000, 1000000]`, `0 < auto_compact <= context_window`, `(0, 1]`).
+- **Rule:** Newly initialized repositories must receive 500k context compaction defaults (`.claude/settings.json` `autoCompactWindow: 500000`, `.codex/config.toml` `model_context_window = 500000` and `model_auto_compact_token_limit = 450000`, `.gemini/settings.json` `model.chatCompression.contextPercentageThreshold: 0.5`), existing client files must remain byte-identical across initialization (`TestInitPreservesClientSettings`), and `CheckParity` must reject out-of-range or non-integer/non-numeric context values while permitting valid custom values or omitted fields.
+- **Inputs:** Freshly initialized repository configs plus 11 boundary/type cases across Claude (`100000`, `1000000`, `99999`, `1000001`, `500000.5`), Codex (`model_auto_compact_token_limit == 500000`, `500001 > 500000`, `model_context_window = 0`), and Gemini (`1.0`, `0`, `1.01`).
+- **Run:** `go test -race -v ./internal/bootstrap -run TestClientContextCompactionLimits` (12/12 assertions active and passing; guarded against no-op edits via `if updated == string(orig) { t.Fatal(...) }`).
+- **Mutation:** Non-destructive Go `-overlay` mutation check on `internal/bootstrap/mcp.go` (`sha256: 5713338f3cb116a27c24be7538321846606d81c0dc3bbd867df7786e1b03247f`) suppressing `checkContextConfigs(root)` call via `go run ./cmd/ateam mutate -pkg ./internal/bootstrap -test TestClientContextCompactionLimits -file internal/bootstrap/mcp.go -mutant /tmp/mcp_mutant.go -expect-text "expected violation containing"` -> `verdict: detection`.
+- **Not covered:** Antigravity (`agy`) compaction thresholds (not exposed in `settings.json`) and runtime client enforcement of configured token limits.

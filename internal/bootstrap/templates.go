@@ -1,6 +1,7 @@
 package bootstrap
 
 const claudeSettingsJSON = `{
+  "autoCompactWindow": 500000,
   "hooks": {
     "SessionStart": [
       {
@@ -94,6 +95,11 @@ const codexHooksJSON = `{
 
 const geminiSettingsJSON = `{
   "contextFileName": "AGENTS.md",
+  "model": {
+    "chatCompression": {
+      "contextPercentageThreshold": 0.5
+    }
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -145,7 +151,10 @@ const geminiSettingsJSON = `{
 }
 `
 
-const codexMCPConfig = `[mcp_servers.ateam]
+const codexMCPConfig = `model_context_window = 500000
+model_auto_compact_token_limit = 450000
+
+[mcp_servers.ateam]
 command = "ateam"
 args = ["mcp"]
 `
