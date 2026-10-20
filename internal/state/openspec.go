@@ -69,6 +69,7 @@ type OpenSpecSpec struct {
 
 var (
 	taskLineRe   = regexp.MustCompile(`^(\s*)- \[(.)\](.*)$`)
+	taskNumberRe = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)*\.?$`)
 	haltWordRe   = regexp.MustCompile(`(?i)\bhalt(s|ed|ing)?\b`)
 	redWordRe    = regexp.MustCompile(`(?i)\b(red|failed|failing)\b`)
 	holdWordRe   = regexp.MustCompile(`(?i)\b(hold|blocked|blocking)\b`)
@@ -134,7 +135,7 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 			rest := strings.TrimSpace(m[3])
 			words := strings.Fields(rest)
 			num := ""
-			if len(words) > 0 {
+			if len(words) > 0 && taskNumberRe.MatchString(words[0]) {
 				num = words[0]
 			}
 			isOpen := box == " " || box == "~"
@@ -194,10 +195,7 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 			})
 		}
 		if t.holdLine > 0 {
-			joined := strings.TrimSpace(strings.Join(t.holdLines, " "))
-			if t.number != "" {
-				joined = t.number + " " + joined
-			}
+			joined := normalizeHoldPrefix(strings.Join(t.holdLines, " "))
 			cleaned := cleanTaskText(joined)
 			change.Caveats = append(change.Caveats, OpenSpecCaveat{
 				Marker: "BLOCKED",
@@ -216,14 +214,36 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 	return change, holds, nil
 }
 
+func normalizeHoldPrefix(s string) string {
+	s = normalizeTaskText(s)
+	if pos := strings.Index(s, "Hold:"); pos >= 0 {
+		s = strings.TrimSpace(s[pos:])
+	}
+	for strings.HasPrefix(s, "Hold:") {
+		s = strings.TrimSpace(strings.TrimPrefix(s, "Hold:"))
+	}
+	if s == "" {
+		return "Hold:"
+	}
+	return "Hold: " + s
+}
+
 func cleanTaskText(s string) string {
 	s = normalizeTaskText(s)
+	if strings.HasSuffix(s, "…") && len(strings.TrimSuffix(s, "…")) <= 104 {
+		return s
+	}
 	if len(s) > 104 {
 		i := 104
 		for i > 0 && !utf8.RuneStart(s[i]) {
 			i--
 		}
-		s = s[:i]
+		if s[i] != ' ' {
+			if sp := strings.LastIndexByte(s[:i], ' '); sp > 0 {
+				i = sp
+			}
+		}
+		s = strings.TrimRight(s[:i], " \t") + "…"
 	}
 	return s
 }

@@ -108,8 +108,93 @@ This header explains Hold: markers above the first section heading.
 
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestCleanTaskTextKeepsUTF8AtTheCut(t *testing.T) {
-	got := cleanTaskText("- [ ] 1.1 RED: " + strings.Repeat("é", 60))
-	if !utf8.ValidString(got) || len(got) > 104 {
-		t.Fatalf("cleanTaskText = %q (len %d), want valid UTF-8 of at most 104 bytes", got, len(got))
+	got := cleanTaskText("a" + strings.Repeat("é", 60))
+	if !utf8.ValidString(got) || !strings.HasSuffix(got, "…") || len(strings.TrimSuffix(got, "…")) > 104 {
+		t.Fatalf("cleanTaskText = %q (len %d), want valid UTF-8 truncated at <=104 bytes with trailing ellipsis", got, len(got))
+	}
+
+	wordCut := cleanTaskText("- [ ] Hold: owner authorization required before bridge installation, downloaded-code execution or adapter setup")
+	wantWordCut := "Hold: owner authorization required before bridge installation, downloaded-code execution or adapter…"
+	if wordCut != wantWordCut {
+		t.Fatalf("cleanTaskText word boundary = %q, want %q", wordCut, wantWordCut)
+	}
+
+	longToken := cleanTaskText("Hold: waiting for acknowledgement " + strings.Repeat("supercalifragilisticexpialidocious", 3))
+	wantLongToken := "Hold: waiting for acknowledgement…"
+	if longToken != wantLongToken {
+		t.Fatalf("cleanTaskText long token boundary = %q, want %q", longToken, wantLongToken)
+	}
+	if cleanTaskText(got) != got || cleanTaskText(wordCut) != wordCut || cleanTaskText(longToken) != longToken {
+		t.Fatalf("expected cleanTaskText to be idempotent on already-truncated text")
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestHoldDisplaySinglePrefixAndWordBoundaryInPickup(t *testing.T) {
+	tasksMD := `# Tasks
+
+## 1. Live Verification
+
+- [ ] Run A/B live benchmark
+  - Hold: owner authorization for live API spend; run after gate 1 self-test is green and verified in staging.
+- [ ] Hold: owner authorization required before bridge installation, downloaded-code execution or adapter setup
+- [ ] 1.2 Implement core state parser.
+  - Hold: waiting on PR #48 to merge.
+`
+	ch, holds, err := ParseTasksMarkdown("openspec/changes/ab-live-bench/tasks.md", []byte(tasksMD))
+	if err != nil {
+		t.Fatalf("ParseTasksMarkdown: %v", err)
+	}
+	if len(holds) != 3 {
+		t.Fatalf("got %d holds, want 3: %+v", len(holds), holds)
+	}
+	wantHolds := []string{
+		"Hold: owner authorization for live API spend; run after gate 1 self-test is green and verified in…",
+		"Hold: owner authorization required before bridge installation, downloaded-code execution or adapter…",
+		"Hold: waiting on PR #48 to merge.",
+	}
+	for i, want := range wantHolds {
+		if holds[i].Text != want {
+			t.Errorf("holds[%d].Text = %q, want %q", i, holds[i].Text, want)
+		}
+		if ch.Caveats[i].Text != want {
+			t.Errorf("caveats[%d].Text = %q, want %q", i, ch.Caveats[i].Text, want)
+		}
+	}
+	if holds[0].TaskNumber != "" || holds[1].TaskNumber != "" || holds[2].TaskNumber != "1.2" {
+		t.Errorf("unexpected task numbers: %q, %q, %q", holds[0].TaskNumber, holds[1].TaskNumber, holds[2].TaskNumber)
+	}
+
+	st := &State{
+		Mode: ModeFull,
+		Holds: []HoldItem{
+			holds[0],
+			{
+				File: "openspec/changes/cached/tasks.md",
+				Line: 16,
+				Text: "Run Hold: owner authorization for live API spend; run after gate 1 self-test is green and verified in staging.",
+			},
+			{
+				File: "openspec/changes/cached/tasks.md",
+				Line: 20,
+				Text: "Hold: Hold: owner authorization required before bridge installation, downloaded-code execution or adapter setup",
+			},
+		},
+	}
+	summary := BuildPickupSummary(st)
+	for _, bad := range []string{"Run Hold:", "Hold: Hold:", "is gr\n", "or adapte\n"} {
+		if strings.Contains(summary, bad) {
+			t.Fatalf("pickup summary contained untidy hold text %q:\n%s", bad, summary)
+		}
+	}
+	for _, wantLine := range []string{
+		"- openspec/changes/ab-live-bench/tasks.md:6 " + wantHolds[0],
+		"- openspec/changes/cached/tasks.md:16 " + wantHolds[0],
+		"- openspec/changes/cached/tasks.md:20 " + wantHolds[1],
+	} {
+		if !strings.Contains(summary, wantLine) {
+			t.Fatalf("pickup summary missing expected hold line %q:\n%s", wantLine, summary)
+		}
 	}
 }

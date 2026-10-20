@@ -517,7 +517,42 @@ func canTrustRecordedMCPBuild(rec state.MCPProcess, lstartRaw string, psStart ti
 	return true
 }
 
-// ParseRunningMCPProcesses extracts active `ateam mcp` processes from `ps -eo pid=,lstart=,args=` (or `ps -eo pid=,args=`) output and joins recorded process metadata onto confirmed MCP processes.
+func parsePSProcessLine(rawLine string) (pid, ppid int, psStart time.Time, lstartRaw string, hasPSStart bool, cmdFields []string, ok bool) {
+	line := strings.TrimSpace(rawLine)
+	if line == "" {
+		return 0, 0, time.Time{}, "", false, nil, false
+	}
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return 0, 0, time.Time{}, "", false, nil, false
+	}
+	var err error
+	pid, err = strconv.Atoi(fields[0])
+	if err != nil || pid <= 0 {
+		return 0, 0, time.Time{}, "", false, nil, false
+	}
+	cmdFields = fields[1:]
+	if len(fields) >= 8 {
+		if t, raw, startOK := parsePSStartTime(fields[1:6]); startOK {
+			return pid, 0, t, raw, true, fields[6:], true
+		}
+	}
+	if p, err := strconv.Atoi(fields[1]); err == nil && p >= 0 {
+		ppid = p
+		cmdFields = fields[2:]
+		if len(fields) >= 9 {
+			if t, raw, startOK := parsePSStartTime(fields[2:7]); startOK {
+				return pid, ppid, t, raw, true, fields[7:], true
+			}
+		}
+	}
+	if len(cmdFields) == 0 {
+		return 0, 0, time.Time{}, "", false, nil, false
+	}
+	return pid, ppid, time.Time{}, "", false, cmdFields, true
+}
+
+// ParseRunningMCPProcesses extracts active `ateam mcp` processes from `ps -eo pid=,ppid=,lstart=,args=` (or `pid=,lstart=,args=` / `pid=,args=`) output and joins recorded process metadata onto confirmed MCP processes.
 func ParseRunningMCPProcesses(psOutput string, selfPID int, recorded []state.MCPProcess, fallbackBuild string) []state.MCPProcess {
 	byPID := make(map[int]state.MCPProcess, len(recorded))
 	for _, r := range recorded {
@@ -533,43 +568,20 @@ func ParseRunningMCPProcesses(psOutput string, selfPID int, recorded []state.MCP
 	var out []state.MCPProcess
 	seen := make(map[int]bool)
 	for _, rawLine := range strings.Split(strings.ReplaceAll(psOutput, "\r\n", "\n"), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		pid, err := strconv.Atoi(fields[0])
-		if err != nil || pid <= 0 || pid == selfPID || seen[pid] {
-			continue
-		}
-		cmdFields := fields[1:]
-		var (
-			psStart    time.Time
-			lstartRaw  string
-			hasPSStart bool
-		)
-		if len(fields) >= 8 {
-			if t, raw, ok := parsePSStartTime(fields[1:6]); ok {
-				psStart = t
-				lstartRaw = raw
-				hasPSStart = true
-				cmdFields = fields[6:]
-			}
-		}
-		if len(cmdFields) < 2 {
+		pid, ppid, psStart, lstartRaw, hasPSStart, cmdFields, ok := parsePSProcessLine(rawLine)
+		if !ok || pid == selfPID || seen[pid] || len(cmdFields) < 2 {
 			continue
 		}
 		base := filepath.Base(cmdFields[0])
 		if (base == "ateam" || base == "ateam.exe") && cmdFields[1] == "mcp" {
 			seen[pid] = true
 			if rec, ok := byPID[pid]; ok && canTrustRecordedMCPBuild(rec, lstartRaw, psStart, hasPSStart) {
+				rec.PPID = ppid
 				out = append(out, rec)
 			} else {
 				proc := state.MCPProcess{
 					PID:         pid,
+					PPID:        ppid,
 					BuildCommit: fallbackBuild,
 				}
 				if hasPSStart {
@@ -581,6 +593,104 @@ func ParseRunningMCPProcesses(psOutput string, selfPID int, recorded []state.MCP
 		}
 	}
 	return out
+}
+
+func isShellWrapperComm(comm string) bool {
+	switch strings.TrimPrefix(strings.ToLower(strings.TrimSpace(comm)), "-") {
+	case "sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh":
+		return true
+	default:
+		return false
+	}
+}
+
+// FilterClientMCPProcesses returns running `ateam mcp` processes that belong to clientPID's process tree (including when clientPID is a shell wrapper around the hook).
+func FilterClientMCPProcesses(psOutput string, selfPID, clientPID int, recorded []state.MCPProcess, fallbackBuild string) []state.MCPProcess {
+	if clientPID <= 1 {
+		return nil
+	}
+	parentOf := make(map[int]int)
+	commOf := make(map[int]string)
+	for _, rawLine := range strings.Split(strings.ReplaceAll(psOutput, "\r\n", "\n"), "\n") {
+		pid, ppid, _, _, _, cmdFields, ok := parsePSProcessLine(rawLine)
+		if !ok {
+			continue
+		}
+		parentOf[pid] = ppid
+		commOf[pid] = filepath.Base(cmdFields[0])
+	}
+	allMCP := ParseRunningMCPProcesses(psOutput, selfPID, recorded, fallbackBuild)
+	if len(allMCP) == 0 {
+		return nil
+	}
+	descendantsOf := func(rootPID int) []state.MCPProcess {
+		if rootPID <= 1 {
+			return nil
+		}
+		var matched []state.MCPProcess
+		maxHops := len(parentOf) + 2
+		for _, p := range allMCP {
+			cur := p.PID
+			for hops := 0; cur > 1 && hops < maxHops; hops++ {
+				if cur == rootPID {
+					matched = append(matched, p)
+					break
+				}
+				next := parentOf[cur]
+				if next == 0 && cur == p.PID {
+					next = p.PPID
+				}
+				cur = next
+			}
+		}
+		return matched
+	}
+	if matched := descendantsOf(clientPID); len(matched) > 0 {
+		return matched
+	}
+	if clientPID == selfPID || isShellWrapperComm(commOf[clientPID]) {
+		if parentPID := parentOf[clientPID]; parentPID > 1 {
+			return descendantsOf(parentPID)
+		}
+	}
+	return nil
+}
+
+// CheckClientMCPProcesses formats one-line session hook warnings for any client-tree `ateam mcp` process whose build is unknown or older than headSHA.
+func CheckClientMCPProcesses(procs []state.MCPProcess, headSHA string) []string {
+	headSHA = strings.TrimSuffix(strings.TrimSpace(headSHA), "-dirty")
+	if headSHA == "" || headSHA == "unknown" || headSHA == "dev" || headSHA == "uncommitted" {
+		return nil
+	}
+	var warnings []string
+	for _, p := range procs {
+		procRev := strings.TrimSuffix(strings.TrimSpace(p.BuildCommit), "-dirty")
+		fullRev := strings.TrimSuffix(strings.TrimSpace(p.FullCommit), "-dirty")
+		sameCommit := state.SameCommitSHA(procRev, headSHA) || (fullRev != "" && state.SameCommitSHA(fullRev, headSHA))
+		if procRev == "" || procRev == "unknown" || procRev == "dev" || !sameCommit {
+			label := strings.TrimSpace(p.BuildCommit)
+			if label == "" {
+				label = "unknown"
+			}
+			warnings = append(warnings, fmt.Sprintf("MCP server PID %d (build %s) is older than HEAD; restart the client", p.PID, label))
+		}
+	}
+	return warnings
+}
+
+// InspectClientMCPProcesses enumerates `ateam mcp` processes under clientPID's process tree and returns one-line warnings for any whose build commit is unknown or older than headSHA.
+func InspectClientMCPProcesses(ctx context.Context, root, headSHA string, clientPID int) ([]state.MCPProcess, []string) {
+	recorded := state.LoadLiveMCPProcesses(root)
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "ps", "-eo", "pid=,ppid=,lstart=,args=")
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, nil
+	}
+	procs := FilterClientMCPProcesses(string(out), os.Getpid(), clientPID, recorded, "unknown")
+	return procs, CheckClientMCPProcesses(procs, headSHA)
 }
 
 // CheckRunningMCPProcesses returns doctor warnings for any running `ateam mcp` process whose build commit differs from expectedCommit.
@@ -609,7 +719,7 @@ func InspectRunningMCPProcesses(ctx context.Context, root, headSHA string) ([]st
 	diskRev, _ := state.ReadDiskBinaryBuild(ctx, root)
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, "ps", "-eo", "pid=,lstart=,args=")
+	cmd := exec.CommandContext(cctx, "ps", "-eo", "pid=,ppid=,lstart=,args=")
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	out, err := cmd.Output()
 	if err != nil {
