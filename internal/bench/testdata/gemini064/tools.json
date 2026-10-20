@@ -1,0 +1,71 @@
+{
+  "session_id": "fixture-session-064",
+  "response": "{\"source\":\"package offlineprobe\"}",
+  "stats": {
+    "models": {
+      "gemini-3.8-flash": {
+        "api": {
+          "totalRequests": 2,
+          "totalErrors": 0,
+          "totalLatencyMs": 12,
+          "errorsByType": {}
+        },
+        "tokens": {
+          "input": 170,
+          "prompt": 300,
+          "candidates": 30,
+          "total": 377,
+          "cached": 130,
+          "thoughts": 40,
+          "tool": 7
+        },
+        "roles": {
+          "main": {
+            "totalRequests": 2,
+            "totalErrors": 0,
+            "totalLatencyMs": 12,
+            "tokens": {
+              "input": 170,
+              "prompt": 300,
+              "candidates": 30,
+              "total": 377,
+              "cached": 130,
+              "thoughts": 40,
+              "tool": 7
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "totalCalls": 1,
+      "totalSuccess": 1,
+      "totalFail": 0,
+      "totalDurationMs": 4,
+      "totalDecisions": {
+        "accept": 1,
+        "reject": 0,
+        "modify": 0,
+        "auto_accept": 0
+      },
+      "byName": {
+        "list_directory": {
+          "count": 1,
+          "success": 1,
+          "fail": 0,
+          "durationMs": 4,
+          "decisions": {
+            "accept": 1,
+            "reject": 0,
+            "modify": 0,
+            "auto_accept": 0
+          }
+        }
+      }
+    },
+    "files": {
+      "totalLinesAdded": 0,
+      "totalLinesRemoved": 0
+    }
+  }
+}

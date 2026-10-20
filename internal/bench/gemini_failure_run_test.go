@@ -31,7 +31,7 @@ func geminiFatalRun(t *testing.T) (string, ExperimentRun, string, string) {
 	}
 	// Version probes do not count as model invocations. The two identical native
 	// envelopes reproduce the CLI's bare and [ERROR]-prefixed stderr emissions.
-	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '0.43.0'; exit 0; fi\n" +
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '0.64.0'; exit 0; fi\n" +
 		"cat >/dev/null\nprintf 'called\\n' >> " + quote(calls) + "\n" +
 		"printf '%s\\n' " + quote("Warning: optional terminal integration unavailable") + " " + quote(string(envelope)) + " " + quote("[ERROR] "+string(envelope)) + " >&2\nexit 53\n"
 	if err := os.WriteFile(e.Command[0], []byte(script), 0700); err != nil {
@@ -145,6 +145,16 @@ func TestGeminiFatalStderrLegacyReplay(t *testing.T) {
 	_, run, calls, graderCalls := geminiFatalRun(t)
 	// Model the historical artifact exactly: identical raw streams but the old
 	// stdout-only response and generic process diagnostic, with no new field.
+	run.Resolved.Original.Gemini.CLIVersion = ""
+	run.Resolved.Experiment.Gemini.CLIVersion = ""
+	run.Resolved.ConfigSHA = jsonDigest(run.Resolved.Original)
+	run.Resolved.GeminiVersion = "0.43.0"
+	settings, err := geminiSettings(run.Resolved.Experiment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Resolved.NativeSettings = settings
+	run.Resolved.BudgetPolicy = "GEMINI_API_KEY only; GEMINI_CLI_TRUST_WORKSPACE=true only in the generated workspace child process; stop between attempts at max_total_tokens or unknown usage; max_run_seconds includes grading; per-attempt timeout_seconds; no in-flight monetary guarantee; CLI-reported usage; 4 model turns/attempt and 8192 output tokens/turn; no fallback accepted; cost unknown"
 	run.Attempts[0].Response.Native.GeminiFailure = nil
 	run.Attempts[0].Diagnostic = "gemini execution: exit status 53"
 	run.Digest = runDigest(run)

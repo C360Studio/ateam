@@ -213,3 +213,26 @@ The runner SHALL retain recognized Gemini turn-limit error evidence without trea
 - **WHEN** stderr contains malformed, conflicting or duplicate-key candidate envelopes, streams are truncated, or the process times out or exits with another code
 - **THEN** the runner does not synthesize recognized turn-limit evidence
 - **AND** replay of newly normalized evidence re-derives it from raw stderr while historical artifacts preserve their original outcomes
+
+### Requirement: Versioned Gemini best-effort accounting
+New Gemini execution SHALL explicitly select the verified stable CLI 0.64.0. Historical 0.43.0 configurations and artifacts SHALL remain replayable without changing their settings or comparison interpretation. Reports SHALL distinguish known normalized usage from unknown usage and SHALL NOT claim reconciled cost.
+
+#### Scenario: Explicit stable execution
+- **WHEN** a new Gemini experiment is resolved or executed
+- **THEN** legacy or unsupported selection is refused before executable probes or credentials
+- **AND** the actual CLI and retained version metadata must match the selected stable contract
+
+#### Scenario: Partial retained history
+- **WHEN** a stable CLI run contains reported and unknown usage, including failed or unpaired attempts
+- **THEN** its report includes the known normalized token subtotal and reported/unknown retained-attempt counts
+- **AND** no reported usage yields an unknown subtotal, a measured zero stays zero, cost stays unknown and conservative stop rules remain in force
+
+#### Scenario: Historical replay
+- **WHEN** an artifact using omitted or explicit 0.43.0 selection is rescored
+- **THEN** the historical settings and comparison remain unchanged
+- **AND** mismatched retained native-version provenance is refused
+
+#### Scenario: Zero-defaulted native usage
+- **WHEN** the stable CLI supplies an all-zero normalized snapshot that cannot distinguish omitted upstream metadata from measured usage
+- **THEN** the runner retains raw observations, source and errors but marks normalized usage partial and unknown
+- **AND** historical parsing keeps its original interpretation

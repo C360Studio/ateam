@@ -96,6 +96,24 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(sub, "README.md"), []byte("# Repo\n- `ateam hook <event>` (`session-start`, `pre-tool`, `post-tool`, `stop`)\n"), 0o644)
 		requireViolation(t, CheckParity(sub), "README.md", "before-prompt")
 	})
+
+	t.Run("Antigravity hooks.json missing --agent agy", func(t *testing.T) {
+		sub := t.TempDir()
+		_, _ = InitRepo(context.Background(), sub, Options{})
+		p := filepath.Join(sub, ".agents", "hooks.json")
+		data, _ := os.ReadFile(p)
+		edited := strings.ReplaceAll(string(data), "--agent agy", "--agent gemini")
+		_ = os.WriteFile(p, []byte(edited), 0o644)
+		requireViolation(t, CheckParity(sub), ".agents/hooks.json", "--agent agy")
+	})
+
+	t.Run("Antigravity plugin mcp_config.json missing mcp entry", func(t *testing.T) {
+		sub := t.TempDir()
+		_, _ = InitRepo(context.Background(), sub, Options{})
+		p := filepath.Join(sub, ".agents", "plugins", "ateam", "mcp_config.json")
+		_ = os.WriteFile(p, []byte(`{"mcpServers":{}}`), 0o644)
+		requireViolation(t, CheckParity(sub), ".agents/plugins/ateam/mcp_config.json", "missing ateam mcp server entry")
+	})
 }
 
 func requireViolation(t *testing.T, violations []string, substrings ...string) {
@@ -105,5 +123,39 @@ func requireViolation(t *testing.T, violations []string, substrings ...string) {
 		if !strings.Contains(joined, sub) {
 			t.Fatalf("expected violation containing %q, got:\n%s", sub, joined)
 		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+func TestDoctorBuildProvenanceAndDuplicateServeDetection(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	// 1. Build provenance drift check:
+	if v := CheckBuildProvenance(ctx, dir, "ea0c7845a875", "9f11a42"); len(v) == 0 {
+		t.Fatal("expected build provenance violation when build rev differs from HEAD")
+	}
+	if v := CheckBuildProvenance(ctx, dir, "9f11a4200000", "9f11a42"); len(v) > 0 {
+		t.Fatalf("expected matching build provenance to pass, got: %v", v)
+	}
+	if v := CheckBuildProvenance(ctx, dir, "dev", "9f11a42"); len(v) > 0 {
+		t.Fatalf("expected dev build provenance to skip violation, got: %v", v)
+	}
+
+	// 2. Duplicate ateam serve process parsing and detection:
+	psOut := strings.Join([]string{
+		"  PID COMMAND",
+		"54395 bin/ateam serve --addr 127.0.0.1:8421",
+		"77267 ./bin/ateam serve --addr :8420",
+		"88123 /usr/local/bin/ateam hook session-start",
+	}, "\n")
+	procs := ParseRunningServeProcesses(psOut, 99999)
+	if len(procs) != 2 {
+		t.Fatalf("expected 2 running serve processes, got %d: %+v", len(procs), procs)
+	}
+	if v := CheckDuplicateServeProcesses(procs); len(v) == 0 || !strings.Contains(v[0], "54395") || !strings.Contains(v[0], "77267") {
+		t.Fatalf("expected duplicate serve process violation listing both PIDs, got: %v", v)
+	}
+	if v := CheckDuplicateServeProcesses(procs[:1]); len(v) > 0 {
+		t.Fatalf("expected single serve process not to report violation, got: %v", v)
 	}
 }

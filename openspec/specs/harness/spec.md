@@ -6,28 +6,33 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 ## Requirements
 ### Requirement: Lifecycle hook normalization under 5ms
 
-`ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), and Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`) over JSON stdio in under 5ms using cached `.ateam/state.json`.
+`ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 5ms using cached `.ateam/state.json`.
 
 #### Scenario: Mode switch and Ponytail ladder injection
 
 - **WHEN** `ateam hook --event before-prompt` receives a prompt containing `/ponytail ultra` or `/mode ultra`
-- **THEN** it updates `.ateam/state.json` to mode `ultra` and returns `additionalContext` containing the Ponytail 6-step decision ladder at `ultra` level
+- **THEN** it updates `.ateam/state.json` to mode `ultra` and returns `additionalContext` (or `injectSteps` when `--agent agy` is set) containing the Ponytail 6-step decision ladder at `ultra` level
 
 #### Scenario: Ordinary prompt without mode switch
 
 - **WHEN** `ateam hook --event before-prompt` receives a prompt with no `/ponytail` or `/mode` command
-- **THEN** it returns no `additionalContext` so the Ponytail ladder is not re-injected on every prompt
+- **THEN** it returns no `additionalContext` (and an empty `{}` object for `--agent agy`) so the Ponytail ladder is not re-injected on every prompt
+
+#### Scenario: Antigravity SessionStart and Stop hook contract
+
+- **WHEN** `ateam hook` is invoked with `--agent agy` and a JSON payload containing `conversationId`
+- **THEN** `session-start` returns `injectSteps` containing a `systemMessage` with the pickup summary and Ponytail ladder, and `turn-end` records `conversationId` in `.ateam/writer.json` and returns `{"decision":"allow"}`
 
 #### Scenario: Automatic compaction handoff
 
 - **WHEN** a pre-compaction event arrives
-- **THEN** the hook saves an automatic handoff and returns its pickup context
+- **THEN** the hook saves an automatic handoff for the current branch and HEAD (replacing any stale or prior-session handoff rather than re-saving drifted or closed-PR checkpoints) and returns its pickup context
 
 #### Scenario: Session identity and coordination warnings
 
-- **WHEN** session start detects changed commit identity, a competing writer lease, or an unavailable Hold scan
+- **WHEN** session start or MCP pickup detects changed commit identity, a competing writer lease, or an unavailable Hold scan
 - **THEN** pickup context discloses each condition and never reports zero holds for an unavailable scan
-- **AND** the same session lease does not produce a competing-writer warning, and clearing the lease removes that warning
+- **AND** the same session lease (or a lease matching the invoking client process PID or an exited process PID) does not produce a competing-writer warning, and clearing the lease removes that warning
 
 #### Scenario: Unknown lifecycle event
 
@@ -59,12 +64,17 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 ### Requirement: Dual-forge GitHub and Gitea state sync
 
-`ateam` SHALL support both GitHub (`gh` CLI and REST API) and Gitea (`tea` CLI and `/api/v1` REST API) for listing issues, pull requests, and bootstrapping standard workflow labels (`type:epic`, `status:needs-decision`, `status:blocked`, `class:flake`). Synchronization SHALL preserve local/dashboard cards and other forges while replacing the selected forge snapshot, reject partial issue/PR failures, and permit a comment-free fallback when optional comment expansion fails.
+`ateam` SHALL support both GitHub (`gh` CLI and REST API) and Gitea (`tea` CLI and `/api/v1` REST API) for listing issues, pull requests, and bootstrapping standard workflow labels (`type:epic`, `status:needs-decision`, `status:blocked`, `class:flake`).
 
 #### Scenario: Gitea API sync
 
 - **WHEN** a repository is configured with a Gitea remote or `GITEA_URL`
 - **THEN** `ateam` maps Gitea issues and pull requests into unified board cards (`needs-decision`, `backlog`, `in-progress`, `in-review`, `blocked`, `done`)
+
+#### Scenario: Reconciled bounded forge queries
+
+- **WHEN** a configured forge is synchronized or pickup/board queries request its state
+- **THEN** Synchronization SHALL reconcile the synced provider's cards into the board (dropping legacy demo cards and stale remote cards for that provider while preserving legitimate local dashboard cards, cards from the other forge, and hold reasons and decision summaries on matching card IDs), record `board_synced_at`, reject partial issue/PR failures, and permit a comment-free fallback when optional comment expansion fails. Explicit `pickup` and `board` queries SHALL attempt a bounded remote forge sync when configured (falling back to cache on failure) and surface sync timestamp and fallback status in both `pickup` and `board` responses.
 
 ### Requirement: Constant-time forge webhook verification and rate limiting
 
@@ -99,6 +109,11 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 
 - **WHEN** independent updates set mode and handoff
 - **THEN** both values survive loading the cache
+
+#### Scenario: Stale handoff invalidation on HEAD drift or closed PR
+
+- **WHEN** a recorded handoff's checkpoint SHA no longer matches HEAD, its branch changed, or its referenced PR is closed/merged
+- **THEN** the handoff is marked stale, pickup reports the staleness reason instead of injecting the outdated five-field goal as active work, and pre-compact does not re-save the stale handoff
 
 ### Requirement: Fast Git identity across worktrees
 
@@ -135,6 +150,11 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 
 - **WHEN** a repository is initialized with default templates
 - **THEN** its agent configuration passes parity checks
+
+#### Scenario: Build provenance and duplicate server detection in doctor
+
+- **WHEN** `ateam version`, `session-start`, or `ateam doctor` runs
+- **THEN** build provenance (`vcs.revision` or `-ldflags` commit) is reported in `ateam version` and the `[ateam]` session-start line, and `ateam doctor` warns when the binary commit is not an ancestor of checkout `HEAD` or when multiple `ateam serve` processes are running concurrently
 
 ### Requirement: Board state and authenticated API access
 
@@ -251,4 +271,18 @@ The MCP guide SHALL document the implemented tools and actions, prompts, resourc
 
 - **WHEN** a user follows the setup and smoke-check instructions
 - **THEN** examples match the exposed schema, do not advertise an unsupported sync action, and explain local-only handoff using post=false
+
+### Requirement: Default client context compaction limits
+
+ATeam initialization SHALL scaffold the context and compaction defaults specified below into newly created client configurations while preserving pre-existing client files unchanged. Parity checks SHALL validate configured fields, reject out-of-range or non-numeric values, and permit valid custom or omitted fields in preserved configurations.
+
+#### Scenario: Newly initialized repository context limits
+
+- **WHEN** `ateam init` creates `.claude/settings.json`, `.codex/config.toml`, and `.gemini/settings.json` in a repository without pre-existing client configs
+- **THEN** `.claude/settings.json` sets `autoCompactWindow` to `500000`, `.codex/config.toml` sets top-level `model_context_window = 500000` and `model_auto_compact_token_limit = 450000`, and `.gemini/settings.json` sets `model.chatCompression.contextPercentageThreshold` to `0.5`
+
+#### Scenario: Invalid configured context limit rejected by parity check
+
+- **WHEN** a project client configuration specifies a non-positive or out-of-range context limit (such as `autoCompactWindow < 100000` or `> 1000000`, `model_auto_compact_token_limit > model_context_window`, or `contextPercentageThreshold` outside `(0, 1]`)
+- **THEN** `CheckParity` reports a violation naming the file and field
 
