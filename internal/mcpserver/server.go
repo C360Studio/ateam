@@ -100,6 +100,10 @@ func Serve(ctx context.Context, root string, in io.Reader, out io.Writer) error 
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	enc := json.NewEncoder(out)
 	sessionID := resolveEnvSessionID()
+	serverBuildLabel := state.BuildLabel()
+	_, fullRev, _ := state.BuildRevision()
+	unregister := state.RegisterMCPProcess(root, serverBuildLabel, fullRev)
+	defer unregister()
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -117,7 +121,7 @@ func Serve(ctx context.Context, root string, in io.Reader, out io.Writer) error 
 		if req.ID == nil && strings.HasPrefix(req.Method, "notifications/") {
 			continue
 		}
-		resp := handleRPC(ctx, root, req, &sessionID)
+		resp := handleRPC(ctx, root, req, &sessionID, serverBuildLabel)
 		if err := enc.Encode(resp); err != nil {
 			return err
 		}
@@ -176,7 +180,7 @@ func resolveEffectiveSessionID(st *state.State, explicit ...string) string {
 	return ""
 }
 
-func handleRPC(ctx context.Context, root string, req rpcRequest, sessionID *string) rpcResponse {
+func handleRPC(ctx context.Context, root string, req rpcRequest, sessionID *string, serverBuildLabel string) rpcResponse {
 	switch req.Method {
 	case "initialize":
 		if initSess := extractInitSessionID(req.Params); initSess != "" && sessionID != nil {
@@ -187,7 +191,7 @@ func handleRPC(ctx context.Context, root string, req rpcRequest, sessionID *stri
 			ID:      req.ID,
 			Result: map[string]any{
 				"protocolVersion": "2024-11-05",
-				"serverInfo":      map[string]any{"name": "ateam", "version": "0.1.0 (" + state.BuildLabel() + ")"},
+				"serverInfo":      map[string]any{"name": "ateam", "version": "0.1.0 (" + serverBuildLabel + ")"},
 				"capabilities": map[string]any{
 					"tools":     map[string]any{},
 					"prompts":   map[string]any{},
@@ -204,7 +208,7 @@ func handleRPC(ctx context.Context, root string, req rpcRequest, sessionID *stri
 		if sessionID != nil {
 			curSess = *sessionID
 		}
-		return handleToolCall(ctx, root, req, curSess)
+		return handleToolCall(ctx, root, req, curSess, serverBuildLabel)
 	case "prompts/list":
 		return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"prompts": listPrompts()}}
 	case "prompts/get":
@@ -216,7 +220,7 @@ func handleRPC(ctx context.Context, root string, req rpcRequest, sessionID *stri
 		if sessionID != nil {
 			curSess = *sessionID
 		}
-		return handleResourceRead(ctx, root, req, curSess)
+		return handleResourceRead(ctx, root, req, curSess, serverBuildLabel)
 	default:
 		return rpcResponse{
 			JSONRPC: "2.0",
@@ -226,7 +230,7 @@ func handleRPC(ctx context.Context, root string, req rpcRequest, sessionID *stri
 	}
 }
 
-func handleToolCall(ctx context.Context, root string, req rpcRequest, sessionID string) rpcResponse {
+func handleToolCall(ctx context.Context, root string, req rpcRequest, sessionID, serverBuildLabel string) rpcResponse {
 	var call struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -237,7 +241,7 @@ func handleToolCall(ctx context.Context, root string, req rpcRequest, sessionID 
 
 	switch call.Name {
 	case "ateam_state":
-		text, isErr := execStateTool(ctx, root, call.Arguments, sessionID)
+		text, isErr := execStateTool(ctx, root, call.Arguments, sessionID, serverBuildLabel)
 		return toolTextResp(req.ID, text, isErr)
 	case "ateam_task":
 		text, isErr := execTaskTool(ctx, root, call.Arguments)
@@ -247,7 +251,7 @@ func handleToolCall(ctx context.Context, root string, req rpcRequest, sessionID 
 	}
 }
 
-func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, connSessionID string) (string, bool) {
+func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, connSessionID, serverBuildLabel string) (string, bool) {
 	var args struct {
 		Action         string `json:"action"`
 		Mode           string `json:"mode"`
@@ -278,6 +282,7 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 
 	switch args.Action {
 	case "pickup":
+		st.PopulateMCPProvenance(ctx, root, serverBuildLabel)
 		return state.BuildPickupSummary(st), false
 	case "handoff":
 		h := state.Handoff{
@@ -421,7 +426,7 @@ func listResources() []map[string]any {
 	}
 }
 
-func handleResourceRead(ctx context.Context, root string, req rpcRequest, connSessionID string) rpcResponse {
+func handleResourceRead(ctx context.Context, root string, req rpcRequest, connSessionID, serverBuildLabel string) rpcResponse {
 	var r struct {
 		URI string `json:"uri"`
 	}
@@ -442,6 +447,7 @@ func handleResourceRead(ctx context.Context, root string, req rpcRequest, connSe
 	var text string
 	switch r.URI {
 	case "ateam://state/pickup":
+		st.PopulateMCPProvenance(ctx, root, serverBuildLabel)
 		text = state.BuildPickupSummary(st)
 	case "ateam://state/board":
 		b, _ := json.MarshalIndent(st.BoardView(), "", "  ")

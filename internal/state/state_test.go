@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -511,5 +512,203 @@ ateam hook SHALL normalize events in under 5ms.
 	}
 	if len(req.Scenarios) != 1 || req.Scenarios[0].Name != "Mode switch" || len(req.Scenarios[0].Steps) != 2 {
 		t.Fatalf("unexpected scenarios: %+v", req.Scenarios)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestReconcileWorktreesAndPickupWorktreeSection(t *testing.T) {
+	dirtyFalse := false
+	dirtyTrue := true
+	st := defaultState()
+	st.Git.Branch = "main"
+	st.Git.HeadSHA = "e37563b"
+	st.Git.Worktrees = []Worktree{
+		{Path: "/repo/.worktrees/wt-57", Branch: "gemini/mvp-hardening-52", Head: "aa11bb2", Dirty: &dirtyFalse, AheadCount: 2, MergedIntoMain: false},
+		{Path: "/repo/.worktrees/wt-64", Branch: "gemini/pickup-mcp-62-63", Head: "cc33dd4", Dirty: &dirtyTrue, AheadCount: 1, MergedIntoMain: false},
+		{Path: "/repo/.worktrees/wt-55", Branch: "codex/follow-up", Head: "ff99ee0", Dirty: &dirtyFalse, AheadCount: 3, MergedIntoMain: true},
+		{Path: "/repo/.worktrees/wt-56", Branch: "claude/abandoned", Head: "1122334", Dirty: &dirtyFalse, AheadCount: 1, MergedIntoMain: false},
+	}
+	st.Cards = []BoardCard{
+		{ID: "GH-PR-57", Number: 57, Type: "pr", Column: "done", Merged: true, Branch: "gemini/mvp-hardening-52", HeadSHA: "aa11bb29999"},
+		{ID: "GH-PR-64", Number: 64, Type: "pr", Column: "in_progress", Merged: false, Branch: "gemini/pickup-mcp-62-63", HeadSHA: "cc33dd40000"},
+		{ID: "GH-PR-55", Number: 55, Type: "pr", Column: "done", Merged: true, Branch: "codex/follow-up", HeadSHA: "0011223344"},
+		{ID: "GH-PR-56", Number: 56, Type: "pr", Column: "done", Merged: false, Branch: "claude/abandoned", HeadSHA: "1122334"},
+	}
+
+	st.ReconcileWorktrees()
+
+	if !st.Git.Worktrees[0].MergedIntoMain {
+		t.Fatalf("expected squash-merged worktree wt-57 with matching head_sha to have MergedIntoMain=true, got false")
+	}
+	if st.Git.Worktrees[1].MergedIntoMain {
+		t.Fatalf("expected open-PR worktree wt-64 to have MergedIntoMain=false, got true")
+	}
+	if st.Git.Worktrees[2].MergedIntoMain {
+		t.Fatalf("expected worktree wt-55 with commits ahead of merged PR head_sha to have MergedIntoMain=false, got true")
+	}
+	if st.Git.Worktrees[3].MergedIntoMain {
+		t.Fatalf("expected closed-unmerged worktree wt-56 to have MergedIntoMain=false, got true")
+	}
+
+	summary := BuildPickupSummary(st)
+	for _, want := range []string{
+		"Worktrees: 4",
+		"- gemini/mvp-hardening-52 (head=aa11bb2, dirty=false, ahead=2, merged via #57)",
+		"- gemini/pickup-mcp-62-63 (head=cc33dd4, dirty=true, ahead=1, open PR #64)",
+		"- codex/follow-up (head=ff99ee0, dirty=false, ahead=3, ahead of merged #55)",
+		"- claude/abandoned (head=1122334, dirty=false, ahead=1, closed without merge (#56))",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("expected pickup summary to contain %q, got:\n%s", want, summary)
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+func TestPopulateMCPProvenanceAndRegisterMCPProcess(t *testing.T) {
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeAteam := filepath.Join(binDir, "ateam")
+	if err := os.WriteFile(fakeAteam, []byte("#!/bin/sh\necho 'ateam v0.1.0 (e37563b)'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanup := RegisterMCPProcess(dir, "7606b7e", "7606b7e111111111111111111111111111111111")
+	live := LoadLiveMCPProcesses(dir)
+	if len(live) != 1 || live[0].PID != os.Getpid() || live[0].BuildCommit != "7606b7e" {
+		t.Fatalf("expected registered MCP process for current PID, got: %+v", live)
+	}
+	cleanup()
+	if after := LoadLiveMCPProcesses(dir); len(after) != 0 {
+		t.Fatalf("expected MCP process list to be empty after cleanup, got: %+v", after)
+	}
+
+	st := defaultState()
+	st.Git.Branch = "main"
+	st.Git.HeadSHA = "e37563b"
+	st.PopulateMCPProvenance(context.Background(), dir, "7606b7e")
+
+	if st.MCPBuild != "7606b7e" || st.DiskBuild != "e37563b" || st.MCPStaleTarget != "e37563b" {
+		t.Fatalf("unexpected MCP provenance fields: MCPBuild=%q DiskBuild=%q MCPStaleTarget=%q", st.MCPBuild, st.DiskBuild, st.MCPStaleTarget)
+	}
+	summary := BuildPickupSummary(st)
+	for _, want := range []string{
+		"build=e37563b mcp=7606b7e",
+		"WARNING: MCP server binary is stale; restart the client to pick up e37563b",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("expected pickup summary to contain %q, got:\n%s", want, summary)
+		}
+	}
+
+	stFresh := defaultState()
+	stFresh.Git.Branch = "main"
+	stFresh.Git.HeadSHA = "e37563b"
+	stFresh.PopulateMCPProvenance(context.Background(), dir, "e37563b")
+	if stFresh.MCPStaleTarget != "" {
+		t.Fatalf("expected matching MCP build not to set MCPStaleTarget, got %q", stFresh.MCPStaleTarget)
+	}
+	if strings.Contains(BuildPickupSummary(stFresh), "WARNING: MCP server binary is stale") {
+		t.Fatalf("expected fresh MCP build not to warn, got:\n%s", BuildPickupSummary(stFresh))
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestReview65ReusedBranchLatestMerge(t *testing.T) {
+	dirtyFalse := false
+	oldPR := BoardCard{ID: "GH-PR-1", Number: 1, Type: "pr", Column: "done", Merged: true, Branch: "gemini/reused-branch", HeadSHA: "aaaa1110000", Forge: "github"}
+	newPR := BoardCard{ID: "GH-PR-2", Number: 2, Type: "pr", Column: "done", Merged: true, Branch: "gemini/reused-branch", HeadSHA: "bbbb2220000", Forge: "github"}
+
+	for _, cards := range [][]BoardCard{
+		{oldPR, newPR},
+		{newPR, oldPR},
+	} {
+		st := defaultState()
+		st.Git.Branch = "main"
+		st.Git.HeadSHA = "e37563b"
+		st.Git.Worktrees = []Worktree{
+			{Path: "/repo/.worktrees/reused", Branch: "gemini/reused-branch", Head: "bbbb222", Dirty: &dirtyFalse, AheadCount: 2, MergedIntoMain: false},
+		}
+		st.Cards = append([]BoardCard(nil), cards...)
+		st.ReconcileWorktrees()
+		if !st.Git.Worktrees[0].MergedIntoMain {
+			t.Fatalf("expected MergedIntoMain=true when PR #2 matches HEAD (order %v, %v), got false", cards[0].ID, cards[1].ID)
+		}
+		if got := st.WorktreePRStatus(st.Git.Worktrees[0]); got != "merged via #2" {
+			t.Fatalf("WorktreePRStatus = %q, want %q", got, "merged via #2")
+		}
+	}
+
+	// Verify cached-old -> synced-new MergeForgeCards history and post-merge commits ahead of #2:
+	stHist := defaultState()
+	stHist.Git.Branch = "main"
+	stHist.Git.HeadSHA = "e37563b"
+	stHist.Git.Worktrees = []Worktree{
+		{Path: "/repo/.worktrees/reused", Branch: "gemini/reused-branch", Head: "bbbb222", Dirty: &dirtyFalse, AheadCount: 2, MergedIntoMain: false},
+	}
+	stHist.Cards = []BoardCard{oldPR}
+	stHist.MergeForgeCards([]BoardCard{newPR, oldPR}, ForgeGitHub)
+	if !stHist.Git.Worktrees[0].MergedIntoMain {
+		t.Fatalf("expected MergeForgeCards to reconcile reused branch as MergedIntoMain=true when PR #2 matches HEAD")
+	}
+	if summary := BuildPickupSummary(stHist); !strings.Contains(summary, "- gemini/reused-branch (head=bbbb222, dirty=false, ahead=2, merged via #2)") {
+		t.Fatalf("unexpected pickup summary after MergeForgeCards:\n%s", summary)
+	}
+
+	stHist.Git.Worktrees[0].Head = "cccc333"
+	stHist.Git.Worktrees[0].AheadCount = 3
+	stHist.ReconcileWorktrees()
+	if stHist.Git.Worktrees[0].MergedIntoMain {
+		t.Fatalf("expected MergedIntoMain=false when reused branch advances ahead of both merged PRs")
+	}
+	if got := stHist.WorktreePRStatus(stHist.Git.Worktrees[0]); got != "ahead of merged #2" {
+		t.Fatalf("WorktreePRStatus = %q, want %q", got, "ahead of merged #2")
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+func TestReview65WorktreeRegistryVisibleFromMain(t *testing.T) {
+	ctx := context.Background()
+	base := t.TempDir()
+	mainDir := filepath.Join(base, "main")
+	wtA := filepath.Join(base, "wt-a")
+	wtB := filepath.Join(base, "wt-b")
+	if err := os.MkdirAll(mainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, string(out))
+		}
+	}
+	runGit(mainDir, "init", "-b", "main")
+	runGit(mainDir, "config", "user.email", "test@example.com")
+	runGit(mainDir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(mainDir, "README.md"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(mainDir, "add", "README.md")
+	runGit(mainDir, "commit", "-m", "init")
+	runGit(mainDir, "worktree", "add", "-b", "gemini/wt-a", wtA)
+	runGit(mainDir, "worktree", "add", "-b", "codex/wt-b", wtB)
+
+	cleanup := RegisterMCPProcess(wtA, "7606b7e", "7606b7e111111111111111111111111111111111")
+	for name, root := range map[string]string{"main": mainDir, "wtA": wtA, "wtB": wtB} {
+		live := LoadLiveMCPProcesses(root)
+		if len(live) != 1 || live[0].PID != os.Getpid() || live[0].BuildCommit != "7606b7e" {
+			t.Fatalf("LoadLiveMCPProcesses(%s) = %+v, want 1 record for current PID", name, live)
+		}
+	}
+	cleanup()
+	for name, root := range map[string]string{"main": mainDir, "wtA": wtA, "wtB": wtB} {
+		if after := LoadLiveMCPProcesses(root); len(after) != 0 {
+			t.Fatalf("LoadLiveMCPProcesses(%s) after cleanup = %+v, want empty", name, after)
+		}
 	}
 }

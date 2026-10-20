@@ -136,3 +136,46 @@ func TestMCPBoardAndPickupStaleCacheFallback(t *testing.T) {
 		t.Fatalf("pickup response missing sync timestamp or fallback warning:\n%s", lines[2])
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+func TestMCPPickupBuildProvenanceAndStaleBinaryWarning(t *testing.T) {
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "ateam"), []byte("#!/bin/sh\necho 'ateam v0.1.0 (e37563b)'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origBuild := state.BuildCommit
+	state.BuildCommit = "7606b7e"
+	t.Cleanup(func() { state.BuildCommit = origBuild })
+
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"pickup"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"ateam://state/pickup"}}`,
+	}, "\n") + "\n"
+
+	var out bytes.Buffer
+	if err := Serve(context.Background(), dir, strings.NewReader(input), &out); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d responses, want 2:\n%s", len(lines), out.String())
+	}
+	for i, name := range []string{"pickup tool", "pickup resource"} {
+		for _, want := range []string{
+			"build=e37563b mcp=7606b7e",
+			"WARNING: MCP server binary is stale; restart the client to pick up e37563b",
+		} {
+			if !strings.Contains(lines[i], want) {
+				t.Fatalf("%s response missing %q:\n%s", name, want, lines[i])
+			}
+		}
+	}
+	if live := state.LoadLiveMCPProcesses(dir); len(live) != 0 {
+		t.Fatalf("expected MCP process registry to be cleaned up after Serve exits, got: %+v", live)
+	}
+}

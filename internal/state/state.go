@@ -64,6 +64,266 @@ func VersionString() string {
 	return fmt.Sprintf("ateam v0.1.0 (%s)", BuildLabel())
 }
 
+// ReadDiskBinaryBuild inspects ./bin/ateam in root (if present) and returns its short build revision and label.
+func ReadDiskBinaryBuild(ctx context.Context, root string) (shortRev, label string) {
+	if strings.TrimSpace(root) == "" {
+		return "", ""
+	}
+	binPath := filepath.Join(root, "bin", "ateam")
+	if info, err := os.Stat(binPath); err != nil || info.IsDir() {
+		return "", ""
+	}
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, binPath, "--version").Output()
+	if err != nil {
+		return "", ""
+	}
+	line := strings.TrimSpace(string(out))
+	openIdx := strings.LastIndex(line, "(")
+	closeIdx := strings.LastIndex(line, ")")
+	if openIdx < 0 || closeIdx <= openIdx+1 {
+		return "", ""
+	}
+	label = strings.TrimSpace(line[openIdx+1 : closeIdx])
+	label = strings.TrimPrefix(label, "build=")
+	shortRev = strings.TrimSuffix(label, "-dirty")
+	return shortRev, label
+}
+
+// MCPProcess describes a running `ateam mcp` server process recorded in .ateam/mcp-processes.json.
+type MCPProcess struct {
+	PID         int        `json:"pid"`
+	BuildCommit string     `json:"build_commit"`
+	FullCommit  string     `json:"full_commit,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	StartToken  string     `json:"start_token,omitempty"`
+}
+
+func mcpProcessesPath(root string) string {
+	return filepath.Join(root, ".ateam", "mcp-processes.json")
+}
+
+func mcpRegistryRoot(root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	if commonDir, ok := GitCommonDir(root); ok {
+		if filepath.Base(commonDir) == ".git" {
+			if mainRoot := filepath.Dir(commonDir); mainRoot != "" {
+				return filepath.Clean(mainRoot)
+			}
+		}
+		return filepath.Clean(commonDir)
+	}
+	return filepath.Clean(root)
+}
+
+func mcpCandidateRoots(root string) []string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var roots []string
+	addRoot := func(r string) {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			return
+		}
+		clean := filepath.Clean(r)
+		if !seen[clean] {
+			seen[clean] = true
+			roots = append(roots, clean)
+		}
+	}
+	addRoot(mcpRegistryRoot(root))
+	addRoot(root)
+	if commonDir, ok := GitCommonDir(root); ok {
+		if filepath.Base(commonDir) == ".git" {
+			addRoot(filepath.Dir(commonDir))
+		}
+		wtBase := filepath.Join(commonDir, "worktrees")
+		if entries, err := os.ReadDir(wtBase); err == nil {
+			for _, ent := range entries {
+				if !ent.IsDir() {
+					continue
+				}
+				gitdirFile := filepath.Join(wtBase, ent.Name(), "gitdir")
+				raw, err := os.ReadFile(gitdirFile)
+				if err != nil {
+					continue
+				}
+				gd := strings.TrimSpace(string(raw))
+				if gd == "" {
+					continue
+				}
+				if !filepath.IsAbs(gd) {
+					gd = filepath.Join(wtBase, ent.Name(), filepath.FromSlash(gd))
+				}
+				addRoot(filepath.Dir(filepath.Clean(gd)))
+			}
+		}
+	}
+	return roots
+}
+
+func readProcessStartAndArgs(pid int) (lstart, args string, ok bool) {
+	if pid <= 0 {
+		return "", "", false
+	}
+	cctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "ps", "-p", strconv.Itoa(pid), "-o", "lstart=,args=")
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", "", false
+	}
+	for _, rawLine := range strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {
+		fields := strings.Fields(strings.TrimSpace(rawLine))
+		if len(fields) >= 6 {
+			return strings.Join(fields[:5], " "), strings.Join(fields[5:], " "), true
+		}
+	}
+	return "", "", false
+}
+
+func isRecordedMCPProcessValid(p MCPProcess) bool {
+	if p.PID <= 0 || !IsProcessAlive(p.PID) {
+		return false
+	}
+	if p.PID == os.Getpid() {
+		return true
+	}
+	lstart, args, ok := readProcessStartAndArgs(p.PID)
+	if !ok {
+		return true
+	}
+	if strings.TrimSpace(p.StartToken) != "" && lstart != "" && strings.TrimSpace(p.StartToken) != lstart {
+		return false
+	}
+	cmdFields := strings.Fields(args)
+	if len(cmdFields) == 0 {
+		return false
+	}
+	base := filepath.Base(cmdFields[0])
+	if (base == "ateam" || base == "ateam.exe") && len(cmdFields) >= 2 && cmdFields[1] == "mcp" {
+		return true
+	}
+	if strings.HasSuffix(base, ".test") || strings.HasSuffix(base, ".test.exe") {
+		return true
+	}
+	return false
+}
+
+func writeMCPProcessesAtomic(root string, procs []MCPProcess) error {
+	dir := filepath.Join(root, ".ateam")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(procs, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, "mcp-processes.json.*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(append(raw, '\n')); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, mcpProcessesPath(root)); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+// LoadLiveMCPProcesses returns active MCPProcess entries recorded across the repository and its linked worktrees whose OS PIDs are alive and verified.
+func LoadLiveMCPProcesses(root string) []MCPProcess {
+	roots := mcpCandidateRoots(root)
+	if len(roots) == 0 {
+		return nil
+	}
+	seen := make(map[int]bool)
+	var live []MCPProcess
+	for _, r := range roots {
+		data, err := os.ReadFile(mcpProcessesPath(r))
+		if err != nil {
+			continue
+		}
+		var all []MCPProcess
+		if err := json.Unmarshal(data, &all); err != nil {
+			continue
+		}
+		for _, p := range all {
+			if !seen[p.PID] && isRecordedMCPProcessValid(p) {
+				seen[p.PID] = true
+				live = append(live, p)
+			}
+		}
+	}
+	return live
+}
+
+// RegisterMCPProcess records the current process in the repository-wide .ateam/mcp-processes.json and returns an unregister cleanup function.
+func RegisterMCPProcess(root, buildLabel, fullCommit string) func() {
+	regRoot := mcpRegistryRoot(root)
+	if regRoot == "" {
+		return func() {}
+	}
+	pid := os.Getpid()
+	now := time.Now().UTC()
+	lstart, _, _ := readProcessStartAndArgs(pid)
+	_ = WithLock(regRoot, func() error {
+		live := LoadLiveMCPProcesses(root)
+		filtered := make([]MCPProcess, 0, len(live)+1)
+		for _, p := range live {
+			if p.PID != pid {
+				filtered = append(filtered, p)
+			}
+		}
+		filtered = append(filtered, MCPProcess{
+			PID:         pid,
+			BuildCommit: strings.TrimSpace(buildLabel),
+			FullCommit:  strings.TrimSpace(fullCommit),
+			StartedAt:   &now,
+			StartToken:  lstart,
+		})
+		return writeMCPProcessesAtomic(regRoot, filtered)
+	})
+	return func() {
+		_ = WithLock(regRoot, func() error {
+			live := LoadLiveMCPProcesses(root)
+			var kept []MCPProcess
+			for _, p := range live {
+				if p.PID != pid {
+					kept = append(kept, p)
+				}
+			}
+			for _, cand := range mcpCandidateRoots(root) {
+				if cand != regRoot {
+					_ = os.Remove(mcpProcessesPath(cand))
+				}
+			}
+			if len(kept) == 0 {
+				_ = os.Remove(mcpProcessesPath(regRoot))
+				return nil
+			}
+			return writeMCPProcessesAtomic(regRoot, kept)
+		})
+	}
+}
+
 // DisciplineMode represents the active Ponytail decision-ladder level.
 type DisciplineMode string
 
@@ -224,6 +484,9 @@ type State struct {
 	LastHandoff      *Handoff                    `json:"last_handoff,omitempty"`
 	Writer           *WriterLease                `json:"writer,omitempty"`
 	CurrentSessionID string                      `json:"-"`
+	MCPBuild         string                      `json:"-"`
+	DiskBuild        string                      `json:"-"`
+	MCPStaleTarget   string                      `json:"-"`
 	Git              GitStatus                   `json:"git"`
 	Cards            []BoardCard                 `json:"cards"`
 	BoardSyncedAt    time.Time                   `json:"board_synced_at,omitempty"`
@@ -868,7 +1131,186 @@ func (st *State) MergeForgeCards(synced []BoardCard, provider ForgeProvider) {
 	} else {
 		st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
 	}
+	st.ReconcileWorktrees()
 	st.RefreshHandoffStaleness()
+}
+
+func selectDoneBranchPR(branchPRs []BoardCard, wtHead string, wantMerged bool) *BoardCard {
+	wtHead = strings.TrimSpace(wtHead)
+	betterPR := func(cand, cur *BoardCard) bool {
+		if cur == nil {
+			return true
+		}
+		candNum, curNum := cardPRNumber(*cand), cardPRNumber(*cur)
+		if candNum != curNum {
+			return candNum > curNum
+		}
+		if !cand.UpdatedAt.Equal(cur.UpdatedAt) {
+			return cand.UpdatedAt.After(cur.UpdatedAt)
+		}
+		return true
+	}
+	var headMatched, fallback *BoardCard
+	for i := range branchPRs {
+		c := &branchPRs[i]
+		if c.Column != "done" || c.Merged != wantMerged {
+			continue
+		}
+		if wtHead != "" && c.HeadSHA != "" && SameCommitSHA(wtHead, c.HeadSHA) {
+			if betterPR(c, headMatched) {
+				headMatched = c
+			}
+		} else if betterPR(c, fallback) {
+			fallback = c
+		}
+	}
+	if headMatched != nil {
+		return headMatched
+	}
+	return fallback
+}
+
+// ReconcileWorktrees updates each Worktree.MergedIntoMain using synced PR cards (matching UI's rule) with branch ancestry (ahead == 0) as fallback.
+func (st *State) ReconcileWorktrees() {
+	if st == nil {
+		return
+	}
+	for i := range st.Git.Worktrees {
+		wt := &st.Git.Worktrees[i]
+		branch := strings.TrimSpace(wt.Branch)
+		if branch == "" || branch == "main" || branch == "master" || branch == "detached" {
+			continue
+		}
+		var branchPRs []BoardCard
+		for _, c := range st.Cards {
+			if isPRCard(c) && c.Branch == branch {
+				branchPRs = append(branchPRs, c)
+			}
+		}
+		hasOpenPR := false
+		for _, c := range branchPRs {
+			if c.Column != "done" {
+				hasOpenPR = true
+				break
+			}
+		}
+		if hasOpenPR {
+			wt.MergedIntoMain = false
+			continue
+		}
+		mergedPR := selectDoneBranchPR(branchPRs, wt.Head, true)
+		if mergedPR != nil {
+			if mergedPR.HeadSHA != "" && wt.Head != "" {
+				if SameCommitSHA(wt.Head, mergedPR.HeadSHA) {
+					wt.MergedIntoMain = true
+				} else if wt.AheadCount > 0 {
+					wt.MergedIntoMain = false
+				}
+			} else if wt.AheadCount > 0 {
+				wt.MergedIntoMain = false
+			} else if wt.Head != "" {
+				wt.MergedIntoMain = true
+			}
+			continue
+		}
+		if wt.AheadCount > 0 {
+			wt.MergedIntoMain = false
+		}
+	}
+}
+
+// WorktreePRStatus returns a concise PR/merge status for wt (e.g. "merged via #57", "open PR #58", "ahead of merged #57", "closed without merge (#25)", "merged (ancestor of main)", "default branch", or "unmerged").
+func (st *State) WorktreePRStatus(wt Worktree) string {
+	branch := strings.TrimSpace(wt.Branch)
+	if branch == "" || branch == "detached" {
+		return "detached"
+	}
+	if branch == "main" || branch == "master" {
+		return "default branch"
+	}
+	var branchPRs []BoardCard
+	if st != nil {
+		for _, c := range st.Cards {
+			if isPRCard(c) && c.Branch == branch {
+				branchPRs = append(branchPRs, c)
+			}
+		}
+	}
+	for _, c := range branchPRs {
+		if c.Column != "done" {
+			if num := cardPRNumber(c); num > 0 {
+				return fmt.Sprintf("open PR #%d", num)
+			}
+			return "open PR " + c.ID
+		}
+	}
+	if c := selectDoneBranchPR(branchPRs, wt.Head, true); c != nil {
+		num := cardPRNumber(*c)
+		prRef := c.ID
+		if num > 0 {
+			prRef = fmt.Sprintf("#%d", num)
+		}
+		if c.HeadSHA != "" && wt.Head != "" && !SameCommitSHA(wt.Head, c.HeadSHA) {
+			if !wt.MergedIntoMain || wt.AheadCount > 0 {
+				return fmt.Sprintf("ahead of merged %s", prRef)
+			}
+		} else if c.HeadSHA == "" && wt.AheadCount > 0 && !wt.MergedIntoMain {
+			return "unmerged commits ahead of main"
+		}
+		return fmt.Sprintf("merged via %s", prRef)
+	}
+	if c := selectDoneBranchPR(branchPRs, wt.Head, false); c != nil {
+		if num := cardPRNumber(*c); num > 0 {
+			return fmt.Sprintf("closed without merge (#%d)", num)
+		}
+		return fmt.Sprintf("closed without merge (%s)", c.ID)
+	}
+	if wt.MergedIntoMain && wt.AheadCount == 0 {
+		return "merged (ancestor of main)"
+	}
+	return "unmerged"
+}
+
+// PopulateMCPProvenance records the running MCP server's build revision alongside the on-disk ./bin/ateam revision and computes any staleness target SHA.
+func (st *State) PopulateMCPProvenance(ctx context.Context, root, mcpLabel string) {
+	if st == nil {
+		return
+	}
+	mcpLabel = strings.TrimSpace(mcpLabel)
+	if mcpLabel == "" {
+		mcpLabel = BuildLabel()
+	}
+	st.MCPBuild = mcpLabel
+	diskShort, diskLabel := ReadDiskBinaryBuild(ctx, root)
+	if diskLabel != "" {
+		st.DiskBuild = diskLabel
+	} else {
+		st.DiskBuild = mcpLabel
+	}
+	mcpShort := strings.TrimSuffix(mcpLabel, "-dirty")
+	st.MCPStaleTarget = ""
+	if diskShort != "" && diskShort != "unknown" && diskShort != "dev" && !SameCommitSHA(mcpShort, diskShort) {
+		st.MCPStaleTarget = diskShort
+		return
+	}
+	headSHA := strings.TrimSpace(st.Git.HeadSHA)
+	if headSHA != "" && headSHA != "uncommitted" {
+		if mcpShort == "" || mcpShort == "unknown" || mcpShort == "dev" {
+			if diskShort != "" && diskShort != "unknown" && diskShort != "dev" {
+				st.MCPStaleTarget = diskShort
+			} else {
+				st.MCPStaleTarget = headSHA
+			}
+			return
+		}
+		if !SameCommitSHA(mcpShort, headSHA) {
+			if diskShort != "" && diskShort != "unknown" && diskShort != "dev" && !SameCommitSHA(diskShort, mcpShort) {
+				st.MCPStaleTarget = diskShort
+			} else {
+				st.MCPStaleTarget = headSHA
+			}
+		}
+	}
 }
 
 // BoardSnapshot wraps the board cards with their last remote sync timestamp and any stale-cache fallback notice.
@@ -975,6 +1417,7 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 		if syncRemote {
 			st.MergeForgeCards(syncedCards, forgeCfg.Provider)
 		}
+		st.ReconcileWorktrees()
 		st.RefreshHandoffStaleness()
 		return nil
 	})
@@ -1322,6 +1765,7 @@ func resolveGitDirs(root string) (gitDir, commonDir string, ok bool) {
 
 // BuildPickupSummary creates a concise reconciliation report for SessionStart or pickup.
 func BuildPickupSummary(st *State) string {
+	st.ReconcileWorktrees()
 	var b strings.Builder
 	holdsDisplay := fmt.Sprintf("%d", len(st.Holds))
 	if st.HoldScanError != "" {
@@ -1331,8 +1775,19 @@ func BuildPickupSummary(st *State) string {
 	if activeSync := st.SyncedAtFor(st.Forge); !activeSync.IsZero() {
 		syncedDisplay = activeSync.UTC().Format(time.RFC3339)
 	}
-	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%s | build=%s | synced=%s\n",
-		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay, BuildLabel(), syncedDisplay)
+	buildField := fmt.Sprintf("build=%s", BuildLabel())
+	if strings.TrimSpace(st.MCPBuild) != "" {
+		diskBuild := strings.TrimSpace(st.DiskBuild)
+		if diskBuild == "" {
+			diskBuild = BuildLabel()
+		}
+		buildField = fmt.Sprintf("build=%s mcp=%s", diskBuild, strings.TrimSpace(st.MCPBuild))
+	}
+	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%s | %s | synced=%s\n",
+		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay, buildField, syncedDisplay)
+	if strings.TrimSpace(st.MCPStaleTarget) != "" {
+		fmt.Fprintf(&b, "WARNING: MCP server binary is stale; restart the client to pick up %s\n", strings.TrimSpace(st.MCPStaleTarget))
+	}
 	if st.HoldScanError != "" {
 		fmt.Fprintf(&b, "WARNING: Hold/OpenSpec scan failed (%s) — hold status unavailable\n", st.HoldScanError)
 	}
@@ -1371,6 +1826,7 @@ func BuildPickupSummary(st *State) string {
 				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		}
 	}
+	writePickupWorktrees(&b, st)
 	var inFlightChanges, completedChanges []OpenSpecChange
 	for _, ch := range st.OpenSpecQueue {
 		if ch.IsCompletedUnarchived() {
@@ -1421,4 +1877,24 @@ func BuildPickupSummary(st *State) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func writePickupWorktrees(b *strings.Builder, st *State) {
+	if st == nil || len(st.Git.Worktrees) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "Worktrees: %d\n", len(st.Git.Worktrees))
+	for _, wt := range st.Git.Worktrees {
+		branch := strings.TrimSpace(wt.Branch)
+		if branch == "" {
+			branch = "detached"
+		}
+		dirtyStr := "unknown"
+		if wt.Dirty != nil {
+			dirtyStr = fmt.Sprintf("%v", *wt.Dirty)
+		} else if wt.Branch != "" && wt.Branch == st.Git.Branch && wt.Head != "" && SameCommitSHA(wt.Head, st.Git.HeadSHA) {
+			dirtyStr = fmt.Sprintf("%v", st.Git.Dirty)
+		}
+		fmt.Fprintf(b, "  - %s (head=%s, dirty=%s, ahead=%d, %s)\n", branch, wt.Head, dirtyStr, wt.AheadCount, st.WorktreePRStatus(wt))
+	}
 }
