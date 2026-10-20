@@ -94,6 +94,7 @@ func ReadDiskBinaryBuild(ctx context.Context, root string) (shortRev, label stri
 // MCPProcess describes a running `ateam mcp` server process recorded in .ateam/mcp-processes.json.
 type MCPProcess struct {
 	PID         int        `json:"pid"`
+	PPID        int        `json:"ppid,omitempty"`
 	BuildCommit string     `json:"build_commit"`
 	FullCommit  string     `json:"full_commit,omitempty"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
@@ -465,10 +466,11 @@ type BoardCard struct {
 
 // WriterLease tracks the most recent active agent writer in .ateam/writer.json.
 type WriterLease struct {
-	Agent     string    `json:"agent"`
-	SessionID string    `json:"session_id,omitempty"`
-	PID       int       `json:"pid"`
-	LastSeen  time.Time `json:"last_seen"`
+	Agent               string    `json:"agent"`
+	SessionID           string    `json:"session_id,omitempty"`
+	MCPCheckedSessionID string    `json:"mcp_checked_session_id,omitempty"`
+	PID                 int       `json:"pid"`
+	LastSeen            time.Time `json:"last_seen"`
 	// Herdr IDs are recorded only inside a herdr pane (HERDR_ENV=1); they name a
 	// live pane, unlike the short-lived hook PID.
 	HerdrPaneID      string `json:"herdr_pane_id,omitempty"`
@@ -700,6 +702,15 @@ func ClearWriterLease(root string) error {
 
 // WriteWriterLease atomically writes the active writer lease to .ateam/writer.json.
 func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
+	checkedSession := ""
+	if prev, err := ReadWriterLease(root); err == nil && prev != nil {
+		checkedSession = prev.MCPCheckedSessionID
+	}
+	return WriteWriterLeaseWithMCPCheck(root, agent, sessionID, checkedSession)
+}
+
+// WriteWriterLeaseWithMCPCheck atomically writes the active writer lease and records the last MCP-checked session ID.
+func WriteWriterLeaseWithMCPCheck(root, agent, sessionID, mcpCheckedSessionID string) (*WriterLease, error) {
 	dir := filepath.Join(root, ".ateam")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -716,15 +727,39 @@ func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
 		agent = "agent"
 	}
 	wl := &WriterLease{
-		Agent:     agent,
-		SessionID: strings.TrimSpace(sessionID),
-		PID:       ResolveClientPID(),
-		LastSeen:  time.Now().UTC(),
+		Agent:               agent,
+		SessionID:           strings.TrimSpace(sessionID),
+		MCPCheckedSessionID: strings.TrimSpace(mcpCheckedSessionID),
+		PID:                 ResolveClientPID(),
+		LastSeen:            time.Now().UTC(),
 	}
 	if os.Getenv("HERDR_ENV") == "1" {
 		wl.HerdrPaneID = strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
 		wl.HerdrWorkspaceID = strings.TrimSpace(os.Getenv("HERDR_WORKSPACE_ID"))
 	}
+	return writeWriterLeaseStruct(dir, root, wl)
+}
+
+// RecordMCPCheckedSession records that sessionID has completed its once-per-session MCP staleness check without stealing an active writer lease.
+func RecordMCPCheckedSession(root, sessionID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil
+	}
+	dir := filepath.Join(root, ".ateam")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	wl, _ := ReadWriterLease(root)
+	if wl == nil {
+		wl = &WriterLease{}
+	}
+	wl.MCPCheckedSessionID = sessionID
+	_, err := writeWriterLeaseStruct(dir, root, wl)
+	return err
+}
+
+func writeWriterLeaseStruct(dir, root string, wl *WriterLease) (*WriterLease, error) {
 	data, err := json.MarshalIndent(wl, "", "  ")
 	if err != nil {
 		return nil, err
@@ -1850,7 +1885,7 @@ func BuildPickupSummary(st *State) string {
 	if len(st.Holds) > 0 {
 		fmt.Fprintf(&b, "Active Hold items:\n")
 		for _, h := range st.Holds {
-			fmt.Fprintf(&b, "  - %s:%d %s\n", h.File, h.Line, h.Text)
+			fmt.Fprintf(&b, "  - %s:%d %s\n", h.File, h.Line, cleanTaskText(normalizeHoldPrefix(h.Text)))
 		}
 	}
 	var decisions []BoardCard

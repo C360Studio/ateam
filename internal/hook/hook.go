@@ -2,6 +2,7 @@
 package hook
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c360studio/ateam/internal/bootstrap"
 	"github.com/c360studio/ateam/internal/state"
 )
+
+var inspectClientMCP = bootstrap.InspectClientMCPProcesses
 
 // Input represents the normalized JSON payload passed on stdin by Claude, Codex, Gemini, or Antigravity hooks.
 type Input struct {
@@ -105,6 +109,11 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		st.Git.HeadSHA = sha
 	}
 
+	prevCheckedSession := ""
+	if st.Writer != nil {
+		prevCheckedSession = strings.TrimSpace(st.Writer.MCPCheckedSessionID)
+	}
+
 	switch ev {
 	case "session-start":
 		if shortcuts, err := state.ScanShortcuts(root); err == nil {
@@ -124,8 +133,9 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		st.HoldScanError = strings.Join(scanErrs, "; ")
 		st.RefreshHandoffStaleness()
 		ctxText := state.BuildPickupSummary(st)
-		if sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active") {
-			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
+		takeLease := sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active")
+		if mcpWarnings := checkSessionStaleMCPOnce(root, flagAgent, sessionID, sha, prevCheckedSession, takeLease); len(mcpWarnings) > 0 {
+			ctxText += "\n" + strings.Join(mcpWarnings, "\n")
 		}
 		if st.Mode != state.ModeOff {
 			ctxText += "\n\n" + LadderPrompt(st.Mode)
@@ -133,11 +143,14 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		return buildOutputForAgent(flagAgent, "SessionStart", ctxText), nil
 
 	case "before-prompt":
-		_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
+		mcpWarnings := checkSessionStaleMCPOnce(root, flagAgent, sessionID, sha, prevCheckedSession, true)
 		// shortcut: Antigravity PreInvocation stdin omits prompt text, switch Ponytail mode via ateam state mode or /ponytail skill in agy
 		promptText := firstNonEmpty(in.Prompt, in.UserPrompt)
 		newMode, changed := detectModeSwitch(promptText)
 		if !changed {
+			if len(mcpWarnings) > 0 {
+				return buildOutputForAgent(flagAgent, "UserPromptSubmit", strings.Join(mcpWarnings, "\n")), nil
+			}
 			return emptyOutputForAgent(flagAgent), nil
 		}
 		updated, err := state.Update(root, func(cur *state.State) error {
@@ -147,10 +160,17 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		if err != nil {
 			return Output{}, err
 		}
-		if updated.Mode == state.ModeOff {
+		var parts []string
+		if len(mcpWarnings) > 0 {
+			parts = append(parts, strings.Join(mcpWarnings, "\n"))
+		}
+		if updated.Mode != state.ModeOff {
+			parts = append(parts, LadderPrompt(updated.Mode))
+		}
+		if len(parts) == 0 {
 			return emptyOutputForAgent(flagAgent), nil
 		}
-		return buildOutputForAgent(flagAgent, "UserPromptSubmit", LadderPrompt(updated.Mode)), nil
+		return buildOutputForAgent(flagAgent, "UserPromptSubmit", strings.Join(parts, "\n\n")), nil
 
 	case "pre-compact":
 		shortcuts, err := state.ScanShortcuts(root)
@@ -229,6 +249,30 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	default:
 		return Output{}, nil
 	}
+}
+
+func checkSessionStaleMCPOnce(root, agent, sessionID, headSHA, prevCheckedSession string, takeLease bool) []string {
+	sessionID = strings.TrimSpace(sessionID)
+	headSHA = strings.TrimSpace(headSHA)
+	if sessionID == "" || headSHA == "" {
+		if takeLease {
+			_, _ = state.WriteWriterLease(root, agent, sessionID)
+		}
+		return nil
+	}
+	if prevCheckedSession == sessionID {
+		if takeLease {
+			_, _ = state.WriteWriterLeaseWithMCPCheck(root, agent, sessionID, sessionID)
+		}
+		return nil
+	}
+	_, warnings := inspectClientMCP(context.Background(), root, headSHA, state.ResolveClientPID())
+	if takeLease {
+		_, _ = state.WriteWriterLeaseWithMCPCheck(root, agent, sessionID, sessionID)
+	} else {
+		_ = state.RecordMCPCheckedSession(root, sessionID)
+	}
+	return warnings
 }
 
 func isAntigravityAgent(agent string) bool {

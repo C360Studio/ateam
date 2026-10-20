@@ -223,3 +223,56 @@ func TestReview65ReusedPIDIsNotMCP(t *testing.T) {
 		t.Fatalf("expected explicit ps unavailable warning, got procs=%+v warnings=%v", procs, warnings)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+func TestFilterAndCheckClientMCPProcesses(t *testing.T) {
+	psTree := strings.Join([]string{
+		"  PID  PPID STARTED                      COMMAND",
+		"37111 79054 Tue Oct 20 12:00:00 2026 /Users/dev/.local/bin/claude",
+		"37128 37111 Tue Oct 20 12:00:01 2026 ateam mcp",
+		"37200 37111 Tue Oct 20 12:05:00 2026 /bin/sh -c ateam hook session-start",
+		"37201 37200 Tue Oct 20 12:05:00 2026 ateam hook session-start",
+		"72264 79054 Tue Oct 20 12:10:00 2026 /Users/dev/.local/bin/codex",
+		"72369 72264 Tue Oct 20 12:10:01 2026 ./bin/ateam mcp",
+	}, "\n")
+
+	recorded := []state.MCPProcess{
+		{PID: 72369, BuildCommit: "7606b7e"},
+	}
+
+	// Direct client PID (37111) only matches its own child MCP server (37128), not sibling session 72264's MCP server (72369).
+	direct := FilterClientMCPProcesses(psTree, 37201, 37111, recorded, "unknown")
+	if len(direct) != 1 || direct[0].PID != 37128 || direct[0].BuildCommit != "unknown" {
+		t.Fatalf("FilterClientMCPProcesses direct clientPID = %+v, want [PID 37128 unknown]", direct)
+	}
+
+	// Shell wrapper PID (37200 /bin/sh) steps up to parent client 37111 and finds 37128.
+	viaShell := FilterClientMCPProcesses(psTree, 37201, 37200, recorded, "unknown")
+	if len(viaShell) != 1 || viaShell[0].PID != 37128 {
+		t.Fatalf("FilterClientMCPProcesses via shell wrapper = %+v, want [PID 37128]", viaShell)
+	}
+
+	// Unrelated process (e.g. go test PID 90000) matches nothing.
+	if unrelated := FilterClientMCPProcesses(psTree, 90001, 90000, recorded, "unknown"); len(unrelated) != 0 {
+		t.Fatalf("expected 0 processes for unrelated clientPID, got %+v", unrelated)
+	}
+
+	// Format check: unknown and older build commits warn, matching HEAD does not.
+	wUnknown := CheckClientMCPProcesses(direct, "990e19c")
+	wantUnknown := "MCP server PID 37128 (build unknown) is older than HEAD; restart the client"
+	if len(wUnknown) != 1 || wUnknown[0] != wantUnknown {
+		t.Fatalf("CheckClientMCPProcesses unknown = %v, want [%q]", wUnknown, wantUnknown)
+	}
+
+	otherClient := FilterClientMCPProcesses(psTree, 99999, 72264, recorded, "unknown")
+	wOlder := CheckClientMCPProcesses(otherClient, "990e19c")
+	wantOlder := "MCP server PID 72369 (build 7606b7e) is older than HEAD; restart the client"
+	if len(wOlder) != 1 || wOlder[0] != wantOlder {
+		t.Fatalf("CheckClientMCPProcesses older = %v, want [%q]", wOlder, wantOlder)
+	}
+
+	if wCurrent := CheckClientMCPProcesses(otherClient, "7606b7e"); len(wCurrent) != 0 {
+		t.Fatalf("expected 0 warnings when MCP build matches HEAD, got %v", wCurrent)
+	}
+}

@@ -2,6 +2,7 @@ package hook
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -431,5 +432,79 @@ func TestAntigravityHookContract(t *testing.T) {
 	var parsedStop agyStopOracle
 	if err := decStop.Decode(&parsedStop); err != nil || parsedStop.Decision != "allow" {
 		t.Fatalf("expected agy Stop output {\"decision\":\"allow\"}, got %s (err=%v)", string(rawStop), err)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+func TestHookWarnsStaleClientMCPOncePerSession(t *testing.T) {
+	dir := t.TempDir()
+	headsDir := filepath.Join(dir, ".git", "refs", "heads")
+	if err := os.MkdirAll(headsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("990e19c000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := 0
+	origInspect := inspectClientMCP
+	inspectClientMCP = func(_ context.Context, _, headSHA string, _ int) ([]state.MCPProcess, []string) {
+		if headSHA != "990e19c" {
+			t.Errorf("inspectClientMCP headSHA = %q, want 990e19c", headSHA)
+		}
+		calls++
+		return []state.MCPProcess{{PID: 3475, BuildCommit: "unknown"}}, []string{
+			"MCP server PID 3475 (build unknown) is older than HEAD; restart the client",
+		}
+	}
+	t.Cleanup(func() { inspectClientMCP = origInspect })
+
+	const wantLine = "MCP server PID 3475 (build unknown) is older than HEAD; restart the client"
+
+	// 1. First session-start for sess-1 runs the scan and prints the one-line warning.
+	out1, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-1"}`))
+	if err != nil {
+		t.Fatalf("Handle session-start sess-1: %v", err)
+	}
+	if !strings.Contains(out1.AdditionalContext, wantLine) {
+		t.Fatalf("expected stale MCP warning in session-start output, got:\n%s", out1.AdditionalContext)
+	}
+	if calls != 1 {
+		t.Fatalf("inspectClientMCP calls = %d, want 1", calls)
+	}
+
+	// 2. Subsequent before-prompt and session-start in sess-1 do not re-run the scan or re-emit the warning.
+	promptOut, err := Handle(dir, "before-prompt", strings.NewReader(`{"session_id":"sess-1","prompt":"implement feature"}`))
+	if err != nil {
+		t.Fatalf("Handle before-prompt sess-1: %v", err)
+	}
+	if promptOut.AdditionalContext != "" || calls != 1 {
+		t.Fatalf("expected empty output and no extra scan on before-prompt in sess-1, got out=%q calls=%d", promptOut.AdditionalContext, calls)
+	}
+	repeatStart, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-1"}`))
+	if err != nil {
+		t.Fatalf("Handle repeat session-start sess-1: %v", err)
+	}
+	if strings.Contains(repeatStart.AdditionalContext, wantLine) || calls != 1 {
+		t.Fatalf("expected repeat session-start in sess-1 not to re-warn, got calls=%d out:\n%s", calls, repeatStart.AdditionalContext)
+	}
+
+	// 3. A new session (sess-2) calling before-prompt directly warns once and marks sess-2 checked.
+	promptSess2, err := Handle(dir, "before-prompt", strings.NewReader(`{"session_id":"sess-2","prompt":"check status"}`))
+	if err != nil {
+		t.Fatalf("Handle before-prompt sess-2: %v", err)
+	}
+	if promptSess2.AdditionalContext != wantLine || calls != 2 {
+		t.Fatalf("expected before-prompt for new session sess-2 to warn once, got out=%q calls=%d", promptSess2.AdditionalContext, calls)
+	}
+	promptSess2Again, err := Handle(dir, "before-prompt", strings.NewReader(`{"session_id":"sess-2","prompt":"next step"}`))
+	if err != nil {
+		t.Fatalf("Handle second before-prompt sess-2: %v", err)
+	}
+	if promptSess2Again.AdditionalContext != "" || calls != 2 {
+		t.Fatalf("expected second before-prompt for sess-2 to be silent, got out=%q calls=%d", promptSess2Again.AdditionalContext, calls)
 	}
 }

@@ -39,6 +39,7 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **WHEN** session start or MCP pickup detects changed commit identity, a competing writer lease, or an unavailable Hold scan
 - **THEN** pickup context discloses each condition and never reports zero holds for an unavailable scan
 - **AND** the same session lease (or a lease matching the invoking client process PID or an exited process PID) does not produce a competing-writer warning, and clearing the lease removes that warning
+- **AND** once per session (keyed on the session ID in `.ateam/writer.json`), the hook enumerates `ateam mcp` processes under the same client process tree via `internal/bootstrap` and emits `MCP server PID n (build x) is older than HEAD; restart the client` when a client-tree MCP server has an `unknown` or older build commit than checkout `HEAD`
 
 #### Scenario: Unknown lifecycle event
 
@@ -70,8 +71,8 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 #### Scenario: Multibyte text at the display cut
 
-- **WHEN** a caveat's text crosses the display limit inside a multibyte character
-- **THEN** the displayed text ends before that character and is valid UTF-8
+- **WHEN** a caveat's or hold's text crosses the 104-byte display limit
+- **THEN** the displayed text ends before any split multibyte character or partial word (truncating on a word boundary with `…`), is valid UTF-8, and renders a single `Hold:` prefix derived from the captured hold text without re-prefixing the task's leading word or number
 
 #### Scenario: Completed unarchived OpenSpec change
 
