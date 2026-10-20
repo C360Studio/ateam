@@ -228,6 +228,18 @@ func validateResolvedExperiment(r ResolvedExperiment) error {
 	}
 	expected := r.Original
 	expected.Command = r.Experiment.Command
+	if isMercury(expected) {
+		if err := validateMercuryProvenance(r); err != nil {
+			return err
+		}
+		claude := *expected.Claude
+		mercury := *claude.Mercury
+		mercury.Bridge = r.Experiment.Claude.Mercury.Bridge
+		claude.Mercury = &mercury
+		expected.Claude = &claude
+	} else if r.MercuryBridgeVersion != "" || r.MercuryHookSHA != "" {
+		return fmt.Errorf("Mercury provenance on another adapter")
+	}
 	if expected.Bundles == nil {
 		if r.Bundles != nil {
 			return fmt.Errorf("unexpected bundle evidence on inline experiment")

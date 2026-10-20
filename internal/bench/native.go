@@ -13,6 +13,9 @@ import (
 func (e Experiment) IsNative() bool { return e.Gemini != nil || e.Claude != nil || e.Codex != nil }
 
 func nativeKeyName(e Experiment) string {
+	if isMercury(e) {
+		return "INCEPTION_API_KEY"
+	}
 	if e.Codex != nil {
 		return "OPENAI_API_KEY"
 	}
@@ -43,6 +46,9 @@ func nativeArguments(e Experiment) []string {
 }
 
 func parseNativeOutput(e Experiment, output string) (AdapterResponse, error) {
+	if isMercury(e) {
+		return parseMercuryOutput(output)
+	}
 	if e.Codex != nil {
 		return parseCodexOutput(output)
 	}
@@ -99,6 +105,9 @@ func resolveNative(r *ResolvedExperiment, e Experiment) error {
 	settings, err := nativeSettings(e)
 	if err != nil {
 		return err
+	}
+	if isMercury(e) {
+		r.BudgetPolicy = mercuryBudgetPolicy
 	}
 	r.NativeSettings = settings
 	r.NativeArguments = nativeArguments(e)

@@ -255,3 +255,26 @@ New Gemini execution SHALL explicitly select the verified stable CLI 0.64.0. His
 - **WHEN** the stable CLI supplies an all-zero normalized snapshot that cannot distinguish omitted upstream metadata from measured usage
 - **THEN** the runner retains raw observations, source and errors but marks normalized usage partial and unknown
 - **AND** historical parsing keeps its original interpretation
+
+### Requirement: Mercury through the existing Claude runtime
+
+Mercury experiments SHALL use an explicit optional Mercury configuration on the existing Claude runtime, a per-attempt pinned LiteLLM bridge, and provider usage captured before translation. Execution and replay SHALL reject missing or incomplete provider accounting rather than use translated Claude counters. Existing direct-provider configurations and historical artifacts SHALL remain unchanged.
+
+#### Scenario: Resolve without inference
+
+- **WHEN** a Mercury experiment is resolved with `--dry-run`
+- **THEN** the runner records Claude/bridge versions, executable identities and hook hash without starting inference
+- **AND** unsupported model, reasoning, output format or bridge configuration is refused
+
+#### Scenario: Execute a bounded schema task
+
+- **WHEN** an explicitly authenticated Mercury attempt runs
+- **THEN** Go starts an owned per-attempt bridge, supplies the provider key only to that bridge, and executes the existing Claude structured single-file task flow
+- **AND** existing process-group cleanup stops the native process and bridge on completion, error, timeout or cancellation
+
+#### Scenario: Provider accounting is authoritative
+
+- **WHEN** an attempt completes or is replayed
+- **THEN** every captured model request has correlated complete provider usage with the expected controls and model
+- **AND** absent, partial, invalid, retried or failed capture makes the attempt fail and stops later calls
+- **AND** cached and reasoning tokens remain subsets, and native CLI dollar estimates do not establish billing

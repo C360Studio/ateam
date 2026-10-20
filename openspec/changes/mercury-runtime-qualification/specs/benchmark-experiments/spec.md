@@ -1,23 +1,24 @@
 ## ADDED Requirements
 
-### Requirement: Mercury runtime qualification boundary
+### Requirement: Mercury through the existing Claude runtime
 
-Mercury experiments SHALL use a separately qualified native-runtime contract that records CLI, bridge, provider, model and effective controls, preserves unknown evidence and refuses unsupported settings.
+Mercury experiments SHALL use an explicit optional Mercury configuration on the existing Claude runtime, a per-attempt pinned LiteLLM bridge, and provider usage captured before translation. Execution and replay SHALL reject missing or incomplete provider accounting rather than use translated Claude counters. Existing direct-provider configurations and historical artifacts SHALL remain unchanged.
 
-#### Scenario: Unqualified existing native adapter
+#### Scenario: Resolve without inference
 
-- **WHEN** Mercury is requested through the current fixed Claude or Codex contract
-- **THEN** execution is refused rather than silently changing provider, model or wire protocol
-- **AND** a direct API success is not treated as native-runtime qualification
+- **WHEN** a Mercury experiment is resolved with `--dry-run`
+- **THEN** the runner records Claude/bridge versions, executable identities and hook hash without starting inference
+- **AND** unsupported model, reasoning, output format or bridge configuration is refused
 
-#### Scenario: Control translation loses information
+#### Scenario: Execute a bounded schema task
 
-- **WHEN** a bridge drops, changes or cannot prove a requested effort, output allowance or tool control
-- **THEN** the configuration is not accepted as a fixed-control experiment
-- **AND** translated zero usage does not establish a provider-reported zero when the source field was missing
+- **WHEN** an explicitly authenticated Mercury attempt runs
+- **THEN** Go starts an owned per-attempt bridge, supplies the provider key only to that bridge, and executes the existing Claude structured single-file task flow
+- **AND** existing process-group cleanup stops the native process and bridge on completion, error, timeout or cancellation
 
-#### Scenario: Offline qualification precedes spending
+#### Scenario: Provider accounting is authoritative
 
-- **WHEN** a new Mercury runtime path is investigated
-- **THEN** isolated offline boundary, failure, accounting and replay checks plus independent review precede a separately authorized live canary and A/A
-- **AND** existing Gemini evidence and budgets do not authorize new execution
+- **WHEN** an attempt completes or is replayed
+- **THEN** every captured model request has correlated complete provider usage with the expected controls and model
+- **AND** absent, partial, invalid, retried or failed capture makes the attempt fail and stops later calls
+- **AND** cached and reasoning tokens remain subsets, and native CLI dollar estimates do not establish billing
