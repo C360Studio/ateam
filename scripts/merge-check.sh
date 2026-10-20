@@ -135,13 +135,15 @@ if ! printf '%s' "$pull" | jq -e --argjson n "$entries" '.changed_files == $n' >
   echo "merge-check: unavailable: the file list of pull request #${pr} is incomplete: it has ${entries} of ${reported} files" >&2
   exit 2
 fi
-# A document name ends in .md or starts with openspec/, and is not under
-# .claude/agents/ or .agents/contracts/; every other name is a code name. A
-# renamed file's previous name counts too. A failed jq leaves an empty list,
+# A document name ends in .md (or starts with openspec/ and ends in .md, .yml,
+# .yaml, or .json) and is not under .claude/agents/ or .agents/contracts/;
+# every other name is a code name (tightening semengine/scripts/merge-check.sh
+# and semengine AGENTS.md:163 so scripts/lockfiles under openspec/ require review).
+# A renamed file's previous name counts too. A failed jq leaves an empty list,
 # which would read as documents only. The names stay a JSON list: printed one
 # per line, a name that is empty or only line feeds would vanish.
 if ! code=$(printf '%s' "$files" | jq -c '[.[] | .filename, (.previous_filename // empty)]
-  | map(select(((endswith(".md") or startswith("openspec/")) and (startswith(".claude/agents/") | not) and (startswith(".agents/contracts/") | not)) | not))
+  | map(select(((endswith(".md") or (startswith("openspec/") and (endswith(".yml") or endswith(".yaml") or endswith(".json")))) and (startswith(".claude/agents/") | not) and (startswith(".agents/contracts/") | not)) | not))
   | unique'); then
   echo "merge-check: unavailable: jq failed sorting the changed files of pull request #${pr} into code names" >&2
   exit 2

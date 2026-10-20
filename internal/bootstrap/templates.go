@@ -221,7 +221,7 @@ You are a lazy senior developer. The best code is the code never written. Solve 
 | ` + "`verify`" + ` | ` + "`ateam bench --selftest`" + ` verifies good/bad reference fixtures and mutation detection before any live benchmark run | ` + "`.agents/protocol.md`" + ` |
 | ` + "`verify`" + ` | ` + "`task verify`" + ` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | ` + "`Taskfile.yml`" + ` |
 | verify+review | Configured model review requires a stronger independent reviewer, explicit scoped owner ceiling exceptions, optional provider separation and current trusted-base evidence | ateam review; .agents/contracts/reviewer.md |
-| ` + "`merge:check+review`" + ` | Non-draft code PRs carry ` + "`implemented-by:`" + ` and ` + "`reviewed-by:`" + ` naming different agents (` + "`claude`" + `, ` + "`codex`" + `, ` + "`gemini`" + `), checked alongside active ` + "`main`" + ` ruleset and open ` + "`class:flake`" + ` issues by ` + "`task merge:check`" + ` | ` + "`scripts/merge-check.sh`" + `; ` + "`.agents/protocol.md`" + ` |
+| ` + "`merge:check+review`" + ` | Non-draft code PRs (any file outside ` + "`.md`" + ` and ` + "`openspec/**/*.{md,yml,yaml,json}`" + `, plus ` + "`.claude/agents/`" + ` and ` + "`.agents/contracts/`" + `) carry ` + "`implemented-by:`" + ` and ` + "`reviewed-by:`" + ` naming different agents (` + "`claude`" + `, ` + "`codex`" + `, ` + "`gemini`" + `), checked alongside active ` + "`main`" + ` ruleset and open ` + "`class:flake`" + ` issues by ` + "`task merge:check`" + ` | ` + "`scripts/merge-check.sh`" + `; ` + "`.agents/protocol.md`" + ` |
 
 `
 
@@ -259,7 +259,7 @@ const defaultRulesIndexMD = `# Rules Enforcement Index
 | ` + "`verify`" + ` | ` + "`ateam bench --selftest`" + ` verifies good/bad reference fixtures and mutation detection before any live benchmark run | ` + "`ateam bench --selftest`" + ` |
 | ` + "`verify`" + ` | ` + "`task verify`" + ` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | ` + "`task verify`" + ` |
 | verify+review | Configured model review requires a stronger independent reviewer, explicit scoped owner ceiling exceptions, optional provider separation and current trusted-base evidence | ateam review; .agents/contracts/reviewer.md |
-| ` + "`merge:check+review`" + ` | Non-draft code PRs carry ` + "`implemented-by:`" + ` and ` + "`reviewed-by:`" + ` naming different agents (` + "`claude`" + `, ` + "`codex`" + `, ` + "`gemini`" + `), checked alongside active ` + "`main`" + ` ruleset and open ` + "`class:flake`" + ` issues by ` + "`task merge:check`" + ` | ` + "`scripts/merge-check.sh`" + ` |
+| ` + "`merge:check+review`" + ` | Non-draft code PRs (any file outside ` + "`.md`" + ` and ` + "`openspec/**/*.{md,yml,yaml,json}`" + `, plus ` + "`.claude/agents/`" + ` and ` + "`.agents/contracts/`" + `) carry ` + "`implemented-by:`" + ` and ` + "`reviewed-by:`" + ` naming different agents (` + "`claude`" + `, ` + "`codex`" + `, ` + "`gemini`" + `), checked alongside active ` + "`main`" + ` ruleset and open ` + "`class:flake`" + ` issues by ` + "`task merge:check`" + ` | ` + "`scripts/merge-check.sh`" + ` |
 
 `
 
