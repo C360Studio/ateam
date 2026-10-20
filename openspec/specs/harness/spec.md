@@ -54,6 +54,11 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **WHEN** a client requests `tools/list` from `ateam mcp`
 - **THEN** the response contains `ateam_state` and `ateam_task` and its estimated token count (`bytes / 4`) is `< 300`
 
+#### Scenario: MCP server build provenance and stale binary warning in pickup
+
+- **WHEN** `ateam mcp` handles a `pickup` tool call or resource read
+- **THEN** it captures `state.BuildRevision()` at server startup, reports `build=<disk-or-current-sha> mcp=<server-sha>` in the `[ateam]` pickup header line, and appends `WARNING: MCP server binary is stale; restart the client to pick up <sha>` when the running server's build commit differs from the `./bin/ateam` binary on disk or from checkout `HEAD`
+
 ### Requirement: OpenSpec queue and stray Hold detection
 
 `ateam state spec-queue` SHALL scan `openspec/changes/*/tasks.md` and report open-task holds (`Hold:`) and caveats (`WONTDO`, `HALT`, `RED`, `BLOCKED`, `OPEN-Q`). `ateam state spec-check` SHALL fail with exit code 1 when any `Hold:` appears below a file's first `## ` heading outside every task block, or exit code 2 when a `tasks.md` is unreadable or invalid UTF-8. Truncated caveat display text SHALL remain valid UTF-8.
@@ -127,6 +132,11 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 - **THEN** the handoff is marked stale, pickup reports the staleness reason instead of injecting the outdated five-field goal as active work, and pre-compact does not re-save the stale handoff
 - **AND** historical PR mentions in `addresses`, `done_when`, or mid-sentence in `goal`, or a fresh handoff written in the current session at the current `HEAD` and `branch`, do not mark the handoff stale
 
+#### Scenario: Worktree merge reconciliation and pickup worktree section
+
+- **WHEN** state is refreshed or `BuildPickupSummary` renders a repository with worktrees
+- **THEN** each worktree's `merged_into_main` field is set to `true` when a `done` PR card for its branch has `merged: true` and `head_sha` matching the worktree `head` (with `ahead == 0` ancestor check as fallback and `false` when new commits exist ahead of the merged PR or when an open PR exists), and `BuildPickupSummary` prints a `Worktrees:` section listing each worktree's branch, dirty status, ahead count, and PR status (`merged via #n` or `open PR #n`)
+
 ### Requirement: Fast Git identity across worktrees
 
 Git identity reads SHALL resolve loose and packed refs, detached HEADs, and linked-worktree gitdir/commondir pointers, returning the branch and seven-character commit identity.
@@ -166,7 +176,7 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 #### Scenario: Build provenance and duplicate server detection in doctor
 
 - **WHEN** `ateam version`, `session-start`, or `ateam doctor` runs
-- **THEN** build provenance (`vcs.revision` or `-ldflags` commit) is reported in `ateam version` and the `[ateam]` session-start line (or `unknown` when built without VCS metadata), and `ateam doctor` warns when the binary has no build provenance (`binary has no build provenance; build with task build`), when the binary commit is not an ancestor of checkout `HEAD`, when hook latency exceeds `5000 us` (`<5ms` budget), or when multiple `ateam serve` processes are running concurrently
+- **THEN** build provenance (`vcs.revision` or `-ldflags` commit) is reported in `ateam version` and the `[ateam]` session-start line (or `unknown` when built without VCS metadata), and `ateam doctor` lists running `ateam serve` and `ateam mcp` processes (with their build commits) and warns when the binary has no build provenance (`binary has no build provenance; build with task build`), when the binary commit is not an ancestor of checkout `HEAD`, when hook latency exceeds `5000 us` (`<5ms` budget), when a running `ateam mcp` process is stale, or when multiple `ateam serve` processes are running concurrently
 
 ### Requirement: Board state and authenticated API access
 

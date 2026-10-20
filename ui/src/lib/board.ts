@@ -345,10 +345,39 @@ function isPRCard(c: BoardCard): boolean {
 	return c.type === 'pr' || c.id.includes('-PR-') || c.id.startsWith('PR-');
 }
 
+function cardPRNumber(c: BoardCard): number {
+	return c.number ?? (c.id.match(/(\d+)$/) ? Number(c.id.match(/(\d+)$/)![1]) : 0);
+}
+
 function formatPRLabel(c: BoardCard): string {
-	const num =
-		c.number ?? (c.id.match(/(\d+)$/) ? Number(c.id.match(/(\d+)$/)![1]) : undefined);
+	const num = cardPRNumber(c);
 	return num ? `PR #${num}` : c.id;
+}
+
+function selectDoneBranchPR(
+	branchPRs: BoardCard[],
+	wtHead: string | undefined,
+	wantMerged: boolean
+): BoardCard | undefined {
+	const head = wtHead?.trim() ?? '';
+	const better = (cand: BoardCard, cur?: BoardCard) => {
+		if (!cur) return true;
+		const candNum = cardPRNumber(cand);
+		const curNum = cardPRNumber(cur);
+		if (candNum !== curNum) return candNum > curNum;
+		return true;
+	};
+	let headMatched: BoardCard | undefined;
+	let fallback: BoardCard | undefined;
+	for (const c of branchPRs) {
+		if (c.column !== 'done' || Boolean(c.merged) !== wantMerged) continue;
+		if (head && c.head_sha && sameCommitSHA(head, c.head_sha)) {
+			if (better(c, headMatched)) headMatched = c;
+		} else if (better(c, fallback)) {
+			fallback = c;
+		}
+	}
+	return headMatched ?? fallback;
 }
 
 function classifyWorktreeMergeStatus(
@@ -364,7 +393,7 @@ function classifyWorktreeMergeStatus(
 	if (branchPRs.some((c) => c.column !== 'done')) {
 		return { mergeStatus: 'active' };
 	}
-	const mergedPR = branchPRs.find((c) => c.column === 'done' && c.merged === true);
+	const mergedPR = selectDoneBranchPR(branchPRs, wt.head, true);
 	if (mergedPR) {
 		if (mergedPR.head_sha && wt.head && !sameCommitSHA(wt.head, mergedPR.head_sha)) {
 			if (wt.merged_into_main !== true || (wt.ahead_count ?? 0) > 0) {
@@ -384,7 +413,7 @@ function classifyWorktreeMergeStatus(
 			mergeEvidence: `Merged via ${formatPRLabel(mergedPR)}`
 		};
 	}
-	const closedUnmergedPR = branchPRs.find((c) => c.column === 'done' && !c.merged);
+	const closedUnmergedPR = selectDoneBranchPR(branchPRs, wt.head, false);
 	if (closedUnmergedPR) {
 		return {
 			mergeStatus: 'closed-unmerged',

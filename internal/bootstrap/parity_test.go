@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/c360studio/ateam/internal/state"
 )
 
 func repoRoot(t *testing.T) string {
@@ -169,5 +172,54 @@ func TestDoctorBuildProvenanceAndDuplicateServeDetection(t *testing.T) {
 	}
 	if v := CheckDuplicateServeProcesses(procs[:1]); len(v) > 0 {
 		t.Fatalf("expected single serve process not to report violation, got: %v", v)
+	}
+
+	// 3. Running ateam mcp process parsing and stale build warning:
+	mcpPS := strings.Join([]string{
+		"  PID COMMAND",
+		"41001 ./bin/ateam mcp",
+		"41002 /repo/bin/ateam mcp",
+	}, "\n")
+	mcpProcs := ParseRunningMCPProcesses(mcpPS, 99999, []state.MCPProcess{
+		{PID: 41001, BuildCommit: "7606b7e"},
+	}, "e37563b")
+	if len(mcpProcs) != 2 || mcpProcs[0].BuildCommit != "7606b7e" || mcpProcs[1].BuildCommit != "e37563b" {
+		t.Fatalf("unexpected parsed MCP processes: %+v", mcpProcs)
+	}
+	mcpWarnings := CheckRunningMCPProcesses(mcpProcs, "e37563b")
+	if len(mcpWarnings) != 1 || !strings.Contains(mcpWarnings[0], "PID 41001, build 7606b7e") {
+		t.Fatalf("expected stale MCP warning only for PID 41001, got: %v", mcpWarnings)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+func TestReview65ReusedPIDIsNotMCP(t *testing.T) {
+	// 1. Recorded PID 41001 was reused by a non-MCP command (/usr/bin/sleep 600):
+	reusedNonMCP := strings.Join([]string{
+		"  PID COMMAND",
+		"41001 /usr/bin/sleep 600",
+	}, "\n")
+	if got := ParseRunningMCPProcesses(reusedNonMCP, 99999, []state.MCPProcess{
+		{PID: 41001, BuildCommit: "abcdef0"},
+	}, "unknown"); len(got) != 0 {
+		t.Fatalf("expected reused non-MCP PID to be ignored, got: %+v", got)
+	}
+
+	// 2. Recorded PID 41001 was reused by a newer ateam mcp process whose lstart differs from StartedAt:
+	oldStart := time.Date(2026, time.October, 20, 10, 0, 0, 0, time.Local).UTC()
+	reusedMCP := "41001 Tue Oct 20 11:30:00 2026 ./bin/ateam mcp\n"
+	got := ParseRunningMCPProcesses(reusedMCP, 99999, []state.MCPProcess{
+		{PID: 41001, BuildCommit: "abcdef0", StartedAt: &oldStart},
+	}, "unknown")
+	if len(got) != 1 || got[0].BuildCommit != "unknown" {
+		t.Fatalf("expected reused MCP PID with mismatched start time to fall back to unknown build, got: %+v", got)
+	}
+
+	// 3. Explicit unavailable warning when ps fails:
+	emptyPathDir := t.TempDir()
+	t.Setenv("PATH", emptyPathDir)
+	procs, warnings := InspectRunningMCPProcesses(context.Background(), emptyPathDir, "b25a43f")
+	if len(procs) != 0 || len(warnings) != 1 || !strings.Contains(warnings[0], "unable to inspect running ateam mcp processes via ps") {
+		t.Fatalf("expected explicit ps unavailable warning, got procs=%+v warnings=%v", procs, warnings)
 	}
 }
