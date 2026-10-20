@@ -19,7 +19,7 @@ func nativeTestExperiment(t *testing.T, usage string) Experiment {
 	cfg.Agent, cfg.AgentVersion, cfg.Mode = "gemini", "", "aa"
 	cfg.Candidate = cfg.Baseline
 	cfg.Model = "gemini-3.8-flash"
-	cfg.Gemini = &GeminiConfig{Auth: "api-key-env", Reasoning: "low", OutputFormat: "json-schema"}
+	cfg.Gemini = &GeminiConfig{CLIVersion: "0.64.0", Auth: "api-key-env", Reasoning: "low", OutputFormat: "json-schema"}
 	cfg.MaxTotalTokens, cfg.MaxRunSeconds = 1000, 60
 	cfg.Tasks, cfg.Repetitions = []string{"safe-path"}, 1
 	var source string
@@ -38,7 +38,7 @@ func nativeTestExperiment(t *testing.T, usage string) Experiment {
 		tokens = map[string]int64{"prompt": counts["input_tokens"], "candidates": counts["output_tokens"], "thoughts": 0, "cached": counts["cached_input_tokens"], "total": counts["input_tokens"] + counts["output_tokens"], "tool": 0, "input": counts["input_tokens"] - counts["cached_input_tokens"]}
 	}
 	output, _ := json.Marshal(map[string]any{"response": string(final), "stats": map[string]any{"models": map[string]any{cfg.Model: map[string]any{"tokens": tokens, "api": map[string]int{"totalRequests": 1, "totalErrors": 0}}}}})
-	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '0.43.0'; exit 0; fi\ncat >/dev/null\nprintf '{\"session_id\":\"%s\",' \"$PWD\"\nprintf '%s\\n' '" + strings.ReplaceAll(string(output[1:]), "'", "'\\''") + "'\n"
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '0.64.0'; exit 0; fi\ncat >/dev/null\nprintf '{\"session_id\":\"%s\",' \"$PWD\"\nprintf '%s\\n' '" + strings.ReplaceAll(string(output[1:]), "'", "'\\''") + "'\n"
 
 	executable := filepath.Join(t.TempDir(), "gemini-fixture")
 	if err := os.WriteFile(executable, []byte(script), 0700); err != nil {

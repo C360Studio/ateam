@@ -22,6 +22,7 @@
   "gemini": {
     "auth": "api-key-env",
     "reasoning": "low",
-    "output_format": "json-schema"
+    "output_format": "json-schema",
+    "cli_version": "0.64.0"
   }
 }

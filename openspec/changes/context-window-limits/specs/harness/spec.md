@@ -2,7 +2,7 @@
 
 ### Requirement: Default client context compaction limits
 
-ATeam initialization SHALL scaffold 500k-token context and compaction defaults into newly created client configurations (`.claude/settings.json` `autoCompactWindow: 500000`, `.codex/config.toml` `model_context_window = 500000` and `model_auto_compact_token_limit = 450000`, and `.gemini/settings.json` `model.chatCompression.contextPercentageThreshold: 0.5`) while preserving pre-existing client files unchanged. Parity checks SHALL validate any configured context compaction fields in those files and reject out-of-range or non-numeric values while permitting custom valid values or omitted fields in preserved configurations.
+ATeam initialization SHALL scaffold the context and compaction defaults specified below into newly created client configurations while preserving pre-existing client files unchanged. Parity checks SHALL validate configured fields, reject out-of-range or non-numeric values, and permit valid custom or omitted fields in preserved configurations.
 
 #### Scenario: Newly initialized repository context limits
 

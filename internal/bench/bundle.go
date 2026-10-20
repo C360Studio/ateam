@@ -217,6 +217,9 @@ func validateBundleSnapshot(s BundleSnapshot, manifestPath string) error {
 }
 
 func validateResolvedExperiment(r ResolvedExperiment) error {
+	if r.Experiment.Gemini != nil && r.GeminiVersion != geminiCLIVersion(r.Experiment.Gemini) {
+		return fmt.Errorf("Gemini version provenance does not match configured cli_version")
+	}
 	if err := validateExperiment(r.Original); err != nil {
 		return err
 	}
