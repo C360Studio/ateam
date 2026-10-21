@@ -1,0 +1,9 @@
+# Startup address instead of a free-port guess
+
+The pinned LiteLLM 1.99.0 CLI passes port zero to Uvicorn. Uvicorn binds the socket first and reports its actual port in the `Uvicorn running on http://127.0.0.1:<port> (Press CTRL+C to quit)` startup line. The local installed source confirms that port-zero reporting uses the listener's `getsockname()`.
+
+Use one stdout/stderr writer with a named `limitedBuffer` field (embedding would promote `ReadFrom` and could bypass parsing). Scan complete lines already retained in that bounded buffer, accept only the pinned plain-text loopback format with ports 1..65535, and deliver the first address through a buffered one-shot channel. Incomplete lines cannot grow beyond the existing 1 MiB diagnostic cap. No HTTP readiness request occurs until an address is received. Missing/malformed announcement, child exit and cancellation fail within the existing attempt deadline. Preserve the existing authenticated `/v1/models` check after announcement and child cleanup on every exit.
+
+The child fixture binds its own listener on port zero, emits the same startup line after binding, and serves that listener. Tests exercise actual allocated ports, an unrelated held HTTP listener, chunk boundaries/`io.Copy`, malformed and oversized output, first-announcement behavior, cancellation and child exit. A small split-boundary generated check covers streaming equivalence; no unbounded stress loop is needed. Mutation evidence must show that the regression fails if startup dispatch or announcement gating is removed.
+
+This is a pinned startup-output contract, not independent process/socket attestation. If a future bridge changes its startup format, startup fails closed until the parser and offline qualification are updated. No picker, retry policy or fallback port is retained.

@@ -16,7 +16,7 @@ func reportFileFixture() map[string][]byte {
 	return map[string][]byte{"results.json": []byte("{\"count\":2}\n"), "results.md": []byte("# Two attempts\n"), "evidence.json": []byte("{\"private\":false}\n")}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesHistory(t *testing.T) {
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "report")
@@ -61,7 +61,7 @@ func TestReportFilesHistory(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -77,7 +77,7 @@ func TestReportFilesCanceled(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesUnsafePaths(t *testing.T) {
 	for _, kind := range []string{"directory", "file", "symlink"} {
 		t.Run("destination-"+kind, func(t *testing.T) {
@@ -152,7 +152,7 @@ func TestReportFilesUnsafePaths(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesInvalidNames(t *testing.T) {
 	for _, files := range []map[string][]byte{nil, {"results.json": nil, "results.md": nil, "../escape": nil}} {
 		dir := filepath.Join(t.TempDir(), "report")
@@ -165,7 +165,7 @@ func TestReportFilesInvalidNames(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesInterrupted(t *testing.T) {
 	for _, cancelAfterFirst := range []bool{false, true} {
 		t.Run(fmt.Sprint(cancelAfterFirst), func(t *testing.T) {
@@ -224,7 +224,7 @@ func (w *reportFailWriter) Write(data []byte) (int, error) {
 }
 func (w *reportFailWriter) Close() error { w.closed = true; return w.closeErr }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesWriteAndCloseFailures(t *testing.T) {
 	closeErr := errors.New("close failed")
 	writeErr := errors.New("write failed")
@@ -241,7 +241,7 @@ func TestReportFilesWriteAndCloseFailures(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesDirectoryReplacement(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "report")
@@ -299,7 +299,7 @@ func TestReportFilesDirectoryReplacement(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesConcurrentClaim(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "report")
 	start := make(chan struct{})
@@ -334,7 +334,7 @@ func TestReportFilesConcurrentClaim(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesGeneratedHistories(t *testing.T) {
 	// Exhaust all 3^4 short histories against an independent absent/complete/drift
 	// model. Repeated creation must fail even after tampering; check never repairs.
@@ -386,7 +386,7 @@ func TestReportFilesGeneratedHistories(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesExclusiveFile(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "report")
 	err := writeReportFilesWith(context.Background(), dir, reportFileFixture(), func(ctx context.Context, root *os.Root, name string, data []byte) error {
@@ -409,7 +409,7 @@ func TestReportFilesExclusiveFile(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportFilesManifestLast(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "report") + string(filepath.Separator)
 	var order []string

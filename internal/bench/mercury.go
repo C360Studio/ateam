@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -144,7 +143,7 @@ func finishMercuryOutput(raw, diagnostic, capturePath, key, status string, runEr
 func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest, dir, apiBase string) (AdapterResponse, string, string, string, error) {
 	var raw, diagnostic string
 	var truncated bool
-	var bridgeOutput limitedBuffer
+	bridgeOutput := mercuryBridgeOutput{address: make(chan string, 1)}
 	stop := func() {}
 	stopProxy := func() error { return nil }
 	defer func() { stop(); _ = stopProxy() }()
@@ -155,7 +154,7 @@ func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest,
 		if err := stopProxy(); err != nil && runErr == nil {
 			runErr = err
 		}
-		if bridgeOutput.overflow && runErr == nil {
+		if bridgeOutput.captured.overflow && runErr == nil {
 			runErr = fmt.Errorf("Mercury bridge diagnostics exceeded 1 MiB")
 			status = "adapter-error"
 		}
@@ -187,7 +186,7 @@ func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest,
 		return finish("adapter-error", err)
 	}
 	stopProxy = closeProxy
-	bridge, baseURL, err := mercuryBridgeCommand(bounded, e, bridgeDir, proxyURL, token)
+	bridge, err := mercuryBridgeCommand(bounded, e, bridgeDir, proxyURL, token)
 	if err != nil {
 		return finish("adapter-error", err)
 	}
@@ -205,10 +204,11 @@ func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest,
 			cleanupBenchmarkProcess(bridge)
 			<-done
 			stopped = true
-			diagnostic += "\n" + redactGeminiOutput(bridgeOutput.String(), token)
+			diagnostic += "\n" + redactGeminiOutput(bridgeOutput.captured.String(), token)
 		}
 	}
-	if err := waitMercuryBridge(bounded, baseURL, token, done); err != nil {
+	baseURL, err := waitMercuryBridge(bounded, bridgeOutput.address, token, done)
+	if err != nil {
 		status := "adapter-error"
 		if bounded.Err() != nil {
 			status = "timeout"
@@ -241,13 +241,7 @@ func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest,
 	return finish(status, runErr)
 }
 
-func mercuryBridgeCommand(ctx context.Context, e Experiment, bridgeDir, proxyURL, token string) (*exec.Cmd, string, error) {
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		return nil, "", err
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	_ = listener.Close()
+func mercuryBridgeCommand(ctx context.Context, e Experiment, bridgeDir, proxyURL, token string) (*exec.Cmd, error) {
 	config := map[string]any{
 		"model_list":       []any{map[string]any{"model_name": "mercury-3", "litellm_params": map[string]any{"model": "inception/mercury-3", "api_base": proxyURL, "api_key": token, "max_retries": 0, "allowed_openai_params": []string{"max_retries"}}}},
 		"litellm_settings": map[string]any{"drop_params": false, "num_retries": 0, "telemetry": false},
@@ -256,16 +250,25 @@ func mercuryBridgeCommand(ctx context.Context, e Experiment, bridgeDir, proxyURL
 	data, _ := json.Marshal(config)
 	configPath := filepath.Join(bridgeDir, "proxy.yaml")
 	if err := os.WriteFile(configPath, data, 0600); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	bridge := exec.CommandContext(ctx, e.Claude.Mercury.Bridge, "--config", configPath, "--host", "127.0.0.1", "--port", fmt.Sprint(port))
+	bridge := exec.CommandContext(ctx, e.Claude.Mercury.Bridge, "--config", configPath, "--host", "127.0.0.1", "--port", "0")
 	configureBenchmarkProcess(bridge)
 	bridge.Dir = bridgeDir
 	bridge.Env = mercuryEnvironment(bridgeDir)
-	return bridge, fmt.Sprintf("http://127.0.0.1:%d", port), nil
+	return bridge, nil
 }
 
-func waitMercuryBridge(ctx context.Context, baseURL, token string, done <-chan struct{}) error {
+func waitMercuryBridge(ctx context.Context, address <-chan string, token string, done <-chan struct{}) (string, error) {
+	var baseURL string
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-done:
+		return "", fmt.Errorf("Mercury bridge exited before announcing its address")
+	case baseURL = <-address:
+	}
+
 	client := &http.Client{Timeout: 250 * time.Millisecond, Transport: &http.Transport{DisableKeepAlives: true}}
 	defer client.CloseIdleConnections()
 	ticker := time.NewTicker(20 * time.Millisecond)
@@ -273,14 +276,23 @@ func waitMercuryBridge(ctx context.Context, baseURL, token string, done <-chan s
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return "", ctx.Err()
 		case <-done:
-			return fmt.Errorf("Mercury bridge exited before readiness")
+			return "", fmt.Errorf("Mercury bridge exited before readiness")
 		case <-ticker.C:
+		}
+		// A ready tick must not win over an already observed child exit.
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		select {
+		case <-done:
+			return "", fmt.Errorf("Mercury bridge exited before readiness")
+		default:
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/models", nil)
 		if err != nil {
-			return err
+			return "", err
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		response, err := client.Do(req)
@@ -297,7 +309,12 @@ func waitMercuryBridge(ctx context.Context, baseURL, token string, done <-chan s
 		if response.StatusCode == http.StatusOK && readErr == nil && json.Unmarshal(body, &models) == nil {
 			for _, model := range models.Data {
 				if model.ID == "mercury-3" {
-					return nil
+					select {
+					case <-done:
+						return "", fmt.Errorf("Mercury bridge exited before readiness")
+					default:
+					}
+					return baseURL, nil
 				}
 			}
 		}
