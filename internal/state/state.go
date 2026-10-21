@@ -645,8 +645,14 @@ func (st *State) migrateLegacyLastHandoff() {
 		prevAgent = "agent"
 	}
 	prev.Agent = prevAgent
+	prev.Stale = false
+	prev.StaleReason = ""
+	slotKey := HandoffSlotKey(prevAgent, prevBranch)
+	if len(st.HandoffStaleReasonsFor(slotKey, &prev)) > 0 {
+		return
+	}
 	st.Handoffs = map[string]*Handoff{
-		HandoffSlotKey(prevAgent, prevBranch): &prev,
+		slotKey: &prev,
 	}
 }
 
@@ -698,7 +704,7 @@ func (st *State) SetHandoff(h Handoff) {
 	if st == nil {
 		return
 	}
-	if st.Handoffs == nil && st.LastHandoff != nil && len(st.HandoffStaleReasons()) == 0 {
+	if st.Handoffs == nil && st.LastHandoff != nil {
 		st.migrateLegacyLastHandoff()
 	}
 	branch := strings.TrimSpace(h.Branch)
@@ -928,6 +934,13 @@ func (st *State) refreshHandoffStaleness(prune bool, dropAllStale bool) {
 	if st == nil {
 		return
 	}
+	if st.Handoffs == nil && st.LastHandoff != nil {
+		lastBr := strings.TrimSpace(st.LastHandoff.Branch)
+		curBr := strings.TrimSpace(st.Git.Branch)
+		if normalizeAgentKey(st.LastHandoff.Agent) != "" || inferAgentFromBranch(lastBr) != "" || (lastBr != "" && curBr != "" && lastBr != curBr) {
+			st.migrateLegacyLastHandoff()
+		}
+	}
 	if st.Handoffs != nil {
 		curSession := st.effectiveSessionID()
 		for key, h := range st.Handoffs {
@@ -1020,7 +1033,7 @@ func ReconcilePickup(root string, st *State, explicitAgent, explicitSessionID st
 	}
 	st.CurrentSessionID = ResolveActiveSessionID(root, explicitSessionID)
 	st.CurrentAgent = ResolveActiveAgentForSession(root, explicitAgent, st.CurrentSessionID, st.Git.Branch, st.Writer)
-	if st.Handoffs == nil && st.LastHandoff != nil && (normalizeAgentKey(st.LastHandoff.Agent) != "" || st.hasExplicitOrInferredAgent()) && len(st.HandoffStaleReasons()) == 0 {
+	if st.Handoffs == nil && st.LastHandoff != nil && (normalizeAgentKey(st.LastHandoff.Agent) != "" || inferAgentFromBranch(st.LastHandoff.Branch) != "" || (strings.TrimSpace(st.LastHandoff.Branch) != "" && strings.TrimSpace(st.LastHandoff.Branch) != strings.TrimSpace(st.Git.Branch)) || st.hasExplicitOrInferredAgent()) {
 		st.migrateLegacyLastHandoff()
 	}
 	st.PruneStaleHandoffs()
@@ -1036,7 +1049,7 @@ func ReconcilePickup(root string, st *State, explicitAgent, explicitSessionID st
 		}
 		cur.CurrentSessionID = st.CurrentSessionID
 		cur.CurrentAgent = ResolveActiveAgentForSession(root, explicitAgent, cur.CurrentSessionID, cur.Git.Branch, cur.Writer)
-		if cur.Handoffs == nil && cur.LastHandoff != nil && (normalizeAgentKey(cur.LastHandoff.Agent) != "" || cur.hasExplicitOrInferredAgent()) && len(cur.HandoffStaleReasons()) == 0 {
+		if cur.Handoffs == nil && cur.LastHandoff != nil && (normalizeAgentKey(cur.LastHandoff.Agent) != "" || inferAgentFromBranch(cur.LastHandoff.Branch) != "" || (strings.TrimSpace(cur.LastHandoff.Branch) != "" && strings.TrimSpace(cur.LastHandoff.Branch) != strings.TrimSpace(cur.Git.Branch)) || cur.hasExplicitOrInferredAgent()) {
 			cur.migrateLegacyLastHandoff()
 		}
 		cur.PruneStaleHandoffs()
@@ -1305,8 +1318,12 @@ func Load(root string) (*State, error) {
 	if wl, err := ReadWriterLease(root); err == nil && wl != nil {
 		st.Writer = wl
 	}
-	if st.Handoffs == nil && st.LastHandoff != nil && normalizeAgentKey(st.LastHandoff.Agent) != "" {
-		st.migrateLegacyLastHandoff()
+	if st.Handoffs == nil && st.LastHandoff != nil {
+		lastBr := strings.TrimSpace(st.LastHandoff.Branch)
+		curBr := strings.TrimSpace(st.Git.Branch)
+		if normalizeAgentKey(st.LastHandoff.Agent) != "" || inferAgentFromBranch(lastBr) != "" || (lastBr != "" && curBr != "" && lastBr != curBr) {
+			st.migrateLegacyLastHandoff()
+		}
 	}
 	return &st, nil
 }

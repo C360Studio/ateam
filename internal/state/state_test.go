@@ -1222,3 +1222,86 @@ func TestReview79CodexPickupLockLeaseAndLegacyMigration(t *testing.T) {
 		t.Fatalf("expected both migrated claude@main and new codex@main to survive SetHandoff, got %+v", legacySt.Handoffs)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestReview79LegacyMigrationWithoutAgentField(t *testing.T) {
+	t.Setenv("ATEAM_AGENT", "")
+	t.Setenv("ATEAM_SESSION_ID", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CODEX_SESSION_ID", "")
+	t.Setenv("GEMINI_SESSION_ID", "")
+	t.Setenv("CLAUDECODE", "")
+	now := time.Now().UTC()
+
+	// Legacy JSON without agent field on branch claude/work, followed by branch switch to codex/work + Refresh + pickup + handoff.
+	noAgentLegacyDir := t.TempDir()
+	noAgentJSON := `{"mode":"full","git":{"branch":"codex/work","head_sha":"bbbb222","worktrees":[{"path":"/tmp/wt-claude","branch":"claude/work","head":"aaaa111"}]},"last_handoff":{"goal":"Unattributed legacy goal","addresses":"claude/work","done_when":"done","checks_to_run":"task verify","branch":"claude/work","checkpoint_sha":"aaaa111"}}`
+	if err := os.MkdirAll(filepath.Join(noAgentLegacyDir, ".ateam"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(CacheFilePath(noAgentLegacyDir), []byte(noAgentJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	noAgentSt, err := Load(noAgentLegacyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noAgentSt.RefreshHandoffStaleness()
+	ReconcilePickup(noAgentLegacyDir, noAgentSt, "codex", "codex-sess")
+	noAgentSt.SetHandoff(Handoff{
+		Goal:          "Codex goal on codex/work",
+		Addresses:     "codex/work",
+		DoneWhen:      "done",
+		ChecksToRun:   "task verify",
+		Agent:         "codex",
+		Branch:        "codex/work",
+		CheckpointSHA: "bbbb222",
+		UpdatedAt:     now,
+	})
+	if err := Save(noAgentLegacyDir, noAgentSt); err != nil {
+		t.Fatal(err)
+	}
+	reloadedNoAgent, err := Load(noAgentLegacyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloadedNoAgent.Handoffs["claude@claude/work"] == nil || reloadedNoAgent.Handoffs["codex@codex/work"] == nil {
+		t.Fatalf("expected legacy claude@claude/work without agent field and new codex@codex/work to survive branch switch + Refresh + SetHandoff, got %+v", reloadedNoAgent.Handoffs)
+	}
+
+	// Unprefixed branch ("feature/legacy") without agent field also survives branch switch under unknown-owner slot "agent@feature/legacy".
+	unprefixedDir := t.TempDir()
+	unprefixedJSON := `{"mode":"full","git":{"branch":"codex/work","head_sha":"bbbb222","worktrees":[{"path":"/tmp/wt-feat","branch":"feature/legacy","head":"aaaa111"}]},"last_handoff":{"goal":"Unprefixed legacy goal","addresses":"feature/legacy","done_when":"done","checks_to_run":"task verify","branch":"feature/legacy","checkpoint_sha":"aaaa111"}}`
+	if err := os.MkdirAll(filepath.Join(unprefixedDir, ".ateam"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(CacheFilePath(unprefixedDir), []byte(unprefixedJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unprefixedSt, err := Load(unprefixedDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unprefixedSt.RefreshHandoffStaleness()
+	ReconcilePickup(unprefixedDir, unprefixedSt, "codex", "codex-sess")
+	unprefixedSt.SetHandoff(Handoff{
+		Goal:          "Codex goal on codex/work",
+		Addresses:     "codex/work",
+		DoneWhen:      "done",
+		ChecksToRun:   "task verify",
+		Agent:         "codex",
+		Branch:        "codex/work",
+		CheckpointSHA: "bbbb222",
+		UpdatedAt:     now,
+	})
+	if err := Save(unprefixedDir, unprefixedSt); err != nil {
+		t.Fatal(err)
+	}
+	reloadedUnprefixed, err := Load(unprefixedDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloadedUnprefixed.Handoffs["agent@feature/legacy"] == nil || reloadedUnprefixed.Handoffs["codex@codex/work"] == nil {
+		t.Fatalf("expected legacy agent@feature/legacy and new codex@codex/work to survive branch switch, got %+v", reloadedUnprefixed.Handoffs)
+	}
+}
