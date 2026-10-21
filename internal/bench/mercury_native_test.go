@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,9 +33,9 @@ func TestMercuryPinnedOffline(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mutex.Lock()
 		defer mutex.Unlock()
-		if r.Method != http.MethodPost {
-			t.Logf("provider non-inference request: %s %s", r.Method, r.URL.Path)
-			_, _ = io.WriteString(w, `{"data":[{"id":"mercury-3"}]}`)
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer offline-provider-fixture" {
+			t.Errorf("unexpected provider route or credential: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		requests++

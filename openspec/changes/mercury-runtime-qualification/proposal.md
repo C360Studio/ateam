@@ -6,7 +6,7 @@ The owner redirected PR #77 from standalone Python qualification infrastructure 
 
 ## What Changes
 
-Add an optional Mercury configuration to the existing Claude runtime, a Go-owned per-attempt LiteLLM bridge using existing process cleanup, a minimal embedded raw-usage hook, and Go accounting/replay tests. Reuse `--dry-run`, budgets, scheduling and grading. See [scope](integration-plan.md).
+Add an optional Mercury configuration to the existing Claude runtime, a Go-owned per-attempt LiteLLM bridge using existing process cleanup, an in-process Go loopback capture proxy, and Go accounting/replay tests. Reuse `--dry-run`, budgets, scheduling and grading. See [scope](integration-plan.md).
 
 ## Impact
 

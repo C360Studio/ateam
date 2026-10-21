@@ -1,16 +1,26 @@
 package bench
 
 import (
-	"context"
 	"encoding/json"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 const mercuryTestUsage = `{"prompt_tokens":20,"completion_tokens":5,"total_tokens":25,"prompt_tokens_details":{"cached_tokens":3},"completion_tokens_details":{"reasoning_tokens":2}}`
+
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
+func TestMercuryTruncatedNativeJSON(t *testing.T) {
+	for _, native := range []string{"", "{", `{"type":"result"}`} {
+		data, err := json.Marshal(mercuryOutput{Claude: native, OutputTruncated: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := parseMercuryOutput(string(data))
+		if err == nil || !response.Native.OutputTruncated || response.Native.UsageStatus != "truncated" || response.Usage != nil {
+			t.Fatalf("malformed native JSON lost truncation evidence: %+v, %v", response, err)
+		}
+	}
+}
 
 func mercuryTestBody(usage string) string {
 	return "data: {\"model\":\"mercury-3\",\"choices\":[]}\n\ndata: {\"model\":\"mercury-3\",\"usage\":" + usage + "}\n\ndata: [DONE]\n\n"
@@ -191,92 +201,5 @@ func TestMercurySizeAndNativeFailure(t *testing.T) {
 	}
 	if _, _, err := parseMercuryCapture(atLimit + "\n"); err == nil {
 		t.Fatal("journal byte limit ignored")
-	}
-}
-
-// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
-func TestMercuryHookContract(t *testing.T) {
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("Python required only for the optional LiteLLM bridge hook")
-	}
-	hook, err := filepath.Abs("mercury_hook.py")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	// Stub only vendor interfaces: this proves hook control/recording behavior,
-	// not compatibility of an installed LiteLLM/OpenAI/HTTPX version.
-	script := `
-import asyncio, importlib.util, json, os, sys, types
-sys.dont_write_bytecode = True
-from pathlib import Path
-root=Path(sys.argv[2])
-os.environ.update(MERCURY_CAPTURE_PATH=str(root/"good.jsonl"),MERCURY_API_BASE="http://127.0.0.1:1234/v1",INCEPTION_API_KEY="test-key")
-httpx=types.ModuleType("httpx")
-httpx.AsyncByteStream=object
-httpx.AsyncClient=lambda **kw: types.SimpleNamespace(**kw)
-openai=types.ModuleType("openai")
-openai.AsyncOpenAI=lambda **kw: types.SimpleNamespace(**kw)
-custom=types.ModuleType("litellm.integrations.custom_logger")
-custom.CustomLogger=object
-sys.modules.update(httpx=httpx,openai=openai,litellm=types.ModuleType("litellm"))
-sys.modules["litellm.integrations"]=types.ModuleType("litellm.integrations")
-sys.modules["litellm.integrations.custom_logger"]=custom
-spec=importlib.util.spec_from_file_location("hook",sys.argv[1]); hook=importlib.util.module_from_spec(spec);spec.loader.exec_module(hook)
-class Stream:
-    async def __aiter__(self):
-        yield b'data: {}\n\n'
-        yield b'data: [DONE]\n\n'
-    async def aclose(self): pass
-class Response:
-    def __init__(self,request):
-        self.headers={}; self.request=request; self.status_code=200; self.stream=Stream()
-    async def aread(self):
-        return b''.join([chunk async for chunk in self.stream])
-def request():
-    return types.SimpleNamespace(method="POST",url="http://127.0.0.1:1234/v1/chat/completions",extensions={},headers={"x-stainless-retry-count":"0"},content=json.dumps(dict(model="mercury-3",reasoning_effort="low",max_tokens=8192,stream=True,stream_options={"include_usage":True})).encode())
-async def must_fail(action):
-    try: await action
-    except Exception: return
-    raise AssertionError("capture boundary did not fail")
-async def main():
-    capture=hook.capture
-    kwargs=await capture.async_pre_call_deployment_hook({"allowed_openai_params":["existing"]},"acompletion")
-    assert kwargs["allowed_openai_params"]==["existing","max_retries"] and kwargs["max_retries"]==0
-    assert kwargs["client"].http_client.trust_env is False and kwargs["client"].http_client.follow_redirects is False
-    for i in range(4):
-        req=request(); await capture.request(req); await capture.response(Response(req))
-    records=[json.loads(line) for line in (root/"good.jsonl").read_text().splitlines()]
-    assert len(records)==8 and records[0]["include_usage"] is True and records[1]["eof"] is True
-    assert records[1]["body"]=='data: {}\n\ndata: [DONE]\n\n' and records[-1]["id"]==4
-    await must_fail(capture.request(request()))
-    assert capture.failed
-    for name in ("retry","budget","missing_usage","encoded","oversize","journal","bad_allowed"):
-        os.environ["MERCURY_CAPTURE_PATH"]=str(root/(name+".jsonl"))
-        c=hook.Capture(); await c.async_pre_call_deployment_hook({},"acompletion")
-        req=request()
-        if name=="bad_allowed":
-            await must_fail(c.async_pre_call_deployment_hook({"allowed_openai_params":False},"acompletion"))
-        elif name=="retry":
-            c.client.max_retries=2; await must_fail(c.request(req))
-        elif name in ("budget","missing_usage"):
-            data=json.loads(req.content)
-            if name=="budget": data["max_tokens"]=8193
-            else: data["stream_options"]={}
-            req.content=json.dumps(data).encode(); await must_fail(c.request(req))
-        else:
-            await c.request(req); response=Response(req)
-            if name=="encoded": response.headers["content-encoding"]="gzip"
-            if name=="oversize": c.body_bytes=hook.LIMIT
-            if name=="journal": c.written=hook.LIMIT
-            await must_fail(c.response(response))
-        assert c.failed, name
-asyncio.run(main())
-`
-	cmd := exec.CommandContext(ctx, python, "-I", "-c", script, hook, t.TempDir())
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("hook contract: %v\n%s", err, output)
 	}
 }

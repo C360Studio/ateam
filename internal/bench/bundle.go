@@ -232,12 +232,8 @@ func validateResolvedExperiment(r ResolvedExperiment) error {
 		if err := validateMercuryProvenance(r); err != nil {
 			return err
 		}
-		claude := *expected.Claude
-		mercury := *claude.Mercury
-		mercury.Bridge = r.Experiment.Claude.Mercury.Bridge
-		claude.Mercury = &mercury
-		expected.Claude = &claude
-	} else if r.MercuryBridgeVersion != "" || r.MercuryHookSHA != "" {
+		expected = expected.withMercuryBridge(r.Experiment.Claude.Mercury.Bridge)
+	} else if r.MercuryBridgeVersion != "" {
 		return fmt.Errorf("Mercury provenance on another adapter")
 	}
 	if expected.Bundles == nil {

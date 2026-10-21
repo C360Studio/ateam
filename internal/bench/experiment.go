@@ -50,7 +50,6 @@ type Trial struct {
 // ResolvedExperiment is the reviewable dry-run output, including reproducibility metadata.
 type ResolvedExperiment struct {
 	MercuryBridgeVersion string            `json:"mercury_bridge_version,omitempty"`
-	MercuryHookSHA       string            `json:"mercury_hook_sha256,omitempty"`
 	Bundles              *BundleResolution `json:"bundles,omitempty"`
 	NativeSettings       json.RawMessage   `json:"native_settings,omitempty"`
 	NativeArguments      []string          `json:"native_arguments,omitempty"`

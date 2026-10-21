@@ -3,7 +3,6 @@ package bench
 import (
 	"context"
 	"crypto/rand"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -24,12 +23,19 @@ type MercuryConfig struct {
 
 const mercuryBridgeVersion = "LiteLLM: Current Version = 1.99.0"
 const mercuryAPIBase = "https://api.inceptionlabs.ai/v1"
-const mercuryBudgetPolicy = "INCEPTION_API_KEY only in the per-attempt LiteLLM 1.99.0 bridge; Claude receives a local bridge token; model mercury-3, low effort, 8192 output tokens/request, max4 provider requests, no retries/fallback; raw provider usage required for every request; stop on missing/incomplete usage; process groups killed on exit/cancel; max_run_seconds includes grading; max_total_tokens checked between attempts; no hard dollar cap; CLI cost ignored"
 
-//go:embed mercury_hook.py
-var mercuryHook string
+const mercuryBudgetPolicy = "INCEPTION_API_KEY only in the Go runner; Claude and LiteLLM 1.99.0 receive local tokens; model mercury-3, low effort, 8192 output tokens/request, max4 provider requests, no retries/fallback; raw provider usage required for every request; stop on missing/incomplete usage; context closes provider requests and process groups are killed on exit/cancel; max_run_seconds includes grading; max_total_tokens checked between attempts; no hard dollar cap; CLI cost ignored"
 
 func isMercury(e Experiment) bool { return e.Claude != nil && e.Claude.Mercury != nil }
+
+func (e Experiment) withMercuryBridge(path string) Experiment {
+	claude := *e.Claude
+	mercury := *claude.Mercury
+	mercury.Bridge = path
+	claude.Mercury = &mercury
+	e.Claude = &claude
+	return e
+}
 
 func validateMercury(e Experiment) error {
 	if e.Model != "mercury-3" || e.Claude.Reasoning != "low" || e.Claude.OutputFormat != "json-schema" || strings.TrimSpace(e.Claude.Mercury.Bridge) == "" {
@@ -86,20 +92,15 @@ func resolveMercury(r *ResolvedExperiment, e *Experiment, base string) error {
 	if out.overflow || strings.TrimSpace(out.String()) != mercuryBridgeVersion {
 		return fmt.Errorf("Mercury requires %s", mercuryBridgeVersion)
 	}
-	claude := *e.Claude
-	mercury := *claude.Mercury
-	mercury.Bridge = path
-	claude.Mercury = &mercury
-	e.Claude = &claude
+	*e = e.withMercuryBridge(path)
 	r.CommandFiles[path] = digest(data)
 	r.MercuryBridgeVersion = mercuryBridgeVersion
-	r.MercuryHookSHA = digest([]byte(mercuryHook))
 	return nil
 }
 
 func validateMercuryProvenance(r ResolvedExperiment) error {
-	if !isMercury(r.Experiment) || !filepath.IsAbs(r.Experiment.Claude.Mercury.Bridge) || r.CommandFiles[r.Experiment.Claude.Mercury.Bridge] == "" || r.MercuryBridgeVersion != mercuryBridgeVersion || r.MercuryHookSHA != digest([]byte(mercuryHook)) {
-		return fmt.Errorf("missing or changed Mercury bridge/hook provenance")
+	if !isMercury(r.Experiment) || !filepath.IsAbs(r.Experiment.Claude.Mercury.Bridge) || r.CommandFiles[r.Experiment.Claude.Mercury.Bridge] == "" || r.MercuryBridgeVersion != mercuryBridgeVersion {
+		return fmt.Errorf("missing or changed Mercury bridge provenance")
 	}
 	return nil
 }
@@ -108,7 +109,7 @@ func executeMercury(ctx context.Context, e Experiment, request AdapterRequest, d
 	return executeMercuryAt(ctx, e, request, dir, mercuryAPIBase)
 }
 
-func finishMercuryOutput(raw, diagnostic, capturePath, key, status string, runErr error) (AdapterResponse, string, string, string, error) {
+func finishMercuryOutput(raw, diagnostic, capturePath, key, status string, runErr error, truncated bool) (AdapterResponse, string, string, string, error) {
 	journal := ""
 	f, err := os.Open(capturePath)
 	if err == nil {
@@ -122,7 +123,7 @@ func finishMercuryOutput(raw, diagnostic, capturePath, key, status string, runEr
 	} else if runErr == nil {
 		runErr = fmt.Errorf("Mercury provider capture missing")
 	}
-	envelope := mercuryOutput{Claude: redactGeminiOutput(raw, key), Capture: redactGeminiOutput(journal, key)}
+	envelope := mercuryOutput{OutputTruncated: truncated, Claude: redactGeminiOutput(raw, key), Capture: redactGeminiOutput(journal, key)}
 	if runErr != nil {
 		if status == "completed" {
 			status = "adapter-error"
@@ -142,10 +143,23 @@ func finishMercuryOutput(raw, diagnostic, capturePath, key, status string, runEr
 // Only tests supply a local provider URL; no environment or experiment endpoint override.
 func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest, dir, apiBase string) (AdapterResponse, string, string, string, error) {
 	var raw, diagnostic string
+	var truncated bool
+	var bridgeOutput limitedBuffer
+	stop := func() {}
+	stopProxy := func() error { return nil }
+	defer func() { stop(); _ = stopProxy() }()
 	capturePath := filepath.Join(dir, "mercury-capture.jsonl")
 	key := os.Getenv("INCEPTION_API_KEY")
 	finish := func(status string, runErr error) (AdapterResponse, string, string, string, error) {
-		return finishMercuryOutput(raw, diagnostic, capturePath, key, status, runErr)
+		stop()
+		if err := stopProxy(); err != nil && runErr == nil {
+			runErr = err
+		}
+		if bridgeOutput.overflow && runErr == nil {
+			runErr = fmt.Errorf("Mercury bridge diagnostics exceeded 1 MiB")
+			status = "adapter-error"
+		}
+		return finishMercuryOutput(raw, diagnostic, capturePath, key, status, runErr, truncated)
 	}
 
 	if err := validateMercury(e); err != nil {
@@ -168,30 +182,15 @@ func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest,
 	if err := os.Mkdir(bridgeDir, 0700); err != nil {
 		return finish("adapter-error", err)
 	}
-	if err := os.WriteFile(filepath.Join(bridgeDir, "mercury_hook.py"), []byte(mercuryHook), 0600); err != nil {
-		return finish("adapter-error", err)
-	}
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	proxyURL, closeProxy, err := startMercuryProxy(bounded, apiBase, key, token, capturePath)
 	if err != nil {
 		return finish("adapter-error", err)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	_ = listener.Close()
-	config := map[string]any{
-		"model_list":       []any{map[string]any{"model_name": "mercury-3", "litellm_params": map[string]any{"model": "inception/mercury-3", "api_base": apiBase, "api_key": "os.environ/INCEPTION_API_KEY", "max_retries": 0}}},
-		"litellm_settings": map[string]any{"drop_params": false, "num_retries": 0, "telemetry": false, "callbacks": []string{"mercury_hook.capture"}},
-		"router_settings":  map[string]any{"num_retries": 0}, "general_settings": map[string]any{"master_key": token},
-	}
-	data, _ := json.Marshal(config)
-	configPath := filepath.Join(bridgeDir, "proxy.yaml")
-	if err := os.WriteFile(configPath, data, 0600); err != nil {
+	stopProxy = closeProxy
+	bridge, baseURL, err := mercuryBridgeCommand(bounded, e, bridgeDir, proxyURL, token)
+	if err != nil {
 		return finish("adapter-error", err)
 	}
-	bridge := exec.CommandContext(bounded, e.Claude.Mercury.Bridge, "--config", configPath, "--host", "127.0.0.1", "--port", fmt.Sprint(port))
-	configureBenchmarkProcess(bridge)
-	bridge.Dir = bridgeDir
-	bridge.Env = append(mercuryEnvironment(bridgeDir), "INCEPTION_API_KEY="+key, "MERCURY_API_BASE="+apiBase, "MERCURY_CAPTURE_PATH="+capturePath)
-	var bridgeOutput limitedBuffer
 	bridge.Stdout = &bridgeOutput
 	bridge.Stderr = &bridgeOutput
 	if err := bridge.Start(); err != nil {
@@ -201,7 +200,7 @@ func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest,
 	var bridgeErr error
 	go func() { bridgeErr = bridge.Wait(); close(done) }()
 	stopped := false
-	stop := func() {
+	stop = func() {
 		if !stopped {
 			cleanupBenchmarkProcess(bridge)
 			<-done
@@ -209,10 +208,7 @@ func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest,
 			diagnostic += "\n" + redactGeminiOutput(bridgeOutput.String(), token)
 		}
 	}
-	defer stop()
-	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	if err := waitMercuryBridge(bounded, baseURL, token, done); err != nil {
-		stop()
 		status := "adapter-error"
 		if bounded.Err() != nil {
 			status = "timeout"
@@ -223,7 +219,8 @@ func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest,
 		return finish(status, err)
 	}
 	// shortcut: only the existing single-file schema task path is supported; qualify general multi-turn tools before expanding benchmark tasks.
-	_, raw, diagnostic, status, runErr := executeClaudeProcess(bounded, e, request, dir, token, baseURL)
+	native, raw, diagnostic, status, runErr := executeClaudeProcess(bounded, e, request, dir, token, baseURL)
+	truncated = native.Native != nil && native.Native.OutputTruncated
 	select {
 	case <-done:
 		if runErr == nil {
@@ -232,8 +229,7 @@ func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest,
 		}
 	default:
 	}
-	stop() // Provider sockets are closed before capture acceptance or workspace removal.
-	if bounded.Err() != nil {
+	if bounded.Err() != nil && !truncated {
 		status = "timeout"
 		if ctx.Err() != nil {
 			status = "cancelled"
@@ -242,11 +238,31 @@ func executeMercuryAt(ctx context.Context, e Experiment, request AdapterRequest,
 	}
 	raw = redactGeminiOutput(raw, token)
 	diagnostic = redactGeminiOutput(diagnostic, token)
-	if bridgeOutput.overflow && runErr == nil {
-		runErr = fmt.Errorf("Mercury bridge diagnostics exceeded 1 MiB")
-		status = "adapter-error"
-	}
 	return finish(status, runErr)
+}
+
+func mercuryBridgeCommand(ctx context.Context, e Experiment, bridgeDir, proxyURL, token string) (*exec.Cmd, string, error) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return nil, "", err
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+	config := map[string]any{
+		"model_list":       []any{map[string]any{"model_name": "mercury-3", "litellm_params": map[string]any{"model": "inception/mercury-3", "api_base": proxyURL, "api_key": token, "max_retries": 0, "allowed_openai_params": []string{"max_retries"}}}},
+		"litellm_settings": map[string]any{"drop_params": false, "num_retries": 0, "telemetry": false},
+		"router_settings":  map[string]any{"num_retries": 0}, "general_settings": map[string]any{"master_key": token},
+	}
+	data, _ := json.Marshal(config)
+	configPath := filepath.Join(bridgeDir, "proxy.yaml")
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
+		return nil, "", err
+	}
+	bridge := exec.CommandContext(ctx, e.Claude.Mercury.Bridge, "--config", configPath, "--host", "127.0.0.1", "--port", fmt.Sprint(port))
+	configureBenchmarkProcess(bridge)
+	bridge.Dir = bridgeDir
+	bridge.Env = mercuryEnvironment(bridgeDir)
+	return bridge, fmt.Sprintf("http://127.0.0.1:%d", port), nil
 }
 
 func waitMercuryBridge(ctx context.Context, baseURL, token string, done <-chan struct{}) error {

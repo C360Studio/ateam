@@ -51,7 +51,7 @@ func mercuryFixture(t *testing.T) Experiment {
 }
 
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
-func TestMercuryProcessHelper(t *testing.T) {
+func TestMercuryProcessHelper(_ *testing.T) {
 	index := -1
 	for i, arg := range os.Args {
 		if arg == "--" {
@@ -84,6 +84,11 @@ func TestMercuryProcessHelper(t *testing.T) {
 			fail("schema missing")
 		}
 		prompt, _ := io.ReadAll(os.Stdin)
+		if strings.Contains(string(prompt), "fixture-stderr-cap") {
+			fmt.Fprint(os.Stderr, strings.Repeat("x", maxAdapterBytes+1))
+			fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","is_error":false,"session_id":"stderr-cap","structured_output":{"source":"package safepath"}}`)
+			os.Exit(0)
+		}
 		req, _ := http.NewRequest(http.MethodPost, os.Getenv("ANTHROPIC_BASE_URL")+"/v1/messages", strings.NewReader(string(prompt)))
 		req.Header.Set("Authorization", "Bearer "+os.Getenv("ANTHROPIC_API_KEY"))
 		resp, err := http.DefaultClient.Do(req)
@@ -97,7 +102,7 @@ func TestMercuryProcessHelper(t *testing.T) {
 		_, _ = io.Copy(os.Stdout, resp.Body)
 		os.Exit(0)
 	}
-	if os.Getenv("INCEPTION_API_KEY") != "fixture-inception-secret" || os.Getenv("ANTHROPIC_API_KEY") != "" {
+	if os.Getenv("INCEPTION_API_KEY") != "" || os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("MERCURY_CAPTURE_PATH") != "" || os.Getenv("MERCURY_API_BASE") != "" {
 		fail("bridge credential isolation")
 	}
 	var configPath, port string
@@ -110,6 +115,14 @@ func TestMercuryProcessHelper(t *testing.T) {
 		}
 	}
 	var config struct {
+		Models []struct {
+			Params struct {
+				Base    string   `json:"api_base"`
+				Key     string   `json:"api_key"`
+				Retries *int     `json:"max_retries"`
+				Allowed []string `json:"allowed_openai_params"`
+			} `json:"litellm_params"`
+		} `json:"model_list"`
 		General struct {
 			Key string `json:"master_key"`
 		} `json:"general_settings"`
@@ -117,6 +130,9 @@ func TestMercuryProcessHelper(t *testing.T) {
 	b, err := os.ReadFile(configPath)
 	if err != nil || json.Unmarshal(b, &config) != nil {
 		fail("bad bridge config")
+	}
+	if len(config.Models) != 1 || !strings.HasPrefix(config.Models[0].Params.Base, "http://127.0.0.1:") || config.Models[0].Params.Key == "" || config.Models[0].Params.Key == "fixture-inception-secret" || config.Models[0].Params.Retries == nil || *config.Models[0].Params.Retries != 0 || len(config.Models[0].Params.Allowed) != 1 || config.Models[0].Params.Allowed[0] != "max_retries" {
+		fail("bad bridge provider isolation or retry controls")
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
@@ -132,26 +148,30 @@ func TestMercuryProcessHelper(t *testing.T) {
 			return
 		}
 		prompt, _ := io.ReadAll(r.Body)
-		journal := mercuryTestJournal(t, mercuryTestBody(mercuryTestUsage))
-		if strings.Contains(string(prompt), "fixture-missing") {
-			journal = strings.SplitAfter(journal, "\n")[0]
+		body, err := json.Marshal(map[string]any{
+			"model": "mercury-3", "reasoning_effort": "low", "max_tokens": 8192,
+			"stream": true, "stream_options": map[string]bool{"include_usage": true},
+			"messages": []map[string]string{{"role": "user", "content": string(prompt)}},
+		})
+		if err != nil {
+			fail("provider request encoding")
 		}
-		if strings.Contains(string(prompt), "fixture-oversize") {
-			journal = strings.Repeat("x", maxAdapterBytes+1)
+		upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost, config.Models[0].Params.Base+"/chat/completions", strings.NewReader(string(body)))
+		if err != nil {
+			fail("provider request construction")
 		}
-		if err := os.WriteFile(os.Getenv("MERCURY_CAPTURE_PATH"), []byte(journal), 0600); err != nil {
-			fail("journal write")
+		upstream.Header.Set("Authorization", "Bearer "+config.Models[0].Params.Key)
+		upstream.Header.Set("Content-Type", "application/json")
+		upstream.Header.Set("X-Stainless-Retry-Count", "0")
+		response, err := http.DefaultClient.Do(upstream)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			return
 		}
-		if strings.Contains(string(prompt), "fixture-absent") {
-			_ = os.Remove(os.Getenv("MERCURY_CAPTURE_PATH"))
-		}
-		if strings.Contains(string(prompt), "fixture-wait") {
-			// This connection belongs to the bridge, not the native process; cleanup must kill both.
-			resp, err := http.Get(strings.TrimSuffix(os.Getenv("MERCURY_API_BASE"), "/v1") + "/hold")
-			if err == nil {
-				_, _ = io.Copy(io.Discard, resp.Body)
-				_ = resp.Body.Close()
-			}
+		_, readErr := io.Copy(io.Discard, response.Body)
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK || readErr != nil {
+			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
 		source := ""
@@ -171,7 +191,7 @@ func TestMercuryProcessHelper(t *testing.T) {
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestMercuryRunAndReplay(t *testing.T) {
-	for _, scenario := range []string{"complete", "missing", "absent", "oversize"} {
+	for _, scenario := range []string{"complete", "missing", "oversize"} {
 		t.Run(scenario, func(t *testing.T) {
 			missing := scenario != "complete"
 			e := mercuryFixture(t)
@@ -183,10 +203,34 @@ func TestMercuryRunAndReplay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if resolved.MercuryBridgeVersion != mercuryBridgeVersion || resolved.MercuryHookSHA != digest([]byte(mercuryHook)) || nativeKeyName(e) != "INCEPTION_API_KEY" {
+			if resolved.MercuryBridgeVersion != mercuryBridgeVersion || nativeKeyName(e) != "INCEPTION_API_KEY" {
 				t.Fatal("Mercury provenance missing")
 			}
-			path, runErr := RunExperiment(context.Background(), resolved, t.TempDir())
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer fixture-inception-secret" {
+					t.Error("provider endpoint or credential missing")
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				requestBody, _ := io.ReadAll(r.Body)
+				if missing && !strings.Contains(string(requestBody), "fixture-"+scenario) {
+					t.Error("native prompt not forwarded")
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				body := mercuryTestBody(mercuryTestUsage)
+				if scenario == "missing" {
+					body = "data: {\"model\":\"mercury-3\",\"choices\":[]}\n\ndata: [DONE]\n\n"
+				}
+				if scenario == "oversize" {
+					body = strings.Repeat("x", maxAdapterBytes+1)
+				}
+				_, _ = io.WriteString(w, body)
+			}))
+			defer server.Close()
+			execute := func(ctx context.Context, experiment Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
+				return executeMercuryAt(ctx, experiment, request, dir, server.URL+"/v1")
+			}
+			path, runErr := runExperiment(context.Background(), resolved, t.TempDir(), execute)
 			if (runErr != nil) != missing {
 				t.Fatalf("run=%v", runErr)
 			}
@@ -228,15 +272,22 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 			if timeout {
 				e.TimeoutSeconds = 5
 			}
-			connected, closed := make(chan struct{}), make(chan struct{})
+			connected, closed, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				_ = r.Body.Close()
 				w.WriteHeader(200)
 				w.(http.Flusher).Flush()
 				close(connected)
-				<-r.Context().Done()
-				close(closed)
+				select {
+				case <-r.Context().Done():
+					close(closed)
+				case <-release:
+				}
+
 			}))
 			defer server.Close()
+			defer close(release)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			type outcome struct {
@@ -285,7 +336,7 @@ func TestMercuryDryRunAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ClaudeVersion != "2.1.292 (Claude Code)" || r.MercuryHookSHA == "" {
+	if r.ClaudeVersion != "2.1.292 (Claude Code)" || r.MercuryBridgeVersion != mercuryBridgeVersion {
 		t.Fatal("dry-run provenance")
 	}
 	for _, change := range []func(*Experiment){func(e *Experiment) { e.Model = "claude-haiku-5-5" }, func(e *Experiment) { e.Claude.Reasoning = "high" }, func(e *Experiment) { e.Claude.Mercury.Bridge = "" }} {
@@ -304,5 +355,74 @@ func TestMercuryDryRunAndValidation(t *testing.T) {
 	}
 	if _, err := RunExperiment(context.Background(), r, t.TempDir()); err == nil {
 		t.Fatal("changed bridge accepted")
+	}
+}
+
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
+func TestMercuryStderrTruncationSurvivesReplay(t *testing.T) {
+	e := mercuryFixture(t)
+	e.Baseline, e.Candidate = "fixture-stderr-cap", "fixture-stderr-cap"
+	resolved, err := ResolveExperiment(e, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, runErr := RunExperiment(context.Background(), resolved, t.TempDir())
+	if runErr == nil {
+		t.Fatal("truncated attempt succeeded")
+	}
+	run, err := LoadExperimentRun(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run.Attempts) != 1 || run.StopReason != "adapter-error" {
+		t.Fatalf("truncation history: %+v", run)
+	}
+	a := &run.Attempts[0]
+	if a.Response == nil || a.Response.Native == nil || !a.Response.Native.OutputTruncated || a.Response.Native.UsageStatus != "truncated" || a.Response.Usage != nil {
+		t.Fatalf("truncation flag/accounting lost: %+v", a.Response)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(a.Stdout), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	delete(envelope, "output_truncated")
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Stdout = string(data)
+	run.Digest = runDigest(run)
+	if validateRun(run) == nil {
+		t.Fatal("removed truncation envelope flag accepted")
+	}
+}
+
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
+func TestMercuryCaptureReadFailures(t *testing.T) {
+	for _, oversized := range []bool{false, true} {
+		t.Run(fmt.Sprint(oversized), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "capture.jsonl")
+			if oversized {
+				if err := os.WriteFile(path, []byte(strings.Repeat("x", maxAdapterBytes+1)), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			native := `{"type":"result","subtype":"success","is_error":false,"session_id":"capture-read","structured_output":{"source":"package safepath"}}`
+			response, raw, _, status, err := finishMercuryOutput(native, "", path, "fixture-inception-secret", "completed", nil, false)
+			if err == nil || status != "adapter-error" || response.Usage != nil {
+				t.Fatalf("capture read failure accepted: %s %v %+v", status, err, response)
+			}
+			var envelope mercuryOutput
+			if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Capture != "" || envelope.Error == "" {
+				t.Fatal("capture read failure not retained")
+			}
+			if replay, replayErr := parseMercuryOutput(raw); replayErr == nil || replay.Usage != nil {
+				t.Fatal("capture failure became valid on replay")
+			}
+		})
 	}
 }

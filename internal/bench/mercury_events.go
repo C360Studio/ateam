@@ -9,9 +9,10 @@ import (
 
 // mercuryOutput retains the unmodified native result and provider capture together.
 type mercuryOutput struct {
-	Claude  string `json:"claude"`
-	Capture string `json:"capture"`
-	Error   string `json:"error,omitempty"`
+	Claude          string `json:"claude"`
+	Capture         string `json:"capture"`
+	Error           string `json:"error,omitempty"`
+	OutputTruncated bool   `json:"output_truncated,omitempty"`
 }
 
 type mercuryRecord struct {
@@ -29,8 +30,8 @@ type mercuryRecord struct {
 	Error        string `json:"error,omitempty"`
 }
 
-func parseMercuryOutput(stdout string) (AdapterResponse, error) {
-	r := AdapterResponse{Version: 1, Native: &NativeEvidence{Terminal: "failed", UsageStatus: "invalid"}}
+func parseMercuryOutput(stdout string) (r AdapterResponse, err error) {
+	r = AdapterResponse{Version: 1, Native: &NativeEvidence{Terminal: "failed", UsageStatus: "invalid"}}
 	var envelope mercuryOutput
 	if len(stdout) > 4*maxAdapterBytes {
 		return r, fmt.Errorf("mercury output exceeds capture envelope limit")
@@ -41,6 +42,12 @@ func parseMercuryOutput(stdout string) (AdapterResponse, error) {
 	if err := strictJSON([]byte(stdout), &envelope); err != nil {
 		return r, fmt.Errorf("mercury envelope: %w", err)
 	}
+	defer func() {
+		if envelope.OutputTruncated {
+			markGeminiTruncated(&r)
+			err = fmt.Errorf("claude output exceeded 1 MiB per stream")
+		}
+	}()
 	// LiteLLM can synthesize usage and omit provider reasoning details. Never
 	// expose its translated accounting or pricing as authoritative Mercury usage.
 	if err := uniqueJSON([]byte(envelope.Claude)); err != nil {
