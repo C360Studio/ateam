@@ -565,6 +565,57 @@ func TestReconcileWorktreesAndPickupWorktreeSection(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestWorktreeNoPRAndStaleForgeCacheCaveat(t *testing.T) {
+	dirtyFalse := false
+	st := defaultState()
+	st.Forge = ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"}
+	st.Git.Branch = "main"
+	st.Git.HeadSHA = "abad85b"
+	st.Git.Worktrees = []Worktree{
+		{Path: "/repo", Branch: "main", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
+		{Path: "/repo/.worktrees/wt-ancestor", Branch: "claude/ancestor", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
+		{Path: "/repo/.worktrees/wt-64", Branch: "codex/mercury-offline-contract", Head: "e50ca10f", Dirty: &dirtyFalse, AheadCount: 4, MergedIntoMain: false},
+		{Path: "/repo/.worktrees/wt-review", Branch: "codex/review-pr-79", Head: "d7bb7968", Dirty: &dirtyFalse, AheadCount: 5, MergedIntoMain: false},
+	}
+	st.Cards = []BoardCard{
+		{ID: "GH-PR-64", Number: 64, Type: "pr", Column: "in_progress", Merged: false, Branch: "codex/mercury-offline-contract", HeadSHA: "e50ca10f"},
+	}
+
+	// Fresh cache (<10m): no cache-age suffix or caveat line; worktree with no PR is labeled "no PR" (not "unmerged").
+	st.BoardSyncedAt = time.Now().UTC().Add(-2 * time.Minute)
+	freshSummary := BuildPickupSummary(st)
+	for _, want := range []string{
+		"- main (head=abad85b, dirty=false, ahead=0, default branch)",
+		"- claude/ancestor (head=abad85b, dirty=false, ahead=0, merged (ancestor of main))",
+		"- codex/mercury-offline-contract (head=e50ca10f, dirty=false, ahead=4, open PR #64)",
+		"- codex/review-pr-79 (head=d7bb7968, dirty=false, ahead=5, no PR)",
+	} {
+		if !strings.Contains(freshSummary, want) {
+			t.Fatalf("expected fresh-cache pickup summary to contain %q, got:\n%s", want, freshSummary)
+		}
+	}
+	if strings.Contains(freshSummary, "labels from forge cache synced") || strings.Contains(freshSummary, "(cache ") {
+		t.Fatalf("expected fresh-cache summary not to contain stale cache caveat, got:\n%s", freshSummary)
+	}
+
+	// Stale cache (4h old): PR/forge-derived worktree labels carry "(cache 4h)" and Worktrees section prints the cache-age caveat,
+	// while git-derived fields and git-only statuses ("default branch", "merged (ancestor of main)") have no cache caveat.
+	st.BoardSyncedAt = time.Now().UTC().Add(-4 * time.Hour)
+	staleSummary := BuildPickupSummary(st)
+	for _, want := range []string{
+		"Worktrees: 4\n  labels from forge cache synced 4h ago; run ateam state pickup --sync",
+		"- main (head=abad85b, dirty=false, ahead=0, default branch)",
+		"- claude/ancestor (head=abad85b, dirty=false, ahead=0, merged (ancestor of main))",
+		"- codex/mercury-offline-contract (head=e50ca10f, dirty=false, ahead=4, open PR #64 (cache 4h))",
+		"- codex/review-pr-79 (head=d7bb7968, dirty=false, ahead=5, no PR (cache 4h))",
+	} {
+		if !strings.Contains(staleSummary, want) {
+			t.Fatalf("expected stale-cache pickup summary to contain %q, got:\n%s", want, staleSummary)
+		}
+	}
+}
+
 // spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
 func TestPopulateMCPProvenanceAndRegisterMCPProcess(t *testing.T) {
 	dir := t.TempDir()

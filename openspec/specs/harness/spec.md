@@ -93,6 +93,12 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **WHEN** a configured forge is synchronized or pickup/board queries request its state
 - **THEN** Synchronization SHALL reconcile the synced provider's cards into the board (dropping legacy demo cards and stale remote cards for that provider while preserving legitimate local dashboard cards, cards from the other forge, and hold reasons and decision summaries on matching card IDs), record `board_synced_at`, reject partial issue/PR failures, and permit a comment-free fallback when optional comment expansion fails. Explicit `pickup` and `board` queries SHALL attempt a bounded remote forge sync when configured (falling back to cache on failure) and surface sync timestamp and fallback status in both `pickup` and `board` responses.
 
+#### Scenario: Worktree PR status labels and stale forge cache caveat
+
+- **WHEN** `WorktreePRStatus` or `BuildPickupSummary` renders worktrees from `.ateam/state.json`
+- **THEN** a worktree with no PR card on the board (and not `main`/`master`/`detached` or an ancestor of `main` with `ahead == 0`) is labeled `no PR` rather than `unmerged`
+- **AND** when the active forge cache timestamp (`SyncedAtFor`) is at least `10m` old, PR/forge-derived worktree labels append `(cache <age>)` (e.g. `open PR #64 (cache 4h)`, `no PR (cache 4h)`, `merged via #57 (cache 4h)`), `Worktrees:` prints `labels from forge cache synced <age> ago; run ateam state pickup --sync`, and live git-derived fields (`head`, `dirty`, `ahead`, and `default branch` / `detached` / `merged (ancestor of main)`) carry no cache caveat
+
 ### Requirement: Constant-time forge webhook verification and rate limiting
 
 `ateam serve` SHALL default to loopback, enforce same-origin and JSON content type on browser mutations, and authenticate GitHub/Gitea webhook requests with constant-time HMAC-SHA256 verification and per-IP fixed-window rate limiting. Authentication SHALL fail closed unless unsigned webhooks are explicitly enabled.
