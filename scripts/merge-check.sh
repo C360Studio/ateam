@@ -163,17 +163,18 @@ else
   printf '%s' "$code" | jq -r '.[:10][] | "merge-check: code file: \(.)"'
   # The two lines: each starts in the first column; a carriage return before the
   # line feed is dropped. An agent name is claude, codex, or gemini in any letter
-  # case, with no letter or digit directly before or after it. A model is any
-  # parenthesised text with a character other than a space in it. Nothing else is read.
+  # case, with no letter or digit directly before or after it. The model is the
+  # parenthesised group directly after the first agent name (spaces and backticks
+  # allowed between), with a character other than a space in it. Nothing else is read.
   if ! lines=$(printf '%s' "$pull" | jq -r '
     def agents: [scan("(?i)(?:^|[^\\p{L}\\p{N}])(claude|codex|gemini)(?=[^\\p{L}\\p{N}]|$)") | .[0] | ascii_downcase] | unique | join(" ");
-    def model: if test("\\([^)]*[^\\s)][^)]*\\)") then "yes" else "no" end;
+    def model: if test("^[ \\t]*`?(?i:claude|codex|gemini)`?[ \\t]*\\([^)]*[^\\s)][^)]*\\)") then "yes" else "no" end;
     [(.body // "") | split("\n")[] | rtrimstr("\r")] as $l
     | ($l | map(select(startswith("implemented-by:")))) as $i
     | ($l | map(select(startswith("reviewed-by:")))) as $r
     | [.user.type, ($i | length), ($i[0] // "" | ltrimstr("implemented-by:") | agents),
        ($r | length), ($r[0] // "" | ltrimstr("reviewed-by:") | agents),
-       ($i[0] // "" | model), ($r[0] // "" | model)] | map(tostring) | join("|")'); then
+       ($i[0] // "" | ltrimstr("implemented-by:") | model), ($r[0] // "" | ltrimstr("reviewed-by:") | model)] | map(tostring) | join("|")'); then
     echo "merge-check: unavailable: jq failed reading the description of pull request #${pr}" >&2
     exit 2
   fi

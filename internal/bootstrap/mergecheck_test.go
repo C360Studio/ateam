@@ -471,11 +471,20 @@ func TestMergeCheckReview(t *testing.T) {
 			{"implemented-by: claude ( )\nreviewed-by: codex (gpt-6)\n", "the implemented-by: line must name the implementing model"},
 			{implClaude + "reviewed-by: codex\n", "the reviewed-by: line must name the reviewing model"},
 			{implClaude + "reviewed-by: codex ()\n", "the reviewed-by: line must name the reviewing model"},
+			// The model is the group directly after the agent, not any parenthesised text on the line.
+			{"implemented-by: (author) claude\nreviewed-by: codex (gpt-6)\n", "the implemented-by: line must name the implementing model"},
+			{"implemented-by: claude () (implementation)\nreviewed-by: codex (gpt-6)\n", "the implemented-by: line must name the implementing model"},
+			{implClaude + "reviewed-by: (independent) codex\n", "the reviewed-by: line must name the reviewing model"},
+			{implClaude + "reviewed-by: codex () (independent review)\n", "the reviewed-by: line must name the reviewing model"},
 		} {
 			runMergeCheck(t, reviewGH(false, "User", tc.body, "scripts/x.sh"), "12").requireFail(t, tc.says)
 		}
-		r := runMergeCheck(t, reviewGH(false, "User", "implemented-by: claude (sonnet, opus)\nreviewed-by: codex (gpt-6)\n", "scripts/x.sh"), "12")
-		r.requirePass(t, "reviewing agent: codex")
+		for _, body := range []string{
+			"implemented-by: claude (sonnet, opus)\nreviewed-by: codex (gpt-6)\n",
+			"implemented-by: `Claude`(opus)\nreviewed-by: codex (gpt-6) — APPROVE (no findings)\n",
+		} {
+			runMergeCheck(t, reviewGH(false, "User", body, "scripts/x.sh"), "12").requirePass(t, "reviewing agent: codex")
+		}
 	})
 	t.Run("same agent implements and reviews", func(t *testing.T) {
 		for _, tc := range []struct{ body, says string }{
