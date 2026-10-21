@@ -1018,6 +1018,10 @@ func (st *State) reconcileLiveBranchHeads(root string) bool {
 			continue
 		}
 		if wtBr, wtSHA := ReadFastGitHead(wtPath); wtBr != "" && wtSHA != "" {
+			// ReadFastGitHead names a detached checkout "HEAD"; worktree entries store it as "", as git worktree list does.
+			if wtBr == "HEAD" {
+				wtBr = ""
+			}
 			st.Git.Worktrees[i].Branch = wtBr
 			st.Git.Worktrees[i].Head = wtSHA
 		}
@@ -1715,7 +1719,7 @@ func (st *State) ReconcileWorktrees() {
 	for i := range st.Git.Worktrees {
 		wt := &st.Git.Worktrees[i]
 		branch := strings.TrimSpace(wt.Branch)
-		if branch == "" || branch == "main" || branch == "master" || branch == "detached" {
+		if branch == "" || branch == "main" || branch == "master" || branch == "detached" || branch == "HEAD" {
 			continue
 		}
 		var branchPRs []BoardCard
@@ -1812,7 +1816,8 @@ func withForgeCacheAge(status, age string) string {
 
 func (st *State) worktreePRStatusAndAge(wt Worktree) (string, string) {
 	branch := strings.TrimSpace(wt.Branch)
-	if branch == "" || branch == "detached" {
+	// "HEAD" is how caches written before #96 recorded a detached checkout.
+	if branch == "" || branch == "detached" || branch == "HEAD" {
 		return "detached", ""
 	}
 	if branch == "main" || branch == "master" {
@@ -1859,13 +1864,33 @@ func (st *State) worktreePRStatusAndAge(wt Worktree) (string, string) {
 		return withForgeCacheAge(fmt.Sprintf("closed without merge (%s)", c.ID), age), age
 	}
 	if wt.MergedIntoMain && wt.AheadCount == 0 {
+		// shortcut: a branch at main's head reads as not started, so a fast-forward merge reads "no commits yet" until main moves, and a branch started from an older main still reads merged; upgrade when the branch's fork point is recorded.
+		if head := st.defaultBranchHead(); head != "" && wt.Head != "" && SameCommitSHA(wt.Head, head) {
+			return "no commits yet", ""
+		}
 		return "merged (ancestor of main)", ""
 	}
 	age := st.staleForgeCacheAgeFor("")
 	return withForgeCacheAge("no PR", age), age
 }
 
-// WorktreePRStatus returns a concise PR/merge status for wt (e.g. "merged via #57", "open PR #58", "ahead of merged #57", "closed without merge (#25)", "merged (ancestor of main)", "default branch", or "no PR"), appending "(cache <age>)" to forge-derived labels when the supplying forge cache is older than ForgeCacheStaleThreshold.
+// defaultBranchHead returns the head of the main or master worktree, else of the current checkout when it is on main or master.
+func (st *State) defaultBranchHead() string {
+	if st == nil {
+		return ""
+	}
+	for _, wt := range st.Git.Worktrees {
+		if b := strings.TrimSpace(wt.Branch); b == "main" || b == "master" {
+			return wt.Head
+		}
+	}
+	if b := strings.TrimSpace(st.Git.Branch); b == "main" || b == "master" {
+		return st.Git.HeadSHA
+	}
+	return ""
+}
+
+// WorktreePRStatus returns a concise PR/merge status for wt (e.g. "merged via #57", "open PR #58", "ahead of merged #57", "closed without merge (#25)", "merged (ancestor of main)", "no commits yet", "default branch", or "no PR"), appending "(cache <age>)" to forge-derived labels when the supplying forge cache is older than ForgeCacheStaleThreshold.
 func (st *State) WorktreePRStatus(wt Worktree) string {
 	status, _ := st.worktreePRStatusAndAge(wt)
 	return status
@@ -2647,7 +2672,7 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 	}
 	for i, wt := range st.Git.Worktrees {
 		branch := strings.TrimSpace(wt.Branch)
-		if branch == "" {
+		if branch == "" || branch == "HEAD" {
 			branch = "detached"
 		}
 		dirtyStr := "unknown"
