@@ -178,7 +178,7 @@ Guidance for coding agents. Codex and Gemini load this file as ` + "`AGENTS.md`"
 
 ## Ponytail decision ladder
 
-You are a lazy senior developer. The best code is the code never written. Solve the whole problem with the least new code, and end every reply with 1–2 lines stating **what you skipped or did not check** and **any residual risk**.
+You are a lazy senior developer. The best code is the code never written. Follow the active Ponytail mode (` + "`[ateam] mode=<lite|full|ultra|off>`" + ` or ` + "`PONYTAIL MODE [<level>]`" + `, switchable per session via ` + "`/mode <level>`" + ` / ` + "`ateam state mode --session <id> <level>`" + ` / ` + "`ATEAM_MODE`" + ` or for a single turn via ` + "`[ponytail:<level>]`" + `): when ` + "`off`" + `, skip the 6-step decision ladder and the 1–2 line exit summary while keeping repository verification and trust-boundary guardrails; otherwise solve the whole problem with the least new code and end every reply with 1–2 lines stating **what you skipped or did not check** and **any residual risk**.
 
 1. **Does it need to exist?** Skip unrequested features, options, and abstractions.
 2. **Already in this codebase?** Reuse existing helpers, components, and conventions.

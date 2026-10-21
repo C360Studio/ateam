@@ -778,3 +778,86 @@ func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
 		}
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestSessionAndEphemeralTurnPonytailModes(t *testing.T) {
+	dir := t.TempDir()
+
+	// 1. Session A switches to lite via /ponytail lite -> only SessionModes["sess-a"] changes; checkout default stays full.
+	outA, err := HandleWithAgent(dir, "before-prompt", "claude", strings.NewReader(`{"session_id":"sess-a","prompt":"/ponytail lite"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent sess-a /ponytail lite: %v", err)
+	}
+	if !strings.Contains(outA.AdditionalContext, "PONYTAIL MODE [lite]") {
+		t.Fatalf("expected PONYTAIL MODE [lite] for sess-a, got:\n%s", outA.AdditionalContext)
+	}
+	st, err := state.Load(dir)
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	if st.Mode != state.ModeFull {
+		t.Fatalf("expected checkout default Mode to remain %q when session_id is present, got %q", state.ModeFull, st.Mode)
+	}
+	if st.SessionModes["sess-a"] != state.ModeLite {
+		t.Fatalf("expected SessionModes[sess-a] = %q, got %+v", state.ModeLite, st.SessionModes)
+	}
+
+	// 2. Session B starts without a session override -> gets checkout default full.
+	startB, err := HandleWithAgent(dir, "session-start", "codex", strings.NewReader(`{"session_id":"sess-b"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent sess-b session-start: %v", err)
+	}
+	if !strings.Contains(startB.AdditionalContext, "[ateam] mode=full |") || !strings.Contains(startB.AdditionalContext, "PONYTAIL MODE [full]") {
+		t.Fatalf("expected sess-b session-start to use mode=full, got:\n%s", startB.AdditionalContext)
+	}
+
+	// 3. Session A starts -> gets its own session-scoped mode=lite.
+	startA, err := HandleWithAgent(dir, "session-start", "claude", strings.NewReader(`{"session_id":"sess-a"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent sess-a session-start: %v", err)
+	}
+	if !strings.Contains(startA.AdditionalContext, "[ateam] mode=lite |") || !strings.Contains(startA.AdditionalContext, "PONYTAIL MODE [lite]") {
+		t.Fatalf("expected sess-a session-start to use mode=lite, got:\n%s", startA.AdditionalContext)
+	}
+
+	// 4. Ephemeral single-turn tags [ponytail:ultra] and [ponytail:off] inject single-turn context without mutating disk state.
+	turnUltra, err := HandleWithAgent(dir, "before-prompt", "codex", strings.NewReader(`{"session_id":"sess-b","prompt":"[ponytail:ultra] review architecture"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent ephemeral ultra: %v", err)
+	}
+	if !strings.Contains(turnUltra.AdditionalContext, "PONYTAIL MODE [ultra]") {
+		t.Fatalf("expected ephemeral ultra ladder, got:\n%s", turnUltra.AdditionalContext)
+	}
+	turnOff, err := HandleWithAgent(dir, "before-prompt", "codex", strings.NewReader(`{"session_id":"sess-b","prompt":"[ponytail:off] quick typo fix"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent ephemeral off: %v", err)
+	}
+	if !strings.Contains(turnOff.AdditionalContext, "PONYTAIL MODE [off] (this turn only)") {
+		t.Fatalf("expected ephemeral off notice, got:\n%s", turnOff.AdditionalContext)
+	}
+	afterEphemeral, err := state.Load(dir)
+	if err != nil {
+		t.Fatalf("state.Load after ephemeral: %v", err)
+	}
+	if afterEphemeral.Mode != state.ModeFull || afterEphemeral.SessionModes["sess-b"] != "" || afterEphemeral.SessionModes["sess-a"] != state.ModeLite {
+		t.Fatalf("ephemeral tags mutated persisted state: mode=%q session_modes=%+v", afterEphemeral.Mode, afterEphemeral.SessionModes)
+	}
+
+	// 5. ATEAM_MODE env applies when a session has no explicit entry in SessionModes, and SessionModes[sid] overrides ATEAM_MODE.
+	t.Setenv("ATEAM_MODE", "off")
+	startEnvOff, err := HandleWithAgent(dir, "session-start", "gemini", strings.NewReader(`{"session_id":"sess-c"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent sess-c with ATEAM_MODE=off: %v", err)
+	}
+	if !strings.Contains(startEnvOff.AdditionalContext, "[ateam] mode=off |") || strings.Contains(startEnvOff.AdditionalContext, "PONYTAIL MODE [") {
+		t.Fatalf("expected ATEAM_MODE=off to suppress ladder for sess-c, got:\n%s", startEnvOff.AdditionalContext)
+	}
+	startAOverride, err := HandleWithAgent(dir, "session-start", "claude", strings.NewReader(`{"session_id":"sess-a"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent sess-a with ATEAM_MODE=off: %v", err)
+	}
+	if !strings.Contains(startAOverride.AdditionalContext, "[ateam] mode=lite |") || !strings.Contains(startAOverride.AdditionalContext, "PONYTAIL MODE [lite]") {
+		t.Fatalf("expected SessionModes[sess-a]=lite to take precedence over ATEAM_MODE=off, got:\n%s", startAOverride.AdditionalContext)
+	}
+}

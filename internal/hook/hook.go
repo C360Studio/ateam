@@ -58,7 +58,10 @@ type SpecificOutput struct {
 	AdditionalContext string `json:"additionalContext,omitempty"`
 }
 
-var modeCommandRe = regexp.MustCompile(`(?i)(?:^|\s)/(?:ponytail|mode)\s+(lite|full|ultra|off)\b`)
+var (
+	modeCommandRe      = regexp.MustCompile(`(?i)(?:^|\s)/(?:ponytail|mode)\s+(lite|full|ultra|off)\b`)
+	ephemeralModeTagRe = regexp.MustCompile(`(?i)\[(?:ponytail(?:\s+mode)?|mode)\s*:\s*(lite|full|ultra|off)\]`)
+)
 
 // NormalizeEvent maps CLI-specific hook names (Claude, Codex, Gemini, Antigravity) to canonical event names.
 func NormalizeEvent(flagEvent, payloadEvent string) string {
@@ -138,41 +141,14 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		if mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha); len(mcpWarnings) > 0 {
 			ctxText += "\n" + strings.Join(mcpWarnings, "\n")
 		}
-		if st.Mode != state.ModeOff {
-			ctxText += "\n\n" + LadderPrompt(st.Mode)
+		activeMode := st.EffectiveMode()
+		if activeMode != state.ModeOff {
+			ctxText += "\n\n" + LadderPrompt(activeMode)
 		}
 		return buildOutputForAgent(flagAgent, "SessionStart", ctxText), nil
 
 	case "before-prompt":
-		_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
-		mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha)
-		// shortcut: Antigravity PreInvocation stdin omits prompt text, switch Ponytail mode via ateam state mode or /ponytail skill in agy
-		promptText := firstNonEmpty(in.Prompt, in.UserPrompt)
-		newMode, changed := detectModeSwitch(promptText)
-		if !changed {
-			if len(mcpWarnings) > 0 {
-				return buildOutputForAgent(flagAgent, "UserPromptSubmit", strings.Join(mcpWarnings, "\n")), nil
-			}
-			return emptyOutputForAgent(flagAgent), nil
-		}
-		updated, err := state.Update(root, func(cur *state.State) error {
-			cur.Mode = newMode
-			return nil
-		})
-		if err != nil {
-			return Output{}, err
-		}
-		var parts []string
-		if len(mcpWarnings) > 0 {
-			parts = append(parts, strings.Join(mcpWarnings, "\n"))
-		}
-		if updated.Mode != state.ModeOff {
-			parts = append(parts, LadderPrompt(updated.Mode))
-		}
-		if len(parts) == 0 {
-			return emptyOutputForAgent(flagAgent), nil
-		}
-		return buildOutputForAgent(flagAgent, "UserPromptSubmit", strings.Join(parts, "\n\n")), nil
+		return handleBeforePrompt(root, flagAgent, sessionID, sha, in)
 
 	case "pre-compact":
 		shortcuts, err := state.ScanShortcuts(root)
@@ -379,17 +355,66 @@ func buildOutputForAgent(agent, eventName, contextText string) Output {
 	return buildOutput(eventName, contextText)
 }
 
-func detectModeSwitch(prompt string) (state.DisciplineMode, bool) {
+func handleBeforePrompt(root, flagAgent, sessionID, sha string, in Input) (Output, error) {
+	_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
+	mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha)
+	// shortcut: Antigravity PreInvocation stdin omits prompt text, switch Ponytail mode via ateam state mode or /ponytail skill in agy
+	promptText := firstNonEmpty(in.Prompt, in.UserPrompt)
+	newMode, changed, ephemeral := detectModeSwitch(promptText)
+	if !changed {
+		if len(mcpWarnings) > 0 {
+			return buildOutputForAgent(flagAgent, "UserPromptSubmit", strings.Join(mcpWarnings, "\n")), nil
+		}
+		return emptyOutputForAgent(flagAgent), nil
+	}
+	activeMode := newMode
+	if !ephemeral {
+		updated, err := state.Update(root, func(cur *state.State) error {
+			cur.SetSessionMode(sessionID, newMode)
+			return nil
+		})
+		if err != nil {
+			return Output{}, err
+		}
+		updated.CurrentSessionID = sessionID
+		activeMode = updated.EffectiveMode()
+	}
+	var parts []string
+	if len(mcpWarnings) > 0 {
+		parts = append(parts, strings.Join(mcpWarnings, "\n"))
+	}
+	if activeMode != state.ModeOff {
+		parts = append(parts, LadderPrompt(activeMode))
+	} else if ephemeral {
+		parts = append(parts, EphemeralOffPrompt())
+	}
+	if len(parts) == 0 {
+		return emptyOutputForAgent(flagAgent), nil
+	}
+	return buildOutputForAgent(flagAgent, "UserPromptSubmit", strings.Join(parts, "\n\n")), nil
+}
+
+func detectModeSwitch(prompt string) (state.DisciplineMode, bool, bool) {
 	lower := strings.ToLower(strings.TrimSpace(prompt))
 	if lower == "stop ponytail" || lower == "normal mode" {
-		return state.ModeOff, true
+		return state.ModeOff, true, false
 	}
 	if m := modeCommandRe.FindStringSubmatch(prompt); len(m) == 2 {
 		if mode, ok := state.NormalizeMode(m[1]); ok {
-			return mode, true
+			return mode, true, false
 		}
 	}
-	return state.ModeFull, false
+	if m := ephemeralModeTagRe.FindStringSubmatch(prompt); len(m) == 2 {
+		if mode, ok := state.NormalizeMode(m[1]); ok {
+			return mode, true, true
+		}
+	}
+	return state.ModeFull, false, false
+}
+
+// EphemeralOffPrompt returns the single-turn context line when [ponytail:off] or [mode:off] is used in a prompt.
+func EphemeralOffPrompt() string {
+	return "PONYTAIL MODE [off] (this turn only) — Skip the 6-step decision ladder and 1-2 line exit summary for this prompt; standard verification and trust-boundary guardrails still apply."
 }
 
 // LadderPrompt returns the compact (~110 token) Ponytail decision ladder for the active level.

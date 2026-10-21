@@ -16,7 +16,9 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 #### Scenario: Mode switch and Ponytail ladder injection
 
 - **WHEN** `ateam hook --event before-prompt` receives a prompt containing `/ponytail ultra` or `/mode ultra`
-- **THEN** it updates `.ateam/state.json` to mode `ultra` and returns `additionalContext` (or `injectSteps` when `--agent agy` is set) containing the Ponytail 6-step decision ladder at `ultra` level
+- **THEN** it updates `.ateam/state.json` (`session_modes[session_id]` when `session_id` or `conversationId` is present, or checkout-wide `mode` when absent) to mode `ultra` and returns `additionalContext` (or `injectSteps` when `--agent agy` is set) containing the Ponytail 6-step decision ladder at `ultra` level
+- **AND** when `before-prompt` receives an ephemeral turn tag (`[ponytail:lite|full|ultra|off]` or `[mode:lite|full|ultra|off]`), it returns the corresponding single-turn Ponytail context without mutating `.ateam/state.json`
+- **AND** `session-start`, `pickup`, `ateam state mode [--session <id>]`, and `ateam_state(action="mode")` resolve the active mode with precedence `session_modes[session_id]` > `ATEAM_MODE` > checkout `mode` (`full` default)
 
 #### Scenario: Ordinary prompt without mode switch
 

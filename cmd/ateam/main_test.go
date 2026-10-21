@@ -86,6 +86,20 @@ func TestCLISubcommands(t *testing.T) {
 	if got := runStateSnapshot(handoffDir, "board"); got != 0 {
 		t.Fatalf("runStateSnapshot(board) = %d, want 0", got)
 	}
+	if got := runStateMode(handoffDir, []string{"--session", "cli-session-A", "lite"}); got != 0 {
+		t.Fatalf("runStateMode(--session cli-session-A lite) = %d, want 0", got)
+	}
+	if got := runStateMode(handoffDir, []string{"ultra", "--session=cli-session-B"}); got != 0 {
+		t.Fatalf("runStateMode(ultra --session=cli-session-B) = %d, want 0", got)
+	}
+	modeLoaded, err := state.Load(handoffDir)
+	if err != nil {
+		t.Fatalf("state.Load after runStateMode: %v", err)
+	}
+	if modeLoaded.Mode != state.ModeFull || modeLoaded.EffectiveModeForSession("cli-session-A") != state.ModeLite || modeLoaded.EffectiveModeForSession("cli-session-B") != state.ModeUltra {
+		t.Fatalf("unexpected modes after CLI session updates: global=%q sessA=%q sessB=%q",
+			modeLoaded.Mode, modeLoaded.EffectiveModeForSession("cli-session-A"), modeLoaded.EffectiveModeForSession("cli-session-B"))
+	}
 
 	// Verify the recovery command advertised by stale forge-cache worktree output parses and succeeds through runState.
 	dirtyFalse := false

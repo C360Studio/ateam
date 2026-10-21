@@ -355,3 +355,73 @@ func filterOutID(cards []BoardCard, id string) []BoardCard {
 	}
 	return out
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func FuzzSessionModesHistory(f *testing.F) {
+	f.Add([]byte{0, 1, 2, 3, 4, 5, 6, 7}, uint8(0))
+	f.Add([]byte{3, 0, 2, 1, 1, 3, 0}, uint8(2))
+	f.Add([]byte{1, 1, 2, 2, 3, 3}, uint8(4))
+
+	sessions := []string{"", "sess-alpha", "sess-beta", "  sess-alpha  "}
+	modes := []DisciplineMode{ModeLite, ModeFull, ModeUltra, ModeOff, DisciplineMode("invalid")}
+	envModes := []string{"", "lite", "full", "ultra", "off", "invalid"}
+
+	f.Fuzz(func(t *testing.T, ops []byte, envIdx uint8) {
+		if len(ops) == 0 {
+			return
+		}
+		if len(ops) > 24 {
+			ops = ops[:24]
+		}
+		dir := t.TempDir()
+		envVal := envModes[int(envIdx)%len(envModes)]
+		t.Setenv("ATEAM_MODE", envVal)
+
+		st := defaultState()
+		refGlobal := ModeFull
+		refSessions := make(map[string]DisciplineMode)
+
+		for i, b := range ops {
+			sid := sessions[int(b)%len(sessions)]
+			m := modes[(int(b)/len(sessions)+i)%len(modes)]
+			st.SetSessionMode(sid, m)
+
+			normM, ok := NormalizeMode(string(m))
+			if !ok {
+				normM = ModeFull
+			}
+			trimSID := strings.TrimSpace(sid)
+			if trimSID == "" {
+				refGlobal = normM
+			} else {
+				refSessions[trimSID] = normM
+			}
+		}
+
+		if err := Save(dir, st); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		loaded, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if loaded.Mode != refGlobal {
+			t.Fatalf("loaded.Mode = %q, want %q", loaded.Mode, refGlobal)
+		}
+		for _, qSID := range []string{"", "sess-alpha", "sess-beta", "sess-unseen"} {
+			want := refGlobal
+			if envM, ok := NormalizeMode(envVal); envVal != "" && ok {
+				want = envM
+			}
+			if qSID != "" {
+				if sm, exists := refSessions[qSID]; exists {
+					want = sm
+				}
+			}
+			if got := loaded.EffectiveModeForSession(qSID); got != want {
+				t.Fatalf("EffectiveModeForSession(%q) with env=%q = %q, want %q", qSID, envVal, got, want)
+			}
+		}
+	})
+}

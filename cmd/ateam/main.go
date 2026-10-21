@@ -286,21 +286,51 @@ func runStateHandoff(repoRoot string, args []string) int {
 }
 
 func runStateMode(repoRoot string, args []string) int {
-	if len(args) > 0 {
-		mode, ok := state.NormalizeMode(args[0])
+	var sessionID, modeArg string
+	for i := 0; i < len(args); i++ {
+		a := strings.TrimSpace(args[i])
+		switch {
+		case a == "--session" || a == "-session":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "ateam state mode: --session requires a value")
+				return 1
+			}
+			sessionID = strings.TrimSpace(args[i+1])
+			i++
+		case strings.HasPrefix(a, "--session="):
+			sessionID = strings.TrimSpace(strings.TrimPrefix(a, "--session="))
+		case strings.HasPrefix(a, "-session="):
+			sessionID = strings.TrimSpace(strings.TrimPrefix(a, "-session="))
+		case strings.HasPrefix(a, "-"):
+			fmt.Fprintf(os.Stderr, "ateam state mode: unknown flag %q\n", a)
+			return 1
+		case modeArg == "":
+			modeArg = a
+		default:
+			fmt.Fprintf(os.Stderr, "ateam state mode: unexpected argument %q\n", a)
+			return 1
+		}
+	}
+	if modeArg != "" {
+		mode, ok := state.NormalizeMode(modeArg)
 		if !ok {
-			fmt.Fprintf(os.Stderr, "ateam state mode: invalid mode %q\n", args[0])
+			fmt.Fprintf(os.Stderr, "ateam state mode: invalid mode %q\n", modeArg)
 			return 1
 		}
 		st, err := state.Update(repoRoot, func(cur *state.State) error {
-			cur.Mode = mode
+			cur.SetSessionMode(sessionID, mode)
 			return nil
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ateam state mode: %v\n", err)
 			return 1
 		}
-		printJSON(map[string]string{"mode": string(st.Mode)})
+		st.CurrentSessionID = sessionID
+		out := map[string]string{"mode": string(st.EffectiveMode())}
+		if sessionID != "" {
+			out["session_id"] = sessionID
+		}
+		printJSON(out)
 		return 0
 	}
 	st, err := state.Load(repoRoot)
@@ -308,7 +338,12 @@ func runStateMode(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam state mode: %v\n", err)
 		return 1
 	}
-	printJSON(map[string]string{"mode": string(st.Mode)})
+	st.CurrentSessionID = sessionID
+	out := map[string]string{"mode": string(st.EffectiveMode())}
+	if sessionID != "" {
+		out["session_id"] = sessionID
+	}
+	printJSON(out)
 	return 0
 }
 

@@ -353,6 +353,63 @@ func NormalizeMode(raw string) (DisciplineMode, bool) {
 	}
 }
 
+// SetSessionMode records mode for sessionID when non-empty, or updates the checkout-wide Mode when sessionID is empty.
+func (st *State) SetSessionMode(sessionID string, mode DisciplineMode) {
+	if st == nil {
+		return
+	}
+	normalized, ok := NormalizeMode(string(mode))
+	if !ok {
+		normalized = ModeFull
+	}
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" {
+		st.Mode = normalized
+		return
+	}
+	if st.SessionModes == nil {
+		st.SessionModes = make(map[string]DisciplineMode)
+	}
+	st.SessionModes[sid] = normalized
+}
+
+// EffectiveModeForSession resolves the active DisciplineMode with precedence:
+// 1) SessionModes[sessionID] (or CurrentSessionID when sessionID is empty),
+// 2) ATEAM_MODE environment variable,
+// 3) checkout-wide st.Mode (defaulting to ModeFull).
+func (st *State) EffectiveModeForSession(sessionID string) DisciplineMode {
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" && st != nil {
+		sid = strings.TrimSpace(st.CurrentSessionID)
+	}
+	if st != nil && sid != "" && st.SessionModes != nil {
+		if raw, exists := st.SessionModes[sid]; exists && strings.TrimSpace(string(raw)) != "" {
+			if m, ok := NormalizeMode(string(raw)); ok {
+				return m
+			}
+		}
+	}
+	if envRaw := strings.TrimSpace(os.Getenv("ATEAM_MODE")); envRaw != "" {
+		if m, ok := NormalizeMode(envRaw); ok {
+			return m
+		}
+	}
+	if st != nil && strings.TrimSpace(string(st.Mode)) != "" {
+		if m, ok := NormalizeMode(string(st.Mode)); ok {
+			return m
+		}
+	}
+	return ModeFull
+}
+
+// EffectiveMode returns the resolved DisciplineMode for st.CurrentSessionID.
+func (st *State) EffectiveMode() DisciplineMode {
+	if st == nil {
+		return (*State)(nil).EffectiveModeForSession("")
+	}
+	return st.EffectiveModeForSession(st.CurrentSessionID)
+}
+
 // Handoff holds the 5-field SemEngine pickup prompt plus deterministic git metadata.
 type Handoff struct {
 	Goal          string    `json:"goal"`
@@ -483,6 +540,7 @@ type WriterLease struct {
 // State is the cached local state stored in gitignored .ateam/state.json.
 type State struct {
 	Mode             DisciplineMode              `json:"mode"`
+	SessionModes     map[string]DisciplineMode   `json:"session_modes,omitempty"`
 	Forge            ForgeConfig                 `json:"forge"`
 	Forges           []ForgeConfig               `json:"forges,omitempty"`
 	ForgesConfigured bool                        `json:"forges_configured,omitempty"`
@@ -1302,6 +1360,25 @@ func Load(root string) (*State, error) {
 		st.Mode = mode
 	} else {
 		st.Mode = ModeFull
+	}
+	if len(st.SessionModes) > 0 {
+		cleaned := make(map[string]DisciplineMode, len(st.SessionModes))
+		for k, v := range st.SessionModes {
+			sid := strings.TrimSpace(k)
+			if sid == "" || strings.TrimSpace(string(v)) == "" {
+				continue
+			}
+			if m, ok := NormalizeMode(string(v)); ok {
+				cleaned[sid] = m
+			}
+		}
+		if len(cleaned) > 0 {
+			st.SessionModes = cleaned
+		} else {
+			st.SessionModes = nil
+		}
+	} else {
+		st.SessionModes = nil
 	}
 	if st.Cards == nil {
 		st.Cards = []BoardCard{}
@@ -2423,7 +2500,7 @@ func BuildPickupSummary(st *State) string {
 		buildField = fmt.Sprintf("build=%s mcp=%s", diskBuild, strings.TrimSpace(st.MCPBuild))
 	}
 	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%s | %s | synced=%s\n",
-		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay, buildField, syncedDisplay)
+		st.EffectiveMode(), st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay, buildField, syncedDisplay)
 	if strings.TrimSpace(st.MCPStaleTarget) != "" {
 		fmt.Fprintf(&b, "WARNING: MCP server binary is stale; restart the client to pick up %s\n", strings.TrimSpace(st.MCPStaleTarget))
 	}

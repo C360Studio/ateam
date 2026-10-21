@@ -342,15 +342,17 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 				return "invalid mode: " + args.Mode, true
 			}
 			updated, err := state.Update(root, func(cur *state.State) error {
-				cur.Mode = m
+				cur.SetSessionMode(st.CurrentSessionID, m)
 				return nil
 			})
 			if err != nil {
 				return err.Error(), true
 			}
+			updated.CurrentSessionID = st.CurrentSessionID
 			st = updated
 		}
-		return fmt.Sprintf("active mode: %s\n%s", st.Mode, hook.LadderPrompt(st.Mode)), false
+		active := st.EffectiveMode()
+		return fmt.Sprintf("active mode: %s\n%s", active, hook.LadderPrompt(active)), false
 	case "spec_queue":
 		out, _ := state.FormatOpenSpecQueue(st.OpenSpecQueue)
 		return out, false
