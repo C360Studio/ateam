@@ -1,5 +1,7 @@
 # Mercury canary readiness — October 21, 2026
 
+Historical preparation snapshot. The owner later authorized the canary and A/A separately; both completed with retained replayable evidence. See [calibration results and the proposed instruction A/B](experiments/mercury-instructions-v1/README.md). The authorization and credential statements below describe preparation time, not permission for another run.
+
 Addresses #58 after PR #77 merged at `e88be0555091420ca103770597b28efa0cc5e4e1`. This records preparation of the [reviewed protocol](mercury-canary-plan.md); it does not authorize paid execution. The existing OpenSpec spending hold remains open. No runtime code, benchmark controls, native runtime defaults or frozen Gemini evidence changed.
 
 ## Frozen local inputs

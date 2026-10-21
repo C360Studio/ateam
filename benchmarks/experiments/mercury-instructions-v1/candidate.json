@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "name": "mercury-instructions-v1-candidate",
+  "files": [
+    "baseline.md",
+    "ateam.md"
+  ]
+}
