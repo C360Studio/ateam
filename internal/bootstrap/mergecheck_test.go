@@ -490,6 +490,7 @@ func TestMergeCheckReview(t *testing.T) {
 		for _, comment := range []string{
 			"**Review record:** reviewed-by: codex (OpenAI). Reviewed at `99d19a4`.",
 			"### Independent Cross-Agent Review (`codex`)\n\nReviewed head commit `" + headCommitSHA + "`.",
+			"Reviewed base `" + baseCommitSHA + "` → head `" + headCommitSHA + "`.\n\nreviewed-by: codex (OpenAI)",
 		} {
 			st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
 			st.comments = listJSON(commentJSON(comment))
@@ -558,6 +559,7 @@ func TestMergeCheckReview(t *testing.T) {
 		for _, comment := range []string{
 			"reviewed-by: codex\nReviewed at " + headCommitSHA + ".\nCommit " + contentCommitSHA + " remains unreviewed; request re-review.",
 			"reviewed-by: codex\nReviewed at " + headCommitSHA + "; see https://github.com/C360Studio/ateam/blob/" + contentCommitSHA + "/scripts/x.sh",
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + " while looking at " + contentCommitSHA + " as unreviewed.",
 		} {
 			stUnreviewed := st
 			stUnreviewed.comments = listJSON(commentJSON(comment))
@@ -568,6 +570,7 @@ func TestMergeCheckReview(t *testing.T) {
 		// Ambiguous multi-commit or undesignated records fail closed.
 		for _, comment := range []string{
 			"reviewed-by: codex\nReviewed at " + headCommitSHA + " and reviewed at " + contentCommitSHA + ".",
+			"reviewed-by: codex\nReviewed at deadbeef and reviewed at " + contentCommitSHA + ".",
 			"reviewed-by: codex\nCommits " + headCommitSHA + " and " + contentCommitSHA + " touched scripts/x.sh.",
 		} {
 			stAmbiguous := st

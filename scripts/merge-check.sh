@@ -252,16 +252,20 @@ else
         | ([ $hl[] | scan("(?i)(?:^|[^\\p{L}\\p{N}])(claude|codex|gemini)(?=[^\\p{L}\\p{N}]|$)") | .[0] | ascii_downcase ] | unique) as $ha
         | ($rb == [$reviewer]) or (($rb | length) == 0 and ($hl | length) > 0 and (($ha | length) == 0 or $ha == [$reviewer]));
       def designated_commit_indices($b):
-        ([ ( $b | scan("(?i)\\b(?:re-?)?review(?:ed|er-executed[ \\t]+verification)?(?:[ \\t]+[^\\n.;,()]{1,40})?[ \\t]+at[ \\t]+`?([0-9a-f]{7,40})(?=[^0-9A-Za-z]|$)") | .[0] ),
-           ( $b | scan("(?i)\\b(?:(?:re-?)?reviewed[ \\t]+(?:head[ \\t]+)?commit|(?:re-?)?review[ \\t]+of)(?:[ \\t]*\\([^)\\n]*\\))?[ \\t*_]*:?[ \\t*_]*`?([0-9a-f]{7,40})(?=[^0-9A-Za-z]|$)") | .[0] ),
+        ([ ( $b | scan("(?i)\\b(?:re-?)?reviewed[ \\t]+at[ \\t]*:?[ \\t]*`?([0-9a-f]{7,40})(?=[^0-9A-Za-z]|$)") | .[0] ),
+           ( $b | scan("(?i)\\b(?:(?:re-?)?reviewed[ \\t]+(?:(?:head[ \\t]+)?commit|head)|(?:re-?)?review[ \\t]+of)(?:[ \\t]*\\([^)\\n]*\\))?[ \\t*_]*:?[ \\t*_]*`?([0-9a-f]{7,40})(?=[^0-9A-Za-z]|$)") | .[0] ),
+           ( $b | scan("(?i)\\b(?:re-?)?reviewed[ \\t]+base[ \\t]+`?[0-9a-f]{7,40}`?[ \\t]+(?:->|→|to)[ \\t]+head[ \\t*_]*:?[ \\t*_]*`?([0-9a-f]{7,40})(?=[^0-9A-Za-z]|$)") | .[0] ),
            ( $b | scan("(?i)(?:^|\\n)[ \\t>*_-]*(?:reviewed-commit|head(?:[ \\t]+commit)?)(?:[ \\t]*\\([^)\\n]*\\))?[ \\t*_]*:[ \\t*_]*`?([0-9a-f]{7,40})(?=[^0-9A-Za-z]|$)") | .[0] )
          ] | map(ascii_downcase) | unique) as $toks
-        | [ range(0; $commits | length) as $i
-            | ($commits[$i].sha | ascii_downcase) as $csha
-            | select(any($toks[]; . as $t
-                | (($csha == $t) or ($csha | startswith($t)))
-                and ([ $commits[].sha | ascii_downcase | select(. == $t or startswith($t)) ] | length) == 1))
-            | $i ];
+        | if ($toks | length) != 1 then []
+          else
+            [ range(0; $commits | length) as $i
+              | ($commits[$i].sha | ascii_downcase) as $csha
+              | select(any($toks[]; . as $t
+                  | (($csha == $t) or ($csha | startswith($t)))
+                  and ([ $commits[].sha | ascii_downcase | select(. == $t or startswith($t)) ] | length) == 1))
+              | $i ]
+          end;
       [ .[]
         | (.body // "") as $b
         | select(is_record($b))
@@ -312,7 +316,8 @@ else
           if ! printf '%s' "$commit_detail" | jq -e '
             (.files | length) < 3000
             and ((.page_count == 1 and .first_page_files == 300) | not)
-            and (.changed_files == null or ((.changed_files | type) == "number" and (.files | length) == .changed_files))' >/dev/null; then
+            and (.changed_files == null or ((.changed_files | type) == "number" and (.files | length) == .changed_files))
+            and (.stats == null or ((.stats | type) == "object" and (.stats.additions == ([.files[].additions // 0] | add // 0)) and (.stats.deletions == ([.files[].deletions // 0] | add // 0))))' >/dev/null; then
             echo "merge-check: unavailable: the file list of commit ${c_sha} of pull request #${pr} has $(printf '%s' "$commit_detail" | jq '.files | length') files and may be incomplete" >&2
             exit 2
           fi
