@@ -1,6 +1,6 @@
 # ADR 0001: Scope of the model review gate
 
-- **Status:** Proposed (owner decision pending)
+- **Status:** Accepted (owner, 2026-10-21)
 - **Date:** 2026-10-21
 - **Deciders:** repository owner
 - **Evidence:** Fable dogfood sessions 2026-10-19 to 2026-10-21, Enjoy conversation "Agent review of ateam dogfooding"
