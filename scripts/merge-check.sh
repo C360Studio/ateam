@@ -11,7 +11,9 @@
 #      draft fails unless its description has one implemented-by: line naming
 #      claude, codex, or gemini (not read for a bot's) and one reviewed-by:
 #      line naming another agent (any of the three for a bot's, or when more than
-#      one is named), and a PR comment contains a review record (reviewed-by:
+#      one is named), each line naming its model in parentheses after the agent
+#      (e.g. implemented-by: claude (opus); several implementer models are
+#      comma-separated inside them), and a PR comment contains a review record (reviewed-by:
 #      <agent> or a ### Independent Cross-Agent Review heading) designating a
 #      single reviewed commit (e.g. reviewed at <sha>, re-reviewed at <sha>,
 #      reviewed [head] commit <sha>, or reviewed-commit: <sha>) in the PR's
@@ -161,18 +163,22 @@ else
   printf '%s' "$code" | jq -r '.[:10][] | "merge-check: code file: \(.)"'
   # The two lines: each starts in the first column; a carriage return before the
   # line feed is dropped. An agent name is claude, codex, or gemini in any letter
-  # case, with no letter or digit directly before or after it. Nothing else is read.
+  # case, with no letter or digit directly before or after it. The model is the
+  # parenthesised group directly after the first agent name (spaces and backticks
+  # allowed between), with a character other than a space in it. Nothing else is read.
   if ! lines=$(printf '%s' "$pull" | jq -r '
     def agents: [scan("(?i)(?:^|[^\\p{L}\\p{N}])(claude|codex|gemini)(?=[^\\p{L}\\p{N}]|$)") | .[0] | ascii_downcase] | unique | join(" ");
+    def model: if test("^[ \\t]*`?(?i:claude|codex|gemini)`?[ \\t]*\\([^)]*[^\\s)][^)]*\\)") then "yes" else "no" end;
     [(.body // "") | split("\n")[] | rtrimstr("\r")] as $l
     | ($l | map(select(startswith("implemented-by:")))) as $i
     | ($l | map(select(startswith("reviewed-by:")))) as $r
     | [.user.type, ($i | length), ($i[0] // "" | ltrimstr("implemented-by:") | agents),
-       ($r | length), ($r[0] // "" | ltrimstr("reviewed-by:") | agents)] | map(tostring) | join("|")'); then
+       ($r | length), ($r[0] // "" | ltrimstr("reviewed-by:") | agents),
+       ($i[0] // "" | ltrimstr("implemented-by:") | model), ($r[0] // "" | ltrimstr("reviewed-by:") | model)] | map(tostring) | join("|")'); then
     echo "merge-check: unavailable: jq failed reading the description of pull request #${pr}" >&2
     exit 2
   fi
-  IFS='|' read -r author icount iagents rcount ragents <<<"$lines"
+  IFS='|' read -r author icount iagents rcount ragents imodel rmodel <<<"$lines"
   case "$icount:$rcount" in
     *[!0-9:]* | :* | *:) echo "merge-check: unavailable: the description of pull request #${pr} was read as '${lines}'" >&2; exit 2 ;;
   esac
@@ -199,6 +205,8 @@ else
       finding "${icount} lines start implemented-by:, and exactly one may" "$implline"
     elif [ -z "$iagents" ]; then
       finding "the implemented-by: line must name claude, codex, or gemini, the agent that wrote the commits" "$implline"
+    elif [ "$imodel" != yes ]; then
+      finding "the implemented-by: line must name the implementing model in parentheses after the agent (several comma-separated)" "implemented-by: ${iagents} (<model>)"
     fi
   fi
   if [ "$rcount" -eq 0 ]; then
@@ -209,6 +217,8 @@ else
     finding "the reviewed-by: line must name exactly one of claude, codex, and gemini" "$wantline"
   elif [ -n "$impl_single" ] && [ "$ragents" = "$impl_single" ]; then
     finding "the reviewed-by: line names ${ragents}, which the implemented-by: line names; another agent (${others}) reviews" "$wantline"
+  elif [ "$rmodel" != yes ]; then
+    finding "the reviewed-by: line must name the reviewing model in parentheses after the agent" "reviewed-by: ${ragents} (<model>)"
   fi
   if [ "$findings" -eq 0 ]; then
     read_gh "the commits of pull request #${pr}" 'type == "array"' \
