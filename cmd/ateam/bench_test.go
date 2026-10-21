@@ -25,7 +25,7 @@ func TestBenchRejectsForgedRescoreAndCLIArguments(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestBenchExportRejectsArgumentsBeforeReadingInput(t *testing.T) {
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing-run.json")
@@ -54,9 +54,9 @@ func TestBenchExportRejectsArgumentsBeforeReadingInput(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Offline validated report projection
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Explicit replay association and outcome
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Offline validated report projection
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Explicit replay association and outcome
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestBenchExportAndCheckCLI(t *testing.T) {
 	dir := t.TempDir()
 	fixture := filepath.Join("..", "..", "internal", "bench", "testdata", "report", "complete-run.json")
@@ -102,7 +102,7 @@ func TestBenchExportAndCheckCLI(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Offline validated report projection
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Offline validated report projection
 func TestBenchExportRejectsInvalidInput(t *testing.T) {
 	dir := t.TempDir()
 	invalid := filepath.Join(dir, "invalid.json")
