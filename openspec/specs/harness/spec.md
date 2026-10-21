@@ -97,7 +97,8 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 - **WHEN** `WorktreePRStatus` or `BuildPickupSummary` renders worktrees from `.ateam/state.json`
 - **THEN** a worktree with no PR card on the board (and not `main`/`master`/`detached` or an ancestor of `main` with `ahead == 0`) is labeled `no PR` rather than `unmerged`
-- **AND** when the supplying forge cache timestamp (`SyncedAtFor` for the matched card's provider, or the active forge for `no PR`) is at least `10m` old, PR/forge-derived worktree labels append `(cache <age>)` (e.g. `open PR #64 (cache 4h)`, `no PR (cache 4h)`, `merged via #57 (cache 4h)`), `Worktrees:` prints `labels from forge cache synced <age> ago; run ateam state pickup`, and live git-derived fields (`head`, `dirty`, `ahead`, and `default branch` / `detached` / `merged (ancestor of main)`) carry no cache caveat
+- **AND** when the supplying forge cache timestamp (`SyncedAtFor` for the matched card's provider, or the active forge for `no PR`) is at least `10m` old, PR/forge-derived worktree labels append `(cache <age>)` (e.g. `open PR #64 (cache 4h)`, `no PR (cache 4h)`, `merged via #57 (cache 4h)`), `Worktrees:` prints `labels from forge cache synced <age> ago; run ateam state pickup`, and live git-derived fields (`head`, `dirty`, `ahead`, and `default branch` / `detached` / `merged (ancestor of main)` / `no commits yet`) carry no cache caveat
+- **AND** a detached checkout is labeled `detached` on every surface, including after a live head read that names it `HEAD`, and a branch with no PR card whose head equals the `main` head is labeled `no commits yet` rather than `merged (ancestor of main)`
 
 ### Requirement: Constant-time forge webhook verification and rate limiting
 
