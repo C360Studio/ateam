@@ -240,4 +240,4 @@ An in-process Go loopback proxy records bounded provider responses before transl
 
 General multi-turn tool/permission qualification is deferred; the actual `StructuredOutput` tool path required by these tasks is tested offline. Paid runs require separate approval of the [canary/A/A proposal](mercury-canary-plan.md).
 
-The authorized Mercury canary and A/A subsequently passed 2/2 and 6/6. The [instruction A/B v1 protocol](experiments/mercury-instructions-v1/README.md) records calibration evidence and proposes a separately authorized 12-attempt comparison of minimal guidance with a fixed ATeam subset; planning does not authorize execution.
+The authorized Mercury canary and A/A subsequently passed 2/2 and 6/6. The separately authorized [instruction A/B v1](experiments/mercury-instructions-v1/README.md) completed 12/12. Its [worked results](experiments/mercury-instructions-v1/results.md) retain saturated correctness, observed time/token overhead, every pair and evidence-availability limits. All phase permissions are consumed; the example authorizes no repeat.

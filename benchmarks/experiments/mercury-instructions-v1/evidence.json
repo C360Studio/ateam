@@ -1,0 +1,45 @@
+{
+  "kind": "ateam-worked-example-evidence",
+  "schema_version": 1,
+  "frozen_protocol_commit": "0fb4a6066ff3f6adf76043261cd42961cd5c13a0",
+  "runner_source_commit": "54e9fa1aaa72d2ac402cd028417c1cc3eb55276f",
+  "runtime_source_equivalent_to": "e88be0555091420ca103770597b28efa0cc5e4e1",
+  "summary_file": "results.json",
+  "summary_file_sha256": "700f67b81f2c43bbeae69f510b439c48d9c44674dc0e41083f8917990165aab2",
+  "artifacts": [
+    {
+      "id": "original-ab",
+      "relative_private_path": "benchmarks/runs/mercury-instructions-v1-ab/experiment-1271886322/run.json",
+      "availability": "private-local; not included in repository",
+      "file_sha256": "5f2a7122c7ed953ea3b6b2e5948bd4c390aa63cc8b502f26326687a639614087",
+      "internal_run_sha256": "9913abfc865ea861d205bb7b53b71ef9e799639fbffb7deb53d20c70eed967d5"
+    },
+    {
+      "id": "offline-rescore",
+      "relative_private_path": "benchmarks/runs/mercury-instructions-v1-ab/experiment-1271886322/rescore-4020870683/run.json",
+      "availability": "private-local; not included in repository",
+      "file_sha256": "03aefa472b00d5ee575eda345a905796400ed5f5b68d28974ca43b7e6b4c2e3b",
+      "internal_run_sha256": "58b87cbd5560533638f13971e5fd64740a852f778d0ac4a980dc753e7a6863df"
+    },
+    {
+      "id": "canary",
+      "relative_private_path": "benchmarks/runs/mercury-canary/experiment-3633638727/run.json",
+      "availability": "private-local; not included in repository",
+      "file_sha256": "15e166bed37f64473619fdd31d2eb146c202d47a2a189d2611f07927bf49520b",
+      "internal_run_sha256": "e32483a94a2729de41c6eda747285f4fb3df28d5d50c5c78925e8d62e548ce5a"
+    },
+    {
+      "id": "aa",
+      "relative_private_path": "benchmarks/runs/mercury-aa/experiment-2131329950/run.json",
+      "availability": "private-local; not included in repository",
+      "file_sha256": "6f8a491c4b20a77bb919f753ff7a626b3e8ad3f3f126b1f4a8a00fc5cc258b54",
+      "internal_run_sha256": "f625b09ff5c17ac06bdae96eef36f8abd8dacc1fc971c70303206443947fa5ff"
+    }
+  ],
+  "limits": [
+    "Summary files do not contain raw native/provider traces, credentials, absolute local paths or native session IDs.",
+    "Replay requires the original private run artifact and matching evaluator/Go grader.",
+    "Hashes detect byte changes; they do not prove authorship, successful checks or access to private evidence.",
+    "This curated schema is a worked example, not an implemented report-export contract."
+  ]
+}

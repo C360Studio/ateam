@@ -1,4 +1,6 @@
-# Mercury instruction A/B v1 — proposed, not authorized
+# Mercury instruction A/B v1 — frozen protocol
+
+The owner subsequently authorized this one cohort; it completed 12/12 with matching offline regrading. See [the worked results](results.md), [machine-readable summary](results.json) and [evidence manifest](evidence.json). The pre-run protocol below is preserved for interpretation. Its one-time authorization is consumed; no repeat or additional inference is authorized.
 
 Addresses #16; follows #58 / PR #77 and the canary/A/A preparation in PR #85. This request prepares a plan for review. Earlier canary and A/A permissions have been consumed and authorize no A/B calls. No new runtime, dependency, grader, task, native skill, hook or controller is proposed.
 

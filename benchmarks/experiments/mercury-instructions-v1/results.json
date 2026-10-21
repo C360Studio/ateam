@@ -1,0 +1,407 @@
+{
+  "kind": "ateam-worked-example-summary",
+  "schema_version": 1,
+  "example": "mercury-instructions-v1",
+  "summary_origin": "Curated from validated run and compare output; not a replayable run artifact or finalized exporter schema.",
+  "experiment": {
+    "mode": "ab",
+    "model": "mercury-3",
+    "native_cli": "Claude Code2.1.292",
+    "bridge": "LiteLLM1.99.0",
+    "requested_reasoning": "low",
+    "tasks": [
+      "safe-path",
+      "sql-user",
+      "gitea-webhook"
+    ],
+    "repetitions": 2,
+    "seed": 0,
+    "scheduled_attempts": 12,
+    "timeout_seconds": 30,
+    "max_run_seconds": 720,
+    "max_total_tokens": 100000,
+    "config_sha256": "3ab3d3b04c1eac6f9d19f8333e871314fd2e85d055039b7bef07dcbcf6c7fd22",
+    "runner_sha256": "ef61c27ccb28fbfd3b478bf6ae9fbf1009cf8a461af0f20d5c74c0005e1b4de5",
+    "evaluator_sha256": "2ddf44f2d4736a1bb6d8d4d6a4dffbaf3b6aef7c59e7feb81a0f6ac75bbd7246",
+    "baseline_instructions_sha256": "957138123c57e7952a4c986fe379c9028b7ad8c9a21ff841506fa3158df5ec6e",
+    "candidate_instructions_sha256": "d1df3b100357d063de22eb5900fd1cc8cfac09f81c991a24faa5e0d6c84a679b"
+  },
+  "comparison": {
+    "mode": "ab",
+    "arms": {
+      "baseline": {
+        "attempts": 6,
+        "status_counts": {
+          "passed": 6
+        },
+        "reported_usage_attempts": 6,
+        "missing_usage_attempts": 0,
+        "cached_usage_attempts": 6,
+        "reasoning_usage_attempts": 6,
+        "execution_nanos": {
+          "count": 6,
+          "min": 3373414083,
+          "max": 11618489083,
+          "mean": 6640965729,
+          "population_sd": 3593187375.566116
+        },
+        "passed_execution_nanos": {
+          "count": 6,
+          "min": 3373414083,
+          "max": 11618489083,
+          "mean": 6640965729,
+          "population_sd": 3593187375.566116
+        },
+        "reported_tokens": {
+          "count": 6,
+          "min": 1004,
+          "max": 4610,
+          "mean": 2315.8333333333335,
+          "population_sd": 1591.3569070310896
+        }
+      },
+      "candidate": {
+        "attempts": 6,
+        "status_counts": {
+          "passed": 6
+        },
+        "reported_usage_attempts": 6,
+        "missing_usage_attempts": 0,
+        "cached_usage_attempts": 6,
+        "reasoning_usage_attempts": 6,
+        "execution_nanos": {
+          "count": 6,
+          "min": 3428362750,
+          "max": 16128206625,
+          "mean": 7502298402.833334,
+          "population_sd": 4942179971.809949
+        },
+        "passed_execution_nanos": {
+          "count": 6,
+          "min": 3428362750,
+          "max": 16128206625,
+          "mean": 7502298402.833334,
+          "population_sd": 4942179971.809949
+        },
+        "reported_tokens": {
+          "count": 6,
+          "min": 1209,
+          "max": 7322,
+          "mean": 2841.9999999999995,
+          "population_sd": 2225.9127715763407
+        }
+      }
+    },
+    "scheduled_attempts": 12,
+    "completed_attempts": 12,
+    "unpaired_attempts": 0,
+    "unevaluable_pairs": 0,
+    "pairs": 6,
+    "baseline_passed": 6,
+    "candidate_passed": 6,
+    "improvements": 0,
+    "regressions": 0,
+    "both_passed": 6,
+    "neither_passed": 0,
+    "status_counts": {
+      "baseline/passed": 6,
+      "candidate/passed": 6
+    },
+    "successful_pair_mean_delta_nanos": 861332673.8333334,
+    "usage_pairs": 6,
+    "missing_usage_pairs": 0,
+    "total_token_delta": 3157
+  },
+  "attempts": [
+    {
+      "index": 0,
+      "task": "safe-path",
+      "repetition": 1,
+      "arm": "baseline",
+      "status": "passed",
+      "execution_seconds": 11.553770084,
+      "grading_seconds": 0.55563975,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 713,
+        "output_tokens": 3792,
+        "cached_input_tokens": 9,
+        "reasoning_output_tokens": 3768
+      },
+      "total_tokens": 4505
+    },
+    {
+      "index": 1,
+      "task": "safe-path",
+      "repetition": 1,
+      "arm": "candidate",
+      "status": "passed",
+      "execution_seconds": 16.128206625,
+      "grading_seconds": 0.341909375,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 849,
+        "output_tokens": 6473,
+        "cached_input_tokens": 253,
+        "reasoning_output_tokens": 6441
+      },
+      "total_tokens": 7322
+    },
+    {
+      "index": 2,
+      "task": "sql-user",
+      "repetition": 1,
+      "arm": "candidate",
+      "status": "passed",
+      "execution_seconds": 3.42836275,
+      "grading_seconds": 0.360483667,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 882,
+        "output_tokens": 338,
+        "cached_input_tokens": 517,
+        "reasoning_output_tokens": 314
+      },
+      "total_tokens": 1220
+    },
+    {
+      "index": 3,
+      "task": "sql-user",
+      "repetition": 1,
+      "arm": "baseline",
+      "status": "passed",
+      "execution_seconds": 5.875401708,
+      "grading_seconds": 2.279936542,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 722,
+        "output_tokens": 334,
+        "cached_input_tokens": 514,
+        "reasoning_output_tokens": 303
+      },
+      "total_tokens": 1056
+    },
+    {
+      "index": 4,
+      "task": "gitea-webhook",
+      "repetition": 1,
+      "arm": "baseline",
+      "status": "passed",
+      "execution_seconds": 3.373414083,
+      "grading_seconds": 0.347852792,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 726,
+        "output_tokens": 592,
+        "cached_input_tokens": 510,
+        "reasoning_output_tokens": 561
+      },
+      "total_tokens": 1318
+    },
+    {
+      "index": 5,
+      "task": "gitea-webhook",
+      "repetition": 1,
+      "arm": "candidate",
+      "status": "passed",
+      "execution_seconds": 5.660304292,
+      "grading_seconds": 1.598788625,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 889,
+        "output_tokens": 993,
+        "cached_input_tokens": 517,
+        "reasoning_output_tokens": 966
+      },
+      "total_tokens": 1882
+    },
+    {
+      "index": 6,
+      "task": "safe-path",
+      "repetition": 2,
+      "arm": "candidate",
+      "status": "passed",
+      "execution_seconds": 12.354397666,
+      "grading_seconds": 0.370181791,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 880,
+        "output_tokens": 3134,
+        "cached_input_tokens": 516,
+        "reasoning_output_tokens": 3112
+      },
+      "total_tokens": 4014
+    },
+    {
+      "index": 7,
+      "task": "safe-path",
+      "repetition": 2,
+      "arm": "baseline",
+      "status": "passed",
+      "execution_seconds": 11.618489083,
+      "grading_seconds": 0.332913875,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 733,
+        "output_tokens": 3877,
+        "cached_input_tokens": 520,
+        "reasoning_output_tokens": 3794
+      },
+      "total_tokens": 4610
+    },
+    {
+      "index": 8,
+      "task": "sql-user",
+      "repetition": 2,
+      "arm": "baseline",
+      "status": "passed",
+      "execution_seconds": 3.449548708,
+      "grading_seconds": 0.459629708,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 714,
+        "output_tokens": 290,
+        "cached_input_tokens": 9,
+        "reasoning_output_tokens": 254
+      },
+      "total_tokens": 1004
+    },
+    {
+      "index": 9,
+      "task": "sql-user",
+      "repetition": 2,
+      "arm": "candidate",
+      "status": "passed",
+      "execution_seconds": 3.623041459,
+      "grading_seconds": 0.4689645,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 848,
+        "output_tokens": 361,
+        "cached_input_tokens": 254,
+        "reasoning_output_tokens": 333
+      },
+      "total_tokens": 1209
+    },
+    {
+      "index": 10,
+      "task": "gitea-webhook",
+      "repetition": 2,
+      "arm": "candidate",
+      "status": "passed",
+      "execution_seconds": 3.819477625,
+      "grading_seconds": 0.405494875,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 885,
+        "output_tokens": 520,
+        "cached_input_tokens": 514,
+        "reasoning_output_tokens": 489
+      },
+      "total_tokens": 1405
+    },
+    {
+      "index": 11,
+      "task": "gitea-webhook",
+      "repetition": 2,
+      "arm": "baseline",
+      "status": "passed",
+      "execution_seconds": 3.975170708,
+      "grading_seconds": 0.341445917,
+      "provider_requests": 1,
+      "usage": {
+        "input_tokens": 710,
+        "output_tokens": 692,
+        "cached_input_tokens": 500,
+        "reasoning_output_tokens": 627
+      },
+      "total_tokens": 1402
+    }
+  ],
+  "pairs": [
+    {
+      "task": "safe-path",
+      "repetition": 1,
+      "both_passed": true,
+      "baseline_seconds": 11.553770084,
+      "candidate_seconds": 16.128206625,
+      "candidate_minus_baseline_seconds": 4.574436541000001,
+      "baseline_tokens": 4505,
+      "candidate_tokens": 7322,
+      "candidate_minus_baseline_tokens": 2817
+    },
+    {
+      "task": "sql-user",
+      "repetition": 1,
+      "both_passed": true,
+      "baseline_seconds": 5.875401708,
+      "candidate_seconds": 3.42836275,
+      "candidate_minus_baseline_seconds": -2.4470389580000003,
+      "baseline_tokens": 1056,
+      "candidate_tokens": 1220,
+      "candidate_minus_baseline_tokens": 164
+    },
+    {
+      "task": "gitea-webhook",
+      "repetition": 1,
+      "both_passed": true,
+      "baseline_seconds": 3.373414083,
+      "candidate_seconds": 5.660304292,
+      "candidate_minus_baseline_seconds": 2.286890209,
+      "baseline_tokens": 1318,
+      "candidate_tokens": 1882,
+      "candidate_minus_baseline_tokens": 564
+    },
+    {
+      "task": "safe-path",
+      "repetition": 2,
+      "both_passed": true,
+      "baseline_seconds": 11.618489083,
+      "candidate_seconds": 12.354397666,
+      "candidate_minus_baseline_seconds": 0.7359085830000005,
+      "baseline_tokens": 4610,
+      "candidate_tokens": 4014,
+      "candidate_minus_baseline_tokens": -596
+    },
+    {
+      "task": "sql-user",
+      "repetition": 2,
+      "both_passed": true,
+      "baseline_seconds": 3.449548708,
+      "candidate_seconds": 3.623041459,
+      "candidate_minus_baseline_seconds": 0.17349275099999995,
+      "baseline_tokens": 1004,
+      "candidate_tokens": 1209,
+      "candidate_minus_baseline_tokens": 205
+    },
+    {
+      "task": "gitea-webhook",
+      "repetition": 2,
+      "both_passed": true,
+      "baseline_seconds": 3.975170708,
+      "candidate_seconds": 3.819477625,
+      "candidate_minus_baseline_seconds": -0.15569308299999962,
+      "baseline_tokens": 1402,
+      "candidate_tokens": 1405,
+      "candidate_minus_baseline_tokens": 3
+    }
+  ],
+  "usage": {
+    "provider_requests": 12,
+    "unknown_usage_attempts": 0,
+    "input_tokens": 9551,
+    "output_tokens": 21396,
+    "cached_input_tokens": 4633,
+    "reasoning_output_tokens": 20962,
+    "total_tokens": 30947
+  },
+  "replay": {
+    "matched_attempts": 12,
+    "matched_grades": 12,
+    "original_bytes_unchanged": true,
+    "unique_native_sessions_including_calibration": 20
+  },
+  "evidence_manifest": "evidence.json",
+  "actual_cost_usd": null,
+  "actual_cost_status": "not independently reconciled"
+}
