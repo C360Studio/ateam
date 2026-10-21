@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -182,7 +183,12 @@ func TestMercuryProcessHelper(_ *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"type": "result", "subtype": "success", "is_error": false, "session_id": fmt.Sprint(os.Getpid()), "structured_output": map[string]string{"source": source}, "modelUsage": map[string]any{"invented": map[string]int{"inputTokens": 99999}}})
 	})
-	if err := http.ListenAndServe("127.0.0.1:"+port, mux); err != nil {
+	listener, err := net.Listen("tcp4", "127.0.0.1:"+port)
+	if err != nil {
+		fail("bridge listener failed")
+	}
+	fmt.Fprintf(os.Stderr, "INFO:     Uvicorn running on http://%s (Press CTRL+C to quit)\n", listener.Addr())
+	if err := http.Serve(listener, mux); err != nil {
 		fail("bridge listener failed")
 	}
 	os.Exit(0)
