@@ -11,7 +11,11 @@
 #      draft fails unless its description has one implemented-by: line naming
 #      claude, codex, or gemini (not read for a bot's) and one reviewed-by:
 #      line naming another agent (any of the three for a bot's, or when more than
-#      one is named); a draft's findings are printed and fail nothing.
+#      one is named), and a PR comment contains a review record (reviewed-by:
+#      <agent> or a ### Independent Cross-Agent Review heading) naming a commit
+#      in the PR's commit list with no later content commit (allowing only a
+#      merge of main whose non-merge diff touches none of the PR's changed files,
+#      or a documents-only commit); a draft's findings are printed and fail nothing.
 #
 # Usage: merge-check.sh <pr-number>
 #   The kind of run comes from GITHUB_EVENT_NAME only when GITHUB_ACTIONS is
@@ -205,7 +209,101 @@ else
     finding "the reviewed-by: line names ${ragents}, which the implemented-by: line names; another agent (${others}) reviews" "$wantline"
   fi
   if [ "$findings" -eq 0 ]; then
-    echo "merge-check: the review check passes; reviewing agent: ${ragents}"
+    read_gh "the commits of pull request #${pr}" 'type == "array"' \
+      gh api --paginate "repos/{owner}/{repo}/pulls/${pr}/commits?per_page=100"
+    if ! commits=$(printf '%s' "$answer" | jq -c -s '
+      if all(.[]; type == "array" and all(.[]; type == "object"
+        and (.sha | type) == "string" and (.sha | length) >= 7
+        and ((.parents // []) | type == "array" and all(.[]; type == "object" and (.sha | type) == "string"))
+        and ((.commit.message // "") | type == "string")))
+      then add // [] else error("not pages of commits") end'); then
+      echo "merge-check: unavailable: the read of the commits of pull request #${pr} returned something other than what was asked for: ${answer}" >&2
+      exit 2
+    fi
+    if [ "$(printf '%s' "$commits" | jq 'length')" -eq 0 ]; then
+      echo "merge-check: unavailable: pull request #${pr} has no commits" >&2
+      exit 2
+    fi
+    read_gh "the comments of pull request #${pr}" 'type == "array"' \
+      gh api --paginate "repos/{owner}/{repo}/issues/${pr}/comments?per_page=100"
+    if ! comments=$(printf '%s' "$answer" | jq -c -s '
+      if all(.[]; type == "array" and all(.[]; type == "object" and (.body == null or (.body | type) == "string")))
+      then add // [] else error("not pages of comments") end'); then
+      echo "merge-check: unavailable: the read of the comments of pull request #${pr} returned something other than what was asked for: ${answer}" >&2
+      exit 2
+    fi
+    if ! record=$(printf '%s' "$comments" | jq -r --arg reviewer "$ragents" --argjson commits "$commits" '
+      def is_record($b):
+        ([ $b | scan("(?i)reviewed-by:[ \\t]*`?(claude|codex|gemini)(?=[^\\p{L}\\p{N}]|$)") | .[0] | ascii_downcase ] | unique) as $rb
+        | ([ $b | split("\n")[] | rtrimstr("\r") | select(test("^[ \\t]*### Independent Cross-Agent Review\\b")) ]) as $hl
+        | ([ $hl[] | scan("(?i)(?:^|[^\\p{L}\\p{N}])(claude|codex|gemini)(?=[^\\p{L}\\p{N}]|$)") | .[0] | ascii_downcase ] | unique) as $ha
+        | ($rb == [$reviewer]) or (($rb | length) == 0 and ($hl | length) > 0 and (($ha | length) == 0 or $ha == [$reviewer]));
+      def matched_commit_indices($b):
+        ([ $b | scan("[0-9A-Za-z]+") | ascii_downcase | select(test("^[0-9a-f]{7,40}$")) ] | unique) as $toks
+        | [ range(0; $commits | length) as $i
+            | ($commits[$i].sha | ascii_downcase) as $csha
+            | select(any($toks[]; . as $t
+                | (($csha == $t) or ($csha | startswith($t)))
+                and ([ $commits[].sha | ascii_downcase | select(. == $t or startswith($t)) ] | length) == 1))
+            | $i ];
+      [ .[]
+        | (.body // "") as $b
+        | select(is_record($b))
+        | matched_commit_indices($b) as $idxs
+        | select(($idxs | length) > 0)
+        | ($idxs | max) as $idx
+        | "\($idx)|\($commits[$idx].sha)"
+      ] | last // "none|"'); then
+      echo "merge-check: unavailable: jq failed reading review records of pull request #${pr}" >&2
+      exit 2
+    fi
+    IFS='|' read -r rec_idx rec_sha <<<"$record"
+    case "$rec_idx" in
+      none)
+        finding "no review record comment names reviewed-by: ${ragents} (or ### Independent Cross-Agent Review) and a commit in pull request #${pr}" \
+          "post a review record comment with reviewed-by: ${ragents} and the reviewed commit SHA"
+        ;;
+      '' | *[!0-9]*)
+        echo "merge-check: unavailable: review record index of pull request #${pr} was read as '${record}'" >&2
+        exit 2
+        ;;
+      *)
+        if ! later_shas=$(printf '%s' "$commits" | jq -r --argjson idx "$rec_idx" '.[$idx + 1:][].sha'); then
+          echo "merge-check: unavailable: jq failed reading commits after ${rec_sha} on pull request #${pr}" >&2
+          exit 2
+        fi
+        while IFS= read -r c_sha; do
+          [ -n "$c_sha" ] || continue
+          read_gh "commit ${c_sha} of pull request #${pr}" \
+            'type == "object" and (.sha | type) == "string" and (.files | type) == "array" and all(.files[]; type == "object" and (.filename | type) == "string" and (.previous_filename == null or (.previous_filename | type) == "string")) and ((.parents // []) | type == "array" and all(.[]; type == "object" and (.sha | type) == "string")) and ((.commit.message // "") | type == "string")' \
+            gh api "repos/{owner}/{repo}/commits/${c_sha}"
+          if ! allowed=$(printf '%s' "$answer" | jq -r --argjson pr_files "$files" '
+            def is_doc:
+              (endswith(".md") or (startswith("openspec/") and (endswith(".yml") or endswith(".yaml") or endswith(".json"))))
+              and (startswith(".claude/agents/") | not)
+              and (startswith(".agents/contracts/") | not);
+            ([$pr_files[] | .filename, (.previous_filename // empty)] | unique) as $prf
+            | ([.files[] | .filename, (.previous_filename // empty)] | unique) as $cf
+            | (((.parents // []) | length) >= 2
+               and ((.commit.message // "") | split("\n")[0] | rtrimstr("\r") | test("(?i)^merge\\b.*\\b(origin/)?main\\b"))
+               and all($cf[]; . as $f | ($prf | index($f)) == null))
+              or (((.parents // []) | length) < 2
+                  and ($cf | length) > 0
+                  and all($cf[]; is_doc))'); then
+            echo "merge-check: unavailable: jq failed classifying commit ${c_sha} of pull request #${pr}" >&2
+            exit 2
+          fi
+          if [ "$allowed" != true ]; then
+            finding "review record at ${rec_sha} is older than content commit ${c_sha}; request re-review" \
+              "post a new review record comment from ${ragents} naming the current head commit"
+            break
+          fi
+        done <<<"$later_shas"
+        ;;
+    esac
+  fi
+  if [ "$findings" -eq 0 ]; then
+    echo "merge-check: the review check passes; reviewing agent: ${ragents} (record at ${rec_sha})"
   elif [ "$draft" = true ]; then
     echo "merge-check: pull request #${pr} is a draft: a review finding does not fail a draft (${findings} above)"
   else

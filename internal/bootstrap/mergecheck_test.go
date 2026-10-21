@@ -35,6 +35,9 @@ case "$1 $2" in
       "api repos/{owner}/{repo}/rulesets/"*) key=ruleset ;;
       "api repos/{owner}/{repo}/pulls/$FAKE_GH_PR") key=pull ;;
       "api --paginate repos/{owner}/{repo}/pulls/$FAKE_GH_PR/files?per_page=100") key=files ;;
+      "api --paginate repos/{owner}/{repo}/pulls/$FAKE_GH_PR/commits?per_page=100") key=commits ;;
+      "api --paginate repos/{owner}/{repo}/issues/$FAKE_GH_PR/comments?per_page=100") key=comments ;;
+      "api repos/{owner}/{repo}/commits/"*) key="commit-${2##*/}" ;;
       *) echo "fake gh: unexpected call: $*" >&2; exit 3 ;;
     esac ;;
 esac
@@ -59,7 +62,8 @@ func listJSON(items ...string) string { return "[" + strings.Join(items, ",") + 
 
 type ghState struct {
 	labels, issues, pr, rules, ruleset string
-	pull, files                        string
+	pull, files, commits, comments     string
+	commitDetails                      map[string]string
 	fail                               []string
 	jqFail                             string
 }
@@ -73,18 +77,55 @@ const (
 	requiredRule = `{"type":"required_status_checks","ruleset_id":24272345,"ruleset_source":"C360Studio/ateam",` +
 		`"parameters":{"strict_required_status_checks_policy":true,"do_not_enforce_on_create":false,` +
 		`"required_status_checks":[{"context":"Required","integration_id":15368}]}}`
-	otherRules = `{"type":"deletion","ruleset_id":24272345},{"type":"non_fast_forward","ruleset_id":24272345}`
+	otherRules    = `{"type":"deletion","ruleset_id":24272345},{"type":"non_fast_forward","ruleset_id":24272345}`
+	baseCommitSHA = "03121ae8066ec58a2ecc5a95c38c4447389eb0a3"
+	headCommitSHA = "99d19a4cfa55e59c62dd49f79bd420e653675767"
 )
+
+func prCommitJSON(sha, message string, parents ...string) string {
+	ps := make([]string, len(parents))
+	for i, p := range parents {
+		ps[i] = fmt.Sprintf(`{"sha":%q}`, p)
+	}
+	msg, err := json.Marshal(message)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`{"sha":%q,"commit":{"message":%s},"parents":%s}`, sha, msg, listJSON(ps...))
+}
+
+func commitDetailJSON(sha, message string, parents []string, files ...string) string {
+	ps := make([]string, len(parents))
+	for i, p := range parents {
+		ps[i] = fmt.Sprintf(`{"sha":%q}`, p)
+	}
+	msg, err := json.Marshal(message)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`{"sha":%q,"commit":{"message":%s},"parents":%s,"files":%s}`,
+		sha, msg, listJSON(ps...), filesJSON(files...))
+}
+
+func commentJSON(body string) string {
+	b, err := json.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`{"body":%s}`, b)
+}
 
 func healthyGH() ghState {
 	return ghState{
-		labels:  listJSON(`{"name":"bug"}`, `{"name":"class:flake"}`),
-		issues:  listJSON(),
-		pr:      `{"closingIssuesReferences":[]}`,
-		rules:   listJSON(otherRules, requiredRule),
-		ruleset: `{"id":24272345,"name":"main","enforcement":"active"}`,
-		pull:    pullJSON(false, "User", "", 1),
-		files:   filesJSON("docs/a.md"),
+		labels:   listJSON(`{"name":"bug"}`, `{"name":"class:flake"}`),
+		issues:   listJSON(),
+		pr:       `{"closingIssuesReferences":[]}`,
+		rules:    listJSON(otherRules, requiredRule),
+		ruleset:  `{"id":24272345,"name":"main","enforcement":"active"}`,
+		pull:     pullJSON(false, "User", "", 1),
+		files:    filesJSON("docs/a.md"),
+		commits:  listJSON(prCommitJSON(headCommitSHA, "feat: change", baseCommitSHA)),
+		comments: listJSON(),
 	}
 }
 
@@ -153,15 +194,22 @@ func runMergeCheck(t *testing.T, st ghState, pr string, actionsEnv ...string) me
 	root := copyScript(t, "merge-check.sh")
 	dir := t.TempDir()
 	for key, body := range map[string]string{
-		"labels":  st.labels,
-		"issues":  st.issues,
-		"pr":      st.pr,
-		"rules":   st.rules,
-		"ruleset": st.ruleset,
-		"pull":    st.pull,
-		"files":   st.files,
+		"labels":   st.labels,
+		"issues":   st.issues,
+		"pr":       st.pr,
+		"rules":    st.rules,
+		"ruleset":  st.ruleset,
+		"pull":     st.pull,
+		"files":    st.files,
+		"commits":  st.commits,
+		"comments": st.comments,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, key+".json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for sha, body := range st.commitDetails {
+		if err := os.WriteFile(filepath.Join(dir, "commit-"+sha+".json"), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -331,6 +379,12 @@ func reviewGH(draft bool, author, body string, files ...string) ghState {
 	st := healthyGH()
 	st.pull = pullJSON(draft, author, body, len(files))
 	st.files = filesJSON(files...)
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "reviewed-by:") {
+			st.comments = listJSON(commentJSON(line + "\nImplementation reviewed at " + headCommitSHA[:7]))
+			break
+		}
+	}
 	return st
 }
 
@@ -416,6 +470,100 @@ func TestMergeCheckReview(t *testing.T) {
 	t.Run("draft", func(t *testing.T) {
 		runMergeCheck(t, reviewGH(true, "User", implClaude, "docs/a.md", "scripts/x.sh"), "12").
 			requirePass(t, "no line starts reviewed-by:", "does not fail a draft")
+	})
+
+	const (
+		implClaudeRevCodex = implClaude + "reviewed-by: codex (gpt-5.4)\n"
+		mergeMainSHA       = "0209eb7f6ebaf44e2dd87c401d61a7a48763799b"
+		docsCommitSHA      = "d7bb79680494e20514edf94b035352db7e72114b"
+		contentCommitSHA   = "7413d0c05c25db0e9143f7a466a64954855aa979"
+		mainTipSHA         = "dc854c651fbf82695f4d552badc36340e2f7c472"
+	)
+
+	t.Run("record at head", func(t *testing.T) {
+		for _, comment := range []string{
+			"**Review record:** reviewed-by: codex (OpenAI). Reviewed at `99d19a4`.",
+			"### Independent Cross-Agent Review (`codex`)\n\nReviewed head commit `" + headCommitSHA + "`.",
+		} {
+			st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+			st.comments = listJSON(commentJSON(comment))
+			r := runMergeCheck(t, st, "12")
+			r.requirePass(t, "reviewing agent: codex (record at "+headCommitSHA+")")
+		}
+	})
+
+	t.Run("record then merge-of-main", func(t *testing.T) {
+		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat", headCommitSHA, mainTipSHA),
+		)
+		st.commitDetails = map[string]string{
+			mergeMainSHA: commitDetailJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat",
+				[]string{headCommitSHA, mainTipSHA}, "internal/other/main_only.go", "README.md"),
+		}
+		r := runMergeCheck(t, st, "12")
+		r.requirePass(t, "reviewing agent: codex (record at "+headCommitSHA+")")
+
+		// A merge commit that touches one of the PR's changed files requires re-review.
+		stTouch := st
+		stTouch.commitDetails = map[string]string{
+			mergeMainSHA: commitDetailJSON(mergeMainSHA, "Merge branch 'main' into claude/feat",
+				[]string{headCommitSHA, mainTipSHA}, "scripts/x.sh"),
+		}
+		runMergeCheck(t, stTouch, "12").requireFail(t,
+			"review record at "+headCommitSHA+" is older than content commit "+mergeMainSHA+"; request re-review")
+	})
+
+	t.Run("record then docs-only", func(t *testing.T) {
+		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat", headCommitSHA, mainTipSHA),
+			prCommitJSON(docsCommitSHA, "docs: clarify notes", mergeMainSHA),
+		)
+		st.commitDetails = map[string]string{
+			mergeMainSHA: commitDetailJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat",
+				[]string{headCommitSHA, mainTipSHA}, "internal/other/main_only.go"),
+			docsCommitSHA: commitDetailJSON(docsCommitSHA, "docs: clarify notes",
+				[]string{mergeMainSHA}, "docs/a.md", "openspec/changes/foo/tasks.md", "openspec/changes/foo/offline/stack.json"),
+		}
+		r := runMergeCheck(t, st, "12")
+		r.requirePass(t, "reviewing agent: codex (record at "+headCommitSHA+")")
+	})
+
+	t.Run("record then content commit", func(t *testing.T) {
+		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(contentCommitSHA, "fix: adjust script", headCommitSHA),
+		)
+		st.commitDetails = map[string]string{
+			contentCommitSHA: commitDetailJSON(contentCommitSHA, "fix: adjust script",
+				[]string{headCommitSHA}, "scripts/x.sh"),
+		}
+		runMergeCheck(t, st, "12").requireFail(t,
+			"review record at "+headCommitSHA+" is older than content commit "+contentCommitSHA+"; request re-review")
+
+		// A later review record at contentCommitSHA resolves the finding.
+		st.comments = listJSON(
+			commentJSON("reviewed-by: codex\nReviewed at "+headCommitSHA[:7]),
+			commentJSON("reviewed-by: codex\nRe-reviewed at "+contentCommitSHA[:7]),
+		)
+		runMergeCheck(t, st, "12").requirePass(t, "reviewing agent: codex (record at "+contentCommitSHA+")")
+	})
+
+	t.Run("no record", func(t *testing.T) {
+		for _, comments := range [][]string{
+			nil,
+			{commentJSON("LGTM at " + headCommitSHA)},
+			{commentJSON("reviewed-by: gemini\nReviewed at " + headCommitSHA)},
+			{commentJSON("reviewed-by: codex\nReviewed at deadbeef")},
+		} {
+			st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+			st.comments = listJSON(comments...)
+			runMergeCheck(t, st, "12").requireFail(t, "no review record comment names reviewed-by: codex")
+		}
 	})
 }
 
