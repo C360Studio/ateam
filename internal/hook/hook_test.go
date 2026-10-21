@@ -743,14 +743,6 @@ func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("abad85b000000000000000000000000000000000\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// A detached checkout, as git leaves .worktrees/codex-review-pr-86: HEAD holds a bare SHA.
-	detachedPath := filepath.Join(dir, ".worktrees", "wt-detached")
-	if err := os.MkdirAll(filepath.Join(detachedPath, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(detachedPath, ".git", "HEAD"), []byte("a30ca686e0000000000000000000000000000000\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	dirtyFalse := false
 	st := &state.State{
 		Mode:          state.ModeFull,
@@ -763,7 +755,8 @@ func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
 				{Path: dir, Branch: "main", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
 				{Path: filepath.Join(dir, ".worktrees", "wt-64"), Branch: "codex/mercury-offline-contract", Head: "e50ca10f", Dirty: &dirtyFalse, AheadCount: 4},
 				{Path: filepath.Join(dir, ".worktrees", "wt-no-pr"), Branch: "codex/review-pr-79", Head: "d7bb7968", Dirty: &dirtyFalse, AheadCount: 5},
-				{Path: detachedPath, Branch: "", Head: "a30ca68", Dirty: &dirtyFalse, AheadCount: 4},
+				// A cache written before #96 recorded a detached checkout as branch "HEAD".
+				{Path: filepath.Join(dir, ".worktrees", "wt-detached"), Branch: "HEAD", Head: "a30ca68", Dirty: &dirtyFalse, AheadCount: 4},
 				{Path: filepath.Join(dir, ".worktrees", "wt-fresh"), Branch: "gemini/fresh", Head: "abad85b", Dirty: &dirtyFalse, MergedIntoMain: true},
 			},
 		},

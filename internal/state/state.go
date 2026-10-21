@@ -1719,7 +1719,7 @@ func (st *State) ReconcileWorktrees() {
 	for i := range st.Git.Worktrees {
 		wt := &st.Git.Worktrees[i]
 		branch := strings.TrimSpace(wt.Branch)
-		if branch == "" || branch == "main" || branch == "master" || branch == "detached" {
+		if branch == "" || branch == "main" || branch == "master" || branch == "detached" || branch == "HEAD" {
 			continue
 		}
 		var branchPRs []BoardCard
@@ -1816,7 +1816,8 @@ func withForgeCacheAge(status, age string) string {
 
 func (st *State) worktreePRStatusAndAge(wt Worktree) (string, string) {
 	branch := strings.TrimSpace(wt.Branch)
-	if branch == "" || branch == "detached" {
+	// "HEAD" is how caches written before #96 recorded a detached checkout.
+	if branch == "" || branch == "detached" || branch == "HEAD" {
 		return "detached", ""
 	}
 	if branch == "main" || branch == "master" {
@@ -2671,7 +2672,7 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 	}
 	for i, wt := range st.Git.Worktrees {
 		branch := strings.TrimSpace(wt.Branch)
-		if branch == "" {
+		if branch == "" || branch == "HEAD" {
 			branch = "detached"
 		}
 		dirtyStr := "unknown"
