@@ -465,6 +465,18 @@ func TestMergeCheckReview(t *testing.T) {
 			r.requireNotInOutput(t, "editing the description starts no run")
 		}
 	})
+	t.Run("model named on both lines", func(t *testing.T) {
+		for _, tc := range []struct{ body, says string }{
+			{"implemented-by: claude\nreviewed-by: codex (gpt-6)\n", "the implemented-by: line must name the implementing model"},
+			{"implemented-by: claude ( )\nreviewed-by: codex (gpt-6)\n", "the implemented-by: line must name the implementing model"},
+			{implClaude + "reviewed-by: codex\n", "the reviewed-by: line must name the reviewing model"},
+			{implClaude + "reviewed-by: codex ()\n", "the reviewed-by: line must name the reviewing model"},
+		} {
+			runMergeCheck(t, reviewGH(false, "User", tc.body, "scripts/x.sh"), "12").requireFail(t, tc.says)
+		}
+		r := runMergeCheck(t, reviewGH(false, "User", "implemented-by: claude (sonnet, opus)\nreviewed-by: codex (gpt-6)\n", "scripts/x.sh"), "12")
+		r.requirePass(t, "reviewing agent: codex")
+	})
 	t.Run("same agent implements and reviews", func(t *testing.T) {
 		for _, tc := range []struct{ body, says string }{
 			{"implemented-by: claude-fable-5-1\nreviewed-by: Claude (opus)\n", "another agent (codex or gemini) reviews"},
