@@ -598,6 +598,10 @@ func TestPickupLabelsLiveDetachedWorktreeDetached(t *testing.T) {
 
 	ReconcilePickup(root, st, "claude", "sess-96")
 
+	// Rendering also reads "HEAD" as detached, so check the stored form the live read writes.
+	if got := st.Git.Worktrees[1].Branch; got != "" {
+		t.Fatalf("expected live detached read to store branch %q, got %q", "", got)
+	}
 	summary := BuildPickupSummary(st)
 	if want := "- detached (head=a30ca68, dirty=false, ahead=4, detached)"; !strings.Contains(summary, want) {
 		t.Fatalf("expected pickup summary to contain %q, got:\n%s", want, summary)
