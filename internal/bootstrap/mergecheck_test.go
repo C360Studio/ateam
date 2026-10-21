@@ -579,12 +579,17 @@ func TestMergeCheckReview(t *testing.T) {
 				"no review record comment names reviewed-by: codex")
 		}
 
-		// A later review record at contentCommitSHA resolves the finding.
-		st.comments = listJSON(
-			commentJSON("reviewed-by: codex\nReviewed at "+headCommitSHA[:7]),
-			commentJSON("reviewed-by: codex\nRe-reviewed at "+contentCommitSHA[:7]),
-		)
-		runMergeCheck(t, st, "12").requirePass(t, "reviewing agent: codex (record at "+contentCommitSHA+")")
+		// A later review record at contentCommitSHA (including both full and short SHA of the same commit) resolves the finding.
+		for _, reReviewComment := range []string{
+			"reviewed-by: codex\nRe-reviewed at " + contentCommitSHA[:7],
+			"reviewed-by: codex\nHead: " + contentCommitSHA + "\nReviewed at " + contentCommitSHA[:7],
+		} {
+			st.comments = listJSON(
+				commentJSON("reviewed-by: codex\nReviewed at "+headCommitSHA[:7]),
+				commentJSON(reReviewComment),
+			)
+			runMergeCheck(t, st, "12").requirePass(t, "reviewing agent: codex (record at "+contentCommitSHA+")")
+		}
 	})
 
 	t.Run("paginated commit files and 3000-file ceiling", func(t *testing.T) {

@@ -251,20 +251,20 @@ else
         | ([ $b | split("\n")[] | rtrimstr("\r") | select(test("^[ \\t]*### Independent Cross-Agent Review\\b")) ]) as $hl
         | ([ $hl[] | scan("(?i)(?:^|[^\\p{L}\\p{N}])(claude|codex|gemini)(?=[^\\p{L}\\p{N}]|$)") | .[0] | ascii_downcase ] | unique) as $ha
         | ($rb == [$reviewer]) or (($rb | length) == 0 and ($hl | length) > 0 and (($ha | length) == 0 or $ha == [$reviewer]));
+      def resolve_token($t):
+        [ range(0; $commits | length) as $i
+          | ($commits[$i].sha | ascii_downcase) as $csha
+          | select(($csha == $t) or ($csha | startswith($t)))
+          | $i ];
       def designated_commit_indices($b):
         ([ ( $b | scan("(?i)\\b(?:re-?)?reviewed[ \\t]+at[ \\t]*:?[ \\t]*`?([0-9a-f]{7,40})(?=[^0-9A-Za-z]|$)") | .[0] ),
            ( $b | scan("(?i)\\b(?:(?:re-?)?reviewed[ \\t]+(?:(?:head[ \\t]+)?commit|head)|(?:re-?)?review[ \\t]+of)(?:[ \\t]*\\([^)\\n]*\\))?[ \\t*_]*:?[ \\t*_]*`?([0-9a-f]{7,40})(?=[^0-9A-Za-z]|$)") | .[0] ),
            ( $b | scan("(?i)\\b(?:re-?)?reviewed[ \\t]+base[ \\t]+`?[0-9a-f]{7,40}`?[ \\t]+(?:->|→|to)[ \\t]+head[ \\t*_]*:?[ \\t*_]*`?([0-9a-f]{7,40})(?=[^0-9A-Za-z]|$)") | .[0] ),
            ( $b | scan("(?i)(?:^|\\n)[ \\t>*_-]*(?:reviewed-commit|head(?:[ \\t]+commit)?)(?:[ \\t]*\\([^)\\n]*\\))?[ \\t*_]*:[ \\t*_]*`?([0-9a-f]{7,40})(?=[^0-9A-Za-z]|$)") | .[0] )
          ] | map(ascii_downcase) | unique) as $toks
-        | if ($toks | length) != 1 then []
-          else
-            [ range(0; $commits | length) as $i
-              | ($commits[$i].sha | ascii_downcase) as $csha
-              | select(any($toks[]; . as $t
-                  | (($csha == $t) or ($csha | startswith($t)))
-                  and ([ $commits[].sha | ascii_downcase | select(. == $t or startswith($t)) ] | length) == 1))
-              | $i ]
+        | if ($toks | length) > 0 and all($toks[]; (resolve_token(.) | length) == 1)
+          then [ $toks[] | resolve_token(.)[0] ] | unique
+          else []
           end;
       [ .[]
         | (.body // "") as $b
