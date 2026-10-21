@@ -548,9 +548,44 @@ func HandoffSlotKey(agent, branch string) string {
 	return a + "@" + b
 }
 
+func isCallerActiveWriterLease(lease *WriterLease, callerSessionID string) bool {
+	if lease == nil || strings.TrimSpace(lease.Agent) == "" {
+		return false
+	}
+	if lease.PID > 0 && !IsProcessAlive(lease.PID) {
+		return false
+	}
+	if !lease.LastSeen.IsZero() && time.Since(lease.LastSeen) >= 10*time.Minute {
+		return false
+	}
+	callerSession := strings.TrimSpace(callerSessionID)
+	if callerSession == "" {
+		callerSession = ResolveEnvSessionID()
+	}
+	leaseSession := strings.TrimSpace(lease.SessionID)
+	if callerSession != "" {
+		if leaseSession == "" || leaseSession != callerSession {
+			return false
+		}
+		return true
+	}
+	if os.Getenv("HERDR_ENV") == "1" && lease.HerdrPaneID != "" && lease.HerdrPaneID == strings.TrimSpace(os.Getenv("HERDR_PANE_ID")) {
+		return true
+	}
+	if lease.PID > 0 {
+		return lease.PID == ResolveClientPID() || lease.PID == os.Getpid()
+	}
+	return leaseSession == ""
+}
+
 // ResolveActiveAgent resolves the active agent name from an explicit flag/parameter, ATEAM_AGENT,
-// an active writer lease, the branch prefix (claude/*, codex/*, gemini/*, agy/*), or "agent".
+// an active writer lease owned by the caller, the branch prefix (claude/*, codex/*, gemini/*, agy/*), or "agent".
 func ResolveActiveAgent(root, explicit, branch string, lease *WriterLease) string {
+	return ResolveActiveAgentForSession(root, explicit, "", branch, lease)
+}
+
+// ResolveActiveAgentForSession resolves the active agent name using callerSessionID to validate writer-lease ownership.
+func ResolveActiveAgentForSession(root, explicit, callerSessionID, branch string, lease *WriterLease) string {
 	if a := normalizeAgentKey(explicit); a != "" {
 		return a
 	}
@@ -562,7 +597,8 @@ func ResolveActiveAgent(root, explicit, branch string, lease *WriterLease) strin
 			lease = wl
 		}
 	}
-	if lease != nil && strings.TrimSpace(lease.Agent) != "" && normalizeAgentKey(lease.Agent) != "agent" {
+	callerLease := isCallerActiveWriterLease(lease, callerSessionID)
+	if callerLease && normalizeAgentKey(lease.Agent) != "agent" {
 		return normalizeAgentKey(lease.Agent)
 	}
 	if strings.TrimSpace(branch) == "" && strings.TrimSpace(root) != "" {
@@ -571,7 +607,7 @@ func ResolveActiveAgent(root, explicit, branch string, lease *WriterLease) strin
 	if a := inferAgentFromBranch(branch); a != "" {
 		return a
 	}
-	if lease != nil && strings.TrimSpace(lease.Agent) != "" {
+	if callerLease {
 		return normalizeAgentKey(lease.Agent)
 	}
 	return "agent"
@@ -582,7 +618,36 @@ func (st *State) EffectiveAgent() string {
 	if st == nil {
 		return "agent"
 	}
-	return ResolveActiveAgent("", st.CurrentAgent, st.Git.Branch, st.Writer)
+	return ResolveActiveAgentForSession("", st.CurrentAgent, st.CurrentSessionID, st.Git.Branch, st.Writer)
+}
+
+func (st *State) migrateLegacyLastHandoff() {
+	if st == nil || st.Handoffs != nil || st.LastHandoff == nil {
+		return
+	}
+	if st.LastHandoff.Stale && st.LastHandoff.CheckpointSHA == "" && st.LastHandoff.Branch == "" {
+		return
+	}
+	prev := *st.LastHandoff
+	prevBranch := strings.TrimSpace(prev.Branch)
+	if prevBranch == "" {
+		prevBranch = strings.TrimSpace(st.Git.Branch)
+	}
+	if prevBranch == "" {
+		prevBranch = "main"
+	}
+	prev.Branch = prevBranch
+	prevAgent := normalizeAgentKey(prev.Agent)
+	if prevAgent == "" {
+		prevAgent = inferAgentFromBranch(prevBranch)
+	}
+	if prevAgent == "" {
+		prevAgent = "agent"
+	}
+	prev.Agent = prevAgent
+	st.Handoffs = map[string]*Handoff{
+		HandoffSlotKey(prevAgent, prevBranch): &prev,
+	}
 }
 
 // CurrentHandoffKey returns the "<agent>@<branch>" slot key for the current session on st.
@@ -633,6 +698,9 @@ func (st *State) SetHandoff(h Handoff) {
 	if st == nil {
 		return
 	}
+	if st.Handoffs == nil && st.LastHandoff != nil && len(st.HandoffStaleReasons()) == 0 {
+		st.migrateLegacyLastHandoff()
+	}
 	branch := strings.TrimSpace(h.Branch)
 	if branch == "" {
 		branch = strings.TrimSpace(st.Git.Branch)
@@ -666,10 +734,8 @@ func (st *State) effectiveSessionID() string {
 	if s := ResolveEnvSessionID(); s != "" {
 		return s
 	}
-	if st.Writer != nil && strings.TrimSpace(st.Writer.SessionID) != "" {
-		if st.Writer.PID == 0 || st.Writer.PID == ResolveClientPID() || st.Writer.PID == os.Getpid() {
-			return strings.TrimSpace(st.Writer.SessionID)
-		}
+	if isCallerActiveWriterLease(st.Writer, "") && strings.TrimSpace(st.Writer.SessionID) != "" {
+		return strings.TrimSpace(st.Writer.SessionID)
 	}
 	return ""
 }
@@ -824,7 +890,7 @@ func (st *State) hasExplicitOrInferredAgent() bool {
 	if resolveAgentFromEnv() != "" {
 		return true
 	}
-	if st.Writer != nil && strings.TrimSpace(st.Writer.Agent) != "" && normalizeAgentKey(st.Writer.Agent) != "agent" {
+	if isCallerActiveWriterLease(st.Writer, st.CurrentSessionID) && normalizeAgentKey(st.Writer.Agent) != "agent" {
 		return true
 	}
 	if inferAgentFromBranch(st.Git.Branch) != "" {
@@ -924,6 +990,28 @@ func (st *State) PruneStaleHandoffs() {
 	st.refreshHandoffStaleness(true, true)
 }
 
+func (st *State) reconcileLiveBranchHeads(root string) bool {
+	if st == nil || strings.TrimSpace(root) == "" {
+		return false
+	}
+	updated := false
+	if br, sha := ReadFastGitHead(root); br != "" && sha != "" {
+		st.SyncBranchHead(br, sha)
+		updated = true
+	}
+	for i := range st.Git.Worktrees {
+		wtPath := strings.TrimSpace(st.Git.Worktrees[i].Path)
+		if wtPath == "" {
+			continue
+		}
+		if wtBr, wtSHA := ReadFastGitHead(wtPath); wtBr != "" && wtSHA != "" {
+			st.Git.Worktrees[i].Branch = wtBr
+			st.Git.Worktrees[i].Head = wtSHA
+		}
+	}
+	return updated
+}
+
 // ReconcilePickup resolves session and agent identity on st, prunes stale entries from st.Handoffs,
 // updates the LastHandoff alias, and persists handoff changes to .ateam/state.json.
 func ReconcilePickup(root string, st *State, explicitAgent, explicitSessionID string) {
@@ -931,7 +1019,10 @@ func ReconcilePickup(root string, st *State, explicitAgent, explicitSessionID st
 		return
 	}
 	st.CurrentSessionID = ResolveActiveSessionID(root, explicitSessionID)
-	st.CurrentAgent = ResolveActiveAgent(root, explicitAgent, st.Git.Branch, st.Writer)
+	st.CurrentAgent = ResolveActiveAgentForSession(root, explicitAgent, st.CurrentSessionID, st.Git.Branch, st.Writer)
+	if st.Handoffs == nil && st.LastHandoff != nil && (normalizeAgentKey(st.LastHandoff.Agent) != "" || st.hasExplicitOrInferredAgent()) && len(st.HandoffStaleReasons()) == 0 {
+		st.migrateLegacyLastHandoff()
+	}
 	st.PruneStaleHandoffs()
 	if strings.TrimSpace(root) == "" {
 		return
@@ -939,15 +1030,23 @@ func ReconcilePickup(root string, st *State, explicitAgent, explicitSessionID st
 	if _, err := os.Stat(CacheFilePath(root)); err != nil {
 		return
 	}
-	_, _ = Update(root, func(cur *State) error {
-		cur.CurrentSessionID = st.CurrentSessionID
-		cur.CurrentAgent = st.CurrentAgent
-		if st.Git.HeadSHA != "" {
+	if updated, err := Update(root, func(cur *State) error {
+		if !cur.reconcileLiveBranchHeads(root) && st.Git.HeadSHA != "" && !cur.UpdatedAt.After(st.UpdatedAt) {
 			cur.SyncBranchHead(st.Git.Branch, st.Git.HeadSHA)
+		}
+		cur.CurrentSessionID = st.CurrentSessionID
+		cur.CurrentAgent = ResolveActiveAgentForSession(root, explicitAgent, cur.CurrentSessionID, cur.Git.Branch, cur.Writer)
+		if cur.Handoffs == nil && cur.LastHandoff != nil && (normalizeAgentKey(cur.LastHandoff.Agent) != "" || cur.hasExplicitOrInferredAgent()) && len(cur.HandoffStaleReasons()) == 0 {
+			cur.migrateLegacyLastHandoff()
 		}
 		cur.PruneStaleHandoffs()
 		return nil
-	})
+	}); err == nil && updated != nil {
+		st.Git = updated.Git
+		st.Handoffs = updated.Handoffs
+		st.LastHandoff = updated.LastHandoff
+		st.CurrentAgent = updated.CurrentAgent
+	}
 }
 
 // ResolveClientPID returns a long-lived client process PID that outlives ephemeral hook subprocesses.
@@ -983,7 +1082,7 @@ func ResolveActiveSessionID(root, explicit string) string {
 		return s
 	}
 	if root != "" {
-		if wl, err := ReadWriterLease(root); err == nil && wl != nil && (wl.PID == 0 || wl.PID == ResolveClientPID() || wl.PID == os.Getpid()) && wl.SessionID != "" {
+		if wl, err := ReadWriterLease(root); err == nil && isCallerActiveWriterLease(wl, "") && wl.SessionID != "" {
 			return strings.TrimSpace(wl.SessionID)
 		}
 	}
@@ -1205,6 +1304,9 @@ func Load(root string) (*State, error) {
 	st.Writer = nil
 	if wl, err := ReadWriterLease(root); err == nil && wl != nil {
 		st.Writer = wl
+	}
+	if st.Handoffs == nil && st.LastHandoff != nil && normalizeAgentKey(st.LastHandoff.Agent) != "" {
+		st.migrateLegacyLastHandoff()
 	}
 	return &st, nil
 }
@@ -2319,7 +2421,17 @@ func writePickupHandoffs(b *strings.Builder, st *State) {
 		if len(reasons) > 0 {
 			fmt.Fprintf(b, "Last Handoff (%s): STALE — handoff omitted (%s)\n", reasons[0], strings.Join(reasons, "; "))
 		} else {
-			fmt.Fprintf(b, "Last Handoff:\n%s", FormatFiveFieldPrompt(*st.LastHandoff))
+			legacyBranch := strings.TrimSpace(st.LastHandoff.Branch)
+			if legacyBranch == "" {
+				legacyBranch = strings.TrimSpace(st.Git.Branch)
+			}
+			legacyKey := HandoffSlotKey(st.LastHandoff.Agent, legacyBranch)
+			if legacyKey == curKey || (normalizeAgentKey(st.LastHandoff.Agent) == "" && !st.hasExplicitOrInferredAgent()) {
+				fmt.Fprintf(b, "Last Handoff:\n%s", FormatFiveFieldPrompt(*st.LastHandoff))
+			} else {
+				fmt.Fprintf(b, "Last Handoff: none for %s\n", curKey)
+				fmt.Fprintf(b, "%s\n", st.formatOtherHandoffLine(legacyKey, st.LastHandoff))
+			}
 		}
 		return
 	}

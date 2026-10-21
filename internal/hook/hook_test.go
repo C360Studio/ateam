@@ -681,4 +681,51 @@ func TestReview79HookPreCompactAndWorktreeBranchSwitch(t *testing.T) {
 			t.Fatalf("session-start after branch switch missing %q:\n%s", want, startOut.AdditionalContext)
 		}
 	}
+
+	// Codex review Finding 4: Switching between two branches at the same commit with identical (Agent, Goal, CheckpointSHA)
+	// but different Constraints/DoneWhen must still persist the updated LastHandoff compatibility alias on session-start.
+	if err := os.WriteFile(filepath.Join(headsDir, "codex", "feat"), []byte("2222222000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stSameGoal, err := state.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stSameGoal.SyncBranchHead("main", "2222222")
+	stSameGoal.SyncBranchHead("codex/feat", "2222222")
+	stSameGoal.SetHandoff(state.Handoff{
+		Goal:          "Shared goal across branches",
+		Addresses:     "codex/feat",
+		Constraints:   "Constraint on codex/feat",
+		DoneWhen:      "Done on codex/feat",
+		ChecksToRun:   "task verify",
+		Agent:         "claude",
+		Branch:        "codex/feat",
+		CheckpointSHA: "2222222",
+		UpdatedAt:     time.Now().UTC(),
+	})
+	stSameGoal.SetHandoff(state.Handoff{
+		Goal:          "Shared goal across branches",
+		Addresses:     "main",
+		Constraints:   "Constraint on main",
+		DoneWhen:      "Done on main",
+		ChecksToRun:   "task verify",
+		Agent:         "claude",
+		Branch:        "main",
+		CheckpointSHA: "2222222",
+		UpdatedAt:     time.Now().UTC(),
+	})
+	if err := state.Save(dir, stSameGoal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := HandleWithAgent(dir, "session-start", "claude", strings.NewReader(`{"session_id":"sess-claude-2"}`)); err != nil {
+		t.Fatal(err)
+	}
+	afterSwitchDisk, err := state.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterSwitchDisk.LastHandoff == nil || afterSwitchDisk.LastHandoff.Branch != "codex/feat" || afterSwitchDisk.LastHandoff.Constraints != "Constraint on codex/feat" {
+		t.Fatalf("expected session-start on codex/feat to persist updated LastHandoff alias on disk, got %+v", afterSwitchDisk.LastHandoff)
+	}
 }

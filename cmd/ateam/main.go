@@ -219,7 +219,7 @@ func runStatePickup(repoRoot string, args []string) int {
 		return 1
 	}
 	st.CurrentSessionID = state.ResolveActiveSessionID(repoRoot, *session)
-	st.CurrentAgent = state.ResolveActiveAgent(repoRoot, *agent, st.Git.Branch, st.Writer)
+	st.CurrentAgent = state.ResolveActiveAgentForSession(repoRoot, *agent, st.CurrentSessionID, st.Git.Branch, st.Writer)
 	state.ReconcilePickup(repoRoot, st, *agent, st.CurrentSessionID)
 	fmt.Println(state.BuildPickupSummary(st))
 	return 0
@@ -248,7 +248,7 @@ func runStateHandoff(repoRoot string, args []string) int {
 		return 1
 	}
 	sessionID := state.ResolveActiveSessionID(repoRoot, *session)
-	agentName := state.ResolveActiveAgent(repoRoot, *agent, st.Git.Branch, st.Writer)
+	agentName := state.ResolveActiveAgentForSession(repoRoot, *agent, sessionID, st.Git.Branch, st.Writer)
 	ho := state.Handoff{
 		Goal:          *goal,
 		Addresses:     *addresses,

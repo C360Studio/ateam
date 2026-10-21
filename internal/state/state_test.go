@@ -893,24 +893,25 @@ func FuzzPerAgentHandoffSlotHistory(f *testing.F) {
 		syncGitAndCards("main")
 		st.Handoffs = make(map[string]*Handoff)
 
-		refSlots := make(map[string]Handoff)
+		type refEntry struct {
+			agent  string
+			branch string
+			prNum  int
+			h      Handoff
+		}
+		refKey := func(ag, br string) string {
+			return strings.ToLower(strings.TrimSpace(ag)) + "@" + strings.TrimSpace(br)
+		}
+		refSlots := make(map[string]refEntry)
 		pruneRef := func() {
-			for k, h := range refSlots {
-				_, br := splitHandoffSlotKey(k)
-				if h.CheckpointSHA != branchHeads[br] {
+			for k, e := range refSlots {
+				if e.h.CheckpointSHA != branchHeads[e.branch] || closedPRs[e.prNum] {
 					delete(refSlots, k)
-					continue
-				}
-				if m := handoffGoalSubjectPRRe.FindStringSubmatch(h.Goal); len(m) >= 2 {
-					var prNum int
-					_, _ = fmt.Sscanf(m[1], "%d", &prNum)
-					if closedPRs[prNum] {
-						delete(refSlots, k)
-					}
 				}
 			}
 		}
 
+		dir := t.TempDir()
 		now := time.Now().UTC().Add(-10 * time.Minute)
 		for i, b := range ops {
 			if i >= 32 {
@@ -936,7 +937,7 @@ func FuzzPerAgentHandoffSlotHistory(f *testing.F) {
 					UpdatedAt:     now,
 				}
 				st.SetHandoff(h)
-				refSlots[HandoffSlotKey(ag, br)] = h
+				refSlots[refKey(ag, br)] = refEntry{agent: ag, branch: br, prNum: prNum, h: h}
 			case 1: // Advance branch HEAD
 				branchHeads[br] = fmt.Sprintf("sha%04d", i+1)
 				syncGitAndCards(st.Git.Branch)
@@ -944,10 +945,19 @@ func FuzzPerAgentHandoffSlotHistory(f *testing.F) {
 				prNum := (int(b) % 3) + 1
 				closedPRs[prNum] = true
 				syncGitAndCards(st.Git.Branch)
-			case 3: // Pickup as ag@br
+			case 3: // Pickup as ag@br (with Save/Load round-trip)
+				syncGitAndCards(br)
+				if err := Save(dir, st); err != nil {
+					t.Fatalf("Save: %v", err)
+				}
+				loaded, err := Load(dir)
+				if err != nil {
+					t.Fatalf("Load: %v", err)
+				}
+				st = loaded
 				syncGitAndCards(br)
 				st.CurrentAgent = ag
-				st.RefreshHandoffStaleness()
+				st.PruneStaleHandoffs()
 				pruneRef()
 			}
 		}
@@ -957,20 +967,20 @@ func FuzzPerAgentHandoffSlotHistory(f *testing.F) {
 			for _, br := range branches {
 				syncGitAndCards(br)
 				st.CurrentAgent = ag
-				st.RefreshHandoffStaleness()
+				st.PruneStaleHandoffs()
 				pruneRef()
-				curKey := HandoffSlotKey(ag, br)
+				curKey := refKey(ag, br)
 				summary := BuildPickupSummary(st)
 
 				if len(st.Handoffs) != len(refSlots) {
 					t.Fatalf("len(st.Handoffs)=%d != len(refSlots)=%d (st=%+v, ref=%+v)", len(st.Handoffs), len(refSlots), st.Handoffs, refSlots)
 				}
 				if wantCur, ok := refSlots[curKey]; ok {
-					if st.LastHandoff == nil || st.LastHandoff.Goal != wantCur.Goal {
-						t.Fatalf("slot %s: LastHandoff=%+v, want Goal=%q", curKey, st.LastHandoff, wantCur.Goal)
+					if st.LastHandoff == nil || st.LastHandoff.Goal != wantCur.h.Goal {
+						t.Fatalf("slot %s: LastHandoff=%+v, want Goal=%q", curKey, st.LastHandoff, wantCur.h.Goal)
 					}
-					if !strings.Contains(summary, "Last Handoff:\nGoal: "+wantCur.Goal) {
-						t.Fatalf("slot %s: summary missing current handoff Goal %q:\n%s", curKey, wantCur.Goal, summary)
+					if !strings.Contains(summary, "Last Handoff:\nGoal: "+wantCur.h.Goal) {
+						t.Fatalf("slot %s: summary missing current handoff Goal %q:\n%s", curKey, wantCur.h.Goal, summary)
 					}
 				} else {
 					if st.LastHandoff != nil {
@@ -988,8 +998,10 @@ func FuzzPerAgentHandoffSlotHistory(f *testing.F) {
 				}
 				sort.Strings(otherKeys)
 				for _, k := range otherKeys {
-					if !strings.Contains(summary, "other handoffs: "+k+" (") {
-						t.Fatalf("slot %s: summary missing other handoff %s:\n%s", curKey, k, summary)
+					e := refSlots[k]
+					wantLine := fmt.Sprintf("other handoffs: %s (10m ago, PR #%d)", k, e.prNum)
+					if !strings.Contains(summary, wantLine) {
+						t.Fatalf("slot %s: summary missing %q:\n%s", curKey, wantLine, summary)
 					}
 				}
 			}
@@ -1106,5 +1118,107 @@ func TestReview79HandoffPRLabelAndRefreshPreservation(t *testing.T) {
 	}
 	if loadedDisk.LastHandoff == nil || loadedDisk.LastHandoff.Goal != "PR #45: verify post-merge state on main" {
 		t.Fatalf("expected .ateam/state.json LastHandoff alias preserved on disk, got %+v", loadedDisk.LastHandoff)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestReview79CodexPickupLockLeaseAndLegacyMigration(t *testing.T) {
+	t.Setenv("ATEAM_AGENT", "")
+	t.Setenv("ATEAM_SESSION_ID", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CODEX_SESSION_ID", "")
+	t.Setenv("GEMINI_SESSION_ID", "")
+	t.Setenv("CLAUDECODE", "")
+	now := time.Now().UTC()
+
+	// Codex review Finding 1: ReconcilePickup with an older pre-lock snapshot must revalidate live git HEAD
+	// under the lock and never delete a newer checkpoint written after HEAD advanced.
+	gitDir := t.TempDir()
+	headsDir := filepath.Join(gitDir, ".git", "refs", "heads")
+	if err := os.MkdirAll(headsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("1111111000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	preLockSnap := defaultState()
+	preLockSnap.Git.Branch = "main"
+	preLockSnap.Git.HeadSHA = "1111111"
+	if err := Save(gitDir, preLockSnap); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate another process advancing HEAD to 2222222 and saving a fresh checkpoint before ReconcilePickup acquires the lock.
+	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("2222222000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Update(gitDir, func(cur *State) error {
+		cur.SyncBranchHead("main", "2222222")
+		cur.SetHandoff(Handoff{
+			Goal:          "Concurrent newer checkpoint at 2222222",
+			Addresses:     "main @ 2222222",
+			DoneWhen:      "done",
+			ChecksToRun:   "task verify",
+			Agent:         "claude",
+			Branch:        "main",
+			CheckpointSHA: "2222222",
+			UpdatedAt:     time.Now().UTC(),
+		})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ReconcilePickup(gitDir, preLockSnap, "codex", "codex-sess")
+	afterConcurrent, err := Load(gitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterConcurrent.Handoffs["claude@main"] == nil || afterConcurrent.Handoffs["claude@main"].CheckpointSHA != "2222222" {
+		t.Fatalf("expected concurrent newer checkpoint at 2222222 to survive ReconcilePickup, got %+v", afterConcurrent.Handoffs)
+	}
+
+	// Codex review Finding 2: Foreign live lease or exited lease must not select or overwrite another agent's slot.
+	foreignLease := &WriterLease{Agent: "claude", SessionID: "claude-sess", PID: os.Getpid(), LastSeen: time.Now().UTC()}
+	if got := ResolveActiveAgentForSession("", "", "codex-sess", "codex/feat", foreignLease); got != "codex" {
+		t.Fatalf("expected foreign session lease to be ignored in favor of branch prefix codex, got %q", got)
+	}
+	exitedLease := &WriterLease{Agent: "claude", SessionID: "", PID: 99999999, LastSeen: time.Now().UTC()}
+	if got := ResolveActiveAgentForSession("", "", "", "codex/feat", exitedLease); got != "codex" {
+		t.Fatalf("expected exited lease PID to be ignored in favor of branch prefix codex, got %q", got)
+	}
+
+	// Codex review Finding 3: Legacy cache (last_handoff without handoffs map) must migrate without losing the legacy slot
+	// or presenting another agent's legacy handoff as the current agent's goal.
+	legacyDir := t.TempDir()
+	legacyJSON := `{"mode":"full","git":{"branch":"main","head_sha":"9f11a42"},"last_handoff":{"goal":"Legacy Claude goal","addresses":"main","done_when":"done","checks_to_run":"task verify","agent":"claude","branch":"main","checkpoint_sha":"9f11a42"}}`
+	if err := os.MkdirAll(filepath.Join(legacyDir, ".ateam"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(CacheFilePath(legacyDir), []byte(legacyJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacySt, err := Load(legacyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ReconcilePickup(legacyDir, legacySt, "codex", "codex-sess")
+	legacySummary := BuildPickupSummary(legacySt)
+	if !strings.Contains(legacySummary, "Last Handoff: none for codex@main") || !strings.Contains(legacySummary, "other handoffs: claude@main") {
+		t.Fatalf("expected legacy claude@main not to be presented as codex's goal, got:\n%s", legacySummary)
+	}
+	legacySt.SetHandoff(Handoff{
+		Goal:          "New Codex goal on main",
+		Addresses:     "main",
+		DoneWhen:      "done",
+		ChecksToRun:   "task verify",
+		Agent:         "codex",
+		Branch:        "main",
+		CheckpointSHA: "9f11a42",
+		UpdatedAt:     now,
+	})
+	if legacySt.Handoffs["claude@main"] == nil || legacySt.Handoffs["codex@main"] == nil {
+		t.Fatalf("expected both migrated claude@main and new codex@main to survive SetHandoff, got %+v", legacySt.Handoffs)
 	}
 }

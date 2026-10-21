@@ -108,7 +108,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	if sha != "" {
 		wtHeadChanged = st.SyncBranchHead(br, sha)
 	}
-	st.CurrentAgent = state.ResolveActiveAgent(root, flagAgent, st.Git.Branch, st.Writer)
+	st.CurrentAgent = state.ResolveActiveAgentForSession(root, flagAgent, sessionID, st.Git.Branch, st.Writer)
 
 	switch ev {
 	case "session-start":
@@ -127,7 +127,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 			scanErrs = append(scanErrs, err.Error())
 		}
 		st.HoldScanError = strings.Join(scanErrs, "; ")
-		reconcileSessionStartHandoffs(root, br, sha, wtHeadChanged, st)
+		reconcileSessionStartHandoffs(root, flagAgent, br, sha, wtHeadChanged, st)
 		ctxText := state.BuildPickupSummary(st)
 		if sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active") {
 			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
@@ -185,10 +185,12 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		}
 		updated, err := state.Update(root, func(cur *state.State) error {
 			cur.CurrentSessionID = sessionID
-			if sha != "" {
+			if liveBr, liveSHA := state.ReadFastGitHead(root); liveBr != "" && liveSHA != "" {
+				cur.SyncBranchHead(liveBr, liveSHA)
+			} else if sha != "" {
 				cur.SyncBranchHead(br, sha)
 			}
-			cur.CurrentAgent = state.ResolveActiveAgent(root, flagAgent, cur.Git.Branch, cur.Writer)
+			cur.CurrentAgent = state.ResolveActiveAgentForSession(root, flagAgent, sessionID, cur.Git.Branch, cur.Writer)
 			cur.Shortcuts = shortcuts
 			cur.Holds = holds
 			cur.HoldScanError = ""
@@ -269,42 +271,50 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	}
 }
 
-func reconcileSessionStartHandoffs(root, br, sha string, wtHeadChanged bool, st *state.State) {
+func sameHandoffValue(a, b *state.Handoff) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	ca, cb := *a, *b
+	ca.UpdatedAt = time.Time{}
+	cb.UpdatedAt = time.Time{}
+	return ca == cb && a.UpdatedAt.Equal(b.UpdatedAt)
+}
+
+func reconcileSessionStartHandoffs(root, flagAgent, br, sha string, wtHeadChanged bool, st *state.State) {
 	beforeHandoffs := len(st.Handoffs)
-	prevLastNil := st.LastHandoff == nil
-	prevLastGoal, prevLastAgent, prevLastSHA := "", "", ""
+	var prevLast *state.Handoff
 	if st.LastHandoff != nil {
-		prevLastGoal = st.LastHandoff.Goal
-		prevLastAgent = st.LastHandoff.Agent
-		prevLastSHA = st.LastHandoff.CheckpointSHA
+		cp := *st.LastHandoff
+		prevLast = &cp
 	}
 	if st.Handoffs != nil {
 		st.PruneStaleHandoffs()
 	} else {
 		st.RefreshHandoffStaleness()
 	}
-	afterLastNil := st.LastHandoff == nil
-	afterLastGoal, afterLastAgent, afterLastSHA := "", "", ""
-	if st.LastHandoff != nil {
-		afterLastGoal = st.LastHandoff.Goal
-		afterLastAgent = st.LastHandoff.Agent
-		afterLastSHA = st.LastHandoff.CheckpointSHA
-	}
-	lastChanged := prevLastNil != afterLastNil || prevLastGoal != afterLastGoal || prevLastAgent != afterLastAgent || prevLastSHA != afterLastSHA
+	lastChanged := !sameHandoffValue(prevLast, st.LastHandoff)
 	if wtHeadChanged || (st.Handoffs != nil && (len(st.Handoffs) != beforeHandoffs || lastChanged)) {
-		_, _ = state.Update(root, func(cur *state.State) error {
-			cur.CurrentAgent = st.CurrentAgent
-			cur.CurrentSessionID = st.CurrentSessionID
-			if sha != "" {
+		if updated, err := state.Update(root, func(cur *state.State) error {
+			if liveBr, liveSHA := state.ReadFastGitHead(root); liveBr != "" && liveSHA != "" {
+				cur.SyncBranchHead(liveBr, liveSHA)
+			} else if sha != "" && !cur.UpdatedAt.After(st.UpdatedAt) {
 				cur.SyncBranchHead(br, sha)
 			}
+			cur.CurrentSessionID = st.CurrentSessionID
+			cur.CurrentAgent = state.ResolveActiveAgentForSession(root, flagAgent, cur.CurrentSessionID, cur.Git.Branch, cur.Writer)
 			if cur.Handoffs != nil {
 				cur.PruneStaleHandoffs()
 			} else {
 				cur.RefreshHandoffStaleness()
 			}
 			return nil
-		})
+		}); err == nil && updated != nil {
+			st.Git = updated.Git
+			st.Handoffs = updated.Handoffs
+			st.LastHandoff = updated.LastHandoff
+			st.CurrentAgent = updated.CurrentAgent
+		}
 	}
 }
 

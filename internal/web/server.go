@@ -566,7 +566,7 @@ func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resolvedSession := state.ResolveActiveSessionID(root, ho.SessionID)
-	resolvedAgent := state.ResolveActiveAgent(root, ho.Agent, st.Git.Branch, st.Writer)
+	resolvedAgent := state.ResolveActiveAgentForSession(root, ho.Agent, resolvedSession, st.Git.Branch, st.Writer)
 	var saved state.Handoff
 	_, err = state.Update(root, func(cur *state.State) error {
 		cur.CurrentAgent = resolvedAgent

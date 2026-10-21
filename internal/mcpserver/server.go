@@ -173,7 +173,7 @@ func resolveEffectiveSessionID(st *state.State, explicit ...string) string {
 	if envID := resolveEnvSessionID(); envID != "" {
 		return envID
 	}
-	if st != nil && st.Writer != nil && st.Writer.PID > 0 {
+	if st != nil && st.Writer != nil && st.Writer.PID > 0 && state.IsProcessAlive(st.Writer.PID) {
 		if st.Writer.PID == state.ResolveClientPID() || st.Writer.PID == os.Getpid() {
 			return strings.TrimSpace(st.Writer.SessionID)
 		}
@@ -281,7 +281,7 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		return err.Error(), true
 	}
 	st.CurrentSessionID = resolveEffectiveSessionID(st, args.SessionID, args.ConversationID, connSessionID)
-	st.CurrentAgent = state.ResolveActiveAgent(root, args.Agent, st.Git.Branch, st.Writer)
+	st.CurrentAgent = state.ResolveActiveAgentForSession(root, args.Agent, st.CurrentSessionID, st.Git.Branch, st.Writer)
 
 	switch args.Action {
 	case "pickup":
@@ -450,7 +450,7 @@ func handleResourceRead(ctx context.Context, root string, req rpcRequest, connSe
 		return rpcErrorResp(req.ID, -32603, err.Error())
 	}
 	st.CurrentSessionID = resolveEffectiveSessionID(st, connSessionID)
-	st.CurrentAgent = state.ResolveActiveAgent(root, "", st.Git.Branch, st.Writer)
+	st.CurrentAgent = state.ResolveActiveAgentForSession(root, "", st.CurrentSessionID, st.Git.Branch, st.Writer)
 	var text string
 	switch r.URI {
 	case "ateam://state/pickup":
