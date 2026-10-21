@@ -10,7 +10,7 @@
 - [x] Implement shared validated snapshot/projection and deterministic JSON/Markdown/manifest rendering without new statistics or model calls.
 - [x] Add safe export creation, optional replay checks and no-write drift-check mode through the existing CLI.
 - [x] Add public synthetic success/failure worked fixtures, repository check entrypoint and usage documentation; validate against retained Mercury A/B plus replay locally (12/12, 30,947 tokens, matched replay, unchanged originals); Gemini native partial-usage regression uses synthetic evidence because no retained Gemini run was found in available worktrees.
-- [x] Prove relevant tests with mutations/generated histories: unknown-to-zero, private projection, replay association, escaping, exclusive file creation and CLI destination guards are detected; 81 filesystem histories and 32,342 fuzz executions pass.
+- [x] Prove relevant tests with mutations/generated histories: unknown-to-zero, private projection, replay association, escaping, exclusive file creation and CLI destination guards are detected; 81 filesystem histories and 21,717 final rendering-fuzz executions pass (60 cached seeds replayed separately; earlier exploration completed 32,342 executions).
 - [ ] Record full final-head verification and independent implementation review in PR #90; satisfy the separate Claude/Gemini commit-bound review gate before changing this code PR out of draft.
 
 ## Boundaries

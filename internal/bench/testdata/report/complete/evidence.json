@@ -1,5 +1,5 @@
 {
-  "exporter_source_sha256": "a958b6b61b0723aed6db36ba1f4661bf49c44de942dc3336936b0813d656185d",
+  "exporter_source_sha256": "d5a27da9dedd942ea340d4e9972779e24b3b07ac9b262f54a05654e755607d0c",
   "exporter_source_scope": "report.go, report_markdown.go, report_files.go; library implementation only, not a whole-binary or transitive dependency attestation",
   "kind": "ateam.benchmark-report-evidence",
   "version": 1,
@@ -10,7 +10,7 @@
   "replay": null,
   "files_sha256": {
     "results.json": "d5f60506f7339bd7b84a92cd717ff7c06cef964d90b3b8a179db10120e6ac40c",
-    "results.md": "538f9b931a66f59f5091fd3c8ebed791faf00550f92e2f6f8699b6e159c19f5c"
+    "results.md": "92a5a5607d7866ad2637639e4a37fa16e29bbe599e44aa2a2e7afef7406e3f9c"
   },
   "originals_included": false,
   "availability": "Original and replay artifacts are not included; rederivation requires separately retained originals and the matching evaluator version.",

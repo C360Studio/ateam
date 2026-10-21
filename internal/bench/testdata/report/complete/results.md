@@ -12,8 +12,8 @@ Agent | fake
 Agent version | 1
 Requested model | none
 Runtime | synthetic runtime
-Native version | 
-Bridge version | 
+Native version | not recorded
+Bridge version | not recorded
 Configuration SHA-256 | 6dfa27d356bb631dc3047f4a4381da40d9e953f80cfd0c3b628b0b23d0502491
 Baseline instruction SHA-256 | b595bcb7f0070c9a5eaa7ae9a85468f2e9b2cb4c005aeda4494c2768573df353
 Candidate instruction SHA-256 | 5b995f0944f3d441fd11aa5d46531e170e1d3dd1387b0b1e378ed1d9f0de0981
@@ -21,11 +21,11 @@ Runner SHA-256 | 087bf5ca75c48138e467aae95a7822de0e76437105bbfdd2163148d047e445d
 Evaluator SHA-256 | 575f5ca48aa627281f5750d1d40430091722cf751f64db394d1384e75ada54d1
 Go driver SHA-256 | 15ffb35e7eb03ea8de594435da97d22d884501ca88467c1feb3de7eb75146e75
 Go driver version | synthetic Go
-Native settings SHA-256 | 
-Native arguments SHA-256 | 
+Native settings SHA-256 | not recorded
+Native arguments SHA-256 | not recorded
 Command file SHA-256 (paths omitted) | 1c94381c3359991b8855a03705afd3c7ccb70c23835e9f8570488658b07878a2
 Tasks | safe&#x2D;path
-Budget policy | 
+Budget policy | not recorded
 
 Repetitions: 2; seed: 42; per-attempt limit: 5 s; run limit: 0 s; token ceiling: 0. Zero run/token limits mean no configured ceiling for command adapters.
 

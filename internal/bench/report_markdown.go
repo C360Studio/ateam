@@ -10,10 +10,13 @@ import (
 // reportText keeps arbitrary metadata in a single Markdown text cell. Encoding
 // punctuation also prevents reference links, autolinks and injected table rows.
 func reportText(value string) string {
+	if value == "" {
+		return "not recorded"
+	}
 	var b strings.Builder
-	for _, r := range value {
+	for i, r := range value {
 		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == ' ':
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == ' ' && i > 0 && i < len(value)-1:
 			b.WriteRune(r)
 		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r):
 			fmt.Fprintf(&b, "[U+%04X]", r)

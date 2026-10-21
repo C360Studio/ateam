@@ -463,3 +463,28 @@ func TestReportNativeAndAAAccounting(t *testing.T) {
 		}
 	}
 }
+
+// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
+func TestReportMissingMetadataCells(t *testing.T) {
+	r := reportFixture()
+	r.Attempts[0].Status = "adapter-error"
+	r.Attempts[0].Response = nil
+	r.Attempts[0].SourceSHA = ""
+	r.Attempts[0].Grade = CandidateEvaluation{}
+	r.Digest = runDigest(r)
+	projected, err := projectExperimentReport(r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(formatExperimentReport(projected), "\n") {
+		if strings.TrimRight(line, " \t") != line {
+			t.Fatalf("empty report cell creates trailing whitespace: %q", line)
+		}
+	}
+	if strings.HasPrefix(reportText("  value  "), " ") || strings.HasSuffix(reportText("  value  "), " ") {
+		t.Fatal("edge whitespace became Markdown structure")
+	}
+	if reportText("") != "not recorded" {
+		t.Fatal("missing metadata lacks explicit marker")
+	}
+}
