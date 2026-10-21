@@ -1,13 +1,13 @@
-# Remaining Mercury runtime qualification
+# Minimal Mercury benchmark integration
 
 ## Why
 
-Issue #58 remains open. The completed offline audit, usage-provenance and bounded capture slices are [archived](../archive/2026-10-20-mercury-runtime-qualification/README.md) with PR #71. They establish a research capture path and concrete blockers, not a qualified production runtime.
+The owner redirected PR #77 from standalone Python qualification infrastructure to the existing Go benchmark runner. Prior offline work established bridge forwarding and raw usage requirements; the next deliverable must run the existing single-file benchmark tasks.
 
 ## What Changes
 
-Carry forward the three unfinished qualification gates and their existing spec delta. This is a continuation record, not a new implementation claim or permission to spend. The next proposed offline slice is native cancellation/failure teardown and descendant cleanup; scope and claim it separately before implementation.
+Add an optional Mercury configuration to the existing Claude runtime, a Go-owned per-attempt LiteLLM bridge using existing process cleanup, an in-process Go loopback capture proxy, and Go accounting/replay tests. Reuse `--dry-run`, budgets, scheduling and grading. See [scope](integration-plan.md).
 
 ## Impact
 
-Addresses #58 and #16; related #28/#59. Preserve existing native runtimes and frozen Gemini evidence. No production code, runtime configuration or dependency change. The pending Mercury boundary requirement remains here until the broader qualification change is complete; archiving the research evidence does not silently promote it into a completed production specification.
+Addresses #58 and #16; #28/#59 remain separate. No new runtime, Python supervisor, global configuration or paid run. Preserve archived research and frozen Gemini evidence. Stop at a verified review-ready PR and a proposed $1 canary/A/A requiring separate authorization.

@@ -49,22 +49,23 @@ type Trial struct {
 
 // ResolvedExperiment is the reviewable dry-run output, including reproducibility metadata.
 type ResolvedExperiment struct {
-	Bundles         *BundleResolution `json:"bundles,omitempty"`
-	NativeSettings  json.RawMessage   `json:"native_settings,omitempty"`
-	NativeArguments []string          `json:"native_arguments,omitempty"`
-	GeminiVersion   string            `json:"gemini_version,omitempty"`
-	ClaudeVersion   string            `json:"claude_version,omitempty"`
-	CodexVersion    string            `json:"codex_version,omitempty"`
-	BudgetPolicy    string            `json:"budget_policy,omitempty"`
-	Original        Experiment        `json:"original_experiment"`
-	Grader          GraderIdentity    `json:"grader"`
-	RunnerSHA       string            `json:"runner_sha256"`
-	Experiment      Experiment        `json:"experiment"`
-	ConfigSHA       string            `json:"config_sha256"`
-	EvaluatorSHA    string            `json:"evaluator_sha256"`
-	CommandFiles    map[string]string `json:"command_files_sha256"`
-	Runtime         string            `json:"runtime"`
-	Schedule        []Trial           `json:"schedule"`
+	MercuryBridgeVersion string            `json:"mercury_bridge_version,omitempty"`
+	Bundles              *BundleResolution `json:"bundles,omitempty"`
+	NativeSettings       json.RawMessage   `json:"native_settings,omitempty"`
+	NativeArguments      []string          `json:"native_arguments,omitempty"`
+	GeminiVersion        string            `json:"gemini_version,omitempty"`
+	ClaudeVersion        string            `json:"claude_version,omitempty"`
+	CodexVersion         string            `json:"codex_version,omitempty"`
+	BudgetPolicy         string            `json:"budget_policy,omitempty"`
+	Original             Experiment        `json:"original_experiment"`
+	Grader               GraderIdentity    `json:"grader"`
+	RunnerSHA            string            `json:"runner_sha256"`
+	Experiment           Experiment        `json:"experiment"`
+	ConfigSHA            string            `json:"config_sha256"`
+	EvaluatorSHA         string            `json:"evaluator_sha256"`
+	CommandFiles         map[string]string `json:"command_files_sha256"`
+	Runtime              string            `json:"runtime"`
+	Schedule             []Trial           `json:"schedule"`
 }
 
 // AdapterRequest is sent to the command's stdin. No reference solution or test is exposed.
@@ -200,11 +201,16 @@ func validateExperiment(e Experiment) error {
 		if e.Claude.OutputFormat != "" && e.Claude.OutputFormat != "json-schema" {
 			return fmt.Errorf("claude output_format must be json-schema")
 		}
-		if e.Model != "claude-haiku-5-5" || e.Agent != "claude" || len(e.Command) != 1 {
+		if (!isMercury(e) && e.Model != "claude-haiku-5-5") || e.Agent != "claude" || len(e.Command) != 1 {
 			return fmt.Errorf("claude requires fixed model claude-haiku-5-5, agent claude and a single executable")
 		}
 		if e.Claude.Auth != "api-key-env" {
 			return fmt.Errorf("claude auth must explicitly select api-key-env (ANTHROPIC_API_KEY)")
+		}
+		if isMercury(e) {
+			if err := validateMercury(e); err != nil {
+				return err
+			}
 		}
 		switch e.Claude.Reasoning {
 		case "low", "medium", "high":
@@ -373,6 +379,11 @@ func ResolveExperiment(e Experiment, base string) (ResolvedExperiment, error) {
 		}
 		r.CommandFiles[path] = hex.EncodeToString(hash.Sum(nil))
 		e.Command[i] = path
+	}
+	if isMercury(e) {
+		if err := resolveMercury(&r, &e, base); err != nil {
+			return r, err
+		}
 	}
 	if e.IsNative() {
 		if err := resolveNative(&r, e); err != nil {
