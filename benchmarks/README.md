@@ -225,3 +225,17 @@ The examples schedule 30 attempts with a 100,000 reported-token threshold, 120 s
 Native thread usage contains cumulative `total` and per-request `last` snapshots. The latest complete cumulative total is normalized once; cached input and reasoning output are subsets and are not added again. Missing or invalid accounting stays unknown, and native failures remain visible during replay. Resolved settings, native events, usage and observed item types do not prove that a skill or tool was used. See the [official app-server contract](https://learn.chatgpt.com/docs/app-server) and [Luna model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
 The [Luna A/A pilot](luna-calibration-pilot-2026-10-19.md) completed 30 attempts with 26 passes, four retained quality failures and complete usage. Both identical arms passed 13/15; this is calibration evidence, not a harness improvement. Its explicitly revised 275,536-token threshold accommodates the observed native context size; the example's illustrative 100,000-token threshold may stop before 30 attempts.
+
+## Mercury through the existing Claude runtime
+
+`examples/mercury-canary.json` and `examples/mercury-aa.json` select `claude.mercury.bridge` (an explicitly installed LiteLLM1.99.0 executable), fixed `mercury-3` and low effort. Claude remains pinned to2.1.292 and uses the same structured single-file task interface. Set the bridge path to the isolated installed executable; this adapter does not install dependencies. Dry-run probes executable versions and hashes, but starts no bridge or inference:
+
+```sh
+bin/ateam bench run benchmarks/examples/mercury-canary.json --dry-run
+```
+
+Execution requires `INCEPTION_API_KEY`, retained only in the Go runner. Claude and LiteLLM receive a fresh local token/base URL; direct Claude continues to require `ANTHROPIC_API_KEY`. Go owns both process groups, kills/waits for the bridge, and closes/waits for its capture proxy on every exit. Attempt cancellation directly cancels the outbound provider HTTP request. The existing OS-isolation limits above still apply.
+
+An in-process Go loopback proxy records bounded provider responses before translation. LiteLLM remains an external dependency; no custom Python callback is loaded. Config explicitly forwards `max_retries: 0`, and the proxy rejects SDK retries and further requests after a failed exchange before dispatch. Go validates the journal and derives primary/cache/reasoning usage; missing or incomplete usage fails the attempt and stops the run. Native CLI counters and dollar estimates are not authoritative. `run.json` retains an envelope of native output and provider journal so compare/rescore validate the same accounting without a live bridge. The proxy buffers responses; do not interpret its timing as unmodified streaming performance. Wrapper-loaded dependencies are not transitively hashed; retain the pinned isolated environment alongside executable provenance.
+
+General multi-turn tool/permission qualification is deferred; the actual `StructuredOutput` tool path required by these tasks is tested offline. Paid runs require separate approval of the [canary/A/A proposal](mercury-canary-plan.md).

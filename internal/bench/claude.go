@@ -15,12 +15,20 @@ import (
 
 // ClaudeConfig opts into the built-in, API-key-only Claude Code adapter.
 type ClaudeConfig struct {
-	Reasoning    string `json:"reasoning"`
-	Auth         string `json:"auth"`
-	OutputFormat string `json:"output_format,omitempty"`
+	Mercury      *MercuryConfig `json:"mercury,omitempty"`
+	Reasoning    string         `json:"reasoning"`
+	Auth         string         `json:"auth"`
+	OutputFormat string         `json:"output_format,omitempty"`
 }
 
 func executeClaude(ctx context.Context, e Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
+	if isMercury(e) {
+		return executeMercury(ctx, e, request, dir)
+	}
+	return executeClaudeProcess(ctx, e, request, dir, os.Getenv("ANTHROPIC_API_KEY"), "")
+}
+
+func executeClaudeProcess(ctx context.Context, e Experiment, request AdapterRequest, dir, key, baseURL string) (AdapterResponse, string, string, string, error) {
 	empty, _ := parseClaudeOutput("")
 	if e.Claude == nil || e.Claude.Auth != "api-key-env" || len(e.Command) != 1 {
 		return empty, "", "", "adapter-error", fmt.Errorf("claude requires api-key-env authentication and one executable")
@@ -28,7 +36,6 @@ func executeClaude(ctx context.Context, e Experiment, request AdapterRequest, di
 	if e.Claude.OutputFormat != "json-schema" {
 		return empty, "", "", "adapter-error", fmt.Errorf("claude execution requires output_format json-schema; legacy artifacts support offline replay only")
 	}
-	key := os.Getenv("ANTHROPIC_API_KEY")
 	if key == "" {
 		return empty, "", "", "adapter-error", fmt.Errorf("ANTHROPIC_API_KEY is required for the explicit api-key-env policy")
 	}
@@ -57,12 +64,18 @@ func executeClaude(ctx context.Context, e Experiment, request AdapterRequest, di
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "CLAUDE_CONFIG_DIR=" + configDir, "ANTHROPIC_API_KEY=" + key,
 		"TMPDIR=" + dir, "XDG_CONFIG_HOME=" + dir, "XDG_CACHE_HOME=" + dir, "GOWORK=off", "GOENV=off",
 		"CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192", "CLAUDE_CODE_MAX_RETRIES=0", "MAX_STRUCTURED_OUTPUT_RETRIES=1", "DISABLE_AUTOUPDATER=1", "DISABLE_TELEMETRY=1", "DISABLE_ERROR_REPORTING=1"}
+	if baseURL != "" {
+		cmd.Env = append(cmd.Env, "ANTHROPIC_BASE_URL="+baseURL)
+	}
 	cmd.Stdin = strings.NewReader("Instructions:\n" + request.Instructions + "\n\nTask:\n" + request.Prompt + "\n\nReturn a JSON object with source containing the complete Go source file.")
 	var stdout, stderr limitedBuffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
 	out, diagnostic := redactGeminiOutput(stdout.String(), key), redactGeminiOutput(stderr.String(), key)
-	response, parseErr := parseNativeOutput(e, out)
+	response, parseErr := empty, error(nil)
+	if !isMercury(e) {
+		response, parseErr = parseNativeOutput(e, out)
+	}
 	if stdout.overflow || stderr.overflow {
 		markGeminiTruncated(&response)
 		return response, out, diagnostic, "adapter-error", fmt.Errorf("claude output exceeded 1 MiB per stream")
