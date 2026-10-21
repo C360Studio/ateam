@@ -28,10 +28,10 @@ Three further facts bound what the built system can guarantee here:
 
 Keep both systems. Enable model review in stages, through the gate that already runs, and record the triggers for the rest.
 
-1. **Declare the ranking.** The owner writes `.agents/review-policy.json` naming the models in use and the `stronger_than` relations they will stand behind, runs `ateam review setup`, and commits the generated contracts and cards. Per-PR cost: zero. (Step 1 issue.)
-2. **Enforce strength in merge-check.** Both body lines must name the model in parentheses. When a policy exists, merge-check compares reviewer against every implementer model through a small `ateam review compare` subcommand that reuses `internal/review.Policy`; without a policy the comparison is reported as skipped. Per-PR cost: one word per line. (Step 2 issue.)
+1. **Declare the ranking.** The owner writes `.agents/review-policy.json` naming the models in use and the `stronger_than` relations they will stand behind, runs `ateam review setup`, and commits the generated contracts and cards. Per-PR cost: zero. (#81)
+2. **Enforce strength in merge-check.** Both body lines must name the model in parentheses. When a policy exists, merge-check compares reviewer against every implementer model through a small `ateam review compare` subcommand that reuses `internal/review.Policy`; without a policy the comparison is reported as skipped. Per-PR cost: one word per line. (#82)
 3. **Bind evidence to commits the semengine way.** A review record is a PR comment naming the commit it read; a later content commit invalidates it; a merge of `main` touching none of the PR's files, and docs-only commits, keep it. This is #75 and gives the head-binding guarantee without the re-review loop.
-4. **Make the document true.** A status block states which parts are enabled, the classifier sentence describes merge-check, and the head-binding rule is amended with the merge-of-main exemption, implemented in `validateBinding` or marked as a limitation until it is. (Step 4 issue.)
+4. **Make the document true.** A status block states which parts are enabled, the classifier sentence describes merge-check, and the head-binding rule is amended with the merge-of-main exemption, implemented in `validateBinding` or marked as a limitation until it is. (#83)
 5. **Leave JSON records, reviewer-executed checks and exceptions off by default.** The code stays; `ateam review check` remains available for repositories that want it.
 
 Steps 1, 2 and 4 are independent of each other except that step 2's strength half needs step 1's policy. Step 3 is tracked separately in #75 and should land before or with step 2, since both edit the same block of merge-check.
@@ -66,4 +66,4 @@ Until then, the heavy path is not a gate here and the document must not say othe
 - `AGENTS.md` rows `verify+review` (configured model review) and `merge:check+review`
 - `scripts/merge-check.sh`, `.github/workflows/ci.yml`
 - `internal/review/record.go` (`validateBinding`, `validateChecks`), `internal/review/policy.go` (`stronger`)
-- Issues #46, #66, #75; semengine `.agents/rules-index.md:109` for the cross-agent review rule being ported
+- Issues #46, #66, #75, #81, #82, #83; semengine `.agents/rules-index.md:109` for the cross-agent review rule being ported
