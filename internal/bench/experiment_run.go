@@ -347,6 +347,11 @@ func LoadExperimentRun(path string) (ExperimentRun, error) {
 	if err != nil {
 		return r, err
 	}
+	return parseExperimentRun(data)
+}
+
+func parseExperimentRun(data []byte) (ExperimentRun, error) {
+	var r ExperimentRun
 	if err := strictJSON(data, &r); err != nil {
 		return r, err
 	}

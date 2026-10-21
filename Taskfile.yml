@@ -86,6 +86,11 @@ tasks:
     cmds:
       - go run ./cmd/ateam bench --selftest
 
+  bench:report-check:
+    desc: Check redistributable report worked examples offline (0 API calls)
+    cmds:
+      - go test ./internal/bench -run '^TestReportWorkedExamples$' -count=1
+
   mutate:check:
     desc: "Run non-destructive Go -overlay mutation check (-- -pkg -test -file -mutant -expect or -expect-text)"
     cmds:

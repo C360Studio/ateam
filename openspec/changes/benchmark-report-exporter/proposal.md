@@ -10,6 +10,6 @@ Implement a credential-free `ateam bench export` command that validates retained
 
 ## Scope and stop boundary
 
-This claim delivers the reviewed design/specification and verification evidence on `codex/benchmark-report-exporter`, based on current main `68c188fcbcd871e093cecde87475e21725ce8ea5`. Implementation remains unchecked in the task list and continues on this claim. No executable exporter is claimed by this documentation commit.
+This change delivers the offline exporter and check command, synthetic worked examples, tests, and usage documentation on `codex/benchmark-report-exporter`. It began as a reviewed design claim at `fb144947f530ab4a4b131d38c981940647c89515`; implementation integrates main at `5b59d9d854c4aa8465b3e7e09ba2dee5cedd7755`. Delivery stops at review readiness, without merging. The dynamic Ponytail epic #91 and its later evaluation slice #95 remain separate; version 1 cannot infer classifier activation or isolated classifier latency from existing artifacts.
 
 Implementation scope is CLI + Go bench reporting + offline fixtures/tests + documentation/verification entrypoint. No new model calls, installation, runtime/grader/task changes, dashboard viewer, cloud storage, automatic PR publishing or automatic next-experiment launch. PR #85 owns the Mercury worked example; do not duplicate its raw artifacts or merge it as part of this claim. Review/test against that example after it is available, retaining synthetic fixtures for standalone CI.
