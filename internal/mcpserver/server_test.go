@@ -34,9 +34,9 @@ func TestMCPStdioRoundTrip(t *testing.T) {
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"handoff","goal":"Ship v0.1","done_when":"task verify green"}}}`,
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"handoff","goal":"Ship v0.1 opt-out","done_when":"task verify green","post":false}}}`,
-		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"pickup"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"handoff","agent":"codex","goal":"Ship v0.1","done_when":"task verify green"}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"handoff","agent":"claude","goal":"Ship v0.1 opt-out","done_when":"task verify green","post":false}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"pickup","agent":"claude"}}}`,
 	}, "\n") + "\n"
 
 	var out bytes.Buffer
@@ -53,8 +53,8 @@ func TestMCPStdioRoundTrip(t *testing.T) {
 	if !strings.Contains(lines[3], "PR comment: skipped (post=false)") {
 		t.Errorf("handoff post=false response missing status line: %s", lines[3])
 	}
-	if !strings.Contains(lines[4], "Goal: Ship v0.1 opt-out") {
-		t.Errorf("pickup response missing handoff Goal: %s", lines[4])
+	if !strings.Contains(lines[4], "Goal: Ship v0.1 opt-out") || !strings.Contains(lines[4], "other handoffs: codex@main") {
+		t.Errorf("pickup response missing handoff Goal or other handoffs line: %s", lines[4])
 	}
 }
 

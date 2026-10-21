@@ -60,6 +60,7 @@ func Tools() []ToolDef {
 						"enum": []string{"pickup", "handoff", "debt", "mode", "spec_queue", "spec_check", "board"},
 					},
 					"mode":          map[string]any{"type": "string"},
+					"agent":         map[string]any{"type": "string"},
 					"goal":          map[string]any{"type": "string"},
 					"addresses":     map[string]any{"type": "string"},
 					"constraints":   map[string]any{"type": "string"},
@@ -172,7 +173,7 @@ func resolveEffectiveSessionID(st *state.State, explicit ...string) string {
 	if envID := resolveEnvSessionID(); envID != "" {
 		return envID
 	}
-	if st != nil && st.Writer != nil && st.Writer.PID > 0 {
+	if st != nil && st.Writer != nil && st.Writer.PID > 0 && state.IsProcessAlive(st.Writer.PID) {
 		if st.Writer.PID == state.ResolveClientPID() || st.Writer.PID == os.Getpid() {
 			return strings.TrimSpace(st.Writer.SessionID)
 		}
@@ -255,6 +256,7 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 	var args struct {
 		Action         string `json:"action"`
 		Mode           string `json:"mode"`
+		Agent          string `json:"agent"`
 		Goal           string `json:"goal"`
 		Addresses      string `json:"addresses"`
 		Constraints    string `json:"constraints"`
@@ -279,9 +281,11 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		return err.Error(), true
 	}
 	st.CurrentSessionID = resolveEffectiveSessionID(st, args.SessionID, args.ConversationID, connSessionID)
+	st.CurrentAgent = state.ResolveActiveAgentForSession(root, args.Agent, st.CurrentSessionID, st.Git.Branch, st.Writer)
 
 	switch args.Action {
 	case "pickup":
+		state.ReconcilePickup(root, st, args.Agent, st.CurrentSessionID)
 		st.PopulateMCPProvenance(ctx, root, serverBuildLabel)
 		return state.BuildPickupSummary(st), false
 	case "handoff":
@@ -291,6 +295,7 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 			Constraints:   args.Constraints,
 			DoneWhen:      args.DoneWhen,
 			ChecksToRun:   args.ChecksToRun,
+			Agent:         st.EffectiveAgent(),
 			SessionID:     st.CurrentSessionID,
 			Branch:        st.Git.Branch,
 			CheckpointSHA: st.Git.HeadSHA,
@@ -302,7 +307,8 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		}
 		_ = state.ClearWriterLease(root)
 		if _, err := state.Update(root, func(cur *state.State) error {
-			cur.LastHandoff = &h
+			cur.CurrentAgent = st.CurrentAgent
+			cur.SetHandoff(h)
 			cur.Writer = nil
 			return nil
 		}); err != nil {
@@ -444,9 +450,11 @@ func handleResourceRead(ctx context.Context, root string, req rpcRequest, connSe
 		return rpcErrorResp(req.ID, -32603, err.Error())
 	}
 	st.CurrentSessionID = resolveEffectiveSessionID(st, connSessionID)
+	st.CurrentAgent = state.ResolveActiveAgentForSession(root, "", st.CurrentSessionID, st.Git.Branch, st.Writer)
 	var text string
 	switch r.URI {
 	case "ateam://state/pickup":
+		state.ReconcilePickup(root, st, "", st.CurrentSessionID)
 		st.PopulateMCPProvenance(ctx, root, serverBuildLabel)
 		text = state.BuildPickupSummary(st)
 	case "ateam://state/board":

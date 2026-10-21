@@ -655,13 +655,15 @@ func checkContinuity(dir string, spec TaskSpec) (bool, error) {
 				Constraints:   "Hold: waiting on #48",
 				DoneWhen:      "task verify green",
 				ChecksToRun:   "task spec:queue",
+				Agent:         "codex",
+				Branch:        "main",
 				CheckpointSHA: "9f8e7d6",
 			},
 		}
 		if err := state.Save(dir, st); err != nil {
 			return false, err
 		}
-		out, err := hook.Handle(dir, "session-start", strings.NewReader(`{}`))
+		out, err := hook.HandleWithAgent(dir, "session-start", "codex", strings.NewReader(`{}`))
 		if err != nil {
 			return false, err
 		}
@@ -674,10 +676,10 @@ func checkContinuity(dir string, spec TaskSpec) (bool, error) {
 		if err := os.WriteFile(filepath.Join(dir, "worker.go"), []byte("package main\n// shortcut: single worker goroutine, scale to pool when queue > 1000\n"), 0o644); err != nil {
 			return false, err
 		}
-		if _, err := hook.Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress"}`)); err != nil {
+		if _, err := hook.HandleWithAgent(dir, "pre-compact", "codex", strings.NewReader(`{"hook_event_name":"PreCompress"}`)); err != nil {
 			return false, err
 		}
-		out, err := hook.Handle(dir, "session-start", strings.NewReader(`{}`))
+		out, err := hook.HandleWithAgent(dir, "session-start", "codex", strings.NewReader(`{}`))
 		if err != nil {
 			return false, err
 		}

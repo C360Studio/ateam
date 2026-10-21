@@ -91,14 +91,14 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(headsDir, "main"), []byte("9f11a42000000000000000000000000000000000\n"), 0o644)
 
 	st.Cards = []state.BoardCard{{ID: "PR-38", Title: "PR #38", Column: "done"}}
-	st.LastHandoff = &state.Handoff{
+	st.SetHandoff(state.Handoff{
 		Goal:          "Old merged PR #38 goal",
 		Addresses:     "PR #38",
 		DoneWhen:      "merged",
 		Branch:        "codex/model-routing-ui",
 		CheckpointSHA: "6c32197",
 		SessionID:     "sess-old",
-	}
+	})
 	if err := state.Save(dir, st); err != nil {
 		t.Fatalf("state.Save stale handoff: %v", err)
 	}
@@ -121,14 +121,14 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 		if err != nil {
 			t.Fatalf("state.Load: %v", err)
 		}
-		st.LastHandoff = &state.Handoff{
+		st.SetHandoff(state.Handoff{
 			Goal:          "Session A goal on same branch/HEAD",
 			Addresses:     "branch main, SHA 9f11a42",
 			DoneWhen:      "done",
 			Branch:        "main",
 			CheckpointSHA: "9f11a42",
 			SessionID:     owner,
-		}
+		})
 		if err := state.Save(dir, st); err != nil {
 			t.Fatalf("state.Save: %v", err)
 		}
@@ -148,7 +148,7 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 		st.Git.Branch = "main"
 		st.Git.HeadSHA = "9f11a42"
 		st.CurrentSessionID = "session-A"
-		st.LastHandoff = &state.Handoff{
+		st.SetHandoff(state.Handoff{
 			Goal:          "Session A active goal",
 			Addresses:     "PR #50 on branch main",
 			Constraints:   "zero external dependencies",
@@ -157,10 +157,10 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 			Branch:        "main",
 			CheckpointSHA: "1111111",
 			SessionID:     "session-A",
-		}
+		})
 		if preRefresh {
 			st.RefreshHandoffStaleness()
-			if !st.LastHandoff.Stale {
+			if st.LastHandoff == nil || !st.LastHandoff.Stale {
 				t.Fatalf("expected intermediate RefreshHandoffStaleness to mark HEAD-drifted handoff stale before pre-compact")
 			}
 		}
@@ -191,14 +191,14 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	st.Git.Branch = "main"
 	st.Git.HeadSHA = "9f11a42"
 	st.CurrentSessionID = "session-A"
-	st.LastHandoff = &state.Handoff{
+	st.SetHandoff(state.Handoff{
 		Goal:          "PR #38: ship model routing UI",
 		Addresses:     "PR #38",
 		DoneWhen:      "merged",
 		Branch:        "main",
 		CheckpointSHA: "1111111",
 		SessionID:     "session-A",
-	}
+	})
 	st.RefreshHandoffStaleness()
 	_ = state.Save(dir, st)
 	outNonHeadStale, err := Handle(dir, "pre-compact", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"session-A"}`))
@@ -529,5 +529,203 @@ func TestHookWarnsStaleClientMCPOncePerSession(t *testing.T) {
 	}
 	if afterHandoff.AdditionalContext != "" || calls != 2 {
 		t.Fatalf("expected before-prompt after ClearWriterLease to stay silent with calls=2, got out=%q calls=%d", afterHandoff.AdditionalContext, calls)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+func TestSessionStartWarnsWhenBinaryBehindHead(t *testing.T) {
+	dir := t.TempDir()
+	headsDir := filepath.Join(dir, ".git", "refs", "heads")
+	if err := os.MkdirAll(headsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("abad85b343390e142faee9edcf1ba14979e3218a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origBuildCommit := state.BuildCommit
+	t.Cleanup(func() { state.BuildCommit = origBuildCommit })
+
+	// 1. Binary built before HEAD prints "binary <x> is behind HEAD <y>; run task build" at session-start and nothing on subsequent prompts.
+	state.BuildCommit = "990e19c000000000000000000000000000000000"
+	const wantBehind = "binary 990e19c is behind HEAD abad85b; run task build"
+	outBehind, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-behind"}`))
+	if err != nil {
+		t.Fatalf("Handle session-start behind HEAD: %v", err)
+	}
+	if !strings.Contains(outBehind.AdditionalContext, wantBehind) {
+		t.Fatalf("expected stale binary warning %q in session-start output, got:\n%s", wantBehind, outBehind.AdditionalContext)
+	}
+	promptOut, err := Handle(dir, "before-prompt", strings.NewReader(`{"session_id":"sess-behind","prompt":"continue work"}`))
+	if err != nil {
+		t.Fatalf("Handle before-prompt after stale binary session-start: %v", err)
+	}
+	if promptOut.AdditionalContext != "" {
+		t.Fatalf("expected empty output on before-prompt, got %q", promptOut.AdditionalContext)
+	}
+
+	// 2. Binary matching HEAD prints no stale-binary or missing-provenance warning.
+	state.BuildCommit = "abad85b343390e142faee9edcf1ba14979e3218a"
+	outCurrent, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-current"}`))
+	if err != nil {
+		t.Fatalf("Handle session-start current HEAD: %v", err)
+	}
+	for _, unexpected := range []string{"is behind HEAD", "binary has no build provenance; build with task build"} {
+		if strings.Contains(outCurrent.AdditionalContext, unexpected) {
+			t.Fatalf("expected no stale binary warning when current, found %q in:\n%s", unexpected, outCurrent.AdditionalContext)
+		}
+	}
+
+	// 3. build=unknown prints "binary has no build provenance; build with task build".
+	state.BuildCommit = "unknown"
+	const wantUnknown = "binary has no build provenance; build with task build"
+	outUnknown, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-unknown"}`))
+	if err != nil {
+		t.Fatalf("Handle session-start unknown build: %v", err)
+	}
+	if !strings.Contains(outUnknown.AdditionalContext, wantUnknown) {
+		t.Fatalf("expected missing build provenance warning %q in session-start output, got:\n%s", wantUnknown, outUnknown.AdditionalContext)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+func TestReview79HookPreCompactAndWorktreeBranchSwitch(t *testing.T) {
+	t.Setenv("ATEAM_AGENT", "")
+	t.Setenv("ATEAM_SESSION_ID", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CODEX_SESSION_ID", "")
+	t.Setenv("GEMINI_SESSION_ID", "")
+	t.Setenv("CLAUDECODE", "")
+
+	dir := t.TempDir()
+	headsDir := filepath.Join(dir, ".git", "refs", "heads")
+	if err := os.MkdirAll(filepath.Join(headsDir, "codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("2222222000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(headsDir, "codex", "feat"), []byte("3333333000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Finding 1: SetHandoff followed by HEAD advance + intermediate state.Refresh or RefreshHandoffStaleness
+	// must still preserve the 5 semantic fields on same-session pre-compact.
+	st := &state.State{
+		Mode: state.ModeFull,
+		Git: state.GitStatus{
+			Branch:  "main",
+			HeadSHA: "1111111",
+			Worktrees: []state.Worktree{
+				{Path: dir, Branch: "main", Head: "1111111"},
+			},
+		},
+	}
+	st.SetHandoff(state.Handoff{
+		Goal:          "Claude main checkpoint before commit",
+		Addresses:     "issue #72",
+		Constraints:   "preserve across Refresh",
+		DoneWhen:      "task verify green",
+		ChecksToRun:   "task verify",
+		Agent:         "claude",
+		SessionID:     "sess-claude-1",
+		Branch:        "main",
+		CheckpointSHA: "1111111",
+		UpdatedAt:     time.Now().UTC(),
+	})
+	if err := state.Save(dir, st); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate an intermediate RefreshHandoffStaleness at new HEAD 2222222 before pre-compact.
+	loaded, err := state.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.SyncBranchHead("main", "2222222")
+	loaded.RefreshHandoffStaleness()
+	if err := state.Save(dir, loaded); err != nil {
+		t.Fatal(err)
+	}
+
+	compactOut, err := HandleWithAgent(dir, "pre-compact", "claude", strings.NewReader(`{"hook_event_name":"PreCompress","session_id":"sess-claude-1"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent pre-compact: %v", err)
+	}
+	if !strings.Contains(compactOut.AdditionalContext, "Goal: Claude main checkpoint before commit") {
+		t.Fatalf("expected pre-compact to preserve SetHandoff goal across RefreshHandoffStaleness, got:\n%s", compactOut.AdditionalContext)
+	}
+
+	// Finding 3: Switching branch to codex/feat and running session-start must NOT see stale cached Worktrees[main].Head=1111111
+	// and must keep claude@main (now at 2222222) as a live other handoff.
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/codex/feat\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	startOut, err := HandleWithAgent(dir, "session-start", "codex", strings.NewReader(`{"session_id":"sess-codex-1"}`))
+	if err != nil {
+		t.Fatalf("HandleWithAgent session-start on codex/feat: %v", err)
+	}
+	for _, want := range []string{
+		"Last Handoff: none for codex@codex/feat",
+		"other handoffs: claude@main (",
+	} {
+		if !strings.Contains(startOut.AdditionalContext, want) {
+			t.Fatalf("session-start after branch switch missing %q:\n%s", want, startOut.AdditionalContext)
+		}
+	}
+
+	// Codex review Finding 4: Switching between two branches at the same commit with identical (Agent, Goal, CheckpointSHA)
+	// but different Constraints/DoneWhen must still persist the updated LastHandoff compatibility alias on session-start.
+	if err := os.WriteFile(filepath.Join(headsDir, "codex", "feat"), []byte("2222222000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stSameGoal, err := state.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stSameGoal.SyncBranchHead("main", "2222222")
+	stSameGoal.SyncBranchHead("codex/feat", "2222222")
+	stSameGoal.SetHandoff(state.Handoff{
+		Goal:          "Shared goal across branches",
+		Addresses:     "codex/feat",
+		Constraints:   "Constraint on codex/feat",
+		DoneWhen:      "Done on codex/feat",
+		ChecksToRun:   "task verify",
+		Agent:         "claude",
+		Branch:        "codex/feat",
+		CheckpointSHA: "2222222",
+		UpdatedAt:     time.Now().UTC(),
+	})
+	stSameGoal.SetHandoff(state.Handoff{
+		Goal:          "Shared goal across branches",
+		Addresses:     "main",
+		Constraints:   "Constraint on main",
+		DoneWhen:      "Done on main",
+		ChecksToRun:   "task verify",
+		Agent:         "claude",
+		Branch:        "main",
+		CheckpointSHA: "2222222",
+		UpdatedAt:     time.Now().UTC(),
+	})
+	if err := state.Save(dir, stSameGoal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := HandleWithAgent(dir, "session-start", "claude", strings.NewReader(`{"session_id":"sess-claude-2"}`)); err != nil {
+		t.Fatal(err)
+	}
+	afterSwitchDisk, err := state.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterSwitchDisk.LastHandoff == nil || afterSwitchDisk.LastHandoff.Branch != "codex/feat" || afterSwitchDisk.LastHandoff.Constraints != "Constraint on codex/feat" {
+		t.Fatalf("expected session-start on codex/feat to persist updated LastHandoff alias on disk, got %+v", afterSwitchDisk.LastHandoff)
 	}
 }

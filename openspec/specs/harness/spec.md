@@ -138,6 +138,12 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 - **WHEN** state is refreshed or `BuildPickupSummary` renders a repository with worktrees
 - **THEN** each worktree's `merged_into_main` field is set to `true` when a `done` PR card for its branch has `merged: true` and `head_sha` matching the worktree `head` (with `ahead == 0` ancestor check as fallback and `false` when new commits exist ahead of the merged PR or when an open PR exists), and `BuildPickupSummary` prints a `Worktrees:` section listing each worktree's branch, dirty status, ahead count, and PR status (`merged via #n` or `open PR #n`)
 
+#### Scenario: Per-agent per-branch handoff slots and pickup rendering
+
+- **WHEN** multiple agents or branches record handoffs via `ateam state handoff`, `ateam_state(action="handoff")`, `pre-compact`, or the HTTP API
+- **THEN** `.ateam/state.json` stores each handoff in `handoffs["<agent>@<branch>"]` (with `agent` resolved from `--agent`/`agent`, `ATEAM_AGENT`, the active writer lease, or branch prefix) while keeping `last_handoff` aliased to the current session's `<agent>@<branch>` slot
+- **AND** `BuildPickupSummary` drops stale entries from `handoffs` per entry, prints the current session's `<agent>@<branch>` handoff first (`Last Handoff:\n...` or `Last Handoff: none for <agent>@<branch>`), and prints one deterministic line per other live handoff (`other handoffs: <agent>@<branch> (<age>, PR #<n>)`)
+
 ### Requirement: Fast Git identity across worktrees
 
 Git identity reads SHALL resolve loose and packed refs, detached HEADs, and linked-worktree gitdir/commondir pointers, returning the branch and seven-character commit identity.
@@ -177,7 +183,12 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 #### Scenario: Build provenance and duplicate server detection in doctor
 
 - **WHEN** `ateam version`, `session-start`, or `ateam doctor` runs
-- **THEN** build provenance (`vcs.revision` or `-ldflags` commit) is reported in `ateam version` and the `[ateam]` session-start line (or `unknown` when built without VCS metadata), and `ateam doctor` lists running `ateam serve` and `ateam mcp` processes (with their build commits) and warns when the binary has no build provenance (`binary has no build provenance; build with task build`), when the binary commit is not an ancestor of checkout `HEAD`, when hook latency exceeds `5000 us` (`<5ms` budget), when a running `ateam mcp` process is stale, or when multiple `ateam serve` processes are running concurrently
+- **THEN** build provenance (`vcs.revision` or `-ldflags` commit) is reported in `ateam version` and the `[ateam]` session-start line (or `unknown` when built without VCS metadata), and `ateam doctor` lists running `ateam serve` and `ateam mcp` processes (with their build commits) and warns when the binary has no build provenance (`binary has no build provenance; build with task build`), when the binary commit is behind checkout `HEAD` (`binary <build> is behind HEAD <head>; run task build`) or not an ancestor of checkout `HEAD`, when hook latency exceeds `5000 us` (`<5ms` budget), when a running `ateam mcp` process is stale, or when multiple `ateam serve` processes are running concurrently
+
+#### Scenario: Stale or missing binary build provenance warning at session start
+
+- **WHEN** `ateam hook --event session-start` runs in a git checkout with a resolved `HEAD` commit
+- **THEN** it compares the embedded build commit (`state.BuildRevision()`) against `ReadFastGitHead` without spawning a git subprocess, emits `binary <build> is behind HEAD <head>; run task build` when the binary commit differs from `HEAD`, emits `binary has no build provenance; build with task build` when build provenance is `unknown` or `dev`, and emits neither line when the binary commit matches `HEAD`
 
 ### Requirement: Board state and authenticated API access
 

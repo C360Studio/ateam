@@ -104,10 +104,11 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	sessionID := firstNonEmpty(in.SessionID, in.ConversationID, state.ResolveEnvSessionID())
 	st.CurrentSessionID = sessionID
 	br, sha := state.ReadFastGitHead(root)
+	wtHeadChanged := false
 	if sha != "" {
-		st.Git.Branch = br
-		st.Git.HeadSHA = sha
+		wtHeadChanged = st.SyncBranchHead(br, sha)
 	}
+	st.CurrentAgent = state.ResolveActiveAgentForSession(root, flagAgent, sessionID, st.Git.Branch, st.Writer)
 
 	switch ev {
 	case "session-start":
@@ -126,10 +127,13 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 			scanErrs = append(scanErrs, err.Error())
 		}
 		st.HoldScanError = strings.Join(scanErrs, "; ")
-		st.RefreshHandoffStaleness()
+		reconcileSessionStartHandoffs(root, flagAgent, br, sha, wtHeadChanged, st)
 		ctxText := state.BuildPickupSummary(st)
 		if sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active") {
 			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
+		}
+		if buildWarning := checkSessionBuildProvenance(sha); buildWarning != "" {
+			ctxText += "\n" + buildWarning
 		}
 		if mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha); len(mcpWarnings) > 0 {
 			ctxText += "\n" + strings.Join(mcpWarnings, "\n")
@@ -181,42 +185,60 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		}
 		updated, err := state.Update(root, func(cur *state.State) error {
 			cur.CurrentSessionID = sessionID
-			if sha != "" {
-				cur.Git.Branch = br
-				cur.Git.HeadSHA = sha
+			if liveBr, liveSHA := state.ReadFastGitHead(root); liveBr != "" && liveSHA != "" {
+				cur.SyncBranchHead(liveBr, liveSHA)
+			} else if sha != "" {
+				cur.SyncBranchHead(br, sha)
 			}
+			cur.CurrentAgent = state.ResolveActiveAgentForSession(root, flagAgent, sessionID, cur.Git.Branch, cur.Writer)
 			cur.Shortcuts = shortcuts
 			cur.Holds = holds
 			cur.HoldScanError = ""
-			sameSessionBranch := cur.LastHandoff != nil &&
+			curSlotKey := cur.CurrentHandoffKey()
+			slotForCheck := ""
+			curHandoff := cur.LastHandoff
+			if cur.Handoffs != nil {
+				curHandoff = cur.Handoffs[curSlotKey]
+				slotForCheck = curSlotKey
+			}
+			sameSessionBranch := curHandoff != nil &&
 				sessionID != "" &&
-				cur.LastHandoff.SessionID == sessionID &&
-				(cur.LastHandoff.Branch == "" || cur.Git.Branch == "" || cur.LastHandoff.Branch == cur.Git.Branch) &&
-				!cur.HasNonHeadDriftHandoffStaleness()
+				curHandoff.SessionID == sessionID &&
+				(curHandoff.Branch == "" || cur.Git.Branch == "" || curHandoff.Branch == cur.Git.Branch) &&
+				!cur.HasNonHeadDriftHandoffStalenessFor(slotForCheck, curHandoff)
 			if sameSessionBranch {
-				cur.LastHandoff.Branch = cur.Git.Branch
-				cur.LastHandoff.CheckpointSHA = cur.Git.HeadSHA
-				cur.LastHandoff.Dirty = cur.Git.Dirty
+				curHandoff.Branch = cur.Git.Branch
+				curHandoff.CheckpointSHA = cur.Git.HeadSHA
+				curHandoff.Dirty = cur.Git.Dirty
 			}
 			cur.RefreshHandoffStaleness()
-			foreignSession := cur.LastHandoff != nil && (cur.LastHandoff.SessionID == "" || sessionID == "" || cur.LastHandoff.SessionID != sessionID)
-			if cur.LastHandoff == nil || cur.LastHandoff.Stale || foreignSession {
-				cur.LastHandoff = &state.Handoff{
+			if cur.Handoffs != nil {
+				curHandoff = cur.Handoffs[curSlotKey]
+			} else {
+				curHandoff = cur.LastHandoff
+			}
+			foreignSession := curHandoff != nil && (curHandoff.SessionID == "" || sessionID == "" || curHandoff.SessionID != sessionID)
+			if curHandoff == nil || curHandoff.Stale || foreignSession {
+				cur.SetHandoff(state.Handoff{
 					Goal:          "UNKNOWN — Auto-saved before context compaction",
 					Addresses:     fmt.Sprintf("branch %s, SHA %s", cur.Git.Branch, cur.Git.HeadSHA),
 					Constraints:   fmt.Sprintf("%d active holds, %d shortcuts", len(cur.Holds), len(cur.Shortcuts)),
 					DoneWhen:      "Run task verify and reconcile via /pickup",
 					ChecksToRun:   "ateam state pickup && task verify",
+					Agent:         cur.EffectiveAgent(),
 					SessionID:     sessionID,
 					Branch:        cur.Git.Branch,
 					CheckpointSHA: cur.Git.HeadSHA,
 					Dirty:         cur.Git.Dirty,
 					AutoCompacted: true,
 					UpdatedAt:     time.Now().UTC(),
-				}
+				})
 			} else {
-				cur.LastHandoff.AutoCompacted = true
-				cur.LastHandoff.UpdatedAt = time.Now().UTC()
+				curHandoff.AutoCompacted = true
+				curHandoff.UpdatedAt = time.Now().UTC()
+				if cur.Handoffs != nil {
+					cur.SetHandoff(*curHandoff)
+				}
 			}
 			return nil
 		})
@@ -247,6 +269,65 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	default:
 		return Output{}, nil
 	}
+}
+
+func sameHandoffValue(a, b *state.Handoff) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	ca, cb := *a, *b
+	ca.UpdatedAt = time.Time{}
+	cb.UpdatedAt = time.Time{}
+	return ca == cb && a.UpdatedAt.Equal(b.UpdatedAt)
+}
+
+func reconcileSessionStartHandoffs(root, flagAgent, br, sha string, wtHeadChanged bool, st *state.State) {
+	beforeHandoffs := len(st.Handoffs)
+	var prevLast *state.Handoff
+	if st.LastHandoff != nil {
+		cp := *st.LastHandoff
+		prevLast = &cp
+	}
+	if st.Handoffs != nil {
+		st.PruneStaleHandoffs()
+	} else {
+		st.RefreshHandoffStaleness()
+	}
+	lastChanged := !sameHandoffValue(prevLast, st.LastHandoff)
+	if wtHeadChanged || (st.Handoffs != nil && (len(st.Handoffs) != beforeHandoffs || lastChanged)) {
+		if updated, err := state.Update(root, func(cur *state.State) error {
+			if liveBr, liveSHA := state.ReadFastGitHead(root); liveBr != "" && liveSHA != "" {
+				cur.SyncBranchHead(liveBr, liveSHA)
+			} else if sha != "" && !cur.UpdatedAt.After(st.UpdatedAt) {
+				cur.SyncBranchHead(br, sha)
+			}
+			cur.CurrentSessionID = st.CurrentSessionID
+			cur.CurrentAgent = state.ResolveActiveAgentForSession(root, flagAgent, cur.CurrentSessionID, cur.Git.Branch, cur.Writer)
+			if cur.Handoffs != nil {
+				cur.PruneStaleHandoffs()
+			} else {
+				cur.RefreshHandoffStaleness()
+			}
+			return nil
+		}); err == nil && updated != nil {
+			st.Git = updated.Git
+			st.Handoffs = updated.Handoffs
+			st.LastHandoff = updated.LastHandoff
+			st.CurrentAgent = updated.CurrentAgent
+		}
+	}
+}
+
+func checkSessionBuildProvenance(headSHA string) string {
+	headSHA = strings.TrimSpace(headSHA)
+	if headSHA == "" || headSHA == "uncommitted" {
+		return ""
+	}
+	shortBuild, _, _ := state.BuildRevision()
+	if shortBuild != "" && shortBuild != "dev" && shortBuild != "unknown" && state.SameCommitSHA(shortBuild, headSHA) {
+		return ""
+	}
+	return bootstrap.FormatStaleBinaryWarning(shortBuild, headSHA)
 }
 
 func checkSessionStaleMCPOnce(root, sessionID, headSHA string) []string {
