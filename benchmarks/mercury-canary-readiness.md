@@ -9,17 +9,28 @@ Fresh branch `codex/mercury-canary-preparation` starts at the fetched merge comm
 - Claude: `/Users/coby/.local/share/claude/versions/2.1.292`, reporting `2.1.292 (Claude Code)`.
 - Bridge: `/Users/coby/Code/c360/ateam/.worktrees/codex-mercury-cancellation-qualification/.ateam/teardown-env/litellm-go`, reporting `LiteLLM: Current Version = 1.99.0`.
 - Existing isolated bridge dependencies: Python 3.14.5, HTTPX 0.28.1, OpenAI 2.54.0. The wrapper and its original environment must remain available; no installation or upgrade was performed. Executable hashes do not authenticate every transitive dependency.
-- Runner: built from the merge commit with its `BuildCommit` set explicitly; Go 1.26.4, darwin/arm64. Keep this binary with the frozen inputs rather than using an ambient installed `ateam`.
+- Runner: built from clean documentation commit `54e9fa1aaa72d2ac402cd028417c1cc3eb55276f`; `cmd/`, `internal/`, `go.mod` and `go.sum` are unchanged from the merge commit. Go 1.26.4, darwin/arm64. Both embedded `vcs.revision` and explicit `BuildCommit` identify `54e9fa1`; `vcs.modified=false`. Keep this binary with the frozen inputs rather than using an ambient installed `ateam`.
 
 | Input | SHA-256 |
 | --- | --- |
 | Claude executable | `97a01e5bc74a199e67189435d0331ea3a24eac2e07db4b76d9148c5b0386138f` |
 | Bridge wrapper | `12a6220c313db3beb493a32079b43cba1008f7e1a7dd9d44a74200dc69d325e9` |
-| Runner executable | `ee14c95aac9a8d7a4f93c71acf6173f77510588d0d06980f3645fcb2a9a76429` |
+| Runner executable | `ef61c27ccb28fbfd3b478bf6ae9fbf1009cf8a461af0f20d5c74c0005e1b4de5` |
 | Canary resolved config digest | `f6aa66510ed12975d1b9ffb1af2c44bc1eaaea1724ca49380b2be2cc7f090ac4` |
 | A/A resolved config digest | `f3f3cebaedda842d46c737329b096c047a1336e3d8af56d186c219a4fa864c3c` |
 
 The config digests are the runner's canonical `config_sha256`, not file-byte hashes. Full settings, schedule, instruction text, grader/evaluator digests and command hashes are retained in `canary-dry-run.json` and `aa-dry-run.json`. Both arms contain exactly `Return a correct, minimal Go implementation. Follow the requested JSON schema.` No native hook/skill activation or full ATeam instruction treatment is claimed.
+
+Independent review caught the initial build's automatic VCS stamp naming the shared root's older `d9ac179` commit. That runner was replaced, both dry-runs refreshed, and their earlier output retained under `superseded/`. The corrected build scoped Git explicitly to this worktree; `runner-build.txt` retains `go version -m` output:
+
+```sh
+GIT_DIR="$(git rev-parse --absolute-git-dir)" GIT_WORK_TREE="$PWD" \
+  GOCACHE="$PWD/.ateam/go-cache" go build \
+  -ldflags '-X github.com/c360studio/ateam/internal/state.BuildCommit=54e9fa1aaa72d2ac402cd028417c1cc3eb55276f' \
+  -o .ateam/mercury-canary-preparation/ateam ./cmd/ateam
+```
+
+That build command was run at clean `54e9fa1`; replay it only from that source revision to reproduce the provenance claim. Do not propagate the scoped Git variables into tests that create their own repositories.
 
 ## Preparation checks
 
