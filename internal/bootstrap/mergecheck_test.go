@@ -37,7 +37,9 @@ case "$1 $2" in
       "api --paginate repos/{owner}/{repo}/pulls/$FAKE_GH_PR/files?per_page=100") key=files ;;
       "api --paginate repos/{owner}/{repo}/pulls/$FAKE_GH_PR/commits?per_page=100") key=commits ;;
       "api --paginate repos/{owner}/{repo}/issues/$FAKE_GH_PR/comments?per_page=100") key=comments ;;
-      "api repos/{owner}/{repo}/commits/"*) key="commit-${2##*/}" ;;
+      "api --paginate repos/{owner}/{repo}/commits/"*"?per_page=100")
+        s=${3%\?per_page=100}
+        key="commit-${s##*/}" ;;
       *) echo "fake gh: unexpected call: $*" >&2; exit 3 ;;
     esac ;;
 esac
@@ -130,12 +132,16 @@ func healthyGH() ghState {
 }
 
 func pullJSON(draft bool, userType, body string, changedFiles int) string {
+	return pullCommitsJSON(draft, userType, body, changedFiles, 1, headCommitSHA)
+}
+
+func pullCommitsJSON(draft bool, userType, body string, changedFiles, commits int, headSHA string) string {
 	b, err := json.Marshal(body)
 	if err != nil {
 		panic(err)
 	}
-	return fmt.Sprintf(`{"number":12,"state":"open","draft":%t,"user":{"login":"x","type":%q},"body":%s,"changed_files":%d,"base":{"ref":"main"}}`,
-		draft, userType, b, changedFiles)
+	return fmt.Sprintf(`{"number":12,"state":"open","draft":%t,"user":{"login":"x","type":%q},"body":%s,"changed_files":%d,"commits":%d,"head":{"sha":%q},"base":{"ref":"main"}}`,
+		draft, userType, b, changedFiles, commits, headSHA)
 }
 
 func filesJSON(names ...string) string {
@@ -494,6 +500,7 @@ func TestMergeCheckReview(t *testing.T) {
 
 	t.Run("record then merge-of-main", func(t *testing.T) {
 		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 2, mergeMainSHA)
 		st.commits = listJSON(
 			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
 			prCommitJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat", headCommitSHA, mainTipSHA),
@@ -517,6 +524,7 @@ func TestMergeCheckReview(t *testing.T) {
 
 	t.Run("record then docs-only", func(t *testing.T) {
 		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 3, docsCommitSHA)
 		st.commits = listJSON(
 			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
 			prCommitJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat", headCommitSHA, mainTipSHA),
@@ -534,6 +542,7 @@ func TestMergeCheckReview(t *testing.T) {
 
 	t.Run("record then content commit", func(t *testing.T) {
 		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 2, contentCommitSHA)
 		st.commits = listJSON(
 			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
 			prCommitJSON(contentCommitSHA, "fix: adjust script", headCommitSHA),
@@ -545,12 +554,130 @@ func TestMergeCheckReview(t *testing.T) {
 		runMergeCheck(t, st, "12").requireFail(t,
 			"review record at "+headCommitSHA+" is older than content commit "+contentCommitSHA+"; request re-review")
 
+		// A comment mentioning the unreviewed head SHA alongside the reviewed SHA must not advance the review boundary.
+		for _, comment := range []string{
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + ".\nCommit " + contentCommitSHA + " remains unreviewed; request re-review.",
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + "; see https://github.com/C360Studio/ateam/blob/" + contentCommitSHA + "/scripts/x.sh",
+		} {
+			stUnreviewed := st
+			stUnreviewed.comments = listJSON(commentJSON(comment))
+			runMergeCheck(t, stUnreviewed, "12").requireFail(t,
+				"review record at "+headCommitSHA+" is older than content commit "+contentCommitSHA+"; request re-review")
+		}
+
+		// Ambiguous multi-commit or undesignated records fail closed.
+		for _, comment := range []string{
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + " and reviewed at " + contentCommitSHA + ".",
+			"reviewed-by: codex\nCommits " + headCommitSHA + " and " + contentCommitSHA + " touched scripts/x.sh.",
+		} {
+			stAmbiguous := st
+			stAmbiguous.comments = listJSON(commentJSON(comment))
+			runMergeCheck(t, stAmbiguous, "12").requireFail(t,
+				"no review record comment names reviewed-by: codex")
+		}
+
 		// A later review record at contentCommitSHA resolves the finding.
 		st.comments = listJSON(
 			commentJSON("reviewed-by: codex\nReviewed at "+headCommitSHA[:7]),
 			commentJSON("reviewed-by: codex\nRe-reviewed at "+contentCommitSHA[:7]),
 		)
 		runMergeCheck(t, st, "12").requirePass(t, "reviewing agent: codex (record at "+contentCommitSHA+")")
+	})
+
+	t.Run("paginated commit files and 3000-file ceiling", func(t *testing.T) {
+		docPage := make([]string, 300)
+		otherCodePage := make([]string, 300)
+		for i := range 300 {
+			docPage[i] = fmt.Sprintf("docs/%03d.md", i)
+			otherCodePage[i] = fmt.Sprintf("internal/other/%03d.go", i)
+		}
+
+		// Page 2 contains a code file in a post-review non-merge commit.
+		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 2, contentCommitSHA)
+		st.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(contentCommitSHA, "docs: bulk update", headCommitSHA),
+		)
+		st.commitDetails = map[string]string{
+			contentCommitSHA: commitDetailJSON(contentCommitSHA, "docs: bulk update", []string{headCommitSHA}, docPage...) + "\n" +
+				commitDetailJSON(contentCommitSHA, "docs: bulk update", []string{headCommitSHA}, "scripts/x.sh"),
+		}
+		runMergeCheck(t, st, "12").requireFail(t,
+			"review record at "+headCommitSHA+" is older than content commit "+contentCommitSHA+"; request re-review")
+
+		// Page 2 contains a PR-changed file overlap in a post-review merge of main.
+		stMerge := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		stMerge.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 2, mergeMainSHA)
+		stMerge.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat", headCommitSHA, mainTipSHA),
+		)
+		stMerge.commitDetails = map[string]string{
+			mergeMainSHA: commitDetailJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat",
+				[]string{headCommitSHA, mainTipSHA}, otherCodePage...) + "\n" +
+				commitDetailJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat",
+					[]string{headCommitSHA, mainTipSHA}, "scripts/x.sh"),
+		}
+		runMergeCheck(t, stMerge, "12").requireFail(t,
+			"review record at "+headCommitSHA+" is older than content commit "+mergeMainSHA+"; request re-review")
+
+		// A single 300-file page (truncated first page) or a 3,000-file ceiling response fails closed (exit 2).
+		stTruncFirstPage := st
+		stTruncFirstPage.commitDetails = map[string]string{
+			contentCommitSHA: commitDetailJSON(contentCommitSHA, "docs: bulk update", []string{headCommitSHA}, docPage...),
+		}
+		rTrunc := runMergeCheck(t, stTruncFirstPage, "12")
+		if rTrunc.status != 2 {
+			t.Fatalf("truncated 300-file commit page exit %d, want 2\n%s", rTrunc.status, rTrunc.out)
+		}
+		rTrunc.requireOutput(t, "unavailable: the file list of commit "+contentCommitSHA)
+
+		var tenDocPages []string
+		for range 10 {
+			tenDocPages = append(tenDocPages, commitDetailJSON(contentCommitSHA, "docs: bulk update", []string{headCommitSHA}, docPage...))
+		}
+		stCeiling := st
+		stCeiling.commitDetails = map[string]string{
+			contentCommitSHA: strings.Join(tenDocPages, "\n"),
+		}
+		rCeiling := runMergeCheck(t, stCeiling, "12")
+		if rCeiling.status != 2 {
+			t.Fatalf("3000-file ceiling commit exit %d, want 2\n%s", rCeiling.status, rCeiling.out)
+		}
+		rCeiling.requireOutput(t, "unavailable: the file list of commit "+contentCommitSHA)
+	})
+
+	t.Run("incomplete or capped PR commit history", func(t *testing.T) {
+		var commits250 []string
+		prev := baseCommitSHA
+		for i := 1; i <= 250; i++ {
+			sha := fmt.Sprintf("%040x", i)
+			commits250 = append(commits250, prCommitJSON(sha, "feat: step", prev))
+			prev = sha
+		}
+		sha250 := fmt.Sprintf("%040x", 250)
+		sha251 := fmt.Sprintf("%040x", 251)
+
+		// PR reports 251 commits and head #251, but pulls/12/commits stops at #250 with review at #250.
+		stCapped := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		stCapped.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 251, sha251)
+		stCapped.commits = listJSON(commits250...)
+		stCapped.comments = listJSON(commentJSON("reviewed-by: codex\nReviewed at " + sha250))
+		rCapped := runMergeCheck(t, stCapped, "12")
+		if rCapped.status != 2 {
+			t.Fatalf("capped 250-commit history exit %d, want 2\n%s", rCapped.status, rCapped.out)
+		}
+		rCapped.requireOutput(t, "unavailable: the commit list of pull request #12 is incomplete or does not end at head: it has 250 of 251 commits")
+
+		// Including #251 in the commit list fails the review gate at #251 (exit 1).
+		stFull := stCapped
+		stFull.commits = listJSON(append(commits250, prCommitJSON(sha251, "fix: unreviewed code change", sha250))...)
+		stFull.commitDetails = map[string]string{
+			sha251: commitDetailJSON(sha251, "fix: unreviewed code change", []string{sha250}, "scripts/x.sh"),
+		}
+		runMergeCheck(t, stFull, "12").requireFail(t,
+			"review record at "+sha250+" is older than content commit "+sha251+"; request re-review")
 	})
 
 	t.Run("no record", func(t *testing.T) {
