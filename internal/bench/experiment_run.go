@@ -134,7 +134,7 @@ func revalidateExperiment(resolved ResolvedExperiment) error {
 			return fmt.Errorf("resolved bundle experiment changed before execution")
 		}
 	}
-	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.GeminiVersion != resolved.GeminiVersion || current.ClaudeVersion != resolved.ClaudeVersion || current.CodexVersion != resolved.CodexVersion || (current.Experiment.IsNative() && !jsonEquivalent(current.NativeSettings, resolved.NativeSettings)) || !reflect.DeepEqual(current.NativeArguments, resolved.NativeArguments) || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
+	if !reflect.DeepEqual(current.CommandFiles, resolved.CommandFiles) || current.EvaluatorSHA != resolved.EvaluatorSHA || current.Grader != resolved.Grader || current.GeminiVersion != resolved.GeminiVersion || current.ClaudeVersion != resolved.ClaudeVersion || current.CodexVersion != resolved.CodexVersion || current.MercuryBridgeVersion != resolved.MercuryBridgeVersion || (current.Experiment.IsNative() && !jsonEquivalent(current.NativeSettings, resolved.NativeSettings)) || !reflect.DeepEqual(current.NativeArguments, resolved.NativeArguments) || !reflect.DeepEqual(current.Schedule, resolved.Schedule) {
 		return fmt.Errorf("resolved experiment changed before execution")
 	}
 	return nil
@@ -142,6 +142,10 @@ func revalidateExperiment(resolved ResolvedExperiment) error {
 
 // RunExperiment executes a resolved paired pilot and returns its unique artifact path.
 func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot string) (string, error) {
+	return runExperiment(ctx, resolved, outputRoot, executeAdapter)
+}
+
+func runExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot string, execute func(context.Context, Experiment, AdapterRequest, string) (AdapterResponse, string, string, string, error)) (string, error) {
 	if err := revalidateExperiment(resolved); err != nil {
 		return "", err
 	}
@@ -183,7 +187,7 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 			return dir, err
 		}
 		start := time.Now()
-		response, stdout, stderr, status, runErr := executeAdapter(ctx, resolved.Experiment, a.Request, workspace)
+		response, stdout, stderr, status, runErr := execute(ctx, resolved.Experiment, a.Request, workspace)
 		a.AgentNanos = time.Since(start).Nanoseconds()
 		if resolved.Experiment.IsNative() && runErr == nil {
 			if reason := nativeIdentityStatus(resolved.Experiment, response.Native); reason != "" {
@@ -411,7 +415,13 @@ func validateRun(r ExperimentRun) error {
 				if a.Status != "adapter-error" || a.Diagnostic != cfg.Agent+" output exceeded 1 MiB per stream" {
 					return fmt.Errorf("attempt %d: invalid truncation outcome", i)
 				}
-				markGeminiTruncated(&parsed)
+				if isMercury(cfg) {
+					if !parsed.Native.OutputTruncated {
+						return fmt.Errorf("attempt %d: missing Mercury truncation evidence", i)
+					}
+				} else {
+					markGeminiTruncated(&parsed)
+				}
 			}
 			if a.Response == nil || !reflect.DeepEqual(&parsed, a.Response) {
 				return fmt.Errorf("attempt %d: native response differs from raw output", i)
