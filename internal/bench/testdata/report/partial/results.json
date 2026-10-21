@@ -1,0 +1,207 @@
+{
+  "kind": "ateam.benchmark-report",
+  "version": 1,
+  "recorded_at": "2026-10-21T00:00:00Z",
+  "identity": {
+    "name": "Synthetic prescribed-task A/B",
+    "agent": "fake",
+    "agent_version": "1",
+    "model": "none",
+    "runtime": "synthetic runtime",
+    "native_version": "",
+    "bridge_version": "",
+    "config_sha256": "6dfa27d356bb631dc3047f4a4381da40d9e953f80cfd0c3b628b0b23d0502491",
+    "baseline_sha256": "b595bcb7f0070c9a5eaa7ae9a85468f2e9b2cb4c005aeda4494c2768573df353",
+    "candidate_sha256": "5b995f0944f3d441fd11aa5d46531e170e1d3dd1387b0b1e378ed1d9f0de0981",
+    "runner_sha256": "087bf5ca75c48138e467aae95a7822de0e76437105bbfdd2163148d047e445db",
+    "evaluator_sha256": "575f5ca48aa627281f5750d1d40430091722cf751f64db394d1384e75ada54d1",
+    "go_driver_sha256": "15ffb35e7eb03ea8de594435da97d22d884501ca88467c1feb3de7eb75146e75",
+    "go_driver_version": "synthetic Go",
+    "command_file_sha256": [
+      "1c94381c3359991b8855a03705afd3c7ccb70c23835e9f8570488658b07878a2"
+    ],
+    "tasks": [
+      "safe-path"
+    ],
+    "repetitions": 2,
+    "seed": 42,
+    "timeout_seconds": 5,
+    "max_run_seconds": 0,
+    "max_total_tokens": 0,
+    "budget_policy": "",
+    "native_settings_sha256": "",
+    "native_arguments_sha256": ""
+  },
+  "schedule": [
+    {
+      "task": "safe-path",
+      "repetition": 1,
+      "arm": "baseline"
+    },
+    {
+      "task": "safe-path",
+      "repetition": 1,
+      "arm": "candidate"
+    },
+    {
+      "task": "safe-path",
+      "repetition": 2,
+      "arm": "candidate"
+    },
+    {
+      "task": "safe-path",
+      "repetition": 2,
+      "arm": "baseline"
+    }
+  ],
+  "counts": {
+    "scheduled": 4,
+    "retained": 3,
+    "unstarted": 1,
+    "graded": 2,
+    "passed": 2,
+    "failed": 0,
+    "unevaluable": 1
+  },
+  "accounting": {
+    "basis": "adapter-reported",
+    "reported_usage_attempts": 0,
+    "unknown_usage_attempts": 3,
+    "known_token_subtotal": null,
+    "cost_status": "unknown"
+  },
+  "comparison": {
+    "mode": "ab",
+    "arms": {
+      "baseline": {
+        "attempts": 1,
+        "status_counts": {
+          "passed": 1
+        },
+        "reported_usage_attempts": 0,
+        "missing_usage_attempts": 1,
+        "cached_usage_attempts": 0,
+        "reasoning_usage_attempts": 0,
+        "execution_nanos": {
+          "count": 1,
+          "min": 100,
+          "max": 100,
+          "mean": 100,
+          "population_sd": 0
+        },
+        "passed_execution_nanos": {
+          "count": 1,
+          "min": 100,
+          "max": 100,
+          "mean": 100,
+          "population_sd": 0
+        },
+        "reported_tokens": null
+      },
+      "candidate": {
+        "attempts": 2,
+        "status_counts": {
+          "adapter-error": 1,
+          "passed": 1
+        },
+        "reported_usage_attempts": 0,
+        "missing_usage_attempts": 2,
+        "cached_usage_attempts": 0,
+        "reasoning_usage_attempts": 0,
+        "execution_nanos": {
+          "count": 2,
+          "min": 130,
+          "max": 1000,
+          "mean": 565,
+          "population_sd": 435
+        },
+        "passed_execution_nanos": {
+          "count": 1,
+          "min": 130,
+          "max": 130,
+          "mean": 130,
+          "population_sd": 0
+        },
+        "reported_tokens": null
+      }
+    },
+    "stop_reason": "cancelled",
+    "scheduled_attempts": 4,
+    "completed_attempts": 3,
+    "unpaired_attempts": 1,
+    "unevaluable_pairs": 0,
+    "pairs": 1,
+    "baseline_passed": 1,
+    "candidate_passed": 1,
+    "improvements": 0,
+    "regressions": 0,
+    "both_passed": 1,
+    "neither_passed": 0,
+    "status_counts": {
+      "baseline/passed": 1,
+      "candidate/adapter-error": 1,
+      "candidate/passed": 1
+    },
+    "successful_pair_mean_delta_nanos": 30,
+    "usage_pairs": 0,
+    "missing_usage_pairs": 1,
+    "total_token_delta": null
+  },
+  "attempts": [
+    {
+      "index": 0,
+      "trial": {
+        "task": "safe-path",
+        "repetition": 1,
+        "arm": "baseline"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 100,
+      "grading_nanos": 7,
+      "usage": null,
+      "source_sha256": "d1a0af70871c25c00625bb37162a5e78c330c3ccd8f49f6a43331c792a4b5899"
+    },
+    {
+      "index": 1,
+      "trial": {
+        "task": "safe-path",
+        "repetition": 1,
+        "arm": "candidate"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 130,
+      "grading_nanos": 7,
+      "usage": null,
+      "source_sha256": "d1a0af70871c25c00625bb37162a5e78c330c3ccd8f49f6a43331c792a4b5899"
+    },
+    {
+      "index": 2,
+      "trial": {
+        "task": "safe-path",
+        "repetition": 2,
+        "arm": "candidate"
+      },
+      "status": "adapter-error",
+      "quality_passed": null,
+      "execution_nanos": 1000,
+      "grading_nanos": 0,
+      "usage": null,
+      "source_sha256": ""
+    }
+  ],
+  "pairs": [
+    {
+      "baseline_index": 0,
+      "candidate_index": 1,
+      "quality_eligible": true,
+      "successful_execution_delta_nanos": 30,
+      "reported_token_delta": null
+    }
+  ],
+  "replay": {
+    "state": "not-provided",
+    "changed_attempt_indexes": []
+  }
+}

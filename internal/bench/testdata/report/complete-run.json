@@ -1,0 +1,219 @@
+{
+  "version": 1,
+  "created": "2026-10-21T00:00:00Z",
+  "resolved": {
+    "original_experiment": {
+      "version": 1,
+      "name": "Synthetic prescribed-task A/B",
+      "command": [
+        "/synthetic/not-executable"
+      ],
+      "agent": "fake",
+      "agent_version": "1",
+      "model": "none",
+      "baseline": "private-baseline-instructions",
+      "candidate": "private-candidate-instructions",
+      "tasks": [
+        "safe-path"
+      ],
+      "repetitions": 2,
+      "seed": 42,
+      "timeout_seconds": 5
+    },
+    "grader": {
+      "path": "/synthetic/private-go",
+      "sha256": "15ffb35e7eb03ea8de594435da97d22d884501ca88467c1feb3de7eb75146e75",
+      "version": "synthetic Go"
+    },
+    "runner_sha256": "087bf5ca75c48138e467aae95a7822de0e76437105bbfdd2163148d047e445db",
+    "experiment": {
+      "version": 1,
+      "name": "Synthetic prescribed-task A/B",
+      "command": [
+        "/synthetic/not-executable"
+      ],
+      "agent": "fake",
+      "agent_version": "1",
+      "model": "none",
+      "baseline": "private-baseline-instructions",
+      "candidate": "private-candidate-instructions",
+      "tasks": [
+        "safe-path"
+      ],
+      "repetitions": 2,
+      "seed": 42,
+      "timeout_seconds": 5
+    },
+    "config_sha256": "6dfa27d356bb631dc3047f4a4381da40d9e953f80cfd0c3b628b0b23d0502491",
+    "evaluator_sha256": "575f5ca48aa627281f5750d1d40430091722cf751f64db394d1384e75ada54d1",
+    "command_files_sha256": {
+      "/synthetic/not-executable": "1c94381c3359991b8855a03705afd3c7ccb70c23835e9f8570488658b07878a2"
+    },
+    "runtime": "synthetic runtime",
+    "schedule": [
+      {
+        "task": "safe-path",
+        "repetition": 1,
+        "arm": "baseline"
+      },
+      {
+        "task": "safe-path",
+        "repetition": 1,
+        "arm": "candidate"
+      },
+      {
+        "task": "safe-path",
+        "repetition": 2,
+        "arm": "candidate"
+      },
+      {
+        "task": "safe-path",
+        "repetition": 2,
+        "arm": "baseline"
+      }
+    ]
+  },
+  "attempts": [
+    {
+      "request": {
+        "version": 1,
+        "trial": {
+          "task": "safe-path",
+          "repetition": 1,
+          "arm": "baseline"
+        },
+        "prompt": "Write package safepath with func Resolve(base, rel string) (string, error). Return the absolute lexical path for rel within base, including base itself. Reject paths escaping base and sibling-prefix traversal. Do not resolve symlinks; filesystem/symlink security is outside this task. Return one Go source file.",
+        "instructions": "private-baseline-instructions"
+      },
+      "status": "passed",
+      "response": {
+        "version": 1,
+        "source": "package safepath // private-source-sentinel",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20,
+          "cached_input_tokens": 4,
+          "reasoning_output_tokens": 9
+        }
+      },
+      "stdout": "{\"version\":1,\"source\":\"package safepath // private-source-sentinel\",\"usage\":{\"input_tokens\":10,\"output_tokens\":20,\"cached_input_tokens\":4,\"reasoning_output_tokens\":9}}",
+      "stderr": "private-stderr-sentinel",
+      "diagnostic": "private-diagnostic-sentinel",
+      "source_sha256": "d1a0af70871c25c00625bb37162a5e78c330c3ccd8f49f6a43331c792a4b5899",
+      "agent_nanos": 100,
+      "grade_nanos": 7,
+      "grade": {
+        "supported": true,
+        "passed": true,
+        "verdict": "passed",
+        "diagnostics": "private-grade-sentinel"
+      }
+    },
+    {
+      "request": {
+        "version": 1,
+        "trial": {
+          "task": "safe-path",
+          "repetition": 1,
+          "arm": "candidate"
+        },
+        "prompt": "Write package safepath with func Resolve(base, rel string) (string, error). Return the absolute lexical path for rel within base, including base itself. Reject paths escaping base and sibling-prefix traversal. Do not resolve symlinks; filesystem/symlink security is outside this task. Return one Go source file.",
+        "instructions": "private-candidate-instructions"
+      },
+      "status": "passed",
+      "response": {
+        "version": 1,
+        "source": "package safepath // private-source-sentinel",
+        "usage": {
+          "input_tokens": 15,
+          "output_tokens": 25,
+          "cached_input_tokens": 4,
+          "reasoning_output_tokens": 9
+        }
+      },
+      "stdout": "{\"version\":1,\"source\":\"package safepath // private-source-sentinel\",\"usage\":{\"input_tokens\":15,\"output_tokens\":25,\"cached_input_tokens\":4,\"reasoning_output_tokens\":9}}",
+      "stderr": "private-stderr-sentinel",
+      "diagnostic": "private-diagnostic-sentinel",
+      "source_sha256": "d1a0af70871c25c00625bb37162a5e78c330c3ccd8f49f6a43331c792a4b5899",
+      "agent_nanos": 130,
+      "grade_nanos": 7,
+      "grade": {
+        "supported": true,
+        "passed": true,
+        "verdict": "passed",
+        "diagnostics": "private-grade-sentinel"
+      }
+    },
+    {
+      "request": {
+        "version": 1,
+        "trial": {
+          "task": "safe-path",
+          "repetition": 2,
+          "arm": "candidate"
+        },
+        "prompt": "Write package safepath with func Resolve(base, rel string) (string, error). Return the absolute lexical path for rel within base, including base itself. Reject paths escaping base and sibling-prefix traversal. Do not resolve symlinks; filesystem/symlink security is outside this task. Return one Go source file.",
+        "instructions": "private-candidate-instructions"
+      },
+      "status": "failed",
+      "response": {
+        "version": 1,
+        "source": "package safepath // private-source-sentinel",
+        "usage": {
+          "input_tokens": 15,
+          "output_tokens": 25,
+          "cached_input_tokens": 4,
+          "reasoning_output_tokens": 9
+        }
+      },
+      "stdout": "{\"version\":1,\"source\":\"package safepath // private-source-sentinel\",\"usage\":{\"input_tokens\":15,\"output_tokens\":25,\"cached_input_tokens\":4,\"reasoning_output_tokens\":9}}",
+      "stderr": "private-stderr-sentinel",
+      "diagnostic": "private-diagnostic-sentinel",
+      "source_sha256": "d1a0af70871c25c00625bb37162a5e78c330c3ccd8f49f6a43331c792a4b5899",
+      "agent_nanos": 1000,
+      "grade_nanos": 7,
+      "grade": {
+        "supported": true,
+        "passed": false,
+        "verdict": "failed",
+        "diagnostics": "private-grade-sentinel"
+      }
+    },
+    {
+      "request": {
+        "version": 1,
+        "trial": {
+          "task": "safe-path",
+          "repetition": 2,
+          "arm": "baseline"
+        },
+        "prompt": "Write package safepath with func Resolve(base, rel string) (string, error). Return the absolute lexical path for rel within base, including base itself. Reject paths escaping base and sibling-prefix traversal. Do not resolve symlinks; filesystem/symlink security is outside this task. Return one Go source file.",
+        "instructions": "private-baseline-instructions"
+      },
+      "status": "passed",
+      "response": {
+        "version": 1,
+        "source": "package safepath // private-source-sentinel",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20,
+          "cached_input_tokens": 4,
+          "reasoning_output_tokens": 9
+        }
+      },
+      "stdout": "{\"version\":1,\"source\":\"package safepath // private-source-sentinel\",\"usage\":{\"input_tokens\":10,\"output_tokens\":20,\"cached_input_tokens\":4,\"reasoning_output_tokens\":9}}",
+      "stderr": "private-stderr-sentinel",
+      "diagnostic": "private-diagnostic-sentinel",
+      "source_sha256": "d1a0af70871c25c00625bb37162a5e78c330c3ccd8f49f6a43331c792a4b5899",
+      "agent_nanos": 100,
+      "grade_nanos": 7,
+      "grade": {
+        "supported": true,
+        "passed": true,
+        "verdict": "passed",
+        "diagnostics": "private-grade-sentinel"
+      }
+    }
+  ],
+  "sha256": "9505972ba5346ae9526c28aad9f5c9c16b8d80bd2c905b843ca3901f1d4ada7c"
+}
