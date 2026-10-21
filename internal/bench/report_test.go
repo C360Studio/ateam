@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 )
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Offline validated report projection
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Offline validated report projection
 func TestReportRejectsInvalidBeforeOutput(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "invalid.json")
@@ -84,7 +84,7 @@ func changeReportUsage(a *Attempt, u *Usage) {
 	a.Stdout = string(raw)
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
 func TestReportProjectionOracle(t *testing.T) {
 	r := reportFixture()
 	got, err := projectExperimentReport(r, nil)
@@ -128,8 +128,8 @@ func TestReportProjectionOracle(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Offline validated report projection
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Offline validated report projection
 func TestReportPartialUnknownAndZero(t *testing.T) {
 	for _, count := range []int{0, 1, 3, 4} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
@@ -190,7 +190,7 @@ func TestReportPartialUnknownAndZero(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Explicit replay association and outcome
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Explicit replay association and outcome
 func TestReportReplayAssociation(t *testing.T) {
 	original := reportFixture()
 	clone := func() ExperimentRun {
@@ -272,7 +272,7 @@ func TestReportReplayAssociation(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
 func TestReportHostileMetadata(t *testing.T) {
 	label := "</td>\n# WINNER | [click](https://bad) & \x1b\u202e"
 	got := reportText(label)
@@ -298,7 +298,7 @@ func TestReportHostileMetadata(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestReportWorkedExamples(t *testing.T) {
 	for _, name := range []string{"complete", "partial"} {
 		t.Run(name, func(t *testing.T) {
@@ -323,8 +323,8 @@ func TestReportWorkedExamples(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func FuzzReportTextAndDeterminism(f *testing.F) {
 	for _, seed := range []string{"plain", "\n|[x](bad)<script>", "\x00\x1b\u202e", "α & _ * `"} {
 		f.Add(seed)
@@ -357,8 +357,8 @@ func FuzzReportTextAndDeterminism(f *testing.F) {
 	})
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Offline validated report projection
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Offline validated report projection
 func TestReportNativeAndAAAccounting(t *testing.T) {
 	// Native envelopes here are public synthetic parser fixtures. Nothing executes.
 	for _, adapter := range []string{"mercury", "gemini"} {
@@ -464,7 +464,7 @@ func TestReportNativeAndAAAccounting(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-report-exporter/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
 func TestReportMissingMetadataCells(t *testing.T) {
 	r := reportFixture()
 	r.Attempts[0].Status = "adapter-error"
