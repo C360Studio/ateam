@@ -565,6 +565,108 @@ func TestReconcileWorktreesAndPickupWorktreeSection(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestWorktreeNoPRAndStaleForgeCacheCaveat(t *testing.T) {
+	dirtyFalse := false
+	st := defaultState()
+	st.Forge = ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"}
+	st.Git.Branch = "main"
+	st.Git.HeadSHA = "abad85b"
+	st.Git.Worktrees = []Worktree{
+		{Path: "/repo", Branch: "main", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
+		{Path: "/repo/.worktrees/wt-ancestor", Branch: "claude/ancestor", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
+		{Path: "/repo/.worktrees/wt-64", Branch: "codex/mercury-offline-contract", Head: "e50ca10f", Dirty: &dirtyFalse, AheadCount: 4, MergedIntoMain: false},
+		{Path: "/repo/.worktrees/wt-review", Branch: "codex/review-pr-79", Head: "d7bb7968", Dirty: &dirtyFalse, AheadCount: 5, MergedIntoMain: false},
+	}
+	st.Cards = []BoardCard{
+		{ID: "GH-PR-64", Number: 64, Type: "pr", Column: "in_progress", Merged: false, Branch: "codex/mercury-offline-contract", HeadSHA: "e50ca10f"},
+	}
+
+	// Fresh cache (<10m): no cache-age suffix or caveat line; worktree with no PR is labeled "no PR" (not "unmerged").
+	st.BoardSyncedAt = time.Now().UTC().Add(-2 * time.Minute)
+	freshSummary := BuildPickupSummary(st)
+	for _, want := range []string{
+		"- main (head=abad85b, dirty=false, ahead=0, default branch)",
+		"- claude/ancestor (head=abad85b, dirty=false, ahead=0, merged (ancestor of main))",
+		"- codex/mercury-offline-contract (head=e50ca10f, dirty=false, ahead=4, open PR #64)",
+		"- codex/review-pr-79 (head=d7bb7968, dirty=false, ahead=5, no PR)",
+	} {
+		if !strings.Contains(freshSummary, want) {
+			t.Fatalf("expected fresh-cache pickup summary to contain %q, got:\n%s", want, freshSummary)
+		}
+	}
+	if strings.Contains(freshSummary, "labels from forge cache synced") || strings.Contains(freshSummary, "(cache ") {
+		t.Fatalf("expected fresh-cache summary not to contain stale cache caveat, got:\n%s", freshSummary)
+	}
+
+	// Stale cache (4h old): PR/forge-derived worktree labels carry "(cache 4h)" and Worktrees section prints the cache-age caveat,
+	// while git-derived fields and git-only statuses ("default branch", "merged (ancestor of main)") have no cache caveat.
+	st.BoardSyncedAt = time.Now().UTC().Add(-4 * time.Hour)
+	staleSummary := BuildPickupSummary(st)
+	for _, want := range []string{
+		"Worktrees: 4\n  labels from forge cache synced 4h ago; run ateam state pickup",
+		"- main (head=abad85b, dirty=false, ahead=0, default branch)",
+		"- claude/ancestor (head=abad85b, dirty=false, ahead=0, merged (ancestor of main))",
+		"- codex/mercury-offline-contract (head=e50ca10f, dirty=false, ahead=4, open PR #64 (cache 4h))",
+		"- codex/review-pr-79 (head=d7bb7968, dirty=false, ahead=5, no PR (cache 4h))",
+	} {
+		if !strings.Contains(staleSummary, want) {
+			t.Fatalf("expected stale-cache pickup summary to contain %q, got:\n%s", want, staleSummary)
+		}
+	}
+
+	// Mixed-provider case 1: Gitea active & fresh (2m ago), GitHub stale (4h ago).
+	// GH-PR-64 (Forge: "github") must carry "(cache 4h)", GT-PR-12 (Forge: "gitea") and "no PR" (using active Gitea) must be uncaveated,
+	// and the section caveat must report 4h.
+	mixed := defaultState()
+	_ = mixed.UpsertForge(ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"})
+	_ = mixed.UpsertForge(ForgeConfig{Provider: ForgeGitea, BaseURL: "https://gitea.example.com", Owner: "c360", Repo: "ateam"})
+	mixed.Forge = mixed.ResolveForge(ForgeGitea)
+	mixed.ForgeSyncedAt = map[ForgeProvider]time.Time{
+		ForgeGitHub: time.Now().UTC().Add(-4 * time.Hour),
+		ForgeGitea:  time.Now().UTC().Add(-2 * time.Minute),
+	}
+	mixed.BoardSyncedAt = mixed.ForgeSyncedAt[ForgeGitea]
+	mixed.Git.Branch = "main"
+	mixed.Git.HeadSHA = "abad85b"
+	mixed.Git.Worktrees = []Worktree{
+		{Path: "/repo/.worktrees/wt-gh", Branch: "codex/gh-branch", Head: "e50ca10f", Dirty: &dirtyFalse, AheadCount: 4},
+		{Path: "/repo/.worktrees/wt-gt", Branch: "codex/gt-branch", Head: "11223344", Dirty: &dirtyFalse, AheadCount: 2},
+		{Path: "/repo/.worktrees/wt-nopr", Branch: "codex/review-pr-80", Head: "d7bb7968", Dirty: &dirtyFalse, AheadCount: 1},
+	}
+	mixed.Cards = []BoardCard{
+		{ID: "GH-PR-64", Number: 64, Type: "pr", Column: "in_progress", Branch: "codex/gh-branch", HeadSHA: "e50ca10f", Forge: "github"},
+		{ID: "GT-PR-12", Number: 12, Type: "pr", Column: "in_progress", Branch: "codex/gt-branch", HeadSHA: "11223344", Forge: "gitea"},
+	}
+	mixedSummary1 := BuildPickupSummary(mixed)
+	for _, want := range []string{
+		"Worktrees: 3\n  labels from forge cache synced 4h ago; run ateam state pickup",
+		"- codex/gh-branch (head=e50ca10f, dirty=false, ahead=4, open PR #64 (cache 4h))",
+		"- codex/gt-branch (head=11223344, dirty=false, ahead=2, open PR #12)",
+		"- codex/review-pr-80 (head=d7bb7968, dirty=false, ahead=1, no PR)",
+	} {
+		if !strings.Contains(mixedSummary1, want) {
+			t.Fatalf("expected mixed-provider summary (GitHub stale 4h, Gitea fresh 2m) to contain %q, got:\n%s", want, mixedSummary1)
+		}
+	}
+
+	// Mixed-provider case 2 (reversed ages): Gitea active & stale (3h ago), GitHub fresh (2m ago).
+	mixed.ForgeSyncedAt[ForgeGitHub] = time.Now().UTC().Add(-2 * time.Minute)
+	mixed.ForgeSyncedAt[ForgeGitea] = time.Now().UTC().Add(-3 * time.Hour)
+	mixed.BoardSyncedAt = mixed.ForgeSyncedAt[ForgeGitea]
+	mixedSummary2 := BuildPickupSummary(mixed)
+	for _, want := range []string{
+		"Worktrees: 3\n  labels from forge cache synced 3h ago; run ateam state pickup",
+		"- codex/gh-branch (head=e50ca10f, dirty=false, ahead=4, open PR #64)",
+		"- codex/gt-branch (head=11223344, dirty=false, ahead=2, open PR #12 (cache 3h))",
+		"- codex/review-pr-80 (head=d7bb7968, dirty=false, ahead=1, no PR (cache 3h))",
+	} {
+		if !strings.Contains(mixedSummary2, want) {
+			t.Fatalf("expected mixed-provider summary (GitHub fresh 2m, Gitea stale 3h) to contain %q, got:\n%s", want, mixedSummary2)
+		}
+	}
+}
+
 // spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
 func TestPopulateMCPProvenanceAndRegisterMCPProcess(t *testing.T) {
 	dir := t.TempDir()

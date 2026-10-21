@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -82,5 +85,131 @@ func TestCLISubcommands(t *testing.T) {
 	}
 	if got := runStateSnapshot(handoffDir, "board"); got != 0 {
 		t.Fatalf("runStateSnapshot(board) = %d, want 0", got)
+	}
+
+	// Verify the recovery command advertised by stale forge-cache worktree output parses and succeeds through runState.
+	dirtyFalse := false
+	staleSt := &state.State{
+		Mode:          state.ModeFull,
+		BoardSyncedAt: time.Now().UTC().Add(-2 * time.Hour),
+		Git: state.GitStatus{
+			Branch:  "main",
+			HeadSHA: "abad85b",
+			Worktrees: []state.Worktree{
+				{Path: handoffDir, Branch: "codex/feat", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 1},
+			},
+		},
+	}
+	staleSummary := state.BuildPickupSummary(staleSt)
+	_, afterRun, ok := strings.Cut(staleSummary, "; run ateam ")
+	if !ok {
+		t.Fatalf("expected '; run ateam <cmd>' in stale worktree summary, got:\n%s", staleSummary)
+	}
+	cmdLine, _, _ := strings.Cut(afterRun, "\n")
+	cmdFields := strings.Fields(cmdLine)
+	if len(cmdFields) < 2 || cmdFields[0] != "state" {
+		t.Fatalf("unexpected advertised command %q", cmdLine)
+	}
+	if got := runState(handoffDir, cmdFields[1:]); got != 0 {
+		t.Fatalf("advertised recovery command %q exited with %d, want 0", cmdLine, got)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestRecoveryCommandRefreshesSupplyingForge(t *testing.T) {
+	now := time.Now().UTC()
+	old := now.Add(-4 * time.Hour)
+	wt := state.Worktree{Branch: "codex/gt-feature", Head: "1234567", AheadCount: 1}
+	gh := state.ForgeConfig{Provider: state.ForgeGitHub, Owner: "test", Repo: "repo"}
+
+	// Case 1: Inactive Gitea provider is reachable via httptest.Server -> recovery refreshes Gitea and clears (cache 4h).
+	var giteaPullCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/test/repo/issues":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/test/repo/pulls":
+			giteaPullCalls++
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"number":   12,
+					"title":    "Gitea feature PR",
+					"state":    "open",
+					"draft":    false,
+					"html_url": "http://gitea.local/test/repo/pulls/12",
+					"head":     map[string]any{"ref": wt.Branch, "sha": wt.Head},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	gtLive := state.ForgeConfig{Provider: state.ForgeGitea, BaseURL: srv.URL, Owner: "test", Repo: "repo"}
+	liveRoot := t.TempDir()
+	stLive := &state.State{
+		Mode:             state.ModeFull,
+		Forge:            gh,
+		Forges:           []state.ForgeConfig{gh, gtLive},
+		ForgesConfigured: true,
+		ForgeSyncedAt:    map[state.ForgeProvider]time.Time{state.ForgeGitHub: now, state.ForgeGitea: old},
+		BoardSyncedAt:    now,
+		Git:              state.GitStatus{Branch: "main", Worktrees: []state.Worktree{wt}},
+		Cards:            []state.BoardCard{{ID: "GT-PR-12", Number: 12, Type: "pr", Forge: "gitea", Column: "in-progress", Branch: wt.Branch}},
+	}
+	summary := state.BuildPickupSummary(stLive)
+	if !strings.Contains(summary, "open PR #12 (cache 4h)") {
+		t.Fatalf("expected stale Gitea label before recovery, got:\n%s", summary)
+	}
+	_, recovery, ok := strings.Cut(summary, "; run ateam ")
+	if !ok {
+		t.Fatalf("expected recovery instruction in summary, got:\n%s", summary)
+	}
+	command, _, _ := strings.Cut(recovery, "\n")
+	if err := state.Save(liveRoot, stLive); err != nil {
+		t.Fatalf("Save(liveRoot): %v", err)
+	}
+	fields := strings.Fields(command)
+	if code := runState(liveRoot, fields[1:]); code != 0 {
+		t.Fatalf("recovery command %q failed with %d", command, code)
+	}
+	afterLive, err := state.Load(liveRoot)
+	if err != nil {
+		t.Fatalf("Load(liveRoot): %v", err)
+	}
+	if giteaPullCalls == 0 || !afterLive.SyncedAtFor(gtLive).After(old) {
+		t.Fatalf("expected recovery %q to refresh Gitea (calls=%d, syncedAt=%v, old=%v)", command, giteaPullCalls, afterLive.SyncedAtFor(gtLive), old)
+	}
+	if gotStatus := afterLive.WorktreePRStatus(wt); gotStatus != "open PR #12" {
+		t.Fatalf("expected fresh Gitea label %q after recovery, got %q", "open PR #12", gotStatus)
+	}
+
+	// Case 2: Inactive Gitea provider is unreachable -> recovery attempts Gitea and persists BoardSyncError.
+	failRoot := t.TempDir()
+	gtFail := state.ForgeConfig{Provider: state.ForgeGitea, BaseURL: "http://127.0.0.1:1", Owner: "test", Repo: "repo"}
+	stFail := &state.State{
+		Mode:             state.ModeFull,
+		Forge:            gh,
+		Forges:           []state.ForgeConfig{gh, gtFail},
+		ForgesConfigured: true,
+		ForgeSyncedAt:    map[state.ForgeProvider]time.Time{state.ForgeGitHub: now, state.ForgeGitea: old},
+		BoardSyncedAt:    now,
+		Git:              state.GitStatus{Branch: "main", Worktrees: []state.Worktree{wt}},
+		Cards:            []state.BoardCard{{ID: "GT-PR-12", Number: 12, Type: "pr", Forge: "gitea", Column: "in-progress", Branch: wt.Branch}},
+	}
+	if err := state.Save(failRoot, stFail); err != nil {
+		t.Fatalf("Save(failRoot): %v", err)
+	}
+	if code := runState(failRoot, fields[1:]); code != 0 {
+		t.Fatalf("recovery command %q on unreachable forge exited %d, want 0", command, code)
+	}
+	afterFail, err := state.Load(failRoot)
+	if err != nil {
+		t.Fatalf("Load(failRoot): %v", err)
+	}
+	if afterFail.SyncedAtFor(gtFail).Equal(old) && afterFail.BoardSyncError == "" {
+		t.Fatalf("advertised recovery %q succeeded without attempting the stale provider; label remains %q", command, afterFail.WorktreePRStatus(wt))
 	}
 }

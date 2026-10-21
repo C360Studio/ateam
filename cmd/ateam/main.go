@@ -327,7 +327,12 @@ func runStateSync(repoRoot string, args []string) int {
 	}
 	cfg := st.Forge
 	if *forge != "" {
-		cfg.Provider = state.ForgeProvider(*forge)
+		p := state.ForgeProvider(strings.ToLower(strings.TrimSpace(*forge)))
+		if resolved := st.ResolveForge(p); resolved.Provider != "" {
+			cfg = resolved
+		} else {
+			cfg.Provider = p
+		}
 	}
 	cards, err := state.SyncForgeBoard(ctx, repoRoot, cfg)
 	if err != nil {
