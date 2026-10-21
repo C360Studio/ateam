@@ -344,7 +344,7 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 #### Scenario: Pinned CI workflow and Required aggregate
 
 - **WHEN** `.github/workflows/ci.yml` is evaluated against the merge-gate contract
-- **THEN** `pull_request` lists `opened`, `synchronize`, `reopened`, and `ready_for_review`, every job runs on `ubuntu-24.04` without write permissions, `merge-check` has only `contents: read`, `issues: read`, and `pull-requests: read`, and `required` needs `verify` and `merge-check` under `if: always()` and fails unless every needed job succeeded
+- **THEN** `pull_request` lists `opened`, `synchronize`, `reopened`, and `ready_for_review`, every job runs on `ubuntu-24.04` without write permissions, `merge-check` has only `contents: read`, `issues: read`, and `pull-requests: read`, and `required` needs `verify` and `merge-check` under `if: always()` and fails unless every needed job succeeded, and `concurrency.cancel-in-progress` is `${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}` so the run that marking a draft ready starts never cancels the in-flight run for the same head and leaves a failed `Required` on it
 
 #### Scenario: Cross-agent review and known-flake merge check
 

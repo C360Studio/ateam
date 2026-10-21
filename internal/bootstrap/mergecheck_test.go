@@ -448,6 +448,9 @@ func TestCIWorkflowPinnedSensitivity(t *testing.T) {
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}
 permissions:
   contents: read
 jobs:
@@ -511,6 +514,10 @@ jobs:
 			[]string{"job required", "does not take its results from needs.*.result"}},
 		{"ready type missing", "types: [opened, synchronize, reopened, ready_for_review]", "types: [opened, synchronize, reopened]",
 			[]string{"pull_request", "ready_for_review"}},
+		{"ready_for_review run cancels the same head", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}\n", "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
+			[]string{"cancel-in-progress", "ready_for_review", "failed Required"}},
+		{"cancel-in-progress unconditionally", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}\n", "  cancel-in-progress: true\n",
+			[]string{"cancel-in-progress", "ready_for_review"}},
 		{"a fourth job on the moving label", "jobs:\n", "jobs:\n  lint: {runs-on: ubuntu-latest, steps: [{run: echo}]}\n",
 			[]string{"job lint", "ubuntu-latest", "ubuntu-24.04"}},
 		{"verify on a list of labels", "  verify:\n    runs-on: ubuntu-24.04\n", "  verify:\n    runs-on: [self-hosted, ubuntu-24.04]\n",
@@ -525,6 +532,7 @@ jobs:
 type ciWorkflow struct {
 	On          any
 	Permissions any
+	Concurrency any
 	Defaults    ciDefaults
 	Jobs        map[string]ciJob
 }
@@ -563,6 +571,7 @@ func ciWorkflowViolations(t *testing.T, data []byte) []string {
 		return []string{fmt.Sprintf("ci.yml: %v", err)}
 	}
 	violations := pullRequestTriggerViolations(wf.On)
+	violations = append(violations, concurrencyViolations(wf.Concurrency)...)
 	violations = append(violations, writeGrants("workflow", wf.Permissions)...)
 	names := make([]string, 0, len(wf.Jobs))
 	for name := range wf.Jobs {
@@ -616,6 +625,30 @@ func ciWorkflowViolations(t *testing.T, data []byte) []string {
 		violations = append(violations, fmt.Sprintf("ci.yml: job verify has timeout-minutes %v; the merge-gate spec requires %d minutes", v.TimeoutMinutes, verifyTimeoutMinutes))
 	}
 	return violations
+}
+
+// cancelInProgressExpr is the only cancel-in-progress value the merge-gate spec
+// accepts: superseded pull-request runs are cancelled, but the ready_for_review
+// run reuses the head SHA, and cancelling the run already in flight leaves a
+// failed Required on a head that was never broken (#87).
+const cancelInProgressExpr = "${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}"
+
+func concurrencyViolations(raw any) []string {
+	if raw == nil {
+		return nil
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return []string{fmt.Sprintf("ci.yml: concurrency is %v; the merge-gate spec requires a group with cancel-in-progress %s", raw, cancelInProgressExpr)}
+	}
+	cancel, ok := m["cancel-in-progress"]
+	if !ok {
+		return nil
+	}
+	if got := strings.TrimSpace(fmt.Sprint(cancel)); got != cancelInProgressExpr && got != "false" {
+		return []string{fmt.Sprintf("ci.yml: concurrency sets cancel-in-progress %v; the merge-gate spec requires %s so a ready_for_review run never cancels the run for the same head and leaves a failed Required on it", cancel, cancelInProgressExpr)}
+	}
+	return nil
 }
 
 func pullRequestTriggerViolations(on any) []string {
@@ -847,6 +880,7 @@ func parseCIWorkflowYAML(data []byte) (ciWorkflow, error) {
 	var wf ciWorkflow
 	wf.On = root["on"]
 	wf.Permissions = root["permissions"]
+	wf.Concurrency = root["concurrency"]
 	wf.Defaults = decodeCIDefaults(root["defaults"])
 	if jobsMap, ok := root["jobs"].(map[string]any); ok {
 		wf.Jobs = make(map[string]ciJob, len(jobsMap))
