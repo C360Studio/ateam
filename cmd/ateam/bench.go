@@ -17,7 +17,7 @@ func runBench(repoRoot string, args []string) int {
 	defer cancel()
 	if len(args) > 0 {
 		switch args[0] {
-		case "run", "rescore", "compare":
+		case "run", "rescore", "compare", "export":
 			return runExperimentCLI(ctx, repoRoot, args)
 		}
 	}
@@ -63,10 +63,12 @@ func runBench(repoRoot string, args []string) int {
 
 func runExperimentCLI(ctx context.Context, root string, args []string) int {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: ateam bench run <experiment.json> [--dry-run] [--output dir] | rescore <run.json> | compare <run.json> [--json]")
+		fmt.Fprintln(os.Stderr, "usage: ateam bench run <experiment.json> [--dry-run] [--output dir] | rescore <run.json> | compare <run.json> [--json] | export <run.json> (--output new-dir | --check existing-dir) [--replay rescore-run.json]")
 		return 1
 	}
 	switch args[0] {
+	case "export":
+		return runReportExportCLI(ctx, args)
 	case "run":
 		fs := flag.NewFlagSet("bench run", flag.ContinueOnError)
 		dry := fs.Bool("dry-run", false, "validate and display resolved configuration without adapter calls")
@@ -150,6 +152,38 @@ func runExperimentCLI(ctx context.Context, root string, args []string) int {
 		return 0
 	}
 	return 1
+}
+
+func runReportExportCLI(ctx context.Context, args []string) int {
+	fs := flag.NewFlagSet("bench export", flag.ContinueOnError)
+	output := fs.String("output", "", "create a report in a new directory")
+	check := fs.String("check", "", "check existing generated files without writing")
+	replay := fs.String("replay", "", "associate an existing rescore artifact without regrading")
+	if err := fs.Parse(args[2:]); err != nil {
+		return 1
+	}
+	if fs.NArg() != 0 {
+		return benchError(fmt.Errorf("unexpected export arguments"))
+	}
+	destinations := 0
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "output" || f.Name == "check" {
+			destinations++
+		}
+	})
+	if destinations != 1 || (*output == "") == (*check == "") {
+		return benchError(fmt.Errorf("export requires exactly one nonempty --output or --check directory"))
+	}
+	var err error
+	if *output != "" {
+		err = bench.ExportExperimentReport(ctx, args[1], *replay, *output)
+	} else {
+		err = bench.CheckExperimentReport(ctx, args[1], *replay, *check)
+	}
+	if err != nil {
+		return benchError(err)
+	}
+	return 0
 }
 
 func benchError(err error) int { fmt.Fprintln(os.Stderr, "ateam bench:", err); return 1 }
