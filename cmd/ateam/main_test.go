@@ -83,4 +83,31 @@ func TestCLISubcommands(t *testing.T) {
 	if got := runStateSnapshot(handoffDir, "board"); got != 0 {
 		t.Fatalf("runStateSnapshot(board) = %d, want 0", got)
 	}
+
+	// Verify the recovery command advertised by stale forge-cache worktree output parses and succeeds through runState.
+	dirtyFalse := false
+	staleSt := &state.State{
+		Mode:          state.ModeFull,
+		BoardSyncedAt: time.Now().UTC().Add(-2 * time.Hour),
+		Git: state.GitStatus{
+			Branch:  "main",
+			HeadSHA: "abad85b",
+			Worktrees: []state.Worktree{
+				{Path: handoffDir, Branch: "codex/feat", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 1},
+			},
+		},
+	}
+	staleSummary := state.BuildPickupSummary(staleSt)
+	_, afterRun, ok := strings.Cut(staleSummary, "; run ateam ")
+	if !ok {
+		t.Fatalf("expected '; run ateam <cmd>' in stale worktree summary, got:\n%s", staleSummary)
+	}
+	cmdLine, _, _ := strings.Cut(afterRun, "\n")
+	cmdFields := strings.Fields(cmdLine)
+	if len(cmdFields) < 2 || cmdFields[0] != "state" {
+		t.Fatalf("unexpected advertised command %q", cmdLine)
+	}
+	if got := runState(handoffDir, cmdFields[1:]); got != 0 {
+		t.Fatalf("advertised recovery command %q exited with %d, want 0", cmdLine, got)
+	}
 }

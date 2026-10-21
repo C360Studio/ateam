@@ -769,7 +769,7 @@ func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"labels from forge cache synced 4h ago; run ateam state pickup --sync",
+		"labels from forge cache synced 4h ago; run ateam state pickup",
 		"- codex/mercury-offline-contract (head=e50ca10f, dirty=false, ahead=4, open PR #64 (cache 4h))",
 		"- codex/review-pr-79 (head=d7bb7968, dirty=false, ahead=5, no PR (cache 4h))",
 	} {
