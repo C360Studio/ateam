@@ -743,6 +743,14 @@ func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("abad85b000000000000000000000000000000000\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A detached checkout, as git leaves .worktrees/codex-review-pr-86: HEAD holds a bare SHA.
+	detachedPath := filepath.Join(dir, ".worktrees", "wt-detached")
+	if err := os.MkdirAll(filepath.Join(detachedPath, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(detachedPath, ".git", "HEAD"), []byte("a30ca686e0000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	dirtyFalse := false
 	st := &state.State{
 		Mode:          state.ModeFull,
@@ -755,6 +763,8 @@ func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
 				{Path: dir, Branch: "main", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
 				{Path: filepath.Join(dir, ".worktrees", "wt-64"), Branch: "codex/mercury-offline-contract", Head: "e50ca10f", Dirty: &dirtyFalse, AheadCount: 4},
 				{Path: filepath.Join(dir, ".worktrees", "wt-no-pr"), Branch: "codex/review-pr-79", Head: "d7bb7968", Dirty: &dirtyFalse, AheadCount: 5},
+				{Path: detachedPath, Branch: "", Head: "a30ca68", Dirty: &dirtyFalse, AheadCount: 4},
+				{Path: filepath.Join(dir, ".worktrees", "wt-fresh"), Branch: "gemini/fresh", Head: "abad85b", Dirty: &dirtyFalse, MergedIntoMain: true},
 			},
 		},
 		Cards: []state.BoardCard{
@@ -772,6 +782,8 @@ func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
 		"labels from forge cache synced 4h ago; run ateam state pickup",
 		"- codex/mercury-offline-contract (head=e50ca10f, dirty=false, ahead=4, open PR #64 (cache 4h))",
 		"- codex/review-pr-79 (head=d7bb7968, dirty=false, ahead=5, no PR (cache 4h))",
+		"- detached (head=a30ca68, dirty=false, ahead=4, detached)",
+		"- gemini/fresh (head=abad85b, dirty=false, ahead=0, no commits yet)",
 	} {
 		if !strings.Contains(out.AdditionalContext, want) {
 			t.Fatalf("expected session-start output to contain %q, got:\n%s", want, out.AdditionalContext)

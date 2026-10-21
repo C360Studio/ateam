@@ -566,6 +566,48 @@ func TestReconcileWorktreesAndPickupWorktreeSection(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestPickupLabelsLiveDetachedWorktreeDetached(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git", "refs", "heads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "refs", "heads", "main"), []byte("abad85b000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wtPath := filepath.Join(root, ".worktrees", "codex-review-pr-86")
+	if err := os.MkdirAll(filepath.Join(wtPath, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtPath, ".git", "HEAD"), []byte("a30ca686e0000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dirtyFalse := false
+	st := defaultState()
+	st.Git.Branch = "main"
+	st.Git.HeadSHA = "abad85b"
+	st.Git.Worktrees = []Worktree{
+		{Path: root, Branch: "main", Head: "abad85b", Dirty: &dirtyFalse, MergedIntoMain: true},
+		{Path: wtPath, Branch: "", Head: "a30ca68", Dirty: &dirtyFalse, AheadCount: 4},
+	}
+	if err := Save(root, st); err != nil {
+		t.Fatal(err)
+	}
+
+	ReconcilePickup(root, st, "claude", "sess-96")
+
+	summary := BuildPickupSummary(st)
+	if want := "- detached (head=a30ca68, dirty=false, ahead=4, detached)"; !strings.Contains(summary, want) {
+		t.Fatalf("expected pickup summary to contain %q, got:\n%s", want, summary)
+	}
+	if strings.Contains(summary, "- HEAD (") {
+		t.Fatalf("expected no worktree named HEAD, got:\n%s", summary)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 func TestWorktreeNoPRAndStaleForgeCacheCaveat(t *testing.T) {
 	dirtyFalse := false
 	st := defaultState()
@@ -574,7 +616,8 @@ func TestWorktreeNoPRAndStaleForgeCacheCaveat(t *testing.T) {
 	st.Git.HeadSHA = "abad85b"
 	st.Git.Worktrees = []Worktree{
 		{Path: "/repo", Branch: "main", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
-		{Path: "/repo/.worktrees/wt-ancestor", Branch: "claude/ancestor", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
+		{Path: "/repo/.worktrees/wt-ancestor", Branch: "claude/ancestor", Head: "9a8b7c6", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
+		{Path: "/repo/.worktrees/wt-fresh", Branch: "gemini/fresh", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
 		{Path: "/repo/.worktrees/wt-64", Branch: "codex/mercury-offline-contract", Head: "e50ca10f", Dirty: &dirtyFalse, AheadCount: 4, MergedIntoMain: false},
 		{Path: "/repo/.worktrees/wt-review", Branch: "codex/review-pr-79", Head: "d7bb7968", Dirty: &dirtyFalse, AheadCount: 5, MergedIntoMain: false},
 	}
@@ -587,7 +630,8 @@ func TestWorktreeNoPRAndStaleForgeCacheCaveat(t *testing.T) {
 	freshSummary := BuildPickupSummary(st)
 	for _, want := range []string{
 		"- main (head=abad85b, dirty=false, ahead=0, default branch)",
-		"- claude/ancestor (head=abad85b, dirty=false, ahead=0, merged (ancestor of main))",
+		"- claude/ancestor (head=9a8b7c6, dirty=false, ahead=0, merged (ancestor of main))",
+		"- gemini/fresh (head=abad85b, dirty=false, ahead=0, no commits yet)",
 		"- codex/mercury-offline-contract (head=e50ca10f, dirty=false, ahead=4, open PR #64)",
 		"- codex/review-pr-79 (head=d7bb7968, dirty=false, ahead=5, no PR)",
 	} {
@@ -604,9 +648,10 @@ func TestWorktreeNoPRAndStaleForgeCacheCaveat(t *testing.T) {
 	st.BoardSyncedAt = time.Now().UTC().Add(-4 * time.Hour)
 	staleSummary := BuildPickupSummary(st)
 	for _, want := range []string{
-		"Worktrees: 4\n  labels from forge cache synced 4h ago; run ateam state pickup",
+		"Worktrees: 5\n  labels from forge cache synced 4h ago; run ateam state pickup",
 		"- main (head=abad85b, dirty=false, ahead=0, default branch)",
-		"- claude/ancestor (head=abad85b, dirty=false, ahead=0, merged (ancestor of main))",
+		"- claude/ancestor (head=9a8b7c6, dirty=false, ahead=0, merged (ancestor of main))",
+		"- gemini/fresh (head=abad85b, dirty=false, ahead=0, no commits yet)",
 		"- codex/mercury-offline-contract (head=e50ca10f, dirty=false, ahead=4, open PR #64 (cache 4h))",
 		"- codex/review-pr-79 (head=d7bb7968, dirty=false, ahead=5, no PR (cache 4h))",
 	} {
