@@ -2023,6 +2023,18 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 	})
 }
 
+func (st *State) hasCardsForProvider(p ForgeProvider) bool {
+	if st == nil || (p != ForgeGitHub && p != ForgeGitea) {
+		return false
+	}
+	for _, c := range st.Cards {
+		if cardForgeProvider(c) == p {
+			return true
+		}
+	}
+	return false
+}
+
 // RefreshWithBestEffortSync refreshes local state and attempts a bounded remote forge sync when a remote forge is configured and the board cache is older than maxAge (falling back to cached cards on sync failure).
 func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Duration) (*State, error) {
 	st, err := Refresh(ctx, root, false)
@@ -2032,20 +2044,43 @@ func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Dur
 	if st.Forge.Provider != ForgeGitHub && st.Forge.Provider != ForgeGitea {
 		return st, nil
 	}
-	activeSync := st.SyncedAtFor(st.Forge)
-	if maxAge > 0 && !activeSync.IsZero() && time.Since(activeSync) < maxAge {
+	var toSync []ForgeConfig
+	for _, cfg := range MergeConfiguredForges(st.Forge, st.Forges) {
+		syncedAt := st.SyncedAtFor(cfg)
+		if cfg.Provider != st.Forge.Provider && syncedAt.IsZero() && !st.hasCardsForProvider(cfg.Provider) {
+			continue
+		}
+		if maxAge > 0 && !syncedAt.IsZero() && time.Since(syncedAt) < maxAge {
+			continue
+		}
+		toSync = append(toSync, cfg)
+	}
+	if len(toSync) == 0 {
 		return st, nil
 	}
-	sctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	cards, syncErr := SyncForgeBoard(sctx, root, st.Forge)
-	if syncErr != nil {
-		st.BoardSyncError = syncErr.Error()
-		return st, nil
+	type syncedForge struct {
+		provider ForgeProvider
+		cards    []BoardCard
+	}
+	var (
+		syncedResults []syncedForge
+		syncErrors    []string
+	)
+	for _, cfg := range toSync {
+		sctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		cards, syncErr := SyncForgeBoard(sctx, root, cfg)
+		cancel()
+		if syncErr != nil {
+			syncErrors = append(syncErrors, syncErr.Error())
+			continue
+		}
+		syncedResults = append(syncedResults, syncedForge{provider: cfg.Provider, cards: cards})
 	}
 	updated, err := Update(root, func(cur *State) error {
-		cur.MergeForgeCards(cards, st.Forge.Provider)
-		cur.BoardSyncError = ""
+		for _, res := range syncedResults {
+			cur.MergeForgeCards(res.cards, res.provider)
+		}
+		cur.BoardSyncError = strings.Join(syncErrors, "; ")
 		return nil
 	})
 	if err != nil {
