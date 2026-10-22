@@ -1,6 +1,6 @@
 # Proposed Mercury canary and A/A — $1 spending target
 
-**Not authorized for paid execution.** After PR #77 review/merge, obtain explicit approval for this two-stage protocol. Use the existing `ateam bench` CLI, no new run controller.
+**Historical protocol; both one-time permissions are consumed.** After PR #77 merged, the owner separately authorized canary and A/A; both completed on October 21, 2026. See the [calibration summary and new A/B proposal](experiments/mercury-instructions-v1/README.md). This document grants no repeat or A/B permission. The original two-stage limits below remain preserved.
 
 | Stage | Configuration | Maximum attempts | Accounted-token stop | Wall time |
 | --- | --- | ---: | ---: | ---: |

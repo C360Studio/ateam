@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "mode": "ab",
+  "name": "mercury-instructions-v1-ab",
+  "command": [
+    "claude"
+  ],
+  "agent": "claude",
+  "model": "mercury-3",
+  "claude": {
+    "auth": "api-key-env",
+    "reasoning": "low",
+    "output_format": "json-schema",
+    "mercury": {
+      "bridge": "litellm"
+    }
+  },
+  "max_total_tokens": 100000,
+  "max_run_seconds": 720,
+  "tasks": [
+    "safe-path",
+    "sql-user",
+    "gitea-webhook"
+  ],
+  "repetitions": 2,
+  "seed": 0,
+  "timeout_seconds": 30,
+  "bundles": {
+    "baseline": "baseline.json",
+    "candidate": "candidate.json"
+  }
+}
