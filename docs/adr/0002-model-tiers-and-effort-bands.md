@@ -1,6 +1,6 @@
 # ADR 0002: Model tiers and effort bands for reviewer strength
 
-- **Status:** Proposed (awaiting owner ruling)
+- **Status:** Accepted (owner, 2026-10-22)
 - **Date:** 2026-10-22
 - **Deciders:** repository owner
 - **Amends:** [ADR 0001](0001-review-gate-scope.md), decision steps 1 and 2
@@ -37,15 +37,15 @@ Model tiers (owner ruling, #81, 2026-10-22):
 | `workhorse` | `claude:sonnet`, `codex:gpt-6.1-sol`, `codex:gpt-6-sol`, `gemini:gemini-4-argon` |
 | `light` | `claude:haiku`, `codex:gpt-5.4`, `gemini:gemini-3.8-flash`, `gemini:gemini-3.1-pro` |
 
-Effort bands (**proposed, needs the owner's ruling**):
+Effort bands (owner ruling, 2026-10-22: every provider's `high` is the top band):
 
 | Band | Claude | Codex | Gemini |
 | --- | --- | --- | --- |
 | `low` | `low` | `none`, `minimal`, `low` | `minimal`, `low` |
-| `mid` | `medium`, `high` | `medium`, `high` | `medium` |
-| `high` | `xhigh`, `max` | `xhigh`, `max` | `high` |
+| `mid` | `medium` | `medium` | `medium` |
+| `high` | `high`, `xhigh`, `max` | `high`, `xhigh`, `max` | `high` |
 
-The rationale for the proposal: `high` is the top band only where it is a provider's ceiling (Gemini). Where `xhigh` and `max` exist (Claude, Codex), those are the top band. A reviewer can therefore always match a max-effort implementer of the same tier, and `high` doesn't silently equal `max`. Alternative: put `high` in the top band for every provider. That is looser: a Claude `max` implementer could be reviewed at `high`.
+`high` is the top band for every provider, so the bands line up with the one scale all three share (`low` / `medium` / `high`). The owner chose this over a stricter map that kept `high` below `xhigh` and `max`. As a result, a same-tier `max` implementer can be reviewed at `high`.
 
 Codex `reasoning.mode` is not ranked. A `pro` run is compared by its effort only.
 
@@ -60,8 +60,8 @@ Schema sketch:
     "light": ["claude:haiku", "codex:gpt-5.4", "gemini:gemini-3.8-flash", "gemini:gemini-3.1-pro"]
   },
   "effort_bands": {
-    "claude": {"low": "low", "medium": "mid", "high": "mid", "xhigh": "high", "max": "high"},
-    "codex": {"none": "low", "minimal": "low", "low": "low", "medium": "mid", "high": "mid", "xhigh": "high", "max": "high"},
+    "claude": {"low": "low", "medium": "mid", "high": "high", "xhigh": "high", "max": "high"},
+    "codex": {"none": "low", "minimal": "low", "low": "low", "medium": "mid", "high": "high", "xhigh": "high", "max": "high"},
     "gemini": {"minimal": "low", "low": "low", "medium": "mid", "high": "high"}
   },
   "cross_provider": false
