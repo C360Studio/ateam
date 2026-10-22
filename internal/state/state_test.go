@@ -1456,3 +1456,26 @@ func TestReview79LegacyMigrationWithoutAgentField(t *testing.T) {
 		t.Fatalf("expected legacy agent@feature/legacy and new codex@codex/work to survive branch switch, got %+v", reloadedUnprefixed.Handoffs)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+func TestReadDiskBinaryBuildOutlivesTheOldTwoSecondBudget(t *testing.T) {
+	// Regression for #116: a probe that answers after the old 2s budget but
+	// well inside the 10s one must still be read, not fall back silently.
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	started := filepath.Join(dir, "started")
+	script := "#!/bin/sh\n: > " + started + "\nsleep 3\necho 'ateam v0.1.0 (e37563b)'\n"
+	if err := os.WriteFile(filepath.Join(binDir, "ateam"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shortRev, label := ReadDiskBinaryBuild(context.Background(), dir)
+	if _, err := os.Stat(started); err != nil {
+		t.Fatalf("probe never started: %v", err)
+	}
+	if shortRev != "e37563b" || label != "e37563b" {
+		t.Fatalf("slow probe fell back: got (%q, %q), want (\"e37563b\", \"e37563b\")", shortRev, label)
+	}
+}
