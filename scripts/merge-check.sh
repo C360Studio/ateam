@@ -67,10 +67,12 @@ fi
 # succeeded and jq accepts SHAPE; otherwise exit 2 naming the read.
 answer=
 errfile=$(mktemp)
-# The PR file list goes to jq through this file, not argv: with each file's
-# patch it can exceed Linux's 128 KiB per-argument limit (#122).
+# The PR file and commit lists go to jq through these files, not argv: with
+# patches and full commit objects they exceed Linux's 128 KiB per-argument
+# limit (#122).
 filesfile=$(mktemp)
-trap 'rm -f "$errfile" "$filesfile"' EXIT
+commitsfile=$(mktemp)
+trap 'rm -f "$errfile" "$filesfile" "$commitsfile"' EXIT
 read_gh() {
   local name=$1 shape=$2
   shift 2
@@ -134,7 +136,10 @@ if ! files=$(printf '%s' "$answer" | jq -c -s 'if all(.[]; type == "array" and a
   echo "merge-check: unavailable: the read of the files of pull request #${pr} returned something other than what was asked for: ${answer}" >&2
   exit 2
 fi
-printf '%s' "$files" > "$filesfile"
+if ! printf '%s' "$files" > "$filesfile"; then
+  echo "merge-check: unavailable: could not write the file list of pull request #${pr} to a temp file" >&2
+  exit 2
+fi
 reported=$(printf '%s' "$pull" | jq '.changed_files')
 draft=$(printf '%s' "$pull" | jq '.draft')
 entries=$(printf '%s' "$files" | jq 'length')
@@ -316,6 +321,10 @@ else
       echo "merge-check: unavailable: the read of the commits of pull request #${pr} returned something other than what was asked for: ${answer}" >&2
       exit 2
     fi
+    if ! printf '%s' "$commits" > "$commitsfile"; then
+      echo "merge-check: unavailable: could not write the commit list of pull request #${pr} to a temp file" >&2
+      exit 2
+    fi
     reported_commits=$(printf '%s' "$pull" | jq '.commits')
     commit_entries=$(printf '%s' "$commits" | jq 'length')
     case "$commit_entries:$reported_commits" in
@@ -339,7 +348,8 @@ else
       echo "merge-check: unavailable: the read of the comments of pull request #${pr} returned something other than what was asked for: ${answer}" >&2
       exit 2
     fi
-    if ! record=$(printf '%s' "$comments" | jq -r --arg reviewer "$ragents" --argjson commits "$commits" '
+    if ! record=$(printf '%s' "$comments" | jq -r --arg reviewer "$ragents" --slurpfile commits "$commitsfile" '
+      $commits[0] as $commits |
       def is_record($b):
         ([ $b | scan("(?i)reviewed-by:[ \\t]*`?(claude|codex|gemini)(?=[^\\p{L}\\p{N}]|$)") | .[0] | ascii_downcase ] | unique) as $rb
         | ([ $b | split("\n")[] | rtrimstr("\r") | select(test("^[ \\t]*### Independent Cross-Agent Review\\b")) ]) as $hl
