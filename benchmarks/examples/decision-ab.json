@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "mode": "ab",
+  "name": "decision-ab",
+  "command": [
+    "claude"
+  ],
+  "agent": "claude",
+  "model": "mercury-3",
+  "claude": {
+    "auth": "api-key-env",
+    "reasoning": "low",
+    "output_format": "json-schema",
+    "mercury": {
+      "bridge": "litellm"
+    }
+  },
+  "max_total_tokens": 50000,
+  "max_run_seconds": 360,
+  "baseline": "Return a correct, minimal Go implementation. Follow the requested JSON schema.",
+  "candidate": "Return a correct, minimal Go implementation. Follow the requested JSON schema. Before writing code, read the package source you are given: reuse what already exists, skip unrequested options and abstractions, and finish every site your change touches.",
+  "tasks": [
+    "reuse-email",
+    "overbuild-slug",
+    "propagate-limit"
+  ],
+  "repetitions": 1,
+  "seed": 0,
+  "timeout_seconds": 30
+}

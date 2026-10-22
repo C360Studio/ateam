@@ -29,6 +29,23 @@ func VerifyGiteaSignature(payload, secret []byte, sigHeader string) bool {
  mac := hmac.New(sha256.New, secret); mac.Write(payload)
  return hmac.Equal(mac.Sum(nil), signature)
 }`,
+    'reuse-email': `package signup
+func SameAccount(a, b string) bool {
+ return normalizeEmail(a) == normalizeEmail(b)
+}`,
+    'overbuild-slug': `package slug
+import "strings"
+func Slugify(title string) string {
+ isSeparator := func(r rune) bool { return !('a' <= r && r <= 'z' || '0' <= r && r <= '9') }
+ return strings.Join(strings.FieldsFunc(strings.Map(func(r rune) rune {
+  if 'A' <= r && r <= 'Z' { return r + 'a' - 'A' }
+  return r
+ }, title), isSeparator), "-")
+}`,
+    'propagate-limit': `package username
+import ("errors"; "fmt")
+const MaxLen = 24
+var LengthError = errors.New(fmt.Sprintf("username must be 3-%d characters", MaxLen))`,
   };
   if (request.version !== 1 || !sources[request.trial.task]) process.exit(1);
   process.stdout.write(JSON.stringify({ version: 1, source: sources[request.trial.task], usage: null }));

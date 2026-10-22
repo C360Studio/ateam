@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "mode": "aa",
+  "name": "decision-tier-v1-aa",
+  "command": ["claude"],
+  "agent": "claude",
+  "model": "mercury-3",
+  "claude": {
+    "auth": "api-key-env",
+    "reasoning": "low",
+    "output_format": "json-schema",
+    "mercury": { "bridge": "litellm" }
+  },
+  "max_total_tokens": 50000,
+  "max_run_seconds": 360,
+  "tasks": ["reuse-email", "overbuild-slug", "propagate-limit"],
+  "repetitions": 1,
+  "seed": 0,
+  "timeout_seconds": 30,
+  "bundles": { "baseline": "baseline.json", "candidate": "baseline.json" }
+}
