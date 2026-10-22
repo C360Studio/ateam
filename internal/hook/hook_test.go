@@ -114,8 +114,9 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 		t.Fatalf("expected fresh current-HEAD auto-compacted handoff, got:\n%s", outReplaced.AdditionalContext)
 	}
 
-	// Review Finding #3: Same branch/SHA handoff with empty SessionID (unknown ownership) or Session A
-	// must NOT be preserved or silently claimed when Session B runs pre-compact; Session A's own pre-compact preserves it.
+	// Review Finding #3 and #124: a fresh same-branch/SHA handoff owned by Session A or an unknown session
+	// is neither claimed by Session B's pre-compact (its goal is not emitted as B's checkpoint) nor
+	// overwritten by B's auto-save; the output names the holder instead.
 	for _, owner := range []string{"", "session-A"} {
 		st, err = state.Load(dir)
 		if err != nil {
@@ -138,6 +139,20 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 		}
 		if strings.Contains(outB.AdditionalContext, "Session A goal on same branch/HEAD") {
 			t.Fatalf("session-B pre-compact preserved/claimed handoff with owner=%q:\n%s", owner, outB.AdditionalContext)
+		}
+		wantHolder := owner
+		if wantHolder == "" {
+			wantHolder = "an unknown session"
+		}
+		if !strings.Contains(outB.AdditionalContext, "is held by "+wantHolder+" and was not overwritten") {
+			t.Fatalf("session-B pre-compact output does not name holder %q:\n%s", wantHolder, outB.AdditionalContext)
+		}
+		stAfter, err := state.Load(dir)
+		if err != nil {
+			t.Fatalf("state.Load: %v", err)
+		}
+		if stAfter.LastHandoff == nil || stAfter.LastHandoff.Goal != "Session A goal on same branch/HEAD" || stAfter.LastHandoff.SessionID != owner || stAfter.LastHandoff.AutoCompacted {
+			t.Fatalf("session-B pre-compact overwrote or touched handoff with owner=%q: %+v", owner, stAfter.LastHandoff)
 		}
 	}
 

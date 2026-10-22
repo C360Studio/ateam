@@ -7,7 +7,7 @@ The handoff slot is keyed `agent@branch`, so two sessions of the same agent on o
 ## What Changes
 
 - Pre-compact leaves a non-stale handoff from a different or unknown session unchanged and says in its output which session holds the slot.
-- A nil or stale handoff still gets the fallback auto-save; a same-session handoff is still preserved and marked `auto_compacted`.
+- A nil or stale handoff, or another session's fallback auto-save, still gets replaced by the fallback auto-save; a same-session handoff is still preserved and marked `auto_compacted`.
 
 ## Non-goals
 

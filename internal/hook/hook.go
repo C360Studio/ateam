@@ -16,6 +16,8 @@ import (
 
 var inspectClientMCP = bootstrap.InspectClientMCPProcesses
 
+const autoSaveGoal = "UNKNOWN — Auto-saved before context compaction"
+
 // Input represents the normalized JSON payload passed on stdin by Claude, Codex, Gemini, or Antigravity hooks.
 type Input struct {
 	HookEventName  string `json:"hook_event_name,omitempty"`
@@ -183,6 +185,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		if err != nil {
 			return Output{}, err
 		}
+		heldBy := ""
 		updated, err := state.Update(root, func(cur *state.State) error {
 			cur.CurrentSessionID = sessionID
 			if liveBr, liveSHA := state.ReadFastGitHead(root); liveBr != "" && liveSHA != "" {
@@ -218,9 +221,19 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 				curHandoff = cur.LastHandoff
 			}
 			foreignSession := curHandoff != nil && (curHandoff.SessionID == "" || sessionID == "" || curHandoff.SessionID != sessionID)
+			if foreignSession && !curHandoff.Stale && !strings.HasPrefix(curHandoff.Goal, autoSaveGoal) {
+				// #124: the slot is keyed agent@branch, so a fresh handoff here may be another
+				// session's deliberate one; an auto-save must not replace it. Another auto-save
+				// carries nothing worth keeping and is replaced as before.
+				heldBy = curHandoff.SessionID
+				if heldBy == "" {
+					heldBy = "an unknown session"
+				}
+				return nil
+			}
 			if curHandoff == nil || curHandoff.Stale || foreignSession {
 				cur.SetHandoff(state.Handoff{
-					Goal:          "UNKNOWN — Auto-saved before context compaction",
+					Goal:          autoSaveGoal,
 					Addresses:     fmt.Sprintf("branch %s, SHA %s", cur.Git.Branch, cur.Git.HeadSHA),
 					Constraints:   fmt.Sprintf("%d active holds, %d shortcuts", len(cur.Holds), len(cur.Shortcuts)),
 					DoneWhen:      "Run task verify and reconcile via /pickup",
@@ -244,6 +257,9 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		})
 		if err != nil {
 			return Output{}, err
+		}
+		if heldBy != "" {
+			return buildOutputForAgent(flagAgent, "PreCompact", fmt.Sprintf("No auto-handoff saved before compaction: handoff slot %s is held by %s and was not overwritten. Reconcile via /pickup.", updated.CurrentHandoffKey(), heldBy)), nil
 		}
 		return buildOutputForAgent(flagAgent, "PreCompact", "Auto-handoff checkpoint saved before compaction:\n"+state.FormatFiveFieldPrompt(*updated.LastHandoff)), nil
 
