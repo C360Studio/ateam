@@ -140,7 +140,7 @@ bin/ateam bench run benchmarks/examples/decision-bundles-ab.json --dry-run
 bin/ateam bench run benchmarks/examples/decision-bundles-ab.json
 ```
 
-The tier is uncalibrated: no A/A run has measured its stochastic variation yet.
+One three-pair Mercury A/A has measured the tier's variation so far (see [decision-tier v1](experiments/decision-tier-v1/README.md)); identical arms differed by about 20% in mean tokens per attempt, so treat it as pipeline qualification, not a variance estimate.
 
 Changing grader sources changes the evaluator digest for every task set. Runs recorded before this tier report `evaluator mismatch` with the new binary; rescore or export them with the binary that recorded them.
 
