@@ -1,6 +1,6 @@
 # Design
 
-The executable plan and interpretation rules live in [the Mercury v1 protocol](../../../benchmarks/experiments/mercury-instructions-v1/README.md). Keep one protocol rather than competing parameter lists.
+The executable plan and interpretation rules live in [the Mercury v1 protocol](../../../../benchmarks/experiments/mercury-instructions-v1/README.md). Keep one protocol rather than competing parameter lists.
 
 Use the existing bundle manifests: baseline bytes exactly match Mercury calibration, while candidate adds the byte-identical six-point ATeam subset already versioned for Gemini. Native/runtime controls and graders are unchanged. Two repetitions of three tasks counterbalance arm order over six pairs. The run is bounded by attempt, time, provider-request and accounted-token controls; no new orchestration code is needed.
 

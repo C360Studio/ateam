@@ -8,8 +8,8 @@ Addresses #58 after PR #77 merged at `e88be0555091420ca103770597b28efa0cc5e4e1`.
 
 Fresh branch `codex/mercury-canary-preparation` starts at the fetched merge commit. Private preparation artifacts live in `.ateam/mercury-canary-preparation/` in that worktree. `canary.json` and `aa.json` copy the checked-in examples with only executable paths resolved explicitly:
 
-- Claude: `/Users/coby/.local/share/claude/versions/2.1.292`, reporting `2.1.292 (Claude Code)`.
-- Bridge: `/Users/coby/Code/c360/ateam/.worktrees/codex-mercury-cancellation-qualification/.ateam/teardown-env/litellm-go`, reporting `LiteLLM: Current Version = 1.99.0`.
+- Claude: the pinned local Claude Code install, reporting `2.1.292 (Claude Code)`.
+- Bridge: the pinned bridge wrapper in the qualification worktree (ignored `.ateam/teardown-env/litellm-go`), reporting `LiteLLM: Current Version = 1.99.0`.
 - Existing isolated bridge dependencies: Python 3.14.5, HTTPX 0.28.1, OpenAI 2.54.0. The wrapper and its original environment must remain available; no installation or upgrade was performed. Executable hashes do not authenticate every transitive dependency.
 - Runner: built from clean documentation commit `54e9fa1aaa72d2ac402cd028417c1cc3eb55276f`; `cmd/`, `internal/`, `go.mod` and `go.sum` are unchanged from the merge commit. Go 1.26.4, darwin/arm64. Both embedded `vcs.revision` and explicit `BuildCommit` identify `54e9fa1`; `vcs.modified=false`. Keep this binary with the frozen inputs rather than using an ambient installed `ateam`.
 
