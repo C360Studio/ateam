@@ -94,6 +94,9 @@ func reviewRoute(root string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if !p.HasRoutes() {
+		return fmt.Errorf("review routing is unconfigured: the policy declares model tiers only (ADR 0002)")
+	}
 	selected := p.Routes.Reviewer
 	devIDs := []string{p.Routes.Developer.Model}
 	if *models != "" {
@@ -158,6 +161,9 @@ func reviewCheck(root string, args []string) error {
 	policy, err := review.ParsePolicy(data)
 	if err != nil {
 		return fmt.Errorf("trusted policy: %w", err)
+	}
+	if !policy.HasRoutes() {
+		return fmt.Errorf("trusted policy declares model tiers only; review check needs models and routes (ADR 0002)")
 	}
 	comment, err := review.ReadComment(ctx, client, fc, *prNumber, *recordID)
 	if err != nil {
