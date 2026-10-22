@@ -219,3 +219,18 @@ func TestReviewTokenEnvironment(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Model tiers and effort bands policy
+func TestReviewRouteTiersOnlyFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(t.TempDir(), "policy.json")
+	if err := os.WriteFile(file, []byte(`{"version":1,"model_tiers":{"frontier":["claude:opus"],"workhorse":["codex:gpt-6-sol"],"light":["gemini:gemini-3.8-flash"]},"effort_bands":{"claude":{"high":["max"]},"codex":{"high":["xhigh"]},"gemini":{"high":["high"]}},"cross_provider":false}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runReview(root, []string{"setup", "--policy", file}); code != 0 {
+		t.Fatalf("tiers-only setup=%d", code)
+	}
+	if err := reviewRoute(root, nil); err == nil || !strings.Contains(err.Error(), "model tiers only") {
+		t.Fatalf("route must fail closed naming the tiers-only policy, got %v", err)
+	}
+}

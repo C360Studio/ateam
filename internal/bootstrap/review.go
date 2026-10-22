@@ -50,17 +50,22 @@ A later commit that is neither a clean merge of ` + "`main`" + ` nor docs-only n
 // ConfigureReview installs a validated policy and its role instructions without
 // replacing existing files. All conflicts are checked before the first write.
 func ConfigureReview(root string, policyData []byte) ([]string, error) {
-	policy, err := review.ParsePolicy(policyData)
+	parsed, err := review.ParsePolicy(policyData)
 	if err != nil {
 		return nil, err
 	}
-	if err := supportedReviewProviders(policy); err != nil {
-		return nil, err
+	// A tiers-only policy (ADR 0002) configures no routes, so it installs no route cards.
+	var policy *review.Policy
+	if parsed.HasRoutes() {
+		if err := supportedReviewProviders(parsed); err != nil {
+			return nil, err
+		}
+		policy = &parsed
 	}
-	if conflicts := unexpectedReviewFiles(root, &policy); len(conflicts) != 0 {
+	if conflicts := unexpectedReviewFiles(root, policy); len(conflicts) != 0 {
 		return nil, fmt.Errorf("%s", strings.Join(conflicts, "; "))
 	}
-	files := reviewFiles(&policy)
+	files := reviewFiles(policy)
 	files[reviewPolicyPath] = string(policyData)
 	paths := make([]string, 0, len(files))
 	for rel := range files {
@@ -164,10 +169,12 @@ func checkReviewSetup(root string) []string {
 		if err != nil {
 			return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
 		}
-		if err := supportedReviewProviders(parsed); err != nil {
-			return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
+		if parsed.HasRoutes() {
+			if err := supportedReviewProviders(parsed); err != nil {
+				return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
+			}
+			policy = &parsed
 		}
-		policy = &parsed
 	}
 	out := unexpectedReviewFiles(root, policy)
 	for rel, expected := range reviewFiles(policy) {

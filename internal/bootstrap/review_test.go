@@ -317,3 +317,24 @@ func TestReviewAbsentInactivePointerUnderLinkedDirectory(t *testing.T) {
 		t.Fatalf("unrelated linked provider directory caused drift: %v", violations)
 	}
 }
+
+// A tiers-only policy (ADR 0002) installs no route cards and passes parity.
+// spec: openspec/specs/model-review/spec.md#Requirement: Model tiers and effort bands policy
+func TestConfigureReviewTiersOnly(t *testing.T) {
+	root := t.TempDir()
+	if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	written, err := ConfigureReview(root, []byte(`{"version":1,"model_tiers":{"frontier":["claude:opus"],"workhorse":["codex:gpt-6-sol"],"light":["gemini:gemini-3.8-flash"]},"effort_bands":{"claude":{"high":["max"]},"codex":{"high":["xhigh"]},"gemini":{"high":["high"]}},"cross_provider":false}`))
+	if err != nil || len(written) != 1 || written[0] != reviewPolicyPath {
+		t.Fatalf("tiers-only setup wrote %v, error %v; want only the policy", written, err)
+	}
+	for _, rel := range []string{".agents/routes/developer.md", ".agents/routes/reviewer.md"} {
+		if _, err := os.Stat(filepath.Join(root, rel)); !os.IsNotExist(err) {
+			t.Fatalf("tiers-only setup must not install %s: %v", rel, err)
+		}
+	}
+	if v := CheckParity(root); len(v) != 0 {
+		t.Fatalf("tiers-only policy violates parity: %v", v)
+	}
+}
