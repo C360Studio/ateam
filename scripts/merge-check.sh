@@ -67,7 +67,10 @@ fi
 # succeeded and jq accepts SHAPE; otherwise exit 2 naming the read.
 answer=
 errfile=$(mktemp)
-trap 'rm -f "$errfile"' EXIT
+# The PR file list goes to jq through this file, not argv: with each file's
+# patch it can exceed Linux's 128 KiB per-argument limit (#122).
+filesfile=$(mktemp)
+trap 'rm -f "$errfile" "$filesfile"' EXIT
 read_gh() {
   local name=$1 shape=$2
   shift 2
@@ -131,6 +134,7 @@ if ! files=$(printf '%s' "$answer" | jq -c -s 'if all(.[]; type == "array" and a
   echo "merge-check: unavailable: the read of the files of pull request #${pr} returned something other than what was asked for: ${answer}" >&2
   exit 2
 fi
+printf '%s' "$files" > "$filesfile"
 reported=$(printf '%s' "$pull" | jq '.changed_files')
 draft=$(printf '%s' "$pull" | jq '.draft')
 entries=$(printf '%s' "$files" | jq 'length')
@@ -411,12 +415,12 @@ else
             echo "merge-check: unavailable: the file list of commit ${c_sha} of pull request #${pr} has $(printf '%s' "$commit_detail" | jq '.files | length') files and may be incomplete" >&2
             exit 2
           fi
-          if ! allowed=$(printf '%s' "$commit_detail" | jq -r --argjson pr_files "$files" '
+          if ! allowed=$(printf '%s' "$commit_detail" | jq -r --slurpfile pr_files "$filesfile" '
             def is_doc:
               (endswith(".md") or (startswith("openspec/") and (endswith(".yml") or endswith(".yaml") or endswith(".json"))))
               and (startswith(".claude/agents/") | not)
               and (startswith(".agents/contracts/") | not);
-            ([$pr_files[] | .filename, (.previous_filename // empty)] | unique) as $prf
+            ([$pr_files[0][] | .filename, (.previous_filename // empty)] | unique) as $prf
             | ([.files[] | .filename, (.previous_filename // empty)] | unique) as $cf
             | (((.parents // []) | length) >= 2
                and ((.commit.message // "") | split("\n")[0] | rtrimstr("\r") | test("(?i)^merge\\b.*\\b(origin/)?main\\b"))
