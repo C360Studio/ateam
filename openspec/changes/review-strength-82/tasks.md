@@ -6,3 +6,4 @@
 - [x] 1.4 Record mutation detection on the tier comparison and on the band comparison: `task mutate:check -- -pkg ./internal/review -test TestCompare -file internal/review/compare.go` with `rt < dt-1`, `rb < db-1` and effort-slot (`false && p.isModel`) mutants, all `detection` at sha256 `53b59c4e` (#82).
 - [x] 1.5 Update the instruction text listed in ADR 0002 § 5 (#82).
 - [x] 1.6 Fix the Claude go-reviewer findings: a model in the effort slot is a finding, an empty group or a status 1 without a finding fails closed (bash 3.2), a colon in the effort is rejected, and the script header names the pairs form (#82).
+- [x] 1.7 Fix the Gemini review of `e3a209f`: a colon in a model or effort, or a reviewer group with more than one pair, is a review finding instead of exit 2 (#82).

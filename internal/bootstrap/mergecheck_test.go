@@ -574,7 +574,11 @@ func TestMergeCheckReview(t *testing.T) {
 			{"implemented-by: claude (opus, high)\nreviewed-by: codex (gpt-6-astra)\n", "codex (gpt-6-astra) names no effort"},
 			// The #108 multi-model form without efforts reads opus as an effort; it must not pass unranked.
 			{"implemented-by: claude (sonnet, opus)\nreviewed-by: claude (sonnet, low)\n", `claude (sonnet, opus) names model "opus" where the effort goes`},
-			{"implemented-by: claude (,)\nreviewed-by: codex (,)\n", "groups must each hold at least one model, effort pair"},
+			{"implemented-by: claude (,)\nreviewed-by: codex (,)\n", "the reviewed-by: group exactly one"},
+			// From the Gemini review of e3a209f: these exited 2 (unavailable) instead of a finding.
+			{"implemented-by: claude (claude:opus, high)\nreviewed-by: codex (gpt-6-astra, high)\n", "with no colon in a model or effort"},
+			{"implemented-by: claude (opus, high)\nreviewed-by: codex (gpt-6-astra, effort: high)\n", "with no colon in a model or effort"},
+			{"implemented-by: claude (opus, high)\nreviewed-by: codex (gpt-6-astra, high, gpt-6-sol, high)\n", "the reviewed-by: group exactly one"},
 		} {
 			st := reviewGH(false, "User", tc.body, "scripts/x.sh")
 			st.policy = tiersPolicyJSON(false)

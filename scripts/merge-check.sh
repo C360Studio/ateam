@@ -253,19 +253,27 @@ else
       echo "merge-check: unavailable: jq failed reading the runs on the review lines of pull request #${pr}" >&2
       exit 2
     fi
+    # A malformed group is a review finding here, not an undecided compare: an
+    # empty group such as (,) yields no run (and bash 3.2 under set -u fails on
+    # the empty array), a reviewer group with two pairs yields two --reviewer
+    # flags, and a colon in a model or effort (claude:opus) shifts the fields.
     cargs=()
+    icount_runs=0
+    rcount_runs=0
+    colon=0
     while IFS=$'\t' read -r flag value; do
-      [ -n "$flag" ] && cargs+=("$flag" "$value")
+      [ -n "$flag" ] || continue
+      cargs+=("$flag" "$value")
+      case "$flag" in
+        --implementer) icount_runs=$((icount_runs + 1)) ;;
+        --reviewer) rcount_runs=$((rcount_runs + 1)) ;;
+      esac
+      case "$value" in *:*:*:*) colon=1 ;; esac
     done <<<"$runs"
-    # An empty group such as (,) passes the model check but yields no run; bash
-    # 3.2 under set -u would then fail on the empty array and read as status 1.
-    case " ${cargs[*]:-} " in
-      *" --implementer "*" --reviewer "*) ;;
-      *)
-        finding "the implemented-by: and reviewed-by: groups must each hold at least one model, effort pair" "<agent> (<model>, <effort>) on both lines"
-        cargs=()
-        ;;
-    esac
+    if [ "$icount_runs" -lt 1 ] || [ "$rcount_runs" -ne 1 ] || [ "$colon" -ne 0 ]; then
+      finding "the implemented-by: group must hold one or more model, effort pairs and the reviewed-by: group exactly one, with no colon in a model or effort" "<agent> (<model>, <effort>) on both lines"
+      cargs=()
+    fi
     compared=
     cstatus=0
     if [ "${#cargs[@]}" -gt 0 ]; then
