@@ -67,7 +67,12 @@ fi
 # succeeded and jq accepts SHAPE; otherwise exit 2 naming the read.
 answer=
 errfile=$(mktemp)
-trap 'rm -f "$errfile"' EXIT
+# The PR file and commit lists go to jq through these files, not argv: with
+# patches and full commit objects they exceed Linux's 128 KiB per-argument
+# limit (#122).
+filesfile=$(mktemp)
+commitsfile=$(mktemp)
+trap 'rm -f "$errfile" "$filesfile" "$commitsfile"' EXIT
 read_gh() {
   local name=$1 shape=$2
   shift 2
@@ -129,6 +134,10 @@ read_gh "the files of pull request #${pr}" 'type == "array"' \
 # The shape check above sees only the last page; every page is checked here.
 if ! files=$(printf '%s' "$answer" | jq -c -s 'if all(.[]; type == "array" and all(.[]; type == "object" and (.filename | type) == "string" and (.previous_filename == null or (.previous_filename | type) == "string"))) then add // [] else error("not pages of files") end'); then
   echo "merge-check: unavailable: the read of the files of pull request #${pr} returned something other than what was asked for: ${answer}" >&2
+  exit 2
+fi
+if ! printf '%s' "$files" > "$filesfile"; then
+  echo "merge-check: unavailable: could not write the file list of pull request #${pr} to a temp file" >&2
   exit 2
 fi
 reported=$(printf '%s' "$pull" | jq '.changed_files')
@@ -312,6 +321,10 @@ else
       echo "merge-check: unavailable: the read of the commits of pull request #${pr} returned something other than what was asked for: ${answer}" >&2
       exit 2
     fi
+    if ! printf '%s' "$commits" > "$commitsfile"; then
+      echo "merge-check: unavailable: could not write the commit list of pull request #${pr} to a temp file" >&2
+      exit 2
+    fi
     reported_commits=$(printf '%s' "$pull" | jq '.commits')
     commit_entries=$(printf '%s' "$commits" | jq 'length')
     case "$commit_entries:$reported_commits" in
@@ -335,7 +348,8 @@ else
       echo "merge-check: unavailable: the read of the comments of pull request #${pr} returned something other than what was asked for: ${answer}" >&2
       exit 2
     fi
-    if ! record=$(printf '%s' "$comments" | jq -r --arg reviewer "$ragents" --argjson commits "$commits" '
+    if ! record=$(printf '%s' "$comments" | jq -r --arg reviewer "$ragents" --slurpfile commits "$commitsfile" '
+      $commits[0] as $commits |
       def is_record($b):
         ([ $b | scan("(?i)reviewed-by:[ \\t]*`?(claude|codex|gemini)(?=[^\\p{L}\\p{N}]|$)") | .[0] | ascii_downcase ] | unique) as $rb
         | ([ $b | split("\n")[] | rtrimstr("\r") | select(test("^[ \\t]*### Independent Cross-Agent Review\\b")) ]) as $hl
@@ -411,12 +425,12 @@ else
             echo "merge-check: unavailable: the file list of commit ${c_sha} of pull request #${pr} has $(printf '%s' "$commit_detail" | jq '.files | length') files and may be incomplete" >&2
             exit 2
           fi
-          if ! allowed=$(printf '%s' "$commit_detail" | jq -r --argjson pr_files "$files" '
+          if ! allowed=$(printf '%s' "$commit_detail" | jq -r --slurpfile pr_files "$filesfile" '
             def is_doc:
               (endswith(".md") or (startswith("openspec/") and (endswith(".yml") or endswith(".yaml") or endswith(".json"))))
               and (startswith(".claude/agents/") | not)
               and (startswith(".agents/contracts/") | not);
-            ([$pr_files[] | .filename, (.previous_filename // empty)] | unique) as $prf
+            ([$pr_files[0][] | .filename, (.previous_filename // empty)] | unique) as $prf
             | ([.files[] | .filename, (.previous_filename // empty)] | unique) as $cf
             | (((.parents // []) | length) >= 2
                and ((.commit.message // "") | split("\n")[0] | rtrimstr("\r") | test("(?i)^merge\\b.*\\b(origin/)?main\\b"))
