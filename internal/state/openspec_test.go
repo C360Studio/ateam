@@ -67,6 +67,25 @@ This header explains Hold: markers above the first section heading.
 	if !strings.Contains(out, "holds: ok (1 tasks.md read)") {
 		t.Errorf("unexpected check output: %q", out)
 	}
+	if !strings.Contains(out, "openspec: strict validation skipped") {
+		t.Errorf("check without node_modules/.bin/openspec does not say strict validation was skipped: %q", out)
+	}
+
+	// #127: with the validator installed (a stub that passes), no skip notice.
+	binDir := filepath.Join(dir, "node_modules", ".bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "openspec"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, code, err = CheckOpenSpec(context.Background(), dir)
+	if err != nil || code != 0 || strings.Contains(out, "strict validation skipped") {
+		t.Fatalf("CheckOpenSpec with validator installed: code=%d err=%v out=%q", code, err, out)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
 
 	// Add a stray Hold: below the ## heading outside any task block.
 	strayMD := tasksMD + "\nHold: stray hold outside every task.\n"

@@ -379,6 +379,7 @@ func FormatOpenSpecQueue(changes []OpenSpecChange) (string, bool) {
 // Returns (output, exitCode, error).
 func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	// 1. Validate openspec/config.yaml and openspec/specs/*/spec.md exist if openspec/ is present.
+	strictSkipped := false
 	openspecDir := filepath.Join(root, "openspec")
 	if info, err := os.Stat(openspecDir); err == nil && info.IsDir() {
 		cfgPath := filepath.Join(openspecDir, "config.yaml")
@@ -401,9 +402,12 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 				}
 			}
 		}
-		// Run openspec CLI validation if node_modules/.bin/openspec is present.
+		// Run openspec CLI validation if node_modules/.bin/openspec is present; say so when it
+		// is not, so a green check does not read as strict validation (#127).
 		localBin := filepath.Join(root, "node_modules", ".bin", "openspec")
+		strictSkipped = true
 		if st, err := os.Stat(localBin); err == nil && !st.IsDir() {
+			strictSkipped = false
 			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(cctx, localBin, "validate", "--all", "--strict", "--no-interactive")
@@ -435,6 +439,9 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	}
 	if misplaced {
 		return out.String(), 1, fmt.Errorf("stray Hold: outside task block")
+	}
+	if strictSkipped {
+		out.WriteString("openspec: strict validation skipped (node_modules/.bin/openspec not installed; run npm ci at the repository root)\n")
 	}
 	fmt.Fprintf(&out, "holds: ok (%d tasks.md read)\n", readCount)
 	return out.String(), 0, nil
