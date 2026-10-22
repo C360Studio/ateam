@@ -1467,7 +1467,7 @@ func TestReadDiskBinaryBuildOutlivesTheOldTwoSecondBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := filepath.Join(dir, "started")
-	script := "#!/bin/sh\n: > " + started + "\nsleep 3\necho 'ateam v0.1.0 (e37563b)'\n"
+	script := "#!/bin/sh\n: > '" + started + "'\nsleep 3\necho 'ateam v0.1.0 (e37563b)'\n" // quoted: TMPDIR may contain spaces
 	if err := os.WriteFile(filepath.Join(binDir, "ateam"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
