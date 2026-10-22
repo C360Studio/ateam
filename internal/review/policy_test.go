@@ -165,6 +165,7 @@ func FuzzPolicyJSON(f *testing.F) {
 	f.Add([]byte(`{"version":1,"models":[]}`))
 	f.Add([]byte(`{"version":1,"version":1}`))
 	f.Add([]byte(`{"models":[{"id":"inherit"}]}`))
+	f.Add([]byte(tiersPolicy))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		p, err := ParsePolicy(data)
 		if err != nil {
@@ -194,5 +195,68 @@ func TestPolicyModelLimit(t *testing.T) {
 	p.Models = append(p.Models, Model{ID: "256", Provider: "codex"})
 	if err := ValidatePolicy(p); err == nil {
 		t.Fatal("excess model accepted")
+	}
+}
+
+const tiersPolicy = `{"version":1,
+"model_tiers":{"frontier":["claude:opus","codex:gpt-6-astra"],"workhorse":["gemini:gemini-4-argon"],"light":["claude:haiku"]},
+"effort_bands":{"claude":{"low":["low"],"mid":["medium"],"high":["high","xhigh","max"]},
+"codex":{"low":["none","minimal","low"],"mid":["medium"],"high":["high","xhigh","max"]},
+"gemini":{"low":["low"],"mid":["medium"],"high":["high"]}},
+"cross_provider":false}`
+
+// A tiers-only policy (ADR 0002) parses without routes; malformed tiers are rejected.
+// spec: openspec/specs/model-review/spec.md#Requirement: Model tiers and effort bands policy
+func TestValidateTiersPolicy(t *testing.T) {
+	p, err := ParsePolicy([]byte(tiersPolicy))
+	if err != nil {
+		t.Fatalf("tiers-only policy must parse: %v", err)
+	}
+	if p.HasRoutes() || !p.HasTiers() {
+		t.Fatalf("tiers-only policy: HasRoutes=%v HasTiers=%v, want false true", p.HasRoutes(), p.HasTiers())
+	}
+	for name, mutate := range map[string]func(string) string{
+		"no provider prefix":   func(s string) string { return strings.Replace(s, `"claude:haiku"`, `"haiku"`, 1) },
+		"unsupported provider": func(s string) string { return strings.Replace(s, `"claude:haiku"`, `"mistral:small"`, 1) },
+		"empty model":          func(s string) string { return strings.Replace(s, `"claude:haiku"`, `"claude:"`, 1) },
+		"model in two tiers":   func(s string) string { return strings.Replace(s, `"claude:haiku"`, `"claude:OPUS"`, 1) },
+		"repeated effort value": func(s string) string {
+			return strings.Replace(s, `"mid":["medium"],"high":["high"]`, `"mid":["medium"],"high":["Medium"]`, 1)
+		},
+		"provider without bands": func(s string) string {
+			return strings.Replace(s, `"gemini":{"low":["low"],"mid":["medium"],"high":["high"]}`, `"gemini":{}`, 1)
+		},
+		"unknown band": func(s string) string {
+			return strings.Replace(s, `"mid":["medium"],"high":["high"]}}`, `"mid":["medium"],"top":["high"]}}`, 1)
+		},
+		"owners without models": func(s string) string {
+			return strings.Replace(s, `"cross_provider":false`, `"cross_provider":false,"owners":["o"]`, 1)
+		},
+		"neither tiers nor models": func(string) string {
+			return `{"version":1,"cross_provider":false}`
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			data := mutate(tiersPolicy)
+			if data == tiersPolicy {
+				t.Fatal("mutation did not apply")
+			}
+			if _, err := ParsePolicy([]byte(data)); err == nil {
+				t.Fatalf("expected rejection for %s", name)
+			}
+		})
+	}
+	// The dormant path still parses alongside tiers.
+	full := testPolicy()
+	full.ModelTiers = ModelTiers{Frontier: []string{"claude:large"}}
+	full.EffortBands = EffortBands{Claude: Bands{High: []string{"max"}}, Codex: Bands{High: []string{"max"}}, Gemini: Bands{High: []string{"high"}}}
+	if _, err := ParsePolicy(mustJSON(t, full)); err != nil {
+		t.Fatalf("policy with models and tiers must parse: %v", err)
+	}
+	// Bands supplied without tiers are still validated (Codex review of b44186d).
+	orphan := testPolicy()
+	orphan.EffortBands = EffortBands{Claude: Bands{Low: []string{"high"}, High: []string{"high"}}, Codex: Bands{High: []string{"max"}}, Gemini: Bands{High: []string{"high"}}}
+	if _, err := ParsePolicy(mustJSON(t, orphan)); err == nil {
+		t.Fatal("contradictory effort bands on a policy without tiers must be rejected")
 	}
 }
