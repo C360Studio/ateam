@@ -71,6 +71,12 @@ func TestDisciplineGateFindings(t *testing.T) {
 	}
 }
 
+const (
+	nilLengthError = "package username\nconst MaxLen = 24\nvar LengthError error"
+	missingMaxLen  = "package username\nimport \"errors\"\nvar LengthError = errors.New(\"username must be 3-24 characters\")"
+	stringMaxLen   = "package username\nimport \"errors\"\nconst MaxLen = \"24\"\nvar LengthError = errors.New(\"username must be 3-24 characters\")"
+)
+
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Decision-opportunity tasks
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
 func TestDecisionCandidateGrading(t *testing.T) {
@@ -84,6 +90,11 @@ func TestDecisionCandidateGrading(t *testing.T) {
 		{"propagate hand-edited message passes", "propagate-limit", "package username\nimport \"errors\"\nconst MaxLen = 24\nvar LengthError = errors.New(\"username must be 3-24 characters\")", "passed", "passed", true},
 		{"propagate stale message fails discipline only", "propagate-limit", decisionSpec(t, "propagate-limit").BadSource, "passed", "failed", false},
 		{"propagate constant not raised fails behavior", "propagate-limit", decisionSpec(t, "propagate-limit").MutantSource, "failed", "passed", false},
+		// A nil sentinel makes Validate accept everything; errors.Is(nil, nil) must not pass it.
+		{"propagate nil LengthError fails behavior", "propagate-limit", nilLengthError, "failed", "passed", false},
+		// Diagnostics reported only in the protected existing.go are the candidate's compile failure.
+		{"propagate missing MaxLen fails behavior", "propagate-limit", missingMaxLen, "failed", "passed", false},
+		{"propagate string MaxLen fails behavior", "propagate-limit", stringMaxLen, "failed", "passed", false},
 		{"discipline recorded when behavior fails", "overbuild-slug", decisionSpec(t, "overbuild-slug").MutantSource, "failed", "passed", false},
 		// Returning the existing file again redeclares Validate: a candidate compile failure, not a grader error.
 		{"existing file returned", "propagate-limit", "package username\nimport \"fmt\"\nconst MaxLen = 24\nvar LengthError = fmt.Errorf(\"username must be 3-%d characters\", MaxLen)\nfunc Validate(name string) error { return nil }", "failed", "passed", false},
@@ -238,6 +249,58 @@ func TestDecisionExperimentEvidence(t *testing.T) {
 	legacy.Digest = runDigest(legacy)
 	if err := validateRun(legacy); err == nil {
 		t.Fatal("accepted discipline evidence on an existing task")
+	}
+}
+
+// Candidates that break the protected existing file are failed attempts that stay
+// quality-eligible, not grading errors excluded from comparison.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Decision-opportunity tasks
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Paired descriptive comparisons
+func TestDecisionExistingFileBreakageIsQualityEvidence(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "adapter.sh")
+	if err := os.WriteFile(script, []byte("exec '"+exe+"' -test.run=^TestCommandAdapterHelper$ -- fixture\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testExperiment()
+	cfg.Command = []string{"/bin/sh", script}
+	cfg.Tasks = []string{"propagate-limit"}
+	cfg.Repetitions = 1
+	cfg.Baseline, cfg.Candidate = "source:"+stringMaxLen, "source:"+missingMaxLen
+	resolved, err := ResolveExperiment(cfg, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := RunExperiment(context.Background(), resolved, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := LoadExperimentRun(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range run.Attempts {
+		if a.Status != "failed" || a.Grade.Behavior != "failed" || a.Grade.Passed || !strings.Contains(a.Grade.Diagnostics, "existing.go:") {
+			t.Fatalf("%s attempt not a failed candidate: status=%s grade=%+v", a.Request.Trial.Arm, a.Status, a.Grade)
+		}
+	}
+	c, err := CompareExperiment(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Pairs != 1 || c.NeitherPassed != 1 || c.UnevaluablePairs != 0 {
+		t.Fatalf("existing-file breakage excluded from quality: %+v", c)
+	}
+	report, err := projectExperimentReport(run, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Pairs) != 1 || !report.Pairs[0].QualityEligible || report.Counts.Failed != 2 || report.Counts.Unevaluable != 0 {
+		t.Fatalf("report pair not quality-eligible: %+v %+v", report.Pairs, report.Counts)
 	}
 }
 

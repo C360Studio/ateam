@@ -440,6 +440,8 @@ func evaluateCandidate(ctx context.Context, spec TaskSpec, source string) (Candi
 		// go names the first two files in sorted order, so existing.go may precede fixture.go.
 		packageMismatch := strings.Contains(output.String(), "found packages ") && strings.Contains(output.String(), "(fixture.go)")
 		candidateBuildFailure := strings.Contains(output.String(), "fixture.go:") || strings.Contains(output.String(), "fixture_test.go:") || packageMismatch
+		// The protected existing file is fixed, so its compiler diagnostics are caused by the candidate.
+		candidateBuildFailure = candidateBuildFailure || (spec.ExistingSource != "" && strings.Contains(output.String(), "existing.go:"))
 		// A failed command without a test run or candidate compiler diagnostic is an infrastructure error.
 		if !errors.As(err, &exitErr) || exitErr.ExitCode() < 0 || (!ran && !candidateBuildFailure) {
 			return result, fmt.Errorf("grade %s: %w", spec.ID, err)

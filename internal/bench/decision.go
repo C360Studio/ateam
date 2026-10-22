@@ -249,13 +249,16 @@ var LengthError = fmt.Errorf("username must be 3-%d characters", MaxLen)`,
 			TestSource: `package username
 import ("errors"; "strings"; "testing")
 func TestFixture(t *testing.T) {
+	if LengthError == nil {
+		t.Fatalf("expected safety assertion: LengthError is nil")
+	}
 	if err := Validate(strings.Repeat("a", 24)); err != nil {
 		t.Fatalf("expected safety assertion: 24-byte name rejected: %v", err)
 	}
-	if err := Validate(strings.Repeat("a", 25)); !errors.Is(err, LengthError) {
+	if err := Validate(strings.Repeat("a", 25)); err == nil || !errors.Is(err, LengthError) {
 		t.Fatalf("expected safety assertion: 25-byte name not rejected with LengthError: %v", err)
 	}
-	if err := Validate("ab"); !errors.Is(err, LengthError) {
+	if err := Validate("ab"); err == nil || !errors.Is(err, LengthError) {
 		t.Fatalf("expected safety assertion: 2-byte name not rejected with LengthError: %v", err)
 	}
 }`,
