@@ -234,3 +234,42 @@ func TestReviewRouteTiersOnlyFailsClosed(t *testing.T) {
 		t.Fatalf("route must fail closed naming the tiers-only policy, got %v", err)
 	}
 }
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Not-weaker reviewer by tier and effort band
+func TestReviewCompareExitCodes(t *testing.T) {
+	root := t.TempDir()
+	pass := []string{"compare", "--implementer", "claude:opus:high", "--reviewer", "codex:gpt-6-astra:xhigh"}
+	if code := runReview(root, pass); code != 0 {
+		t.Fatalf("no policy: compare=%d, want 0 (skipped)", code)
+	}
+	policy := `{"version":1,"model_tiers":{"frontier":["claude:opus","codex:gpt-6-astra"],"workhorse":["claude:sonnet"]},
+"effort_bands":{"claude":{"low":["low"],"mid":["medium"],"high":["high"]},"codex":{"mid":["medium"],"high":["xhigh"]},"gemini":{"high":["high"]}}}`
+	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".agents", "review-policy.json"), []byte(policy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		args []string
+		want int
+	}{
+		{pass, 0},
+		{[]string{"compare", "--implementer", "claude:opus:high", "--reviewer", "claude:sonnet:high"}, 1},
+		{[]string{"compare", "--implementer", "claude:opus:high", "--reviewer", "codex:gpt-6-astra:medium"}, 1},
+		{[]string{"compare", "--implementer", "claude:opus", "--reviewer", "codex:gpt-6-astra:xhigh"}, 2},
+		{[]string{"compare", "--implementer", "claude:opus:", "--reviewer", "codex:gpt-6-astra:xhigh"}, 1},
+		{[]string{"compare", "--reviewer", "codex:gpt-6-astra:xhigh"}, 2},
+		{[]string{"compare", "--implementer", "claude:opus:high", "--reviewer", "codex:a:high", "--reviewer", "codex:b:high"}, 2},
+	} {
+		if code := runReview(root, tc.args); code != tc.want {
+			t.Errorf("%v: exit %d, want %d", tc.args, code, tc.want)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, ".agents", "review-policy.json"), []byte(`{"version":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runReview(root, pass); code != 2 {
+		t.Fatalf("invalid policy: compare=%d, want 2", code)
+	}
+}

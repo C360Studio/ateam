@@ -19,9 +19,10 @@ tasks:
       - "go run ./cmd/ateam review check {{.CLI_ARGS}}"
 
   merge:check:
-    desc: Check active main ruleset, cross-agent PR review, and open class:flake issues
+    desc: Check active main ruleset, PR review and reviewer strength, and open class:flake issues
     cmds:
-      - "scripts/merge-check.sh {{.CLI_ARGS}}"
+      - go build -o .ateam/bin/ateam ./cmd/ateam
+      - "ATEAM=.ateam/bin/ateam scripts/merge-check.sh {{.CLI_ARGS}}"
 
   doctor:
     desc: Check tool versions, OpenSpec state, and multi-agent parity
