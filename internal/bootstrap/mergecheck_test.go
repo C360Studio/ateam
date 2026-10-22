@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -68,6 +69,37 @@ type ghState struct {
 	commitDetails                      map[string]string
 	fail                               []string
 	jqFail                             string
+	// policy, when set, is written to .agents/review-policy.json and the run
+	// calls a freshly built ateam through ATEAM.
+	policy string
+}
+
+var (
+	ateamBuild    sync.Once
+	ateamBin      string
+	ateamBuildErr error
+)
+
+// builtAteam builds cmd/ateam once per test binary, so merge-check calls the
+// real review compare rather than a stub.
+func builtAteam(t *testing.T) string {
+	t.Helper()
+	ateamBuild.Do(func() {
+		dir, err := os.MkdirTemp("", "ateam-mergecheck-")
+		if err != nil {
+			ateamBuildErr = err
+			return
+		}
+		ateamBin = filepath.Join(dir, "ateam")
+		out, err := exec.Command("go", "build", "-o", ateamBin, filepath.Join(repoRoot(t), "cmd", "ateam")).CombinedOutput()
+		if err != nil {
+			ateamBuildErr = fmt.Errorf("go build ./cmd/ateam: %v\n%s", err, out)
+		}
+	})
+	if ateamBuildErr != nil {
+		t.Fatal(ateamBuildErr)
+	}
+	return ateamBin
 }
 
 const fakeJQ = `#!/bin/sh
@@ -226,6 +258,15 @@ func runMergeCheck(t *testing.T, st ghState, pr string, actionsEnv ...string) me
 	}
 	tools := map[string]string{"gh": fakeGH}
 	extra := []string{"FAKE_GH_DIR=" + dir, "FAKE_GH_PR=" + pr}
+	if st.policy != "" {
+		if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, ".agents", "review-policy.json"), []byte(st.policy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		extra = append(extra, "ATEAM="+builtAteam(t))
+	}
 	if st.jqFail != "" {
 		realJQ, err := exec.LookPath("jq")
 		if err != nil {
@@ -421,6 +462,16 @@ func (r mergeRun) requireNotInOutput(t *testing.T, fragments ...string) {
 	}
 }
 
+// tiersPolicyJSON is the ADR 0002 table, with cross_provider as given.
+func tiersPolicyJSON(crossProvider bool) string {
+	return fmt.Sprintf(`{"version":1,
+"model_tiers":{"frontier":["claude:opus","claude:fable","codex:gpt-6-astra"],"workhorse":["claude:sonnet","gemini:gemini-4-argon"],"light":["claude:haiku"]},
+"effort_bands":{"claude":{"low":["low"],"mid":["medium"],"high":["high","xhigh","max"]},
+"codex":{"low":["low"],"mid":["medium"],"high":["high","xhigh","max"]},
+"gemini":{"low":["low"],"mid":["medium"],"high":["high"]}},
+"cross_provider":%t}`, crossProvider)
+}
+
 // spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
 func TestMergeCheckReview(t *testing.T) {
 	const implClaude = "Summary.\n\nimplemented-by: claude (opus)\n"
@@ -487,11 +538,54 @@ func TestMergeCheckReview(t *testing.T) {
 		}
 	})
 	t.Run("same agent implements and reviews", func(t *testing.T) {
+		// Without a policy, or with cross_provider off, one agent may review its own (ADR 0002 rule 4).
+		for _, policy := range []string{"", tiersPolicyJSON(false)} {
+			st := reviewGH(false, "User", "implemented-by: claude (opus, high)\nreviewed-by: Claude (opus, high)\n", "scripts/x.sh")
+			st.policy = policy
+			runMergeCheck(t, st, "12").requirePass(t, "reviewing agent: claude")
+		}
 		for _, tc := range []struct{ body, says string }{
-			{"implemented-by: claude-fable-5-1\nreviewed-by: Claude (opus)\n", "another agent (codex or gemini) reviews"},
-			{"implemented-by: gemini (pro)\nreviewed-by: Gemini (pro)\n", "another agent (claude or codex) reviews"},
+			{"implemented-by: claude (opus, high)\nreviewed-by: Claude (opus, high)\n", "another agent (codex or gemini) reviews"},
+			{"implemented-by: gemini (gemini-4-argon, high)\nreviewed-by: Gemini (gemini-4-argon, high)\n", "another agent (claude or codex) reviews"},
 		} {
-			runMergeCheck(t, reviewGH(false, "User", tc.body, "scripts/x.sh"), "12").requireFail(t, tc.says)
+			st := reviewGH(false, "User", tc.body, "scripts/x.sh")
+			st.policy = tiersPolicyJSON(true)
+			runMergeCheck(t, st, "12").requireFail(t, tc.says)
+		}
+	})
+	t.Run("reviewer strength against the policy", func(t *testing.T) {
+		for _, tc := range []struct{ body, says string }{
+			{"implemented-by: claude (opus, high)\nreviewed-by: codex (GPT-6 Astra, xhigh)\n", "strength: pass"},
+			{"implemented-by: claude (sonnet, medium, opus, high)\nreviewed-by: gemini (gemini-4-argon, high)\n", ""},
+			{"implemented-by: claude (opus, high)\nreviewed-by: codex (gpt-7, low)\n", "strength: note: unranked: codex (gpt-7, low)"},
+		} {
+			st := reviewGH(false, "User", tc.body, "scripts/x.sh")
+			st.policy = tiersPolicyJSON(false)
+			r := runMergeCheck(t, st, "12")
+			if tc.says == "" {
+				r.requireFail(t, "reviewer gemini (gemini-4-argon, high) is workhorse tier, weaker than implementer claude (opus, high) at frontier tier")
+				continue
+			}
+			r.requirePass(t, tc.says, "reviewing agent: codex")
+		}
+		for _, tc := range []struct{ body, says string }{
+			{"implemented-by: claude (opus, high)\nreviewed-by: claude (fable, medium)\n", "frontier tier at mid band, weaker than implementer claude (opus, high) at high band"},
+			{"implemented-by: claude (opus)\nreviewed-by: codex (gpt-6-astra, high)\n", "claude (opus) names no effort"},
+			{"implemented-by: claude (opus, high)\nreviewed-by: codex (gpt-6-astra)\n", "codex (gpt-6-astra) names no effort"},
+		} {
+			st := reviewGH(false, "User", tc.body, "scripts/x.sh")
+			st.policy = tiersPolicyJSON(false)
+			runMergeCheck(t, st, "12").requireFail(t, "review finding: ", tc.says)
+		}
+		// Without a policy, effort stays optional and compare is not called.
+		r := runMergeCheck(t, reviewGH(false, "User", "implemented-by: claude (opus)\nreviewed-by: claude (haiku)\n", "scripts/x.sh"), "12")
+		r.requirePass(t, "reviewing agent: claude")
+		r.requireNotInOutput(t, "strength:")
+		// A policy with no usable binary fails closed.
+		st := reviewGH(false, "User", "implemented-by: claude (opus, high)\nreviewed-by: codex (gpt-6-astra, high)\n", "scripts/x.sh")
+		st.policy = `{"version":2}`
+		if r := runMergeCheck(t, st, "12"); r.status != 2 || !strings.Contains(r.out, "unavailable: ateam review compare exited 2") {
+			t.Fatalf("invalid policy: exit %d, want 2 naming compare\n%s", r.status, r.out)
 		}
 	})
 	t.Run("draft", func(t *testing.T) {

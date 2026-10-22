@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -19,11 +20,13 @@ import (
 
 func runReview(root string, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID]")
+		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... --reviewer AGENT:MODEL:EFFORT")
 		return 2
 	}
 	var err error
 	switch args[0] {
+	case "compare":
+		return reviewCompare(root, args[1:])
 	case "setup":
 		err = reviewSetup(root, args[1:])
 	case "route":
@@ -37,6 +40,61 @@ func runReview(root string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam review: %v\n", err)
 		return 1
 	}
+	return 0
+}
+
+// runSpecs collects a repeatable agent:model:effort flag.
+type runSpecs []review.Run
+
+func (r *runSpecs) String() string { return fmt.Sprint(*r) }
+
+func (r *runSpecs) Set(s string) error {
+	run, err := review.ParseRunSpec(s)
+	if err == nil {
+		*r = append(*r, run)
+	}
+	return err
+}
+
+// reviewCompare exits 0 when the reviewer is not weaker than every implementer,
+// 1 on a finding, and 2 when it cannot decide (ADR 0002 rule 2).
+func reviewCompare(root string, args []string) int {
+	fs := flag.NewFlagSet("review compare", flag.ContinueOnError)
+	var implementers, reviewers runSpecs
+	fs.Var(&implementers, "implementer", "implementing run as agent:model:effort; repeat for several")
+	fs.Var(&reviewers, "reviewer", "reviewing run as agent:model:effort")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 0 || len(implementers) == 0 || len(reviewers) != 1 {
+		fmt.Fprintln(os.Stderr, "ateam review: compare requires one or more --implementer and exactly one --reviewer")
+		return 2
+	}
+	data, err := readReviewFile(filepath.Join(root, ".agents", "review-policy.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		fmt.Println("compare: skipped: no policy")
+		return 0
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam review: %v\n", err)
+		return 2
+	}
+	policy, err := review.ParsePolicy(data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam review: .agents/review-policy.json: %v\n", err)
+		return 2
+	}
+	findings, notes := policy.Compare(implementers, reviewers[0])
+	for _, n := range notes {
+		fmt.Println("compare: note: " + n)
+	}
+	for _, f := range findings {
+		fmt.Println("compare: finding: " + f)
+	}
+	if len(findings) > 0 {
+		return 1
+	}
+	fmt.Println("compare: pass: the reviewer is not weaker than any implementer")
 	return 0
 }
 
