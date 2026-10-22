@@ -1,0 +1,2 @@
+description = "Review one pull request as an independent, read-only reviewer and post the record comment merge-check reads."
+prompt = "Read .agents/skills/review-pr/SKILL.md fully and follow the canonical review-pr workflow."

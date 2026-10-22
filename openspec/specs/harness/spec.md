@@ -187,6 +187,11 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 - **WHEN** a repository is initialized with default templates
 - **THEN** its agent configuration passes parity checks
 
+#### Scenario: Shipped review-pr skill
+
+- **WHEN** a repository is initialized with default templates
+- **THEN** `.agents/skills/review-pr/SKILL.md` is written with the same body this repository uses, with thin adapters at `.claude/skills/review-pr/SKILL.md` and `.gemini/commands/review-pr.toml`, and parity checks reject a canonical `review-pr` skill that loses its numbered steps or the record grammar markers `reviewed-by:` and `Reviewed at`
+
 #### Scenario: Build provenance and duplicate server detection in doctor
 
 - **WHEN** `ateam version`, `session-start`, or `ateam doctor` runs
