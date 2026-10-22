@@ -3,7 +3,7 @@
 > **Status in this repository (ADR 0001, [`docs/adr/0001-review-gate-scope.md`](adr/0001-review-gate-scope.md)).** The merge gate that runs is `scripts/merge-check.sh` (CI job `Merge check`), as described in `AGENTS.md`. It requires `implemented-by:` and `reviewed-by:` lines that name different agents, each with its model in parentheses. It also requires a PR comment review record bound to one PR commit (see `.agents/contracts/reviewer.md` § Record). The reviewer-strength comparison against `.agents/review-policy.json` is planned for merge-check: it fails only when the ranking puts an implementer model above the reviewer model, so equal, unranked and cross-provider peer models pass (owner ruling on #81). It lands with the policy (#81, #82).
 >
 > The system this document describes is **built and tested but switched off here**:
-> - **Policy, routes, the policy-dependent doctor drift checks and the dashboard** turn on once `.agents/review-policy.json` is committed (#81). Until then, `ateam review route` and the dashboard report `unconfigured`.
+> - **Policy:** `.agents/review-policy.json` declares model tiers and effort bands only (ADR 0002, [`docs/adr/0002-model-tiers-and-effort-bands.md`](adr/0002-model-tiers-and-effort-bands.md), #81). It configures no routes, so `ateam review route` and `review check` fail closed, setup installs no route cards, and the dashboard reports `unconfigured`.
 > - **JSON review records, reviewer-executed required checks and owner exceptions** are off. `ateam review check` is invoked by neither CI nor merge-check. ADR 0001 lists the triggers for enabling them.
 >
 > Where this document says "approval blocks", it means `ateam review check`, not the merge gate.

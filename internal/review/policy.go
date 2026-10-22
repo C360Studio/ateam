@@ -10,12 +10,55 @@ import (
 // Policy declares model relationships; model names and effort never imply rank.
 type Policy struct {
 	Version        int      `json:"version"`
-	Models         []Model  `json:"models"`
+	Models         []Model  `json:"models,omitempty"`
 	Routes         Routes   `json:"routes"`
-	Owners         []string `json:"owners"`
-	ReviewAuthors  []string `json:"review_authors"`
-	RequiredChecks []string `json:"required_checks"`
+	Owners         []string `json:"owners,omitempty"`
+	ReviewAuthors  []string `json:"review_authors,omitempty"`
+	RequiredChecks []string `json:"required_checks,omitempty"`
 	CrossProvider  bool     `json:"cross_provider"`
+	// ModelTiers and EffortBands rank runs for merge-check (ADR 0002). A policy may
+	// declare only these; Models, Routes and the lists above serve the dormant
+	// route/check path and are then absent.
+	ModelTiers  ModelTiers  `json:"model_tiers"`
+	EffortBands EffortBands `json:"effort_bands"`
+}
+
+// ModelTiers lists "provider:model" names from strongest tier to weakest.
+type ModelTiers struct {
+	Frontier  []string `json:"frontier,omitempty"`
+	Workhorse []string `json:"workhorse,omitempty"`
+	Light     []string `json:"light,omitempty"`
+}
+
+// EffortBands maps each provider's native effort values onto three bands.
+type EffortBands struct {
+	Claude Bands `json:"claude"`
+	Codex  Bands `json:"codex"`
+	Gemini Bands `json:"gemini"`
+}
+
+// Bands lists native effort values from the lowest band to the highest.
+type Bands struct {
+	Low  []string `json:"low,omitempty"`
+	Mid  []string `json:"mid,omitempty"`
+	High []string `json:"high,omitempty"`
+}
+
+// HasBands reports whether the policy maps any native effort value.
+func (p Policy) HasBands() bool {
+	n := 0
+	for _, b := range []Bands{p.EffortBands.Claude, p.EffortBands.Codex, p.EffortBands.Gemini} {
+		n += len(b.Low) + len(b.Mid) + len(b.High)
+	}
+	return n > 0
+}
+
+// HasRoutes reports whether the policy configures the dormant route/check path.
+func (p Policy) HasRoutes() bool { return len(p.Models) > 0 }
+
+// HasTiers reports whether the policy ranks runs by tier and effort band.
+func (p Policy) HasTiers() bool {
+	return len(p.ModelTiers.Frontier)+len(p.ModelTiers.Workhorse)+len(p.ModelTiers.Light) > 0
 }
 
 // Model identifies a provider model and its explicitly weaker models.
@@ -64,7 +107,22 @@ func ValidatePolicy(p Policy) error {
 	if p.Version != 1 {
 		return fmt.Errorf("unsupported policy version %d", p.Version)
 	}
-	if len(p.Models) == 0 || len(p.Models) > 256 {
+	// Supplied tiers or bands are validated together, with or without models.
+	if p.HasTiers() || p.HasBands() {
+		if err := p.validateTiers(); err != nil {
+			return err
+		}
+	}
+	if !p.HasRoutes() {
+		if !p.HasTiers() {
+			return fmt.Errorf("policy must contain model tiers or 1..256 models")
+		}
+		if p.Routes != (Routes{}) || len(p.Owners)+len(p.ReviewAuthors)+len(p.RequiredChecks) != 0 {
+			return fmt.Errorf("routes, owners, review_authors and required_checks require models")
+		}
+		return nil
+	}
+	if len(p.Models) > 256 {
 		return fmt.Errorf("policy must contain 1..256 models")
 	}
 	seen := map[string]bool{}
@@ -98,6 +156,40 @@ func ValidatePolicy(p Policy) error {
 		return err
 	}
 	return uniqueNames("required_checks", p.RequiredChecks)
+}
+
+// validateTiers rejects malformed, duplicate or unknown-provider tier and band entries.
+func (p Policy) validateTiers() error {
+	seen := map[string]bool{}
+	for _, tier := range [][]string{p.ModelTiers.Frontier, p.ModelTiers.Workhorse, p.ModelTiers.Light} {
+		for _, entry := range tier {
+			provider, model, ok := strings.Cut(entry, ":")
+			key := strings.ToLower(entry)
+			if !ok || !supportedProvider(provider) || !identity(model) || seen[key] {
+				return fmt.Errorf("model tier entry %q must be a unique claude:, codex: or gemini: model", entry)
+			}
+			seen[key] = true
+		}
+	}
+	for provider, bands := range map[string]Bands{"claude": p.EffortBands.Claude, "codex": p.EffortBands.Codex, "gemini": p.EffortBands.Gemini} {
+		values := map[string]bool{}
+		for _, band := range [][]string{bands.Low, bands.Mid, bands.High} {
+			for _, value := range band {
+				if !identity(value) || values[strings.ToLower(value)] {
+					return fmt.Errorf("%s effort value %q must be unique", provider, value)
+				}
+				values[strings.ToLower(value)] = true
+			}
+		}
+		if len(values) == 0 {
+			return fmt.Errorf("effort_bands must map %s effort values", provider)
+		}
+	}
+	return nil
+}
+
+func supportedProvider(provider string) bool {
+	return provider == "claude" || provider == "codex" || provider == "gemini"
 }
 
 func (p Policy) validateAcyclic() error {

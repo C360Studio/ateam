@@ -51,6 +51,7 @@ func requestRouting(t *testing.T, srv *Server, endpoint string) map[string]any {
 }
 
 // spec: openspec/specs/model-review/spec.md#Requirement: Read-only dashboard model routing
+// spec: openspec/specs/model-review/spec.md#Requirement: Model tiers and effort bands policy
 func TestModelRoutingStates(t *testing.T) {
 	t.Setenv("ATEAM_API_TOKEN", "")
 	equal := strings.Replace(routingPolicyFixture, `"model":"review-model"`, `"model":"dev-model"`, 1)
@@ -63,6 +64,7 @@ func TestModelRoutingStates(t *testing.T) {
 		{"ceiling despite higher effort", equal, "blocked", "stronger", true},
 		{"cross provider required", strings.Replace(routingPolicyFixture, `"cross_provider":false`, `"cross_provider":true`, 1), "blocked", "provider", true},
 		{"different provider eligible", strings.Replace(strings.Replace(routingPolicyFixture, `"id":"review-model","provider":"codex"`, `"id":"review-model","provider":"claude"`, 1), `"cross_provider":false`, `"cross_provider":true`, 1), "eligible", "", true},
+		{"tiers only", `{"version":1,"model_tiers":{"frontier":["claude:opus"],"workhorse":["codex:gpt-6-sol"],"light":["gemini:gemini-3.8-flash"]},"effort_bands":{"claude":{"high":["max"]},"codex":{"high":["xhigh"]},"gemini":{"high":["high"]}},"cross_provider":false}`, "unconfigured", "model tiers only", false},
 		{"malformed", "{", "invalid", "Invalid model routing policy", false},
 		{"unknown model", strings.Replace(routingPolicyFixture, `"model":"review-model"`, `"model":"unknown"`, 1), "invalid", "unknown model", false},
 		{"unresolved effort", strings.Replace(routingPolicyFixture, "custom-effort", "inherit", 1), "invalid", "effort", false},
