@@ -14,7 +14,7 @@
     "baseline_sha256": "b595bcb7f0070c9a5eaa7ae9a85468f2e9b2cb4c005aeda4494c2768573df353",
     "candidate_sha256": "5b995f0944f3d441fd11aa5d46531e170e1d3dd1387b0b1e378ed1d9f0de0981",
     "runner_sha256": "087bf5ca75c48138e467aae95a7822de0e76437105bbfdd2163148d047e445db",
-    "evaluator_sha256": "111a697300970444efa419fc5cbda8d7e00da59b7d04f2cffb3f2e218d98b681",
+    "evaluator_sha256": "651d43eb912048f704b4e838e7a630d2350ba10f6d3181cdfd4f87c8d6e6ab75",
     "go_driver_sha256": "15ffb35e7eb03ea8de594435da97d22d884501ca88467c1feb3de7eb75146e75",
     "go_driver_version": "synthetic Go",
     "command_file_sha256": [

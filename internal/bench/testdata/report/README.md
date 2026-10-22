@@ -29,3 +29,10 @@ The inputs' `evaluator_sha256` and run `sha256` were rewritten once, in #111, wh
 Only those two fields changed; outcomes, timings, usage and every other hash are
 the original values. The outputs were re-exported and reviewed: the new evaluator
 digest, the both-passed source-bytes line, and the dependent evidence digests.
+
+They were rewritten the same way a second time in #111, after review of c8e0398
+changed the grader (`propagate-limit` gate redesign and the `discipline_gate`
+tag rename). Again only `evaluator_sha256` and the run `sha256` changed. The
+re-exported outputs differ only in the evaluator digest and the dependent
+evidence digests; these safe-path examples carry no discipline fields, so the
+tag rename does not appear in them.

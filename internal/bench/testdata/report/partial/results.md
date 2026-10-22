@@ -18,7 +18,7 @@ Configuration SHA-256 | 6dfa27d356bb631dc3047f4a4381da40d9e953f80cfd0c3b628b0b23
 Baseline instruction SHA-256 | b595bcb7f0070c9a5eaa7ae9a85468f2e9b2cb4c005aeda4494c2768573df353
 Candidate instruction SHA-256 | 5b995f0944f3d441fd11aa5d46531e170e1d3dd1387b0b1e378ed1d9f0de0981
 Runner SHA-256 | 087bf5ca75c48138e467aae95a7822de0e76437105bbfdd2163148d047e445db
-Evaluator SHA-256 | 111a697300970444efa419fc5cbda8d7e00da59b7d04f2cffb3f2e218d98b681
+Evaluator SHA-256 | 651d43eb912048f704b4e838e7a630d2350ba10f6d3181cdfd4f87c8d6e6ab75
 Go driver SHA-256 | 15ffb35e7eb03ea8de594435da97d22d884501ca88467c1feb3de7eb75146e75
 Go driver version | synthetic Go
 Native settings SHA-256 | not recorded
