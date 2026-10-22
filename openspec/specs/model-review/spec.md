@@ -161,7 +161,7 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 
 ### Requirement: Not-weaker reviewer by tier and effort band
 
-`ateam review compare --implementer <agent:model:effort>... --reviewer <agent:model:effort>` SHALL apply ADR 0002 rule 2 to `.agents/review-policy.json`: the reviewer passes when its model tier is stronger than every implementer's, or the tiers are equal and its effort band is equal or higher. Model text SHALL match tier entries ignoring case, with a run of spaces matching one hyphen. A model or effort the policy does not map SHALL pass with an `unranked` note. Once a policy exists, a run without an effort SHALL be a finding. With no policy file, compare SHALL print `skipped: no policy` and pass. Compare SHALL exit 0 on a pass, 1 on a finding, and 2 when it cannot decide (bad arguments or an invalid policy).
+`ateam review compare --implementer <agent:model:effort>... --reviewer <agent:model:effort>` SHALL apply ADR 0002 rule 2 to `.agents/review-policy.json`: the reviewer passes when its model tier is stronger than every implementer's, or the tiers are equal and its effort band is equal or higher. Compare SHALL exit 0 on a pass, 1 on a finding, and 2 when it cannot decide (bad arguments or an invalid policy).
 
 #### Scenario: Reviewer not weaker
 
@@ -175,5 +175,10 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 
 #### Scenario: Unranked or missing effort
 
-- **WHEN** a model or effort is missing from the policy maps
+- **WHEN** a model or effort is missing from the policy maps (model text matches tier entries ignoring case, with a run of spaces matching one hyphen)
 - **THEN** compare passes with an `unranked` note; when a run names no effort, compare exits 1 asking for one
+
+#### Scenario: No policy
+
+- **WHEN** `.agents/review-policy.json` does not exist
+- **THEN** compare prints `skipped: no policy` and exits 0
