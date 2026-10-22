@@ -1482,3 +1482,38 @@ func TestReadDiskBinaryBuildOutlivesTheOldTwoSecondBudget(t *testing.T) {
 		t.Fatalf("slow probe fell back: got (%q, %q), want (\"e37563b\", \"e37563b\")", shortRev, label)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+func TestDiskBuildFailureIsNotReportedAsTheRunningBuild(t *testing.T) {
+	// #121: a failed disk-binary read must say so, not copy the running MCP build
+	// into DiskBuild and hide the stale-binary warning.
+	for _, tc := range []struct {
+		name, script, want string
+	}{
+		{"no binary", "", "absent"},
+		{"probe exits non-zero", "#!/bin/sh\nexit 1\n", "unreadable"},
+		{"version without parentheses", "#!/bin/sh\necho 'ateam v0.1.0'\n", "unreadable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.script != "" {
+				if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "bin", "ateam"), []byte(tc.script), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			st := defaultState()
+			st.Git.Branch = "main"
+			st.Git.HeadSHA = "e37563b"
+			st.PopulateMCPProvenance(context.Background(), dir, "7606b7e")
+			if st.DiskBuild != tc.want || st.MCPStaleTarget != "e37563b" {
+				t.Fatalf("DiskBuild=%q MCPStaleTarget=%q, want DiskBuild=%q and the HEAD fallback e37563b", st.DiskBuild, st.MCPStaleTarget, tc.want)
+			}
+			if summary := BuildPickupSummary(st); !strings.Contains(summary, "build="+tc.want+" mcp=7606b7e") {
+				t.Fatalf("pickup header does not show build=%s:\n%s", tc.want, summary)
+			}
+		})
+	}
+}

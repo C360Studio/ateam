@@ -66,13 +66,15 @@ func VersionString() string {
 }
 
 // ReadDiskBinaryBuild inspects ./bin/ateam in root (if present) and returns its short build revision and label.
+// With no revision it labels why: "absent" when there is no binary, "unreadable" when --version
+// fails or prints no "(build)" — never the running build, which would hide a stale binary (#121).
 func ReadDiskBinaryBuild(ctx context.Context, root string) (shortRev, label string) {
 	if strings.TrimSpace(root) == "" {
 		return "", ""
 	}
 	binPath := filepath.Join(root, "bin", "ateam")
 	if info, err := os.Stat(binPath); err != nil || info.IsDir() {
-		return "", ""
+		return "", "absent"
 	}
 	// 10s, not 2s: --version exits at once, so this only guards a hung binary.
 	// Under a full -race suite a 2s spawn timed out and the running build was
@@ -81,13 +83,13 @@ func ReadDiskBinaryBuild(ctx context.Context, root string) (shortRev, label stri
 	defer cancel()
 	out, err := exec.CommandContext(cctx, binPath, "--version").Output()
 	if err != nil {
-		return "", ""
+		return "", "unreadable"
 	}
 	line := strings.TrimSpace(string(out))
 	openIdx := strings.LastIndex(line, "(")
 	closeIdx := strings.LastIndex(line, ")")
 	if openIdx < 0 || closeIdx <= openIdx+1 {
-		return "", ""
+		return "", "unreadable"
 	}
 	label = strings.TrimSpace(line[openIdx+1 : closeIdx])
 	label = strings.TrimPrefix(label, "build=")
