@@ -36,3 +36,9 @@ tag rename). Again only `evaluator_sha256` and the run `sha256` changed. The
 re-exported outputs differ only in the evaluator digest and the dependent
 evidence digests; these safe-path examples carry no discipline fields, so the
 tag rename does not appear in them.
+
+A third rewrite followed the grader fixes in `ef2f887` (Codex review at
+`57ab500`): diagnostics in `existing.go` now count as candidate build failures,
+and the `propagate-limit` test rejects a nil sentinel. The procedure and the
+reviewed drift were the same: only the evaluator digest and dependent evidence
+digests changed.
