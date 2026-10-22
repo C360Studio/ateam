@@ -38,7 +38,12 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      # The root packages carry the OpenSpec CLI; without them spec:check skips strict validation (#127).
+      - run: npm ci
 
       - run: npm --prefix ui ci
 
