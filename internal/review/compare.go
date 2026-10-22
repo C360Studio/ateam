@@ -14,8 +14,8 @@ var bandNames = []string{"low", "mid", "high"}
 // ParseRunSpec reads an agent:model:effort run as named on a PR line. Effort may be empty.
 func ParseRunSpec(s string) (Run, error) {
 	parts := strings.SplitN(s, ":", 3)
-	if len(parts) != 3 || !supportedProvider(parts[0]) || strings.TrimSpace(parts[1]) == "" {
-		return Run{}, fmt.Errorf("run %q must be claude:, codex: or gemini: then model:effort", s)
+	if len(parts) != 3 || !supportedProvider(parts[0]) || strings.TrimSpace(parts[1]) == "" || strings.Contains(parts[2], ":") {
+		return Run{}, fmt.Errorf("run %q must be claude:, codex: or gemini: then model:effort, with no colon in the effort", s)
 	}
 	return Run{Provider: parts[0], Model: strings.TrimSpace(parts[1]), Effort: strings.TrimSpace(parts[2])}, nil
 }
@@ -25,8 +25,13 @@ func ParseRunSpec(s string) (Run, error) {
 // reviewer is a finding; a model or effort the policy does not map is a note.
 func (p Policy) Compare(implementers []Run, reviewer Run) (findings, notes []string) {
 	for _, r := range append([]Run{reviewer}, implementers...) {
-		if r.Effort == "" {
+		switch {
+		case r.Effort == "":
 			findings = append(findings, fmt.Sprintf("%s names no effort", describe(r)))
+		case p.isModel(r.Provider, r.Effort):
+			// "(sonnet, opus)" read as pairs puts a model where the effort goes, and
+			// an unranked effort would pass it without comparing opus at all.
+			findings = append(findings, fmt.Sprintf("%s names model %q where the effort goes; write model, effort pairs", describe(r), r.Effort))
 		}
 	}
 	if len(findings) > 0 {
@@ -78,6 +83,12 @@ func (p Policy) tier(r Run) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// isModel reports whether s names a tier entry of the provider.
+func (p Policy) isModel(provider, s string) bool {
+	_, ok := p.tier(Run{Provider: provider, Model: s})
+	return ok
 }
 
 func (p Policy) band(r Run) (int, bool) {

@@ -572,6 +572,9 @@ func TestMergeCheckReview(t *testing.T) {
 			{"implemented-by: claude (opus, high)\nreviewed-by: claude (fable, medium)\n", "frontier tier at mid band, weaker than implementer claude (opus, high) at high band"},
 			{"implemented-by: claude (opus)\nreviewed-by: codex (gpt-6-astra, high)\n", "claude (opus) names no effort"},
 			{"implemented-by: claude (opus, high)\nreviewed-by: codex (gpt-6-astra)\n", "codex (gpt-6-astra) names no effort"},
+			// The #108 multi-model form without efforts reads opus as an effort; it must not pass unranked.
+			{"implemented-by: claude (sonnet, opus)\nreviewed-by: claude (sonnet, low)\n", `claude (sonnet, opus) names model "opus" where the effort goes`},
+			{"implemented-by: claude (,)\nreviewed-by: codex (,)\n", "groups must each hold at least one model, effort pair"},
 		} {
 			st := reviewGH(false, "User", tc.body, "scripts/x.sh")
 			st.policy = tiersPolicyJSON(false)

@@ -10,10 +10,12 @@
 #   3. On a pull-request run, before rule 2: a code pull request that is not a
 #      draft fails unless its description has one implemented-by: line naming
 #      claude, codex, or gemini (not read for a bot's) and one reviewed-by:
-#      line naming another agent (any of the three for a bot's, or when more than
-#      one is named), each line naming its model in parentheses after the agent
-#      (e.g. implemented-by: claude (opus); several implementer models are
-#      comma-separated inside them), and a PR comment contains a review record (reviewed-by:
+#      line naming one of them (another agent only when .agents/review-policy.json
+#      sets cross_provider), each line naming its model in parentheses after the
+#      agent (e.g. implemented-by: claude (opus)). Once that policy exists, each
+#      model is followed by its effort (claude (sonnet, medium, opus, high)) and
+#      ateam review compare must find the reviewer not weaker by tier, then effort
+#      band. A PR comment must also contain a review record (reviewed-by:
 #      <agent> or a ### Independent Cross-Agent Review heading) designating a
 #      single reviewed commit (e.g. reviewed at <sha>, re-reviewed at <sha>,
 #      reviewed [head] commit <sha>, or reviewed-commit: <sha>) in the PR's
@@ -220,7 +222,7 @@ else
     elif [ -z "$iagents" ]; then
       finding "the implemented-by: line must name claude, codex, or gemini, the agent that wrote the commits" "$implline"
     elif [ "$imodel" != yes ]; then
-      finding "the implemented-by: line must name the implementing model in parentheses after the agent (several comma-separated)" "implemented-by: ${iagents} (<model>${effort_hint})"
+      finding "the implemented-by: line must name the implementing model in parentheses after the agent (model, effort pairs once a policy exists)" "implemented-by: ${iagents} (<model>${effort_hint})"
     fi
   fi
   if [ "$rcount" -eq 0 ]; then
@@ -255,8 +257,25 @@ else
     while IFS=$'\t' read -r flag value; do
       [ -n "$flag" ] && cargs+=("$flag" "$value")
     done <<<"$runs"
-    compared=$("${ATEAM:-ateam}" review compare "${cargs[@]}" 2>&1)
-    cstatus=$?
+    # An empty group such as (,) passes the model check but yields no run; bash
+    # 3.2 under set -u would then fail on the empty array and read as status 1.
+    case " ${cargs[*]:-} " in
+      *" --implementer "*" --reviewer "*) ;;
+      *)
+        finding "the implemented-by: and reviewed-by: groups must each hold at least one model, effort pair" "<agent> (<model>, <effort>) on both lines"
+        cargs=()
+        ;;
+    esac
+    compared=
+    cstatus=0
+    if [ "${#cargs[@]}" -gt 0 ]; then
+      compared=$("${ATEAM:-ateam}" review compare "${cargs[@]}" 2>&1)
+      cstatus=$?
+    fi
+    # Status 1 must come with a finding line, or it was not compare's verdict.
+    if [ "$cstatus" -eq 1 ] && ! printf '%s\n' "$compared" | grep -q '^compare: finding: '; then
+      cstatus=3
+    fi
     case "$cstatus" in
       0 | 1)
         while IFS= read -r cline; do

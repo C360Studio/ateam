@@ -54,6 +54,7 @@ func TestCompare(t *testing.T) {
 		{name: "several implementers, one stronger than the reviewer", implementers: []string{"claude:haiku:max", "claude:sonnet:high"}, reviewer: "gemini:gemini-4-argon:medium", finding: "weaker than implementer claude (sonnet, high)"},
 		{name: "several implementers, all covered", implementers: []string{"claude:haiku:max", "claude:sonnet:medium"}, reviewer: "gemini:gemini-4-argon:medium"},
 		{name: "reviewer effort missing", implementers: []string{"claude:opus:high"}, reviewer: "codex:gpt-6-astra:", finding: "codex (gpt-6-astra) names no effort"},
+		{name: "model in the effort slot", implementers: []string{"claude:sonnet:opus"}, reviewer: "claude:sonnet:low", finding: `claude (sonnet, opus) names model "opus" where the effort goes`},
 		{name: "implementer effort missing", implementers: []string{"claude:opus:"}, reviewer: "codex:gpt-6-astra:high", finding: "claude (opus) names no effort"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -81,7 +82,7 @@ func TestParseRunSpec(t *testing.T) {
 	if r := run(t, "codex:gpt-6.1-sol:xhigh"); r != (Run{Provider: "codex", Model: "gpt-6.1-sol", Effort: "xhigh"}) {
 		t.Fatalf("parsed %+v", r)
 	}
-	for _, bad := range []string{"", "claude", "claude:opus", "openai:gpt-6:high", "claude: :high", "Claude:opus:high"} {
+	for _, bad := range []string{"", "claude", "claude:opus", "openai:gpt-6:high", "claude: :high", "Claude:opus:high", "claude:a:b:high"} {
 		if _, err := ParseRunSpec(bad); err == nil {
 			t.Errorf("ParseRunSpec(%q) accepted", bad)
 		}
