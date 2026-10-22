@@ -117,6 +117,28 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 		}
 	})
 
+	t.Run("Close rule copies match the repository text", func(t *testing.T) {
+		// #120: the Close rule changed in the repository but not in the copies init writes.
+		for _, c := range []struct{ rel, prefix string }{
+			{"AGENTS.md", "| `review` | A PR archives"},
+			{".agents/rules-index.md", "| `review` | A PR archives"},
+			{".agents/protocol.md", "5. **Handoff or Land (Close):**"},
+		} {
+			shipped, _ := os.ReadFile(filepath.Join(dir, filepath.FromSlash(c.rel)))
+			repo, err := os.ReadFile(filepath.Join(repoRoot(t), filepath.FromSlash(c.rel)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, want := lineWithPrefix(string(shipped), c.prefix), lineWithPrefix(string(repo), c.prefix)
+			if want == "" {
+				t.Fatalf("%s in the repository has no line starting %q", c.rel, c.prefix)
+			}
+			if got != want {
+				t.Fatalf("%s written by InitRepo differs from the repository line starting %q:\n got: %s\nwant: %s", c.rel, c.prefix, got, want)
+			}
+		}
+	})
+
 	t.Run("README.md hook event drift rejected", func(t *testing.T) {
 		sub := t.TempDir()
 		_, _ = InitRepo(context.Background(), sub, Options{})
@@ -302,4 +324,13 @@ func TestFilterAndCheckClientMCPProcesses(t *testing.T) {
 	if wCurrent := CheckClientMCPProcesses(otherClient, "7606b7e"); len(wCurrent) != 0 {
 		t.Fatalf("expected 0 warnings when MCP build matches HEAD, got %v", wCurrent)
 	}
+}
+
+func lineWithPrefix(text, prefix string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+	return ""
 }
