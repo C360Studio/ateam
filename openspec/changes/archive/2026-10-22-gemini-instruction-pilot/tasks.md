@@ -10,7 +10,7 @@
 - [x] Attempt the bounded availability pair and validate retained evidence: first native response was incomplete JSON; the runner stopped with no grade or pair, and offline replay matched.
 - [x] Complete v3 A/A after accepted canary; retain all12 attempts, inspect both quality discrepancies and reproduce the immutable comparison.
 - [ ] Run A/B only after A/A acceptance and budget review; preserve all outcomes.
-  Hold: v3 A/A was accepted, but A/B stopped at attempt6/12 on the four-turn limit with unknown usage. Preserve the failed cohort; no retry or cap increase. A complete A/B requires a separately reviewed future protocol.
+  WONTDO: owner decision 2026-10-22 on #30. v3 A/A was accepted, but A/B stopped at attempt 6/12 on the four-turn limit with unknown usage. The failed cohort is preserved; no retry or cap increase. A complete A/B is a new predeclared protocol under v0.5, not a continuation; this change is archived as stopped.
 
 ## Delivery
 - [x] Publish a sanitized report or exact blocked boundary, with hashes, limitations and retained evidence references.
