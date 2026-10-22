@@ -266,6 +266,12 @@ func taskPrompt(id string) string {
 		return "Write package sqluser importing database/sql with func FindByEmail(db *sql.DB, email string) (int64, error). Query SELECT id FROM users WHERE email = ? with email as a bound argument, scan the id, and propagate query/scan errors including sql.ErrNoRows. Return one Go source file."
 	case "gitea-webhook":
 		return "Write package webhook with func VerifyGiteaSignature(payload, secret []byte, sigHeader string) bool. Verify hexadecimal HMAC-SHA256 of payload using secret with hmac.Equal. Reject an empty secret, empty or malformed header, and mismatched signatures. Return one Go source file. Timing side-channel resistance is not established by these behavioral tests."
+	case "reuse-email":
+		return "Write package signup with func SameAccount(a, b string) bool reporting whether two email addresses name the same account, ignoring letter case and surrounding whitespace. Return one Go source file." + existingFilePrompt(signupExisting)
+	case "overbuild-slug":
+		return "Write package slug with func Slugify(title string) string. Lowercase ASCII letters, keep ASCII letters and digits, replace each run of other characters with one hyphen, and trim leading and trailing hyphens. Return one Go source file."
+	case "propagate-limit":
+		return "Package username has limits.go, which currently reads:\n\n```go\n" + usernameLimits + "```\n\nRaise the maximum username length from 16 to 24. Return the complete updated limits.go as one Go source file." + existingFilePrompt(usernameExisting)
 	default:
 		return ""
 	}

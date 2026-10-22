@@ -119,9 +119,34 @@ Time is candidate-minus-baseline mean duration among pairs where both passed, wi
 
 There are no confidence intervals, significance tests, equivalence claims, or automatic winners in v1. Use pilot variability to choose a larger experiment, predeclare quality tolerances and analysis, and validate changes on held-out representative tasks before publishing performance claims. Public small fixtures are vulnerable to memorization and measure only their tested behavior; webhook behavioral tests do not prove constant-time execution.
 
+## Decision-opportunity tasks
+
+The prescribed tasks above fix the package, signature, behavior and often the mechanism, so qualified models saturate them and an instruction treatment has nothing to improve. The `decision-opportunity` tier offers a choice that behavior tests alone do not grade:
+
+| Task | Decision | Discipline gate |
+| --- | --- | --- |
+| `reuse-email` | the package already has `normalizeEmail` | the candidate calls it and does not re-derive it with `strings.TrimSpace`, `strings.ToLower` or `strings.EqualFold` |
+| `overbuild-slug` | a small `Slugify` invites options, structs or wrappers | `Slugify` is the only exported top-level name |
+| `propagate-limit` | raise `MaxLen` from 16 to 24; the error message depends on it | the value `24` appears in exactly one literal |
+
+`reuse-email` and `propagate-limit` include a pre-existing package file. The prompt shows it verbatim and says not to return it; the grader compiles it as `existing.go` beside the returned file, so the one-file adapter contract is unchanged. The gate parses the candidate with the Go standard library only. It checks these fixtures; it is not a general analysis, and spellings such as `0x18` or dot imports are outside it.
+
+Attempt grades record `behavior` and `discipline` separately, with `discipline_diagnostics` giving source size and findings; a tier attempt passes only when both pass. Reports project both fields per attempt. `compare` reports source bytes per arm over both-passed pairs as a descriptive size signal, not a verdict. Existing tasks record none of these fields.
+
+The per-experiment limit stays at three tasks, so run the tier as its own experiment. `examples/decision-aa.json` and `examples/decision-ab.json` use the Mercury runtime described below; dry-run needs the pinned Claude and LiteLLM executables but no credentials, and paid runs need separate authorization. `examples/decision-bundles-ab.json` runs offline with the reference adapter:
+
+```sh
+bin/ateam bench run benchmarks/examples/decision-bundles-ab.json --dry-run
+bin/ateam bench run benchmarks/examples/decision-bundles-ab.json
+```
+
+The tier is uncalibrated: no A/A run has measured its stochastic variation yet.
+
+Changing grader sources changes the evaluator digest for every task set. Runs recorded before this tier report `evaluator mismatch` with the new binary; rescore or export them with the binary that recorded them.
+
 ## Self-tests and development tooling
 
-`bench --selftest` evaluates four Go fixture families and two local continuity checks. The Svelte task is explicitly unsupported/skipped until a real compiler/behavioral grader exists. Continuity checks do not claim mutation detection. Schema-token counts are estimates and hook timing is one local observation, not an end-to-end agent latency distribution.
+`bench --selftest` evaluates four Go fixture families, three decision-opportunity tasks and two local continuity checks. The Svelte task is explicitly unsupported/skipped until a real compiler/behavioral grader exists. Continuity checks do not claim mutation detection. Schema-token counts are estimates and hook timing is one local observation, not an end-to-end agent latency distribution.
 
 `--save` writes a unique `selftest-*.json`; the previous overwrite-only `latest.json` convention is removed. `--rescore <selftest.json>` validates the schema/invariants and reruns the installed reference suite. Legacy unversioned self-test reports are rejected.
 

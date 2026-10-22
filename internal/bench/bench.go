@@ -24,13 +24,16 @@ import (
 // TaskSpec defines a benchmark task with good, bad (adversarial-unsafe or bloated), and mutant fixtures.
 type TaskSpec struct {
 	ID           string `json:"id"`
-	Tier         string `json:"tier"` // coding-discipline, handoff-continuity
+	Tier         string `json:"tier"` // coding-discipline, decision-opportunity, handoff-continuity
 	Description  string `json:"description"`
 	AteamLOC     int    `json:"ateam_loc"`
 	GoodSource   string `json:"-"`
 	BadSource    string `json:"-"`
 	MutantSource string `json:"-"`
 	TestSource   string `json:"-"`
+	// ExistingSource is a pre-existing package file shown in the prompt and graded beside the candidate.
+	ExistingSource string `json:"-"`
+	discipline     disciplineRule
 }
 
 // TaskResult records the evaluation of a single benchmark task.
@@ -46,6 +49,10 @@ type TaskResult struct {
 	BadCaughtByGate  bool   `json:"bad_caught_by_gate"`
 	MutantCaught     bool   `json:"mutant_caught"`
 	Passed           bool   `json:"passed"`
+	// Decision-opportunity tasks only: the bad fixture must pass behavior and be caught by discipline alone.
+	GoodPassedDiscipline  bool `json:"good_passed_discipline,omitempty"`
+	BadPassedBehavior     bool `json:"bad_passed_behavior,omitempty"`
+	BadCaughtByDiscipline bool `json:"bad_caught_by_discipline,omitempty"`
 }
 
 // SuiteReport summarizes the full benchmark scorecard and self-test status.
@@ -65,9 +72,9 @@ type SuiteReport struct {
 	Tasks             []TaskResult `json:"tasks"`
 }
 
-// Tasks returns the built-in Coding Discipline and Handoff Continuity benchmark tasks.
+// Tasks returns the built-in Coding Discipline, Handoff Continuity and Decision Opportunity benchmark tasks.
 func Tasks() []TaskSpec {
-	return []TaskSpec{
+	return append([]TaskSpec{
 		{
 			ID:          "safe-path",
 			Tier:        "coding-discipline",
@@ -305,15 +312,19 @@ func TestFixture(t *testing.T) {
 			Description: "PreCompact/PreCompress hook auto-checkpoints uncommitted // shortcut: debt and state",
 			AteamLOC:    14,
 		},
-	}
+	}, decisionTasks()...)
 }
 
 // CandidateEvaluation records behavioral grading and preserves the grader output.
+// Decision-opportunity tasks also record behavior and discipline separately; Passed requires both.
 type CandidateEvaluation struct {
-	Supported   bool   `json:"supported"`
-	Passed      bool   `json:"passed"`
-	Verdict     string `json:"verdict"`
-	Diagnostics string `json:"diagnostics"`
+	Supported             bool   `json:"supported"`
+	Passed                bool   `json:"passed"`
+	Verdict               string `json:"verdict"`
+	Diagnostics           string `json:"diagnostics"`
+	Behavior              string `json:"behavior,omitempty"`
+	Discipline            string `json:"discipline,omitempty"`
+	DisciplineDiagnostics string `json:"discipline_diagnostics,omitempty"`
 }
 
 // CheckCodingCandidate is the compatibility wrapper for context-aware behavioral grading.
@@ -331,7 +342,11 @@ func EvaluateCodingCandidate(ctx context.Context, taskID, candidateSrc string) (
 			if spec.TestSource == "" {
 				return CandidateEvaluation{Verdict: "unsupported", Diagnostics: "no behavioral grader for task " + taskID}, nil
 			}
-			return evaluateCandidate(ctx, spec, candidateSrc)
+			result, err := evaluateCandidate(ctx, spec, candidateSrc)
+			if err == nil && spec.Tier == decisionTier {
+				gradeDiscipline(&result, spec.discipline, candidateSrc)
+			}
+			return result, err
 		}
 	}
 	return CandidateEvaluation{Verdict: "unsupported", Diagnostics: "unknown task " + taskID}, fmt.Errorf("unknown benchmark task %q", taskID)
@@ -342,7 +357,11 @@ func fixtureModule(spec TaskSpec, source string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for name, data := range map[string]string{"go.mod": "module benchfixture\n\ngo 1.23\n", "fixture.go": source, "fixture_test.go": spec.TestSource} {
+	files := map[string]string{"go.mod": "module benchfixture\n\ngo 1.23\n", "fixture.go": source, "fixture_test.go": spec.TestSource}
+	if spec.ExistingSource != "" {
+		files["existing.go"] = spec.ExistingSource
+	}
+	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o600); err != nil {
 			_ = os.RemoveAll(dir)
 			return "", fmt.Errorf("write fixture %s: %w", name, err)
@@ -418,8 +437,8 @@ func evaluateCandidate(ctx context.Context, spec TaskSpec, source string) (Candi
 	}
 	if err != nil {
 		var exitErr *exec.ExitError
-		packageMismatch := strings.Contains(output.String(), "found packages ") &&
-			strings.Contains(output.String(), "(fixture.go) and ") && strings.Contains(output.String(), "(fixture_test.go)")
+		// go names the first two files in sorted order, so existing.go may precede fixture.go.
+		packageMismatch := strings.Contains(output.String(), "found packages ") && strings.Contains(output.String(), "(fixture.go)")
 		candidateBuildFailure := strings.Contains(output.String(), "fixture.go:") || strings.Contains(output.String(), "fixture_test.go:") || packageMismatch
 		// A failed command without a test run or candidate compiler diagnostic is an infrastructure error.
 		if !errors.As(err, &exitErr) || exitErr.ExitCode() < 0 || (!ran && !candidateBuildFailure) {
@@ -437,7 +456,7 @@ func evaluateCandidate(ctx context.Context, spec TaskSpec, source string) (Candi
 }
 
 func runBehavioralCheck(ctx context.Context, spec TaskSpec) (goodSafe, badCaught, mutantCaught bool, diagnostics string) {
-	modDir, err := os.MkdirTemp("", "ateam-bench-mod-*")
+	modDir, err := fixtureModule(spec, spec.GoodSource)
 	if err != nil {
 		return false, false, false, err.Error()
 	}
@@ -448,16 +467,6 @@ func runBehavioralCheck(ctx context.Context, spec TaskSpec) (goodSafe, badCaught
 		return false, false, false, err.Error()
 	}
 	defer os.RemoveAll(outDir)
-
-	if err := os.WriteFile(filepath.Join(modDir, "go.mod"), []byte("module benchfixture\n\ngo 1.23\n"), 0o600); err != nil {
-		return false, false, false, err.Error()
-	}
-	if err := os.WriteFile(filepath.Join(modDir, "fixture.go"), []byte(spec.GoodSource), 0o600); err != nil {
-		return false, false, false, err.Error()
-	}
-	if err := os.WriteFile(filepath.Join(modDir, "fixture_test.go"), []byte(spec.TestSource), 0o600); err != nil {
-		return false, false, false, err.Error()
-	}
 
 	mutPath := filepath.Join(outDir, "mutant.go")
 	if err := os.WriteFile(mutPath, []byte(spec.MutantSource), 0o600); err != nil {
@@ -577,6 +586,8 @@ func RunSelfTest(ctx context.Context) (SuiteReport, error) {
 				report.SafetyPassRatePct = safetyPassed * 100 / codingCount
 				report.MutationCatchPct = mutantCaught * 100 / codingCount
 			}
+		} else if spec.Tier == decisionTier {
+			tr = evaluateDecisionTask(ctx, spec)
 		} else {
 			tr = evaluateContinuityTask(spec)
 		}
@@ -785,11 +796,16 @@ func ParseSelfTestReport(data []byte) (SuiteReport, error) {
 		expected := "behavioral"
 		if spec.Tier == "handoff-continuity" {
 			expected = "continuity"
+		} else if spec.Tier == decisionTier {
+			expected = "discipline"
 		} else if spec.TestSource == "" {
 			expected = "unsupported"
 		}
 		if task.Evaluation != expected {
 			return report, fmt.Errorf("invalid evaluation for %s", task.ID)
+		}
+		if expected != "discipline" && (task.GoodPassedDiscipline || task.BadPassedBehavior || task.BadCaughtByDiscipline) {
+			return report, fmt.Errorf("task %s claims untested discipline results", task.ID)
 		}
 		switch expected {
 		case "unsupported":
@@ -811,6 +827,11 @@ func ParseSelfTestReport(data []byte) (SuiteReport, error) {
 				mutation++
 			}
 			if task.Passed != (task.GoodPassedSafety && task.BadCaughtByGate && task.MutantCaught) {
+				return report, fmt.Errorf("inconsistent outcome for %s", task.ID)
+			}
+		case "discipline":
+			if task.BadCaughtByGate != (task.BadPassedBehavior && task.BadCaughtByDiscipline) ||
+				task.Passed != (task.GoodPassedSafety && task.GoodPassedDiscipline && task.BadCaughtByGate && task.MutantCaught) {
 				return report, fmt.Errorf("inconsistent outcome for %s", task.ID)
 			}
 		}
@@ -839,18 +860,22 @@ func FormatMarkdown(rep SuiteReport) string {
 	fmt.Fprintf(&b, "- **Injected Bug Mutation Catch Rate:** `%d%%` (behavioral coding tasks only)\n", rep.MutationCatchPct)
 	fmt.Fprintf(&b, "- **MCP 2-Tool Schema Budget:** `%d estimated tokens` (limit: < 300)\n", rep.MCPTokenTax)
 	fmt.Fprintf(&b, "- **Hook Execution Latency:** `%d µs` (one local observation; not a latency distribution)\n\n", rep.HookLatencyUs)
-	b.WriteString("These offline reference checks validate graders and local continuity behavior; they do not measure agent time, tokens, or quality.\n\n")
-	b.WriteString("| Task | Evaluation | Fixture LOC | Gzip Bytes | Safety Gate | Mutant Caught | Passed |\n")
-	b.WriteString("| --- | --- | ---: | ---: | :---: | :---: | :---: |\n")
+	b.WriteString("These offline reference checks validate graders and local continuity behavior; they do not measure agent time, tokens, or quality. ")
+	b.WriteString("For discipline rows, Safety Gate means the good and bad fixtures both pass the behavior tests, and Discipline Gate means the good fixture passes while the bad fixture is caught by the discipline gate alone.\n\n")
+	b.WriteString("| Task | Evaluation | Fixture LOC | Gzip Bytes | Safety Gate | Discipline Gate | Mutant Caught | Passed |\n")
+	b.WriteString("| --- | --- | ---: | ---: | :---: | :---: | :---: | :---: |\n")
 	for _, task := range rep.Tasks {
-		safety, mutation, passed := "N/A", "N/A", fmt.Sprint(task.Passed)
-		if task.Evaluation == "behavioral" {
+		safety, discipline, mutation, passed := "N/A", "N/A", "N/A", fmt.Sprint(task.Passed)
+		switch task.Evaluation {
+		case "behavioral":
 			safety, mutation = fmt.Sprint(task.GoodPassedSafety && task.BadCaughtByGate), fmt.Sprint(task.MutantCaught)
-		}
-		if task.Evaluation == "unsupported" {
+		case "discipline":
+			safety, mutation = fmt.Sprint(task.GoodPassedSafety && task.BadPassedBehavior), fmt.Sprint(task.MutantCaught)
+			discipline = fmt.Sprint(task.GoodPassedDiscipline && task.BadCaughtByDiscipline)
+		case "unsupported":
 			passed = "not evaluated"
 		}
-		fmt.Fprintf(&b, "| `%s` | %s | %d | %d | %s | %s | %s |\n", task.ID, task.Evaluation, task.AteamLOC, task.GzipBytes, safety, mutation, passed)
+		fmt.Fprintf(&b, "| `%s` | %s | %d | %d | %s | %s | %s | %s |\n", task.ID, task.Evaluation, task.AteamLOC, task.GzipBytes, safety, discipline, mutation, passed)
 	}
 	return b.String()
 }

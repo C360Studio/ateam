@@ -26,6 +26,7 @@ type Comparison struct {
 	NeitherPassed                int                   `json:"neither_passed"`
 	StatusCounts                 map[string]int        `json:"status_counts"`
 	SuccessfulPairMeanDeltaNanos *float64              `json:"successful_pair_mean_delta_nanos"`
+	BothPassedSourceBytes        map[string]int        `json:"both_passed_source_bytes,omitempty"`
 	UsagePairs                   int                   `json:"usage_pairs"`
 	MissingUsagePairs            int                   `json:"missing_usage_pairs"`
 	TotalTokenDelta              *int64                `json:"total_token_delta"`
@@ -92,6 +93,11 @@ func CompareExperiment(run ExperimentRun) (Comparison, error) {
 		case a.Status == "passed" && b.Status == "passed":
 			c.BothPassed++
 			timeDelta += b.AgentNanos - a.AgentNanos
+			if c.BothPassedSourceBytes == nil {
+				c.BothPassedSourceBytes = map[string]int{}
+			}
+			c.BothPassedSourceBytes["baseline"] += len(a.Response.Source)
+			c.BothPassedSourceBytes["candidate"] += len(b.Response.Source)
 		case a.Status == "passed" && b.Status == "failed":
 			c.Regressions++
 		case b.Status == "passed" && a.Status == "failed":
@@ -148,6 +154,9 @@ func FormatComparison(c Comparison) string {
 		fmt.Fprintf(&b, "Mean candidate-minus-baseline execution time: %.3f s (%d both-passed pairs)\n", *c.SuccessfulPairMeanDeltaNanos/1e9, c.BothPassed)
 	} else {
 		b.WriteString("Execution-time comparison: unknown (no both-passed pairs)\n")
+	}
+	if c.BothPassedSourceBytes != nil {
+		fmt.Fprintf(&b, "Source bytes over %d both-passed pairs: baseline %d, candidate %d (descriptive size, not a quality verdict)\n", c.BothPassed, c.BothPassedSourceBytes["baseline"], c.BothPassedSourceBytes["candidate"])
 	}
 	if c.TotalTokenDelta != nil {
 		fmt.Fprintf(&b, "Candidate-minus-baseline reported tokens: %d (%d known-usage pairs; %d missing)\n", *c.TotalTokenDelta, c.UsagePairs, c.MissingUsagePairs)

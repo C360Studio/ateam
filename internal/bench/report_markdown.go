@@ -85,6 +85,16 @@ func formatExperimentReport(r experimentReport) string {
 		}
 		fmt.Fprintf(&b, "%d | %s | %d | %s | %s | %s | %d | %d | %s | %s | %s | %s | %s\n", a.Index, reportText(a.Trial.Task), a.Trial.Repetition, reportText(a.Trial.Arm), reportText(a.Status), quality, a.AgentNanos, a.GradeNanos, input, output, cached, reasoning, reportText(a.SourceSHA))
 	}
+	discipline := false
+	for _, a := range r.Attempts {
+		if a.Discipline != "" {
+			if !discipline {
+				b.WriteString("\n## Behavior and discipline\n\nDecision-opportunity attempts pass only when both the behavior tests and the discipline gate pass.\n\nIndex | Task | Arm | Behavior | Discipline\n--- | --- | --- | --- | ---\n")
+				discipline = true
+			}
+			fmt.Fprintf(&b, "%d | %s | %s | %s | %s\n", a.Index, reportText(a.Trial.Task), reportText(a.Trial.Arm), reportText(a.Behavior), reportText(a.Discipline))
+		}
+	}
 	b.WriteString("\n## Matched pairs\n\nBaseline index | Candidate index | Quality eligible | Both-passed execution delta ns | Known-usage token delta\n--- | --- | --- | --- | ---\n")
 	for _, p := range r.Pairs {
 		fmt.Fprintf(&b, "%d | %d | %t | %s | %s\n", p.Baseline, p.Candidate, p.QualityEligible, reportNumber(p.TimeDelta), reportNumber(p.TokenDelta))

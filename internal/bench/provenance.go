@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-//go:embed bench.go process_unix.go process_other.go
+//go:embed bench.go decision.go process_unix.go process_other.go
 var evaluatorSources embed.FS
 
 // GraderIdentity records the local Go driver actually used with toolchain switching disabled.
@@ -50,7 +50,7 @@ func currentGrader() (GraderIdentity, error) {
 
 func evaluatorSourceDigest() string {
 	var source strings.Builder
-	for _, name := range []string{"bench.go", "process_unix.go", "process_other.go"} {
+	for _, name := range []string{"bench.go", "decision.go", "process_unix.go", "process_other.go"} {
 		data, _ := evaluatorSources.ReadFile(name)
 		source.WriteString(name)
 		source.Write(data)

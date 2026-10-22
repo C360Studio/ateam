@@ -466,6 +466,12 @@ func validateRun(r ExperimentRun) error {
 			if a.Status == "grading-error" && a.Diagnostic == "" {
 				return fmt.Errorf("attempt %d: missing grading diagnostic", i)
 			}
+			if a.Status != "grading-error" && !validDisciplineGrade(a.Request.Trial.Task, a.Grade) {
+				return fmt.Errorf("attempt %d: inconsistent discipline evidence", i)
+			}
+			if a.Status == "grading-error" && (a.Grade.Behavior != "" || a.Grade.Discipline != "") {
+				return fmt.Errorf("attempt %d: discipline evidence without a grade", i)
+			}
 		case "adapter-error", "timeout", "cancelled":
 			if (!cfg.IsNative() && (a.Response != nil || a.SourceSHA != "")) || a.Grade.Passed || a.Diagnostic == "" {
 				return fmt.Errorf("attempt %d: invalid execution failure", i)
