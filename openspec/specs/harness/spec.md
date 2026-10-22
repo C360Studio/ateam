@@ -32,7 +32,8 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 - **WHEN** a pre-compaction event arrives
 - **THEN** if `last_handoff` belongs to the same active `session_id` on the same branch, the hook preserves its 5 semantic fields (`goal`, `addresses`, `constraints`, `done_when`, `checks_to_run`) while refreshing `checkpoint_sha`, `branch`, `dirty`, and `auto_compacted: true`
-- **AND** if `last_handoff` is nil, stale for a non-SHA reason, or belongs to a different or unknown session, the hook writes a fallback auto-handoff whose `goal` begins with `UNKNOWN — Auto-saved before context compaction` and returns its pickup context
+- **AND** if `last_handoff` is nil or stale for a non-SHA reason, the hook writes a fallback auto-handoff whose `goal` begins with `UNKNOWN — Auto-saved before context compaction` and returns its pickup context
+- **AND** if `last_handoff` is not stale, is not itself a fallback auto-handoff, and belongs to a different or unknown session, the hook leaves it unchanged and returns pickup context naming the session that holds the slot and stating that no auto-save was written
 
 #### Scenario: Session identity and coordination warnings
 
