@@ -8,7 +8,7 @@ Define explicit project model routing, stronger independent review, scoped owner
 
 ### Requirement: Stronger independent reviewer
 
-ATeam SHALL require a reviewer run that contributed no implementation and whose actual model is explicitly approved as stronger than every implementation model in the governing project policy. Reasoning effort SHALL be recorded separately and SHALL NOT substitute for model superiority. Same-provider review SHALL be permitted by default; configured cross-provider review SHALL be an additional constraint.
+On the dormant `review route` / `review check` path, ATeam SHALL require a reviewer run that contributed no implementation and whose actual model is explicitly approved as stronger than every implementation model in the governing project policy. Reasoning effort SHALL be recorded separately and SHALL NOT substitute for model superiority. Same-provider review SHALL be permitted by default; configured cross-provider review SHALL be an additional constraint.
 
 #### Scenario: Stronger model on the same provider
 
@@ -158,3 +158,27 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 
 - **WHEN** a tier entry lacks a supported provider prefix, appears in two tiers, a provider maps no effort values, an effort value repeats for one provider, or routes, owners, review authors or required checks appear without models
 - **THEN** the policy is rejected
+
+### Requirement: Not-weaker reviewer by tier and effort band
+
+`ateam review compare --implementer <agent:model:effort>... --reviewer <agent:model:effort>` SHALL apply ADR 0002 rule 2 to `.agents/review-policy.json`: the reviewer passes when its model tier is stronger than every implementer's, or the tiers are equal and its effort band is equal or higher. Compare SHALL exit 0 on a pass, 1 on a finding, and 2 when it cannot decide (bad arguments or an invalid policy).
+
+#### Scenario: Reviewer not weaker
+
+- **WHEN** the reviewer's tier is stronger, or the tiers are equal and the reviewer's band is equal or higher, for every implementer
+- **THEN** compare exits 0
+
+#### Scenario: Reviewer weaker
+
+- **WHEN** the reviewer's tier is weaker than any implementer's, or the tiers are equal and its band is lower
+- **THEN** compare exits 1 and names the weaker pair
+
+#### Scenario: Unranked or missing effort
+
+- **WHEN** a model or effort is missing from the policy maps (model text matches tier entries ignoring case, with a run of spaces matching one hyphen)
+- **THEN** compare passes with an `unranked` note; when a run names no effort, compare exits 1 asking for one
+
+#### Scenario: No policy
+
+- **WHEN** `.agents/review-policy.json` does not exist
+- **THEN** compare prints `skipped: no policy` and exits 0
