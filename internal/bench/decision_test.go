@@ -21,7 +21,7 @@ func decisionSpec(t *testing.T, id string) TaskSpec {
 }
 
 // Expected outcomes are hand-stated from each task's decision, not derived from the gate.
-// spec: openspec/changes/benchmark-decision-tasks/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
 func TestDisciplineGateFindings(t *testing.T) {
 	reuse := disciplineRule{calls: []string{"normalizeEmail"}, forbidden: []string{"strings.TrimSpace", "strings.ToLower", "strings.EqualFold"}}
 	surface := disciplineRule{exports: []string{"Slugify"}}
@@ -60,8 +60,8 @@ func TestDisciplineGateFindings(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-decision-tasks/specs/benchmark-experiments/spec.md#Requirement: Decision-opportunity tasks
-// spec: openspec/changes/benchmark-decision-tasks/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Decision-opportunity tasks
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
 func TestDecisionCandidateGrading(t *testing.T) {
 	for _, tc := range []struct {
 		name, task, source   string
@@ -92,7 +92,7 @@ func TestDecisionCandidateGrading(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-decision-tasks/specs/benchmark-experiments/spec.md#Requirement: Decision-opportunity tasks
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Decision-opportunity tasks
 func TestDecisionPromptShowsExistingSource(t *testing.T) {
 	const instruction = "already contains existing.go, shown below; it is compiled with your file, so do not return or redeclare it."
 	for _, spec := range decisionTasks() {
@@ -117,7 +117,7 @@ func TestDecisionPromptShowsExistingSource(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/benchmark-decision-tasks/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestDecisionExperimentEvidence(t *testing.T) {
 	exe, err := os.Executable()
@@ -230,7 +230,7 @@ func setSource(a *Attempt, source string) {
 	a.SourceSHA = digest([]byte(source))
 }
 
-// spec: openspec/changes/benchmark-decision-tasks/specs/benchmark-experiments/spec.md#Requirement: Descriptive source size comparison
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Descriptive source size comparison
 func TestComparisonSourceBytes(t *testing.T) {
 	run := syntheticRun(t)
 	for i := range run.Attempts {

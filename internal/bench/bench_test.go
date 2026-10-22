@@ -14,7 +14,7 @@ import (
 )
 
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
-// spec: openspec/changes/benchmark-decision-tasks/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
 func TestSelfTestAndMutation(t *testing.T) {
 	rep, err := RunSelfTest(context.Background())
 	if err != nil {
@@ -235,7 +235,7 @@ func TestSaveSelfTestRunIsImmutable(t *testing.T) {
 }
 
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
-// spec: openspec/changes/benchmark-decision-tasks/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
 func TestParseSelfTestReportRejectsContradictions(t *testing.T) {
 	// Construct evidence from the contract, independent of the production evaluator.
 	rep := SuiteReport{SchemaVersion: 1, Timestamp: time.Unix(100, 0), Mode: "selftest-reference-fixtures", TotalTasks: 10,
