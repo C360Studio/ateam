@@ -729,3 +729,57 @@ func TestReview79HookPreCompactAndWorktreeBranchSwitch(t *testing.T) {
 		t.Fatalf("expected session-start on codex/feat to persist updated LastHandoff alias on disk, got %+v", afterSwitchDisk.LastHandoff)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
+	dir := t.TempDir()
+	headsDir := filepath.Join(dir, ".git", "refs", "heads")
+	if err := os.MkdirAll(headsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("abad85b000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dirtyFalse := false
+	st := &state.State{
+		Mode:          state.ModeFull,
+		Forge:         state.ForgeConfig{Provider: state.ForgeGitHub, Owner: "c360", Repo: "ateam"},
+		BoardSyncedAt: time.Now().UTC().Add(-4 * time.Hour),
+		Git: state.GitStatus{
+			Branch:  "main",
+			HeadSHA: "abad85b",
+			Worktrees: []state.Worktree{
+				{Path: dir, Branch: "main", Head: "abad85b", Dirty: &dirtyFalse, AheadCount: 0, MergedIntoMain: true},
+				{Path: filepath.Join(dir, ".worktrees", "wt-64"), Branch: "codex/mercury-offline-contract", Head: "e50ca10f", Dirty: &dirtyFalse, AheadCount: 4},
+				{Path: filepath.Join(dir, ".worktrees", "wt-no-pr"), Branch: "codex/review-pr-79", Head: "d7bb7968", Dirty: &dirtyFalse, AheadCount: 5},
+				// A cache written before #96 recorded a detached checkout as branch "HEAD".
+				{Path: filepath.Join(dir, ".worktrees", "wt-detached"), Branch: "HEAD", Head: "a30ca68", Dirty: &dirtyFalse, AheadCount: 4},
+				{Path: filepath.Join(dir, ".worktrees", "wt-fresh"), Branch: "gemini/fresh", Head: "abad85b", Dirty: &dirtyFalse, MergedIntoMain: true},
+			},
+		},
+		Cards: []state.BoardCard{
+			{ID: "GH-PR-64", Number: 64, Type: "pr", Column: "in_progress", Branch: "codex/mercury-offline-contract", HeadSHA: "e50ca10f"},
+		},
+	}
+	if err := state.Save(dir, st); err != nil {
+		t.Fatal(err)
+	}
+	out, err := HandleWithAgent(dir, "session-start", "gemini", strings.NewReader(`{"session_id":"sess-73"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"labels from forge cache synced 4h ago; run ateam state pickup",
+		"- codex/mercury-offline-contract (head=e50ca10f, dirty=false, ahead=4, open PR #64 (cache 4h))",
+		"- codex/review-pr-79 (head=d7bb7968, dirty=false, ahead=5, no PR (cache 4h))",
+		"- detached (head=a30ca68, dirty=false, ahead=4, detached)",
+		"- gemini/fresh (head=abad85b, dirty=false, ahead=0, no commits yet)",
+	} {
+		if !strings.Contains(out.AdditionalContext, want) {
+			t.Fatalf("expected session-start output to contain %q, got:\n%s", want, out.AdditionalContext)
+		}
+	}
+}

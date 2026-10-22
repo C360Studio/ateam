@@ -52,6 +52,9 @@ func readModelRouting(repoRoot string) ModelRouting {
 	if err != nil {
 		return ModelRouting{Status: "invalid", Reason: "Invalid model routing policy: " + err.Error()}
 	}
+	if !policy.HasRoutes() {
+		return ModelRouting{Status: "unconfigured", Reason: "The policy declares model tiers only; no model routes are configured."}
+	}
 	configured := func(route review.Route) *ConfiguredModel {
 		model, _ := policy.Model(route.Model)
 		return &ConfiguredModel{Model: model.ID, Provider: model.Provider, Effort: route.Effort}

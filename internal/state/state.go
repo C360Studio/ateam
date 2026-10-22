@@ -1018,6 +1018,10 @@ func (st *State) reconcileLiveBranchHeads(root string) bool {
 			continue
 		}
 		if wtBr, wtSHA := ReadFastGitHead(wtPath); wtBr != "" && wtSHA != "" {
+			// ReadFastGitHead names a detached checkout "HEAD"; worktree entries store it as "", as git worktree list does.
+			if wtBr == "HEAD" {
+				wtBr = ""
+			}
 			st.Git.Worktrees[i].Branch = wtBr
 			st.Git.Worktrees[i].Head = wtSHA
 		}
@@ -1715,7 +1719,7 @@ func (st *State) ReconcileWorktrees() {
 	for i := range st.Git.Worktrees {
 		wt := &st.Git.Worktrees[i]
 		branch := strings.TrimSpace(wt.Branch)
-		if branch == "" || branch == "main" || branch == "master" || branch == "detached" {
+		if branch == "" || branch == "main" || branch == "master" || branch == "detached" || branch == "HEAD" {
 			continue
 		}
 		var branchPRs []BoardCard
@@ -1756,14 +1760,68 @@ func (st *State) ReconcileWorktrees() {
 	}
 }
 
-// WorktreePRStatus returns a concise PR/merge status for wt (e.g. "merged via #57", "open PR #58", "ahead of merged #57", "closed without merge (#25)", "merged (ancestor of main)", "default branch", or "unmerged").
-func (st *State) WorktreePRStatus(wt Worktree) string {
+// ForgeCacheStaleThreshold is the age beyond which cached forge PR labels carry a cache-age caveat.
+const ForgeCacheStaleThreshold = 10 * time.Minute
+
+func cardForgeProvider(c BoardCard) ForgeProvider {
+	p := ForgeProvider(strings.ToLower(strings.TrimSpace(c.Forge)))
+	if p == ForgeGitHub || p == ForgeGitea {
+		return p
+	}
+	id := strings.ToUpper(strings.TrimSpace(c.ID))
+	if strings.HasPrefix(id, "GH-") {
+		return ForgeGitHub
+	}
+	if strings.HasPrefix(id, "GT-") {
+		return ForgeGitea
+	}
+	return ""
+}
+
+func (st *State) forgeConfigForProvider(p ForgeProvider) ForgeConfig {
+	if st == nil {
+		return ForgeConfig{}
+	}
+	if p != ForgeGitHub && p != ForgeGitea {
+		return st.Forge
+	}
+	cfg := st.ResolveForge(p)
+	if cfg.Provider == p {
+		return cfg
+	}
+	return ForgeConfig{Provider: p}
+}
+
+func (st *State) staleForgeCacheAgeFor(p ForgeProvider) string {
+	if st == nil {
+		return ""
+	}
+	syncedAt := st.SyncedAtFor(st.forgeConfigForProvider(p))
+	if syncedAt.IsZero() {
+		return ""
+	}
+	d := time.Since(syncedAt)
+	if d < ForgeCacheStaleThreshold {
+		return ""
+	}
+	return formatCompactAge(d)
+}
+
+func withForgeCacheAge(status, age string) string {
+	if age != "" {
+		return fmt.Sprintf("%s (cache %s)", status, age)
+	}
+	return status
+}
+
+func (st *State) worktreePRStatusAndAge(wt Worktree) (string, string) {
 	branch := strings.TrimSpace(wt.Branch)
-	if branch == "" || branch == "detached" {
-		return "detached"
+	// "HEAD" is how caches written before #96 recorded a detached checkout.
+	if branch == "" || branch == "detached" || branch == "HEAD" {
+		return "detached", ""
 	}
 	if branch == "main" || branch == "master" {
-		return "default branch"
+		return "default branch", ""
 	}
 	var branchPRs []BoardCard
 	if st != nil {
@@ -1775,13 +1833,15 @@ func (st *State) WorktreePRStatus(wt Worktree) string {
 	}
 	for _, c := range branchPRs {
 		if c.Column != "done" {
+			age := st.staleForgeCacheAgeFor(cardForgeProvider(c))
 			if num := cardPRNumber(c); num > 0 {
-				return fmt.Sprintf("open PR #%d", num)
+				return withForgeCacheAge(fmt.Sprintf("open PR #%d", num), age), age
 			}
-			return "open PR " + c.ID
+			return withForgeCacheAge("open PR "+c.ID, age), age
 		}
 	}
 	if c := selectDoneBranchPR(branchPRs, wt.Head, true); c != nil {
+		age := st.staleForgeCacheAgeFor(cardForgeProvider(*c))
 		num := cardPRNumber(*c)
 		prRef := c.ID
 		if num > 0 {
@@ -1789,23 +1849,51 @@ func (st *State) WorktreePRStatus(wt Worktree) string {
 		}
 		if c.HeadSHA != "" && wt.Head != "" && !SameCommitSHA(wt.Head, c.HeadSHA) {
 			if !wt.MergedIntoMain || wt.AheadCount > 0 {
-				return fmt.Sprintf("ahead of merged %s", prRef)
+				return withForgeCacheAge(fmt.Sprintf("ahead of merged %s", prRef), age), age
 			}
 		} else if c.HeadSHA == "" && wt.AheadCount > 0 && !wt.MergedIntoMain {
-			return "unmerged commits ahead of main"
+			return withForgeCacheAge("unmerged commits ahead of main", age), age
 		}
-		return fmt.Sprintf("merged via %s", prRef)
+		return withForgeCacheAge(fmt.Sprintf("merged via %s", prRef), age), age
 	}
 	if c := selectDoneBranchPR(branchPRs, wt.Head, false); c != nil {
+		age := st.staleForgeCacheAgeFor(cardForgeProvider(*c))
 		if num := cardPRNumber(*c); num > 0 {
-			return fmt.Sprintf("closed without merge (#%d)", num)
+			return withForgeCacheAge(fmt.Sprintf("closed without merge (#%d)", num), age), age
 		}
-		return fmt.Sprintf("closed without merge (%s)", c.ID)
+		return withForgeCacheAge(fmt.Sprintf("closed without merge (%s)", c.ID), age), age
 	}
 	if wt.MergedIntoMain && wt.AheadCount == 0 {
-		return "merged (ancestor of main)"
+		// shortcut: a branch at main's head reads as not started, so a fast-forward merge reads "no commits yet" until main moves, and a branch started from an older main still reads merged; upgrade when the branch's fork point is recorded.
+		if head := st.defaultBranchHead(); head != "" && wt.Head != "" && SameCommitSHA(wt.Head, head) {
+			return "no commits yet", ""
+		}
+		return "merged (ancestor of main)", ""
 	}
-	return "unmerged"
+	age := st.staleForgeCacheAgeFor("")
+	return withForgeCacheAge("no PR", age), age
+}
+
+// defaultBranchHead returns the head of the main or master worktree, else of the current checkout when it is on main or master.
+func (st *State) defaultBranchHead() string {
+	if st == nil {
+		return ""
+	}
+	for _, wt := range st.Git.Worktrees {
+		if b := strings.TrimSpace(wt.Branch); b == "main" || b == "master" {
+			return wt.Head
+		}
+	}
+	if b := strings.TrimSpace(st.Git.Branch); b == "main" || b == "master" {
+		return st.Git.HeadSHA
+	}
+	return ""
+}
+
+// WorktreePRStatus returns a concise PR/merge status for wt (e.g. "merged via #57", "open PR #58", "ahead of merged #57", "closed without merge (#25)", "merged (ancestor of main)", "no commits yet", "default branch", or "no PR"), appending "(cache <age>)" to forge-derived labels when the supplying forge cache is older than ForgeCacheStaleThreshold.
+func (st *State) WorktreePRStatus(wt Worktree) string {
+	status, _ := st.worktreePRStatusAndAge(wt)
+	return status
 }
 
 // PopulateMCPProvenance records the running MCP server's build revision alongside the on-disk ./bin/ateam revision and computes any staleness target SHA.
@@ -1960,6 +2048,18 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 	})
 }
 
+func (st *State) hasCardsForProvider(p ForgeProvider) bool {
+	if st == nil || (p != ForgeGitHub && p != ForgeGitea) {
+		return false
+	}
+	for _, c := range st.Cards {
+		if cardForgeProvider(c) == p {
+			return true
+		}
+	}
+	return false
+}
+
 // RefreshWithBestEffortSync refreshes local state and attempts a bounded remote forge sync when a remote forge is configured and the board cache is older than maxAge (falling back to cached cards on sync failure).
 func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Duration) (*State, error) {
 	st, err := Refresh(ctx, root, false)
@@ -1969,20 +2069,43 @@ func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Dur
 	if st.Forge.Provider != ForgeGitHub && st.Forge.Provider != ForgeGitea {
 		return st, nil
 	}
-	activeSync := st.SyncedAtFor(st.Forge)
-	if maxAge > 0 && !activeSync.IsZero() && time.Since(activeSync) < maxAge {
+	var toSync []ForgeConfig
+	for _, cfg := range MergeConfiguredForges(st.Forge, st.Forges) {
+		syncedAt := st.SyncedAtFor(cfg)
+		if cfg.Provider != st.Forge.Provider && syncedAt.IsZero() && !st.hasCardsForProvider(cfg.Provider) {
+			continue
+		}
+		if maxAge > 0 && !syncedAt.IsZero() && time.Since(syncedAt) < maxAge {
+			continue
+		}
+		toSync = append(toSync, cfg)
+	}
+	if len(toSync) == 0 {
 		return st, nil
 	}
-	sctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	cards, syncErr := SyncForgeBoard(sctx, root, st.Forge)
-	if syncErr != nil {
-		st.BoardSyncError = syncErr.Error()
-		return st, nil
+	type syncedForge struct {
+		provider ForgeProvider
+		cards    []BoardCard
+	}
+	var (
+		syncedResults []syncedForge
+		syncErrors    []string
+	)
+	for _, cfg := range toSync {
+		sctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		cards, syncErr := SyncForgeBoard(sctx, root, cfg)
+		cancel()
+		if syncErr != nil {
+			syncErrors = append(syncErrors, syncErr.Error())
+			continue
+		}
+		syncedResults = append(syncedResults, syncedForge{provider: cfg.Provider, cards: cards})
 	}
 	updated, err := Update(root, func(cur *State) error {
-		cur.MergeForgeCards(cards, st.Forge.Provider)
-		cur.BoardSyncError = ""
+		for _, res := range syncedResults {
+			cur.MergeForgeCards(res.cards, res.provider)
+		}
+		cur.BoardSyncError = strings.Join(syncErrors, "; ")
 		return nil
 	})
 	if err != nil {
@@ -2455,24 +2578,27 @@ func writePickupHandoffs(b *strings.Builder, st *State) {
 	fmt.Fprintf(b, "Last Handoff: none for %s\n", curKey)
 }
 
-func formatHandoffRelativeAge(t time.Time) string {
-	if t.IsZero() {
-		return "just now"
-	}
-	d := time.Since(t)
+func formatCompactAge(d time.Duration) string {
 	if d < 0 {
 		d = 0
 	}
 	switch {
 	case d < time.Minute:
-		return fmt.Sprintf("%ds ago", int(d.Round(time.Second)/time.Second))
+		return fmt.Sprintf("%ds", int(d.Round(time.Second)/time.Second))
 	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Round(time.Minute)/time.Minute))
+		return fmt.Sprintf("%dm", int(d.Round(time.Minute)/time.Minute))
 	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Round(time.Hour)/time.Hour))
+		return fmt.Sprintf("%dh", int(d.Round(time.Hour)/time.Hour))
 	default:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
+}
+
+func formatHandoffRelativeAge(t time.Time) string {
+	if t.IsZero() {
+		return "just now"
+	}
+	return formatCompactAge(time.Since(t)) + " ago"
 }
 
 func (st *State) isPRClosedOnBoard(prNum int) bool {
@@ -2530,9 +2656,23 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 		return
 	}
 	fmt.Fprintf(b, "Worktrees: %d\n", len(st.Git.Worktrees))
-	for _, wt := range st.Git.Worktrees {
+	statuses := make([]string, len(st.Git.Worktrees))
+	var staleAges []string
+	seenAges := make(map[string]bool)
+	for i, wt := range st.Git.Worktrees {
+		status, age := st.worktreePRStatusAndAge(wt)
+		statuses[i] = status
+		if age != "" && !seenAges[age] {
+			seenAges[age] = true
+			staleAges = append(staleAges, age)
+		}
+	}
+	if len(staleAges) > 0 {
+		fmt.Fprintf(b, "  labels from forge cache synced %s ago; run ateam state pickup\n", strings.Join(staleAges, " / "))
+	}
+	for i, wt := range st.Git.Worktrees {
 		branch := strings.TrimSpace(wt.Branch)
-		if branch == "" {
+		if branch == "" || branch == "HEAD" {
 			branch = "detached"
 		}
 		dirtyStr := "unknown"
@@ -2541,6 +2681,6 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 		} else if wt.Branch != "" && wt.Branch == st.Git.Branch && wt.Head != "" && SameCommitSHA(wt.Head, st.Git.HeadSHA) {
 			dirtyStr = fmt.Sprintf("%v", st.Git.Dirty)
 		}
-		fmt.Fprintf(b, "  - %s (head=%s, dirty=%s, ahead=%d, %s)\n", branch, wt.Head, dirtyStr, wt.AheadCount, st.WorktreePRStatus(wt))
+		fmt.Fprintf(b, "  - %s (head=%s, dirty=%s, ahead=%d, %s)\n", branch, wt.Head, dirtyStr, wt.AheadCount, statuses[i])
 	}
 }

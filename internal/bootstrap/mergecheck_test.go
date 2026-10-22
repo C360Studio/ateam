@@ -35,6 +35,11 @@ case "$1 $2" in
       "api repos/{owner}/{repo}/rulesets/"*) key=ruleset ;;
       "api repos/{owner}/{repo}/pulls/$FAKE_GH_PR") key=pull ;;
       "api --paginate repos/{owner}/{repo}/pulls/$FAKE_GH_PR/files?per_page=100") key=files ;;
+      "api --paginate repos/{owner}/{repo}/pulls/$FAKE_GH_PR/commits?per_page=100") key=commits ;;
+      "api --paginate repos/{owner}/{repo}/issues/$FAKE_GH_PR/comments?per_page=100") key=comments ;;
+      "api --paginate repos/{owner}/{repo}/commits/"*"?per_page=100")
+        s=${3%\?per_page=100}
+        key="commit-${s##*/}" ;;
       *) echo "fake gh: unexpected call: $*" >&2; exit 3 ;;
     esac ;;
 esac
@@ -59,7 +64,8 @@ func listJSON(items ...string) string { return "[" + strings.Join(items, ",") + 
 
 type ghState struct {
 	labels, issues, pr, rules, ruleset string
-	pull, files                        string
+	pull, files, commits, comments     string
+	commitDetails                      map[string]string
 	fail                               []string
 	jqFail                             string
 }
@@ -73,28 +79,69 @@ const (
 	requiredRule = `{"type":"required_status_checks","ruleset_id":24272345,"ruleset_source":"C360Studio/ateam",` +
 		`"parameters":{"strict_required_status_checks_policy":true,"do_not_enforce_on_create":false,` +
 		`"required_status_checks":[{"context":"Required","integration_id":15368}]}}`
-	otherRules = `{"type":"deletion","ruleset_id":24272345},{"type":"non_fast_forward","ruleset_id":24272345}`
+	otherRules    = `{"type":"deletion","ruleset_id":24272345},{"type":"non_fast_forward","ruleset_id":24272345}`
+	baseCommitSHA = "03121ae8066ec58a2ecc5a95c38c4447389eb0a3"
+	headCommitSHA = "99d19a4cfa55e59c62dd49f79bd420e653675767"
 )
 
-func healthyGH() ghState {
-	return ghState{
-		labels:  listJSON(`{"name":"bug"}`, `{"name":"class:flake"}`),
-		issues:  listJSON(),
-		pr:      `{"closingIssuesReferences":[]}`,
-		rules:   listJSON(otherRules, requiredRule),
-		ruleset: `{"id":24272345,"name":"main","enforcement":"active"}`,
-		pull:    pullJSON(false, "User", "", 1),
-		files:   filesJSON("docs/a.md"),
+func prCommitJSON(sha, message string, parents ...string) string {
+	ps := make([]string, len(parents))
+	for i, p := range parents {
+		ps[i] = fmt.Sprintf(`{"sha":%q}`, p)
 	}
+	msg, err := json.Marshal(message)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`{"sha":%q,"commit":{"message":%s},"parents":%s}`, sha, msg, listJSON(ps...))
 }
 
-func pullJSON(draft bool, userType, body string, changedFiles int) string {
+func commitDetailJSON(sha, message string, parents []string, files ...string) string {
+	ps := make([]string, len(parents))
+	for i, p := range parents {
+		ps[i] = fmt.Sprintf(`{"sha":%q}`, p)
+	}
+	msg, err := json.Marshal(message)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`{"sha":%q,"commit":{"message":%s},"parents":%s,"files":%s}`,
+		sha, msg, listJSON(ps...), filesJSON(files...))
+}
+
+func commentJSON(body string) string {
 	b, err := json.Marshal(body)
 	if err != nil {
 		panic(err)
 	}
-	return fmt.Sprintf(`{"number":12,"state":"open","draft":%t,"user":{"login":"x","type":%q},"body":%s,"changed_files":%d,"base":{"ref":"main"}}`,
-		draft, userType, b, changedFiles)
+	return fmt.Sprintf(`{"body":%s}`, b)
+}
+
+func healthyGH() ghState {
+	return ghState{
+		labels:   listJSON(`{"name":"bug"}`, `{"name":"class:flake"}`),
+		issues:   listJSON(),
+		pr:       `{"closingIssuesReferences":[]}`,
+		rules:    listJSON(otherRules, requiredRule),
+		ruleset:  `{"id":24272345,"name":"main","enforcement":"active"}`,
+		pull:     pullJSON(false, "User", "", 1),
+		files:    filesJSON("docs/a.md"),
+		commits:  listJSON(prCommitJSON(headCommitSHA, "feat: change", baseCommitSHA)),
+		comments: listJSON(),
+	}
+}
+
+func pullJSON(draft bool, userType, body string, changedFiles int) string {
+	return pullCommitsJSON(draft, userType, body, changedFiles, 1, headCommitSHA)
+}
+
+func pullCommitsJSON(draft bool, userType, body string, changedFiles, commits int, headSHA string) string {
+	b, err := json.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`{"number":12,"state":"open","draft":%t,"user":{"login":"x","type":%q},"body":%s,"changed_files":%d,"commits":%d,"head":{"sha":%q},"base":{"ref":"main"}}`,
+		draft, userType, b, changedFiles, commits, headSHA)
 }
 
 func filesJSON(names ...string) string {
@@ -153,15 +200,22 @@ func runMergeCheck(t *testing.T, st ghState, pr string, actionsEnv ...string) me
 	root := copyScript(t, "merge-check.sh")
 	dir := t.TempDir()
 	for key, body := range map[string]string{
-		"labels":  st.labels,
-		"issues":  st.issues,
-		"pr":      st.pr,
-		"rules":   st.rules,
-		"ruleset": st.ruleset,
-		"pull":    st.pull,
-		"files":   st.files,
+		"labels":   st.labels,
+		"issues":   st.issues,
+		"pr":       st.pr,
+		"rules":    st.rules,
+		"ruleset":  st.ruleset,
+		"pull":     st.pull,
+		"files":    st.files,
+		"commits":  st.commits,
+		"comments": st.comments,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, key+".json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for sha, body := range st.commitDetails {
+		if err := os.WriteFile(filepath.Join(dir, "commit-"+sha+".json"), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -331,6 +385,12 @@ func reviewGH(draft bool, author, body string, files ...string) ghState {
 	st := healthyGH()
 	st.pull = pullJSON(draft, author, body, len(files))
 	st.files = filesJSON(files...)
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "reviewed-by:") {
+			st.comments = listJSON(commentJSON(line + "\nImplementation reviewed at " + headCommitSHA[:7]))
+			break
+		}
+	}
 	return st
 }
 
@@ -405,6 +465,27 @@ func TestMergeCheckReview(t *testing.T) {
 			r.requireNotInOutput(t, "editing the description starts no run")
 		}
 	})
+	t.Run("model named on both lines", func(t *testing.T) {
+		for _, tc := range []struct{ body, says string }{
+			{"implemented-by: claude\nreviewed-by: codex (gpt-6)\n", "the implemented-by: line must name the implementing model"},
+			{"implemented-by: claude ( )\nreviewed-by: codex (gpt-6)\n", "the implemented-by: line must name the implementing model"},
+			{implClaude + "reviewed-by: codex\n", "the reviewed-by: line must name the reviewing model"},
+			{implClaude + "reviewed-by: codex ()\n", "the reviewed-by: line must name the reviewing model"},
+			// The model is the group directly after the agent, not any parenthesised text on the line.
+			{"implemented-by: (author) claude\nreviewed-by: codex (gpt-6)\n", "the implemented-by: line must name the implementing model"},
+			{"implemented-by: claude () (implementation)\nreviewed-by: codex (gpt-6)\n", "the implemented-by: line must name the implementing model"},
+			{implClaude + "reviewed-by: (independent) codex\n", "the reviewed-by: line must name the reviewing model"},
+			{implClaude + "reviewed-by: codex () (independent review)\n", "the reviewed-by: line must name the reviewing model"},
+		} {
+			runMergeCheck(t, reviewGH(false, "User", tc.body, "scripts/x.sh"), "12").requireFail(t, tc.says)
+		}
+		for _, body := range []string{
+			"implemented-by: claude (sonnet, opus)\nreviewed-by: codex (gpt-6)\n",
+			"implemented-by: `Claude`(opus)\nreviewed-by: codex (gpt-6) — APPROVE (no findings)\n",
+		} {
+			runMergeCheck(t, reviewGH(false, "User", body, "scripts/x.sh"), "12").requirePass(t, "reviewing agent: codex")
+		}
+	})
 	t.Run("same agent implements and reviews", func(t *testing.T) {
 		for _, tc := range []struct{ body, says string }{
 			{"implemented-by: claude-fable-5-1\nreviewed-by: Claude (opus)\n", "another agent (codex or gemini) reviews"},
@@ -416,6 +497,229 @@ func TestMergeCheckReview(t *testing.T) {
 	t.Run("draft", func(t *testing.T) {
 		runMergeCheck(t, reviewGH(true, "User", implClaude, "docs/a.md", "scripts/x.sh"), "12").
 			requirePass(t, "no line starts reviewed-by:", "does not fail a draft")
+	})
+
+	const (
+		implClaudeRevCodex = implClaude + "reviewed-by: codex (gpt-5.4)\n"
+		mergeMainSHA       = "0209eb7f6ebaf44e2dd87c401d61a7a48763799b"
+		docsCommitSHA      = "d7bb79680494e20514edf94b035352db7e72114b"
+		contentCommitSHA   = "7413d0c05c25db0e9143f7a466a64954855aa979"
+		mainTipSHA         = "dc854c651fbf82695f4d552badc36340e2f7c472"
+	)
+
+	t.Run("record at head", func(t *testing.T) {
+		for _, comment := range []string{
+			"**Review record:** reviewed-by: codex (OpenAI). Reviewed at `99d19a4`.",
+			"### Independent Cross-Agent Review (`codex`)\n\nReviewed head commit `" + headCommitSHA + "`.",
+			"Reviewed base `" + baseCommitSHA + "` → head `" + headCommitSHA + "`.\n\nreviewed-by: codex (OpenAI)",
+		} {
+			st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+			st.comments = listJSON(commentJSON(comment))
+			r := runMergeCheck(t, st, "12")
+			r.requirePass(t, "reviewing agent: codex (record at "+headCommitSHA+")")
+		}
+	})
+
+	t.Run("record then merge-of-main", func(t *testing.T) {
+		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 2, mergeMainSHA)
+		st.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat", headCommitSHA, mainTipSHA),
+		)
+		st.commitDetails = map[string]string{
+			mergeMainSHA: commitDetailJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat",
+				[]string{headCommitSHA, mainTipSHA}, "internal/other/main_only.go", "README.md"),
+		}
+		r := runMergeCheck(t, st, "12")
+		r.requirePass(t, "reviewing agent: codex (record at "+headCommitSHA+")")
+
+		// A merge commit that touches one of the PR's changed files requires re-review.
+		stTouch := st
+		stTouch.commitDetails = map[string]string{
+			mergeMainSHA: commitDetailJSON(mergeMainSHA, "Merge branch 'main' into claude/feat",
+				[]string{headCommitSHA, mainTipSHA}, "scripts/x.sh"),
+		}
+		runMergeCheck(t, stTouch, "12").requireFail(t,
+			"review record at "+headCommitSHA+" is older than content commit "+mergeMainSHA+"; request re-review")
+	})
+
+	t.Run("record then docs-only", func(t *testing.T) {
+		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 3, docsCommitSHA)
+		st.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat", headCommitSHA, mainTipSHA),
+			prCommitJSON(docsCommitSHA, "docs: clarify notes", mergeMainSHA),
+		)
+		st.commitDetails = map[string]string{
+			mergeMainSHA: commitDetailJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat",
+				[]string{headCommitSHA, mainTipSHA}, "internal/other/main_only.go"),
+			docsCommitSHA: commitDetailJSON(docsCommitSHA, "docs: clarify notes",
+				[]string{mergeMainSHA}, "docs/a.md", "openspec/changes/foo/tasks.md", "openspec/changes/foo/offline/stack.json"),
+		}
+		r := runMergeCheck(t, st, "12")
+		r.requirePass(t, "reviewing agent: codex (record at "+headCommitSHA+")")
+	})
+
+	t.Run("record then content commit", func(t *testing.T) {
+		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 2, contentCommitSHA)
+		st.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(contentCommitSHA, "fix: adjust script", headCommitSHA),
+		)
+		st.commitDetails = map[string]string{
+			contentCommitSHA: commitDetailJSON(contentCommitSHA, "fix: adjust script",
+				[]string{headCommitSHA}, "scripts/x.sh"),
+		}
+		runMergeCheck(t, st, "12").requireFail(t,
+			"review record at "+headCommitSHA+" is older than content commit "+contentCommitSHA+"; request re-review")
+
+		// A comment mentioning the unreviewed head SHA alongside the reviewed SHA must not advance the review boundary.
+		for _, comment := range []string{
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + ".\nCommit " + contentCommitSHA + " remains unreviewed; request re-review.",
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + "; see https://github.com/C360Studio/ateam/blob/" + contentCommitSHA + "/scripts/x.sh",
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + " while looking at " + contentCommitSHA + " as unreviewed.",
+		} {
+			stUnreviewed := st
+			stUnreviewed.comments = listJSON(commentJSON(comment))
+			runMergeCheck(t, stUnreviewed, "12").requireFail(t,
+				"review record at "+headCommitSHA+" is older than content commit "+contentCommitSHA+"; request re-review")
+		}
+
+		// Ambiguous multi-commit or undesignated records fail closed.
+		for _, comment := range []string{
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + " and reviewed at " + contentCommitSHA + ".",
+			"reviewed-by: codex\nReviewed at deadbeef and reviewed at " + contentCommitSHA + ".",
+			"reviewed-by: codex\nCommits " + headCommitSHA + " and " + contentCommitSHA + " touched scripts/x.sh.",
+		} {
+			stAmbiguous := st
+			stAmbiguous.comments = listJSON(commentJSON(comment))
+			runMergeCheck(t, stAmbiguous, "12").requireFail(t,
+				"no review record comment names reviewed-by: codex")
+		}
+
+		// A later review record at contentCommitSHA (including both full and short SHA of the same commit) resolves the finding.
+		for _, reReviewComment := range []string{
+			"reviewed-by: codex\nRe-reviewed at " + contentCommitSHA[:7],
+			"reviewed-by: codex\nHead: " + contentCommitSHA + "\nReviewed at " + contentCommitSHA[:7],
+		} {
+			st.comments = listJSON(
+				commentJSON("reviewed-by: codex\nReviewed at "+headCommitSHA[:7]),
+				commentJSON(reReviewComment),
+			)
+			runMergeCheck(t, st, "12").requirePass(t, "reviewing agent: codex (record at "+contentCommitSHA+")")
+		}
+	})
+
+	t.Run("paginated commit files and 3000-file ceiling", func(t *testing.T) {
+		docPage := make([]string, 300)
+		otherCodePage := make([]string, 300)
+		for i := range 300 {
+			docPage[i] = fmt.Sprintf("docs/%03d.md", i)
+			otherCodePage[i] = fmt.Sprintf("internal/other/%03d.go", i)
+		}
+
+		// Page 2 contains a code file in a post-review non-merge commit.
+		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 2, contentCommitSHA)
+		st.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(contentCommitSHA, "docs: bulk update", headCommitSHA),
+		)
+		st.commitDetails = map[string]string{
+			contentCommitSHA: commitDetailJSON(contentCommitSHA, "docs: bulk update", []string{headCommitSHA}, docPage...) + "\n" +
+				commitDetailJSON(contentCommitSHA, "docs: bulk update", []string{headCommitSHA}, "scripts/x.sh"),
+		}
+		runMergeCheck(t, st, "12").requireFail(t,
+			"review record at "+headCommitSHA+" is older than content commit "+contentCommitSHA+"; request re-review")
+
+		// Page 2 contains a PR-changed file overlap in a post-review merge of main.
+		stMerge := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		stMerge.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 2, mergeMainSHA)
+		stMerge.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat", headCommitSHA, mainTipSHA),
+		)
+		stMerge.commitDetails = map[string]string{
+			mergeMainSHA: commitDetailJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat",
+				[]string{headCommitSHA, mainTipSHA}, otherCodePage...) + "\n" +
+				commitDetailJSON(mergeMainSHA, "Merge remote-tracking branch 'origin/main' into claude/feat",
+					[]string{headCommitSHA, mainTipSHA}, "scripts/x.sh"),
+		}
+		runMergeCheck(t, stMerge, "12").requireFail(t,
+			"review record at "+headCommitSHA+" is older than content commit "+mergeMainSHA+"; request re-review")
+
+		// A single 300-file page (truncated first page) or a 3,000-file ceiling response fails closed (exit 2).
+		stTruncFirstPage := st
+		stTruncFirstPage.commitDetails = map[string]string{
+			contentCommitSHA: commitDetailJSON(contentCommitSHA, "docs: bulk update", []string{headCommitSHA}, docPage...),
+		}
+		rTrunc := runMergeCheck(t, stTruncFirstPage, "12")
+		if rTrunc.status != 2 {
+			t.Fatalf("truncated 300-file commit page exit %d, want 2\n%s", rTrunc.status, rTrunc.out)
+		}
+		rTrunc.requireOutput(t, "unavailable: the file list of commit "+contentCommitSHA)
+
+		var tenDocPages []string
+		for range 10 {
+			tenDocPages = append(tenDocPages, commitDetailJSON(contentCommitSHA, "docs: bulk update", []string{headCommitSHA}, docPage...))
+		}
+		stCeiling := st
+		stCeiling.commitDetails = map[string]string{
+			contentCommitSHA: strings.Join(tenDocPages, "\n"),
+		}
+		rCeiling := runMergeCheck(t, stCeiling, "12")
+		if rCeiling.status != 2 {
+			t.Fatalf("3000-file ceiling commit exit %d, want 2\n%s", rCeiling.status, rCeiling.out)
+		}
+		rCeiling.requireOutput(t, "unavailable: the file list of commit "+contentCommitSHA)
+	})
+
+	t.Run("incomplete or capped PR commit history", func(t *testing.T) {
+		var commits250 []string
+		prev := baseCommitSHA
+		for i := 1; i <= 250; i++ {
+			sha := fmt.Sprintf("%040x", i)
+			commits250 = append(commits250, prCommitJSON(sha, "feat: step", prev))
+			prev = sha
+		}
+		sha250 := fmt.Sprintf("%040x", 250)
+		sha251 := fmt.Sprintf("%040x", 251)
+
+		// PR reports 251 commits and head #251, but pulls/12/commits stops at #250 with review at #250.
+		stCapped := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		stCapped.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 251, sha251)
+		stCapped.commits = listJSON(commits250...)
+		stCapped.comments = listJSON(commentJSON("reviewed-by: codex\nReviewed at " + sha250))
+		rCapped := runMergeCheck(t, stCapped, "12")
+		if rCapped.status != 2 {
+			t.Fatalf("capped 250-commit history exit %d, want 2\n%s", rCapped.status, rCapped.out)
+		}
+		rCapped.requireOutput(t, "unavailable: the commit list of pull request #12 is incomplete or does not end at head: it has 250 of 251 commits")
+
+		// Including #251 in the commit list fails the review gate at #251 (exit 1).
+		stFull := stCapped
+		stFull.commits = listJSON(append(commits250, prCommitJSON(sha251, "fix: unreviewed code change", sha250))...)
+		stFull.commitDetails = map[string]string{
+			sha251: commitDetailJSON(sha251, "fix: unreviewed code change", []string{sha250}, "scripts/x.sh"),
+		}
+		runMergeCheck(t, stFull, "12").requireFail(t,
+			"review record at "+sha250+" is older than content commit "+sha251+"; request re-review")
+	})
+
+	t.Run("no record", func(t *testing.T) {
+		for _, comments := range [][]string{
+			nil,
+			{commentJSON("LGTM at " + headCommitSHA)},
+			{commentJSON("reviewed-by: gemini\nReviewed at " + headCommitSHA)},
+			{commentJSON("reviewed-by: codex\nReviewed at deadbeef")},
+		} {
+			st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+			st.comments = listJSON(comments...)
+			runMergeCheck(t, st, "12").requireFail(t, "no review record comment names reviewed-by: codex")
+		}
 	})
 }
 
@@ -448,6 +752,9 @@ func TestCIWorkflowPinnedSensitivity(t *testing.T) {
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}
 permissions:
   contents: read
 jobs:
@@ -511,6 +818,10 @@ jobs:
 			[]string{"job required", "does not take its results from needs.*.result"}},
 		{"ready type missing", "types: [opened, synchronize, reopened, ready_for_review]", "types: [opened, synchronize, reopened]",
 			[]string{"pull_request", "ready_for_review"}},
+		{"ready_for_review run cancels the same head", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}\n", "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
+			[]string{"cancel-in-progress", "ready_for_review", "failed Required"}},
+		{"cancel-in-progress unconditionally", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}\n", "  cancel-in-progress: true\n",
+			[]string{"cancel-in-progress", "ready_for_review"}},
 		{"a fourth job on the moving label", "jobs:\n", "jobs:\n  lint: {runs-on: ubuntu-latest, steps: [{run: echo}]}\n",
 			[]string{"job lint", "ubuntu-latest", "ubuntu-24.04"}},
 		{"verify on a list of labels", "  verify:\n    runs-on: ubuntu-24.04\n", "  verify:\n    runs-on: [self-hosted, ubuntu-24.04]\n",
@@ -525,6 +836,7 @@ jobs:
 type ciWorkflow struct {
 	On          any
 	Permissions any
+	Concurrency any
 	Defaults    ciDefaults
 	Jobs        map[string]ciJob
 }
@@ -563,6 +875,7 @@ func ciWorkflowViolations(t *testing.T, data []byte) []string {
 		return []string{fmt.Sprintf("ci.yml: %v", err)}
 	}
 	violations := pullRequestTriggerViolations(wf.On)
+	violations = append(violations, concurrencyViolations(wf.Concurrency)...)
 	violations = append(violations, writeGrants("workflow", wf.Permissions)...)
 	names := make([]string, 0, len(wf.Jobs))
 	for name := range wf.Jobs {
@@ -616,6 +929,30 @@ func ciWorkflowViolations(t *testing.T, data []byte) []string {
 		violations = append(violations, fmt.Sprintf("ci.yml: job verify has timeout-minutes %v; the merge-gate spec requires %d minutes", v.TimeoutMinutes, verifyTimeoutMinutes))
 	}
 	return violations
+}
+
+// cancelInProgressExpr is the only cancel-in-progress value the merge-gate spec
+// accepts: superseded pull-request runs are cancelled, but the ready_for_review
+// run reuses the head SHA, and cancelling the run already in flight leaves a
+// failed Required on a head that was never broken (#87).
+const cancelInProgressExpr = "${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}"
+
+func concurrencyViolations(raw any) []string {
+	if raw == nil {
+		return nil
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return []string{fmt.Sprintf("ci.yml: concurrency is %v; the merge-gate spec requires a group with cancel-in-progress %s", raw, cancelInProgressExpr)}
+	}
+	cancel, ok := m["cancel-in-progress"]
+	if !ok {
+		return nil
+	}
+	if got := strings.TrimSpace(fmt.Sprint(cancel)); got != cancelInProgressExpr && got != "false" {
+		return []string{fmt.Sprintf("ci.yml: concurrency sets cancel-in-progress %v; the merge-gate spec requires %s so a ready_for_review run never cancels the run for the same head and leaves a failed Required on it", cancel, cancelInProgressExpr)}
+	}
+	return nil
 }
 
 func pullRequestTriggerViolations(on any) []string {
@@ -847,6 +1184,7 @@ func parseCIWorkflowYAML(data []byte) (ciWorkflow, error) {
 	var wf ciWorkflow
 	wf.On = root["on"]
 	wf.Permissions = root["permissions"]
+	wf.Concurrency = root["concurrency"]
 	wf.Defaults = decodeCIDefaults(root["defaults"])
 	if jobsMap, ok := root["jobs"].(map[string]any); ok {
 		wf.Jobs = make(map[string]ciJob, len(jobsMap))

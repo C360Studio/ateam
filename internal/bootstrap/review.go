@@ -32,22 +32,40 @@ Confirm the actual reviewer provider, exact model and reasoning effort. The revi
 Inspect the complete base-to-head diff and affected callers, tests, fixtures and configuration. Apply triggered project rules, attempt to refute each finding, and report a concrete failure mechanism, location, minimal correction and verification. Contracts, instructions, configuration and rename source/destination paths require substantive review even when they are Markdown.
 
 Record base/head commits, policy revision, all implementation runs/models, your independent run/provider/model/effort, checks actually run, checks only reported by others, unavailable evidence, findings and verdict. Approval requires no blocking/high findings and all required verification. Changed commits or policy invalidate previous evidence. Eligibility alone is not approval. Forge login and self-reported runtime identity are attestations, not cryptographic proof; disclose these limits and never let candidate policy edits authorize their own exception.
+
+## Record
+
+Post the record as one pull request comment. ` + "`task merge:check`" + ` accepts a comment whose ` + "`reviewed-by:`" + ` lines name only you, or, with no such line, whose ` + "`### Independent Cross-Agent Review`" + ` heading names no agent but you. The comment must designate exactly one commit of the pull request, written ` + "`Reviewed at <sha>`" + ` (7 to 40 hex characters); any other commit it designates the same way (such as a ` + "`Head: <sha>`" + ` line) makes it no record. Copy:
+
+` + "```" + `text
+reviewed-by: <agent> (<model>)
+Reviewed at <commit-sha>
+Verdict: APPROVE | REQUEST CHANGES
+<findings, checks run, unavailable evidence, limitations>
+` + "```" + `
+
+A later commit that is neither a clean merge of ` + "`main`" + ` nor docs-only needs a new record naming the new commit.
 `
 
 // ConfigureReview installs a validated policy and its role instructions without
 // replacing existing files. All conflicts are checked before the first write.
 func ConfigureReview(root string, policyData []byte) ([]string, error) {
-	policy, err := review.ParsePolicy(policyData)
+	parsed, err := review.ParsePolicy(policyData)
 	if err != nil {
 		return nil, err
 	}
-	if err := supportedReviewProviders(policy); err != nil {
-		return nil, err
+	// A tiers-only policy (ADR 0002) configures no routes, so it installs no route cards.
+	var policy *review.Policy
+	if parsed.HasRoutes() {
+		if err := supportedReviewProviders(parsed); err != nil {
+			return nil, err
+		}
+		policy = &parsed
 	}
-	if conflicts := unexpectedReviewFiles(root, &policy); len(conflicts) != 0 {
+	if conflicts := unexpectedReviewFiles(root, policy); len(conflicts) != 0 {
 		return nil, fmt.Errorf("%s", strings.Join(conflicts, "; "))
 	}
-	files := reviewFiles(&policy)
+	files := reviewFiles(policy)
 	files[reviewPolicyPath] = string(policyData)
 	paths := make([]string, 0, len(files))
 	for rel := range files {
@@ -151,10 +169,12 @@ func checkReviewSetup(root string) []string {
 		if err != nil {
 			return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
 		}
-		if err := supportedReviewProviders(parsed); err != nil {
-			return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
+		if parsed.HasRoutes() {
+			if err := supportedReviewProviders(parsed); err != nil {
+				return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
+			}
+			policy = &parsed
 		}
-		policy = &parsed
 	}
 	out := unexpectedReviewFiles(root, policy)
 	for rel, expected := range reviewFiles(policy) {

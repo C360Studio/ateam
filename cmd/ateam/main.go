@@ -89,7 +89,7 @@ Commands:
   init [flags]        Bootstrap repo with .agents, .claude, .codex, .gemini, openspec, and optional GitHub/Gitea labels
   review <subcmd>     Configure model routes and validate commit-bound independent review
   doctor [--check]    Verify multi-agent parity, MCP schema token budget, and hook latency
-  bench [flags]       Offline self-tests or paired experiments (run, rescore, compare)
+  bench [flags]       Offline self-tests or paired experiments (run, rescore, compare, export)
   test-spec          Check Go and Vitest test-to-spec citations offline
   mutate [flags]      Run non-destructive Go -overlay mutation check (-pkg, -test, -file, -mutant, -expect/-expect-text)
   serve [flags]       Start embedded SvelteKit PM Board HTTP server (default 127.0.0.1:8420)`)
@@ -327,7 +327,12 @@ func runStateSync(repoRoot string, args []string) int {
 	}
 	cfg := st.Forge
 	if *forge != "" {
-		cfg.Provider = state.ForgeProvider(*forge)
+		p := state.ForgeProvider(strings.ToLower(strings.TrimSpace(*forge)))
+		if resolved := st.ResolveForge(p); resolved.Provider != "" {
+			cfg = resolved
+		} else {
+			cfg.Provider = p
+		}
 	}
 	cards, err := state.SyncForgeBoard(ctx, repoRoot, cfg)
 	if err != nil {

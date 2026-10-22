@@ -12,9 +12,13 @@ bin/ateam bench run benchmarks/examples/offline.json --dry-run
 bin/ateam bench run benchmarks/examples/offline.json
 bin/ateam bench compare benchmarks/runs/experiment-<id>/run.json
 bin/ateam bench rescore benchmarks/runs/experiment-<id>/run.json
+bin/ateam bench export benchmarks/runs/experiment-<id>/run.json --output /tmp/ateam-report-new
+bin/ateam bench export benchmarks/runs/experiment-<id>/run.json --check /tmp/ateam-report-new
 ```
 
 `run` prints the unique `run.json` path. A completed experiment returns success even if candidates fail; inspect the comparison and status counts for task outcomes. Runner/infrastructure interruption returns nonzero and prints the partial evidence directory. `compare --json` emits machine-readable results. Flags follow the configuration/artifact filename.
+
+`export` produces deterministic `results.json`, `results.md`, and `evidence.json` from validated retained evidence, without model calls or grading. Supply exactly one new `--output` directory or existing `--check` directory; check mode writes nothing and fails on generated drift. An optional `--replay <rescore-run.json>` associates already retained replay evidence; it does not run `rescore`. Report success does not imply experiment success. See the [report export and reviewed publication workflow](report-export/README.md) for private evidence boundaries, human interpretation, and the offline fixture gate (`task bench:report-check`, also exercised by `task verify` through unit tests).
 
 The example uses Node only for a tiny **offline reference adapter**. It returns fixed known solutions for path resolution, SQL lookup, and webhook verification. It makes no model/API calls and reports token usage as unknown. Use it to check installation and artifacts, not to compare prompts. The Go CLI itself adds no runtime dependencies; experiments explicitly require their chosen adapter and the Go toolchain for grading.
 
