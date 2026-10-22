@@ -22,7 +22,7 @@ const (
 )
 
 var (
-	canonicalSkills = []string{"pickup", "handoff", "preflight", "ponytail"}
+	canonicalSkills = []string{"pickup", "handoff", "preflight", "ponytail", "review-pr"}
 	requiredHooks   = []string{"session-start", "before-prompt", "pre-compact", "turn-end"}
 	expectedDomains = []string{
 		"1. Ponytail decision ladder and code discipline",
@@ -256,6 +256,7 @@ var requiredSkillMarkers = map[string][]string{
 	"pickup":    {"## 1.", "ateam state pickup", "Verify Write Ownership"},
 	"ponytail":  {"## 1.", "6-Step Decision Ladder", "// shortcut:"},
 	"preflight": {"## 1.", "task verify", "Record Evidence"},
+	"review-pr": {"## 1.", "reviewed-by:", "Reviewed at"},
 }
 
 func checkSkillAdapters(root string) []string {
