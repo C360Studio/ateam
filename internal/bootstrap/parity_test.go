@@ -93,6 +93,30 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 		requireViolation(t, CheckParity(sub), ".agents/protocol.md", ".agents/skills/handoff/SKILL.md")
 	})
 
+	t.Run("review-pr skill is shipped and guarded", func(t *testing.T) {
+		for _, rel := range []string{".agents/skills/review-pr/SKILL.md", ".claude/skills/review-pr/SKILL.md", ".gemini/commands/review-pr.toml"} {
+			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
+				t.Fatalf("InitRepo did not write %s: %v", rel, err)
+			}
+		}
+		// The template is the file this repository dogfoods, not a paraphrase of it.
+		shipped, _ := os.ReadFile(filepath.Join(dir, ".agents", "skills", "review-pr", "SKILL.md"))
+		repo, err := os.ReadFile(filepath.Join(repoRoot(t), ".agents", "skills", "review-pr", "SKILL.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(shipped) != string(repo) {
+			t.Fatal("shipped review-pr skill body differs from .agents/skills/review-pr/SKILL.md")
+		}
+		for _, marker := range []string{"reviewed-by:", "Reviewed at"} {
+			sub := t.TempDir()
+			_, _ = InitRepo(context.Background(), sub, Options{})
+			p := filepath.Join(sub, ".agents", "skills", "review-pr", "SKILL.md")
+			_ = os.WriteFile(p, []byte(strings.ReplaceAll(string(shipped), marker, "noted")), 0o644)
+			requireViolation(t, CheckParity(sub), ".agents/skills/review-pr/SKILL.md", marker)
+		}
+	})
+
 	t.Run("README.md hook event drift rejected", func(t *testing.T) {
 		sub := t.TempDir()
 		_, _ = InitRepo(context.Background(), sub, Options{})

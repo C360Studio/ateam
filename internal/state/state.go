@@ -74,7 +74,10 @@ func ReadDiskBinaryBuild(ctx context.Context, root string) (shortRev, label stri
 	if info, err := os.Stat(binPath); err != nil || info.IsDir() {
 		return "", ""
 	}
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	// 10s, not 2s: --version exits at once, so this only guards a hung binary.
+	// Under a full -race suite a 2s spawn timed out and the running build was
+	// reported as the disk build (#116). Not on the <5ms hook path.
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(cctx, binPath, "--version").Output()
 	if err != nil {
