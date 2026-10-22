@@ -2,7 +2,7 @@
 
 ### Requirement: Decision-opportunity tasks
 
-The benchmark SHALL provide a `decision-opportunity` tier whose tasks a naive solution can pass behaviorally while missing a reuse, minimal-surface or single-source-of-truth decision. A task MAY carry a pre-existing package file that the prompt shows verbatim, states must not be returned, and the grader compiles beside the single returned file. Existing tasks, their prompts and their serialized evidence SHALL remain unchanged.
+The benchmark SHALL provide a `decision-opportunity` tier whose tasks a naive solution can pass behaviorally while missing a reuse, minimal-surface or change-propagation decision. A task MAY carry a pre-existing package file that the prompt shows verbatim, states must not be returned, and the grader compiles beside the single returned file. Existing tasks, their prompts and their serialized evidence SHALL remain unchanged.
 
 #### Scenario: Existing package file
 
@@ -20,7 +20,7 @@ A stdlib syntax-tree discipline gate SHALL grade the decision-opportunity tier. 
 
 #### Scenario: Correct but undisciplined candidate
 
-- **WHEN** a retained candidate passes the behavior tests but reimplements an existing helper, exports unrequested declarations or duplicates a changed value
+- **WHEN** a retained candidate passes the behavior tests but reimplements an existing helper, exports unrequested declarations or leaves a dependent site at a replaced value
 - **THEN** the attempt is failed with behavior recorded as passed and discipline recorded as failed
 
 #### Scenario: Contradictory discipline evidence

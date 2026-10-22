@@ -323,7 +323,7 @@ type CandidateEvaluation struct {
 	Verdict               string `json:"verdict"`
 	Diagnostics           string `json:"diagnostics"`
 	Behavior              string `json:"behavior,omitempty"`
-	Discipline            string `json:"discipline,omitempty"`
+	Discipline            string `json:"discipline_gate,omitempty"`
 	DisciplineDiagnostics string `json:"discipline_diagnostics,omitempty"`
 }
 

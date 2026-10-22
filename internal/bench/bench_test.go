@@ -145,6 +145,25 @@ func TestMarkdownDoesNotInventSuccess(t *testing.T) {
 	}
 }
 
+// Each row isolates one gate failing so a swapped or constant column is visible.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
+func TestMarkdownDisciplineColumns(t *testing.T) {
+	md := FormatMarkdown(SuiteReport{Tasks: []TaskResult{
+		{ID: "reuse-email", Evaluation: "discipline", GoodPassedSafety: true, BadPassedBehavior: true, GoodPassedDiscipline: true, MutantCaught: true},
+		{ID: "overbuild-slug", Evaluation: "discipline", GoodPassedSafety: true, GoodPassedDiscipline: true, BadCaughtByDiscipline: true},
+		{ID: "safe-path", Evaluation: "behavioral", GoodPassedSafety: true, BadCaughtByGate: true, MutantCaught: true, Passed: true},
+	}})
+	for _, row := range []string{
+		"| `reuse-email` | discipline | 0 | 0 | true | false | true | false |",
+		"| `overbuild-slug` | discipline | 0 | 0 | false | true | false | false |",
+		"| `safe-path` | behavioral | 0 | 0 | true | N/A | true | true |",
+	} {
+		if !strings.Contains(md, row) {
+			t.Fatalf("markdown row missing %q:\n%s", row, md)
+		}
+	}
+}
+
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestUnsupportedSvelteCandidateRejected(t *testing.T) {
 	if CheckCodingCandidate("ui-datepicker", `<div>type="date" bind:value $bindable</div>`) {

@@ -25,7 +25,7 @@ func decisionSpec(t *testing.T, id string) TaskSpec {
 func TestDisciplineGateFindings(t *testing.T) {
 	reuse := disciplineRule{calls: []string{"normalizeEmail"}, forbidden: []string{"strings.TrimSpace", "strings.ToLower", "strings.EqualFold"}}
 	surface := disciplineRule{exports: []string{"Slugify"}}
-	once := disciplineRule{once: "24"}
+	stale := disciplineRule{stale: "16"}
 	for _, tc := range []struct {
 		name   string
 		rule   disciplineRule
@@ -43,10 +43,16 @@ func TestDisciplineGateFindings(t *testing.T) {
 		{"surface exported method", surface, "package slug\ntype builder struct{}\nfunc (builder) Build() string { return \"\" }\nfunc Slugify(s string) string { return s }", false},
 		{"surface exported constant", surface, "package slug\nconst Separator = \"-\"\nfunc Slugify(s string) string { return s }", false},
 		{"surface exported wrapper", surface, "package slug\nfunc Slugify(s string) string { return SlugifyWith(s) }\nfunc SlugifyWith(s string) string { return s }", false},
-		{"once derived message", once, "package username\nimport \"fmt\"\nconst MaxLen = 24\nvar LengthError = fmt.Errorf(\"username must be 3-%d characters\", MaxLen)", true},
-		{"once duplicated in message", once, "package username\nimport \"errors\"\nconst MaxLen = 24\nvar LengthError = errors.New(\"username must be 3-24 characters\")", false},
-		{"once missing value", once, "package username\nconst MaxLen = 16 + 8", false},
-		{"once ignores comments", once, "package username\n// MaxLen was raised to 24.\nconst MaxLen = 24", true},
+		{"stale derived message", stale, "package username\nimport \"fmt\"\nconst MaxLen = 24\nvar LengthError = fmt.Errorf(\"username must be 3-%d characters\", MaxLen)", true},
+		{"stale strconv-derived message", stale, "package username\nimport (\"errors\"; \"strconv\")\nconst MaxLen = 24\nvar LengthError = errors.New(\"username must be 3-\" + strconv.Itoa(MaxLen) + \" characters\")", true},
+		{"stale hand-edited message", stale, "package username\nimport \"errors\"\nconst MaxLen = 24\nvar LengthError = errors.New(\"username must be 3-24 characters\")", true},
+		{"stale message left at 16", stale, "package username\nimport \"errors\"\nconst MaxLen = 24\nvar LengthError = errors.New(\"username must be 3-16 characters\")", false},
+		{"stale raw string message", stale, "package username\nimport \"errors\"\nconst MaxLen = 24\nvar LengthError = errors.New(`username must be 16 or fewer`)", false},
+		{"stale constant in hex", stale, "package username\nconst MaxLen = 0x10", false},
+		{"stale constant with separator", stale, "package username\nconst MaxLen = 1_6", false},
+		{"raised constant in hex", stale, "package username\nconst MaxLen = 0x18", true},
+		{"digit boundaries are whole numbers", stale, "package username\nconst MaxLen = 24\nvar hint = \"ids 116 and 160 differ; 3-24\"", true},
+		{"stale ignores comments", stale, "package username\n// MaxLen was raised from 16.\nconst MaxLen = 24", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			findings := checkDiscipline(tc.rule, tc.source)
@@ -57,6 +63,11 @@ func TestDisciplineGateFindings(t *testing.T) {
 				t.Fatal("discipline gate accepted an undisciplined candidate")
 			}
 		})
+	}
+	beside := checkDiscipline(reuse, "package signup\nimport \"strings\"\nfunc SameAccount(a, b string) bool { return normalizeEmail(strings.TrimSpace(a)) == normalizeEmail(b) }")
+	rederived := checkDiscipline(reuse, decisionSpec(t, "reuse-email").BadSource)
+	if strings.Join(beside, "\n") != "calls strings.TrimSpace beside the existing helper" || !strings.Contains(strings.Join(rederived, "\n"), "re-derives existing logic with strings.TrimSpace") {
+		t.Fatalf("misleading reuse findings: beside=%q rederived=%q", beside, rederived)
 	}
 }
 
@@ -70,6 +81,9 @@ func TestDecisionCandidateGrading(t *testing.T) {
 	}{
 		{"reuse good", "reuse-email", decisionSpec(t, "reuse-email").GoodSource, "passed", "passed", true},
 		{"reuse bad passes tests only", "reuse-email", decisionSpec(t, "reuse-email").BadSource, "passed", "failed", false},
+		{"propagate hand-edited message passes", "propagate-limit", "package username\nimport \"errors\"\nconst MaxLen = 24\nvar LengthError = errors.New(\"username must be 3-24 characters\")", "passed", "passed", true},
+		{"propagate stale message fails discipline only", "propagate-limit", decisionSpec(t, "propagate-limit").BadSource, "passed", "failed", false},
+		{"propagate constant not raised fails behavior", "propagate-limit", decisionSpec(t, "propagate-limit").MutantSource, "failed", "passed", false},
 		{"discipline recorded when behavior fails", "overbuild-slug", decisionSpec(t, "overbuild-slug").MutantSource, "failed", "passed", false},
 		// Returning the existing file again redeclares Validate: a candidate compile failure, not a grader error.
 		{"existing file returned", "propagate-limit", "package username\nimport \"fmt\"\nconst MaxLen = 24\nvar LengthError = fmt.Errorf(\"username must be 3-%d characters\", MaxLen)\nfunc Validate(name string) error { return nil }", "failed", "passed", false},
@@ -180,7 +194,7 @@ func TestDecisionExperimentEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(files["results.json"]), `"discipline": "failed"`) || !strings.Contains(string(files["results.md"]), "## Behavior and discipline") {
+	if !strings.Contains(string(files["results.json"]), `"discipline_gate": "failed"`) || !strings.Contains(string(files["results.md"]), "## Behavior and discipline") {
 		t.Fatal("export omitted per-attempt behavior and discipline")
 	}
 	var report experimentReport
@@ -202,6 +216,10 @@ func TestDecisionExperimentEvidence(t *testing.T) {
 			}
 		}},
 		{"unknown outcome", func(r *ExperimentRun) { r.Attempts[0].Grade.Behavior = "skipped" }},
+		{"grading error with discipline evidence", func(r *ExperimentRun) {
+			r.Attempts[0].Status = "grading-error"
+			r.Attempts[0].Diagnostic = "grader unavailable"
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			changed, err := LoadExperimentRun(path)

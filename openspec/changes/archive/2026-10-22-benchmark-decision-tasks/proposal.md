@@ -6,7 +6,7 @@ Issue [#111](https://github.com/C360Studio/ateam/issues/111), split from #95 und
 
 ## What Changes
 
-- Add three built-in tasks with tier `decision-opportunity`: `reuse-email` (reuse an existing package helper), `overbuild-slug` (a small function that invites options, structs or wrappers) and `propagate-limit` (raise a limit so its dependent message changes from one source of truth).
+- Add three built-in tasks with tier `decision-opportunity`: `reuse-email` (reuse an existing package helper), `overbuild-slug` (a small function that invites options, structs or wrappers) and `propagate-limit` (raise a limit and update the error message that depends on it).
 - Tasks may carry a pre-existing package file. The prompt shows it verbatim and says it already exists and must not be returned; the grader writes it beside the returned file. The adapter contract (one returned source file) is unchanged.
 - A stdlib `go/ast` discipline gate grades the tier. Attempt grades and self-test task results record behavior and discipline as separate fields; `passed` for the tier requires both. New fields are omitted for existing tasks.
 - `compare` reports source bytes per arm over both-passed pairs, descriptively.

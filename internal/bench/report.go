@@ -104,7 +104,7 @@ type reportAttempt struct {
 	Usage      *reportUsage `json:"usage"`
 	SourceSHA  string       `json:"source_sha256"`
 	Behavior   string       `json:"behavior,omitempty"`
-	Discipline string       `json:"discipline,omitempty"`
+	Discipline string       `json:"discipline_gate,omitempty"`
 }
 
 type reportPair struct {

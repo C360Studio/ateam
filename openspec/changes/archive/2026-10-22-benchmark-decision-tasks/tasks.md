@@ -19,8 +19,9 @@
 ## Completion evidence
 
 - Task limit kept at 1..3; the tier runs as its own experiment (no validation change).
-- `task mutate:check` on `internal/bench/decision.go` reported `detection` for the literal-once, forbidden-call and exported-name rules (`TestDisciplineGateFindings`) and for retained-grade consistency (`TestDecisionExperimentEvidence`).
+- `task mutate:check` on `internal/bench/decision.go` reported `detection` for the stale-value, forbidden-call and exported-name rules (`TestDisciplineGateFindings`) and for retained-grade consistency (`TestDecisionExperimentEvidence`).
 - Offline reference-adapter run of `benchmarks/examples/decision-bundles-ab.json` completed 6/6 attempts, compared, rescored (replay `matched`) and exported with per-attempt behavior and discipline.
+- Review of c8e0398 (changes required) addressed: `propagate-limit` now grades a stale dependent value instead of a single-literal refactor, three surviving branches gained failing-when-removed tests, the grade tag is `discipline_gate`, and the reuse finding distinguishes a helper call beside `strings.TrimSpace` from re-derivation.
 - Synthetic report fixtures rebound to the new evaluator digest; reason recorded in `internal/bench/testdata/report/README.md`.
 - Final-head `task verify`, `ateam doctor --check` and command output are recorded in PR #114. Cross-agent review is arranged by the owner; the PR stays draft until then.
 - Current requirements are promoted to `openspec/specs/benchmark-experiments/spec.md`; this directory retains the historical proposal, design, delta and checklist.

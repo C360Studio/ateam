@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/parser"
 	"go/token"
 	"path"
@@ -15,13 +16,13 @@ import (
 const decisionTier = "decision-opportunity"
 
 // disciplineRule is the decision-opportunity gate. It reads only the candidate's syntax tree,
-// so it is a fixture-level check, not a general analysis: aliases are resolved, dot imports,
-// arithmetic or alternative spellings of a value are not.
+// so it is a fixture-level check, not a general analysis: import aliases and integer spellings
+// such as 0x10 are resolved; dot imports and values computed by arithmetic are not.
 type disciplineRule struct {
 	calls     []string // existing helpers the candidate must call
 	forbidden []string // calls that re-derive an existing helper's logic
 	exports   []string // when non-nil, the only exported top-level names allowed
-	once      string   // a changed value that must appear in exactly one literal
+	stale     string   // a replaced whole number no INT or STRING literal may still carry
 }
 
 const signupExisting = `package signup
@@ -214,10 +215,10 @@ func TestFixture(t *testing.T) {
 		{
 			ID:             "propagate-limit",
 			Tier:           decisionTier,
-			Description:    "Raise a length limit so its dependent message follows from one source of truth",
+			Description:    "Raise a length limit and update the error message that depends on it",
 			AteamLOC:       4,
 			ExistingSource: usernameExisting,
-			discipline:     disciplineRule{once: "24"},
+			discipline:     disciplineRule{stale: "16"},
 			GoodSource: `package username
 
 import "fmt"
@@ -235,16 +236,16 @@ import "errors"
 const MaxLen = 24
 
 // LengthError reports a username outside the accepted length.
-var LengthError = errors.New("username must be 3-24 characters")`,
+var LengthError = errors.New("username must be 3-16 characters")`,
 			MutantSource: `package username
 
-import "errors"
+import "fmt"
 
 // MaxLen is the longest accepted username in bytes.
-const MaxLen = 24
+const MaxLen = 23 // mutant: off by one
 
 // LengthError reports a username outside the accepted length.
-var LengthError = errors.New("username must be 3-16 characters") // mutant: dependent message not updated`,
+var LengthError = fmt.Errorf("username must be 3-%d characters", MaxLen)`,
 			TestSource: `package username
 import ("errors"; "strings"; "testing")
 func TestFixture(t *testing.T) {
@@ -256,9 +257,6 @@ func TestFixture(t *testing.T) {
 	}
 	if err := Validate("ab"); !errors.Is(err, LengthError) {
 		t.Fatalf("expected safety assertion: 2-byte name not rejected with LengthError: %v", err)
-	}
-	if got := LengthError.Error(); got != "username must be 3-24 characters" {
-		t.Fatalf("expected safety assertion: dependent message not updated: %q", got)
 	}
 }`,
 		},
@@ -290,7 +288,7 @@ func checkDiscipline(rule disciplineRule, source string) []string {
 		imports[name] = importPath
 	}
 	calls := map[string]bool{}
-	literals := 0
+	staleLiterals := 0
 	for _, decl := range file.Decls {
 		if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.IMPORT {
 			continue
@@ -300,8 +298,8 @@ func checkDiscipline(rule disciplineRule, source string) []string {
 			case *ast.CallExpr:
 				calls[callName(n.Fun, imports)] = true
 			case *ast.BasicLit:
-				if rule.once != "" && strings.Contains(n.Value, rule.once) {
-					literals++
+				if rule.stale != "" && carriesNumber(n, rule.stale) {
+					staleLiterals++
 				}
 			}
 			return true
@@ -313,8 +311,15 @@ func checkDiscipline(rule disciplineRule, source string) []string {
 			findings = append(findings, "does not call existing "+name)
 		}
 	}
+	reused := len(rule.calls) > 0
+	for _, name := range rule.calls {
+		reused = reused && calls[name]
+	}
 	for _, name := range rule.forbidden {
-		if calls[name] {
+		switch {
+		case calls[name] && reused:
+			findings = append(findings, "calls "+name+" beside the existing helper")
+		case calls[name]:
 			findings = append(findings, "re-derives existing logic with "+name)
 		}
 	}
@@ -325,11 +330,39 @@ func checkDiscipline(rule disciplineRule, source string) []string {
 			}
 		}
 	}
-	if rule.once != "" && literals != 1 {
-		findings = append(findings, fmt.Sprintf("value %s appears in %d literals, want exactly 1", rule.once, literals))
+	if staleLiterals > 0 {
+		findings = append(findings, fmt.Sprintf("%d literals still carry the replaced value %s", staleLiterals, rule.stale))
 	}
 	return findings
 }
+
+// carriesNumber reports an INT literal equal to number in any spelling, or a STRING
+// literal containing number as a whole run of digits (so "116" and "240" do not count).
+func carriesNumber(lit *ast.BasicLit, number string) bool {
+	switch lit.Kind {
+	case token.INT:
+		return constant.Compare(constant.MakeFromLiteral(lit.Value, token.INT, 0), token.EQL, constant.MakeFromLiteral(number, token.INT, 0))
+	case token.STRING:
+		text, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			text = lit.Value
+		}
+		for i := strings.Index(text, number); i >= 0; {
+			end := i + len(number)
+			if (i == 0 || !isDigit(text[i-1])) && (end == len(text) || !isDigit(text[end])) {
+				return true
+			}
+			next := strings.Index(text[i+1:], number)
+			if next < 0 {
+				break
+			}
+			i += 1 + next
+		}
+	}
+	return false
+}
+
+func isDigit(c byte) bool { return '0' <= c && c <= '9' }
 
 // callName names package-qualified calls by import path so aliases cannot hide them.
 func callName(fun ast.Expr, imports map[string]string) string {

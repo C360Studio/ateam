@@ -127,11 +127,11 @@ The prescribed tasks above fix the package, signature, behavior and often the me
 | --- | --- | --- |
 | `reuse-email` | the package already has `normalizeEmail` | the candidate calls it and does not re-derive it with `strings.TrimSpace`, `strings.ToLower` or `strings.EqualFold` |
 | `overbuild-slug` | a small `Slugify` invites options, structs or wrappers | `Slugify` is the only exported top-level name |
-| `propagate-limit` | raise `MaxLen` from 16 to 24; the error message depends on it | the value `24` appears in exactly one literal |
+| `propagate-limit` | raise `MaxLen` from 16 to 24; the error message depends on it | no integer or string literal still carries the replaced value `16` as a whole number |
 
-`reuse-email` and `propagate-limit` include a pre-existing package file. The prompt shows it verbatim and says not to return it; the grader compiles it as `existing.go` beside the returned file, so the one-file adapter contract is unchanged. The gate parses the candidate with the Go standard library only. It checks these fixtures; it is not a general analysis, and spellings such as `0x18` or dot imports are outside it.
+`reuse-email` and `propagate-limit` include a pre-existing package file. The prompt shows it verbatim and says not to return it; the grader compiles it as `existing.go` beside the returned file, so the one-file adapter contract is unchanged. The gate parses the candidate with the Go standard library only. It checks these fixtures; it is not a general analysis. Integer spellings such as `0x10` and digit boundaries in strings (`116` is not `16`) are handled; dot imports and computed values are outside it. A message hand-edited to say 24 and one derived from `MaxLen` both pass; the gate grades whether the dependent site was updated, not how.
 
-Attempt grades record `behavior` and `discipline` separately, with `discipline_diagnostics` giving source size and findings; a tier attempt passes only when both pass. Reports project both fields per attempt. `compare` reports source bytes per arm over both-passed pairs as a descriptive size signal, not a verdict. Existing tasks record none of these fields.
+Attempt grades record `behavior` and `discipline_gate` separately, with `discipline_diagnostics` giving source size and findings; a tier attempt passes only when both pass. Reports project both fields per attempt. `compare` reports source bytes per arm over both-passed pairs as a descriptive size signal, not a verdict. Existing tasks record none of these fields.
 
 The per-experiment limit stays at three tasks, so run the tier as its own experiment. `examples/decision-aa.json` and `examples/decision-ab.json` use the Mercury runtime described below; dry-run needs the pinned Claude and LiteLLM executables but no credentials, and paid runs need separate authorization. `examples/decision-bundles-ab.json` runs offline with the reference adapter:
 
