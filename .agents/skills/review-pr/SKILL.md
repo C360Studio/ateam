@@ -26,7 +26,7 @@ Check out the PR head detached at `.worktrees/<agent>-review-pr-<n>` (`git workt
 Post one PR comment in the contract grammar (`gh pr comment <n> --body-file <file>`):
 
 ```text
-reviewed-by: <agent> (<model>)
+reviewed-by: <agent> (<model>, <effort>)
 Reviewed at <head-sha>
 Verdict: APPROVE | REQUEST CHANGES
 <findings, checks run, unavailable evidence, limitations>

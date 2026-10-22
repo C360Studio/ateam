@@ -64,8 +64,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Check the up-to-date rule, the cross-agent review and known flakes
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # merge-check.sh calls ateam review compare once .agents/review-policy.json exists.
+      - run: go build -o "$RUNNER_TEMP/ateam" ./cmd/ateam
+
+      - name: Check the up-to-date rule, the review and its strength, and known flakes
         env:
+          ATEAM: ${{ runner.temp }}/ateam
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

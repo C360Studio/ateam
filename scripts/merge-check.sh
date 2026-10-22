@@ -10,10 +10,12 @@
 #   3. On a pull-request run, before rule 2: a code pull request that is not a
 #      draft fails unless its description has one implemented-by: line naming
 #      claude, codex, or gemini (not read for a bot's) and one reviewed-by:
-#      line naming another agent (any of the three for a bot's, or when more than
-#      one is named), each line naming its model in parentheses after the agent
-#      (e.g. implemented-by: claude (opus); several implementer models are
-#      comma-separated inside them), and a PR comment contains a review record (reviewed-by:
+#      line naming one of them (another agent only when .agents/review-policy.json
+#      sets cross_provider), each line naming its model in parentheses after the
+#      agent (e.g. implemented-by: claude (opus)). Once that policy exists, each
+#      model is followed by its effort (claude (sonnet, medium, opus, high)) and
+#      ateam review compare must find the reviewer not weaker by tier, then effort
+#      band. A PR comment must also contain a review record (reviewed-by:
 #      <agent> or a ### Independent Cross-Agent Review heading) designating a
 #      single reviewed commit (e.g. reviewed at <sha>, re-reviewed at <sha>,
 #      reviewed [head] commit <sha>, or reviewed-commit: <sha>) in the PR's
@@ -183,12 +185,26 @@ else
     *[!0-9:]* | :* | *:) echo "merge-check: unavailable: the description of pull request #${pr} was read as '${lines}'" >&2; exit 2 ;;
   esac
 
-  # The single implementing agent when implemented-by: names one; empty when any
-  # agent may review: a bot's pull request, more than one agent named, or no valid line.
+  # ADR 0002: once the policy file exists, both lines carry a native effort after
+  # each model and ateam review compare decides strength. The different-agent rule
+  # applies only when the policy sets cross_provider to true.
+  policy=.agents/review-policy.json
+  cross=false
+  effort_hint=
+  if [ -e "$policy" ]; then
+    effort_hint=", <effort>"
+    if ! cross=$(jq -r 'if .cross_provider == true then "true" else "false" end' "$policy"); then
+      echo "merge-check: unavailable: jq failed reading cross_provider from ${policy}" >&2
+      exit 2
+    fi
+  fi
+  # The single implementing agent when implemented-by: names one and cross_provider
+  # is on; empty when any agent may review: cross_provider off, a bot's pull
+  # request, more than one agent named, or no valid line.
   impl_single=
   others=
-  wantline="reviewed-by: claude, reviewed-by: codex, or reviewed-by: gemini"
-  if [ "$author" != Bot ] && [ "$icount" -eq 1 ]; then
+  wantline="reviewed-by: <claude, codex, or gemini> (<model>${effort_hint})"
+  if [ "$cross" = true ] && [ "$author" != Bot ] && [ "$icount" -eq 1 ]; then
     case "$iagents" in
       claude) impl_single=claude others="codex or gemini" wantline="reviewed-by: codex (or reviewed-by: gemini)" ;;
       codex)  impl_single=codex  others="claude or gemini" wantline="reviewed-by: claude (or reviewed-by: gemini)" ;;
@@ -206,7 +222,7 @@ else
     elif [ -z "$iagents" ]; then
       finding "the implemented-by: line must name claude, codex, or gemini, the agent that wrote the commits" "$implline"
     elif [ "$imodel" != yes ]; then
-      finding "the implemented-by: line must name the implementing model in parentheses after the agent (several comma-separated)" "implemented-by: ${iagents} (<model>)"
+      finding "the implemented-by: line must name the implementing model in parentheses after the agent (model, effort pairs once a policy exists)" "implemented-by: ${iagents} (<model>${effort_hint})"
     fi
   fi
   if [ "$rcount" -eq 0 ]; then
@@ -218,7 +234,71 @@ else
   elif [ -n "$impl_single" ] && [ "$ragents" = "$impl_single" ]; then
     finding "the reviewed-by: line names ${ragents}, which the implemented-by: line names; another agent (${others}) reviews" "$wantline"
   elif [ "$rmodel" != yes ]; then
-    finding "the reviewed-by: line must name the reviewing model in parentheses after the agent" "reviewed-by: ${ragents} (<model>)"
+    finding "the reviewed-by: line must name the reviewing model in parentheses after the agent" "reviewed-by: ${ragents} (<model>${effort_hint})"
+  fi
+  # Strength (ADR 0002 rule 2): each line's parenthesised group is read as
+  # model, effort pairs and handed to ateam review compare as agent:model:effort
+  # (an odd last model has an empty effort, which compare reports). The binary is
+  # $ATEAM, else ateam on PATH; compare exits 0 pass, 1 finding, 2 undecided.
+  if [ "$findings" -eq 0 ] && [ "$author" != Bot ] && [ -e "$policy" ]; then
+    if ! runs=$(printf '%s' "$pull" | jq -r '
+      def runs($p): ltrimstr($p)
+        | capture("^[ \\t]*`?(?<a>(?i:claude|codex|gemini))`?[ \\t]*\\((?<g>[^)]*)\\)")
+        | (.a | ascii_downcase) as $a
+        | [.g | split(",")[] | gsub("^\\s+|\\s+$"; "") | select(. != "")] as $v
+        | range(0; $v | length; 2) as $k | "\($a):\($v[$k]):\($v[$k + 1] // "")";
+      [(.body // "") | split("\n")[] | rtrimstr("\r")] as $l
+      | ($l[] | select(startswith("implemented-by:")) | "--implementer\t" + runs("implemented-by:")),
+        ($l[] | select(startswith("reviewed-by:")) | "--reviewer\t" + runs("reviewed-by:"))'); then
+      echo "merge-check: unavailable: jq failed reading the runs on the review lines of pull request #${pr}" >&2
+      exit 2
+    fi
+    # A malformed group is a review finding here, not an undecided compare: an
+    # empty group such as (,) yields no run (and bash 3.2 under set -u fails on
+    # the empty array), a reviewer group with two pairs yields two --reviewer
+    # flags, and a colon in a model or effort (claude:opus) shifts the fields.
+    cargs=()
+    icount_runs=0
+    rcount_runs=0
+    colon=0
+    while IFS=$'\t' read -r flag value; do
+      [ -n "$flag" ] || continue
+      cargs+=("$flag" "$value")
+      case "$flag" in
+        --implementer) icount_runs=$((icount_runs + 1)) ;;
+        --reviewer) rcount_runs=$((rcount_runs + 1)) ;;
+      esac
+      case "$value" in *:*:*:*) colon=1 ;; esac
+    done <<<"$runs"
+    if [ "$icount_runs" -lt 1 ] || [ "$rcount_runs" -ne 1 ] || [ "$colon" -ne 0 ]; then
+      finding "the implemented-by: group must hold one or more model, effort pairs and the reviewed-by: group exactly one, with no colon in a model or effort" "<agent> (<model>, <effort>) on both lines"
+      cargs=()
+    fi
+    compared=
+    cstatus=0
+    if [ "${#cargs[@]}" -gt 0 ]; then
+      compared=$("${ATEAM:-ateam}" review compare "${cargs[@]}" 2>&1)
+      cstatus=$?
+    fi
+    # Status 1 must come with a finding line, or it was not compare's verdict.
+    if [ "$cstatus" -eq 1 ] && ! printf '%s\n' "$compared" | grep -q '^compare: finding: '; then
+      cstatus=3
+    fi
+    case "$cstatus" in
+      0 | 1)
+        while IFS= read -r cline; do
+          case "$cline" in
+            "compare: finding: "*"names no effort"*) finding "${cline#compare: finding: }" "<agent> (<model>, <effort>) for every run on both lines" ;;
+            "compare: finding: "*) finding "${cline#compare: finding: }" "${wantline}, not weaker by tier, then effort band, than every implementer run in ${policy}" ;;
+            ?*) echo "merge-check: strength: ${cline#compare: }" ;;
+          esac
+        done <<<"$compared"
+        ;;
+      *)
+        echo "merge-check: unavailable: ateam review compare exited ${cstatus} (set ATEAM to an ateam binary that has review compare): ${compared}" >&2
+        exit 2
+        ;;
+    esac
   fi
   if [ "$findings" -eq 0 ]; then
     read_gh "the commits of pull request #${pr}" 'type == "array"' \
