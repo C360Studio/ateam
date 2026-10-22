@@ -1,0 +1,510 @@
+{
+  "kind": "ateam.benchmark-report",
+  "version": 1,
+  "recorded_at": "2026-10-22T13:27:41.79405Z",
+  "identity": {
+    "name": "decision-tier-v1-ab",
+    "agent": "claude",
+    "agent_version": "",
+    "model": "mercury-3",
+    "runtime": "go1.26.4 darwin/arm64",
+    "native_version": "2.1.292 (Claude Code)",
+    "bridge_version": "LiteLLM: Current Version = 1.99.0",
+    "config_sha256": "d4d6471a3edd67fa8f0deaf2771832b8c16334efa176cd78c7d0c09ca7c46f4c",
+    "baseline_sha256": "957138123c57e7952a4c986fe379c9028b7ad8c9a21ff841506fa3158df5ec6e",
+    "candidate_sha256": "d1df3b100357d063de22eb5900fd1cc8cfac09f81c991a24faa5e0d6c84a679b",
+    "runner_sha256": "171994bb2d725400771bca6c0f5fa5232244fc2a9c53a8498602d4407c1cf979",
+    "evaluator_sha256": "2a93e1b6a9a3e02d156fd9719cb90e10ad69caedcea49c6bafdc7d979599d6d2",
+    "go_driver_sha256": "e61851b2c0cde9b9ac4ae044fcce6ba9d55cb15f98ded3964793acaa8632242f",
+    "go_driver_version": "go version go1.26.4 darwin/arm64",
+    "command_file_sha256": [
+      "97a01e5bc74a199e67189435d0331ea3a24eac2e07db4b76d9148c5b0386138f",
+      "c2e78b7df0e3b847316955301c13783f6f64db04d979dd69fdbfdcf018eec73c"
+    ],
+    "tasks": [
+      "reuse-email",
+      "overbuild-slug",
+      "propagate-limit"
+    ],
+    "repetitions": 2,
+    "seed": 0,
+    "timeout_seconds": 30,
+    "max_run_seconds": 720,
+    "max_total_tokens": 100000,
+    "budget_policy": "INCEPTION_API_KEY only in the Go runner; Claude and LiteLLM 1.99.0 receive local tokens; model mercury-3, low effort, 8192 output tokens/request, max4 provider requests, no retries/fallback; raw provider usage required for every request; stop on missing/incomplete usage; context closes provider requests and process groups are killed on exit/cancel; max_run_seconds includes grading; max_total_tokens checked between attempts; no hard dollar cap; CLI cost ignored",
+    "native_settings_sha256": "bd54f1802eb9db701fecc7fdb1a03ddc21e14f70552bb6a402c3bbe6e98af17f",
+    "native_arguments_sha256": "1bbc5dc1bd6771bae6198660ccbba9f37f2925874420f5f6b0c7a73e6654665d"
+  },
+  "schedule": [
+    {
+      "task": "reuse-email",
+      "repetition": 1,
+      "arm": "baseline"
+    },
+    {
+      "task": "reuse-email",
+      "repetition": 1,
+      "arm": "candidate"
+    },
+    {
+      "task": "overbuild-slug",
+      "repetition": 1,
+      "arm": "candidate"
+    },
+    {
+      "task": "overbuild-slug",
+      "repetition": 1,
+      "arm": "baseline"
+    },
+    {
+      "task": "propagate-limit",
+      "repetition": 1,
+      "arm": "baseline"
+    },
+    {
+      "task": "propagate-limit",
+      "repetition": 1,
+      "arm": "candidate"
+    },
+    {
+      "task": "reuse-email",
+      "repetition": 2,
+      "arm": "candidate"
+    },
+    {
+      "task": "reuse-email",
+      "repetition": 2,
+      "arm": "baseline"
+    },
+    {
+      "task": "overbuild-slug",
+      "repetition": 2,
+      "arm": "baseline"
+    },
+    {
+      "task": "overbuild-slug",
+      "repetition": 2,
+      "arm": "candidate"
+    },
+    {
+      "task": "propagate-limit",
+      "repetition": 2,
+      "arm": "candidate"
+    },
+    {
+      "task": "propagate-limit",
+      "repetition": 2,
+      "arm": "baseline"
+    }
+  ],
+  "counts": {
+    "scheduled": 12,
+    "retained": 12,
+    "unstarted": 0,
+    "graded": 12,
+    "passed": 10,
+    "failed": 2,
+    "unevaluable": 0
+  },
+  "accounting": {
+    "basis": "captured-provider-wire",
+    "reported_usage_attempts": 12,
+    "unknown_usage_attempts": 0,
+    "known_token_subtotal": 15811,
+    "cost_status": "unknown"
+  },
+  "comparison": {
+    "mode": "ab",
+    "arms": {
+      "baseline": {
+        "attempts": 6,
+        "status_counts": {
+          "passed": 6
+        },
+        "reported_usage_attempts": 6,
+        "missing_usage_attempts": 0,
+        "cached_usage_attempts": 6,
+        "reasoning_usage_attempts": 6,
+        "execution_nanos": {
+          "count": 6,
+          "min": 2971998166,
+          "max": 5618424334,
+          "mean": 3824307902.8333335,
+          "population_sd": 1004150413.5254382
+        },
+        "passed_execution_nanos": {
+          "count": 6,
+          "min": 2971998166,
+          "max": 5618424334,
+          "mean": 3824307902.8333335,
+          "population_sd": 1004150413.5254382
+        },
+        "reported_tokens": {
+          "count": 6,
+          "min": 931,
+          "max": 1675,
+          "mean": 1164.1666666666667,
+          "population_sd": 251.69585923402784
+        }
+      },
+      "candidate": {
+        "attempts": 6,
+        "status_counts": {
+          "failed": 2,
+          "passed": 4
+        },
+        "reported_usage_attempts": 6,
+        "missing_usage_attempts": 0,
+        "cached_usage_attempts": 6,
+        "reasoning_usage_attempts": 6,
+        "execution_nanos": {
+          "count": 6,
+          "min": 3062204209,
+          "max": 5840197875,
+          "mean": 3832382090.333333,
+          "population_sd": 942496990.9822037
+        },
+        "passed_execution_nanos": {
+          "count": 4,
+          "min": 3062204209,
+          "max": 3878138875,
+          "mean": 3457954291.75,
+          "population_sd": 345502476.2644415
+        },
+        "reported_tokens": {
+          "count": 6,
+          "min": 1069,
+          "max": 2370,
+          "mean": 1471,
+          "population_sd": 438.0882711661353
+        }
+      }
+    },
+    "scheduled_attempts": 12,
+    "completed_attempts": 12,
+    "unpaired_attempts": 0,
+    "unevaluable_pairs": 0,
+    "pairs": 6,
+    "baseline_passed": 6,
+    "candidate_passed": 4,
+    "improvements": 0,
+    "regressions": 2,
+    "both_passed": 4,
+    "neither_passed": 0,
+    "status_counts": {
+      "baseline/passed": 6,
+      "candidate/failed": 2,
+      "candidate/passed": 4
+    },
+    "successful_pair_mean_delta_nanos": -32913781,
+    "both_passed_source_bytes": {
+      "baseline": 1386,
+      "candidate": 1406
+    },
+    "usage_pairs": 6,
+    "missing_usage_pairs": 0,
+    "total_token_delta": 1841
+  },
+  "attempts": [
+    {
+      "index": 0,
+      "trial": {
+        "task": "reuse-email",
+        "repetition": 1,
+        "arm": "baseline"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 2971998166,
+      "grading_nanos": 368922083,
+      "usage": {
+        "input_tokens": 764,
+        "output_tokens": 194,
+        "cached_input_tokens": 508,
+        "reasoning_output_tokens": 133
+      },
+      "source_sha256": "875bc674e968a737db345c85ed480f50d96ab43005ecc7b818d62ab48b1d97ef",
+      "behavior": "passed",
+      "discipline_gate": "passed"
+    },
+    {
+      "index": 1,
+      "trial": {
+        "task": "reuse-email",
+        "repetition": 1,
+        "arm": "candidate"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 3878138875,
+      "grading_nanos": 336092000,
+      "usage": {
+        "input_tokens": 905,
+        "output_tokens": 623,
+        "cached_input_tokens": 502,
+        "reasoning_output_tokens": 589
+      },
+      "source_sha256": "875bc674e968a737db345c85ed480f50d96ab43005ecc7b818d62ab48b1d97ef",
+      "behavior": "passed",
+      "discipline_gate": "passed"
+    },
+    {
+      "index": 2,
+      "trial": {
+        "task": "overbuild-slug",
+        "repetition": 1,
+        "arm": "candidate"
+      },
+      "status": "failed",
+      "quality_passed": false,
+      "execution_nanos": 5840197875,
+      "grading_nanos": 87191541,
+      "usage": {
+        "input_tokens": 830,
+        "output_tokens": 1540,
+        "cached_input_tokens": 498,
+        "reasoning_output_tokens": 1474
+      },
+      "source_sha256": "fd3485704bf62772eeeebb92b14ffc6657a05669813d13ef8fac5d96ddf0b3fc",
+      "behavior": "failed",
+      "discipline_gate": "failed"
+    },
+    {
+      "index": 3,
+      "trial": {
+        "task": "overbuild-slug",
+        "repetition": 1,
+        "arm": "baseline"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 5618424334,
+      "grading_nanos": 1567900625,
+      "usage": {
+        "input_tokens": 702,
+        "output_tokens": 371,
+        "cached_input_tokens": 514,
+        "reasoning_output_tokens": 323
+      },
+      "source_sha256": "ff68dc7df5087f832097ee2caf68fbeecc1f50a8c777c1f72a6f7ba9575f0786",
+      "behavior": "passed",
+      "discipline_gate": "passed"
+    },
+    {
+      "index": 4,
+      "trial": {
+        "task": "propagate-limit",
+        "repetition": 1,
+        "arm": "baseline"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 3077957459,
+      "grading_nanos": 1857339292,
+      "usage": {
+        "input_tokens": 836,
+        "output_tokens": 95,
+        "cached_input_tokens": 520,
+        "reasoning_output_tokens": 68
+      },
+      "source_sha256": "57668fae7da98be042fd19090903cf54e6cad2ba79b21cdc33788535228c7d27",
+      "behavior": "passed",
+      "discipline_gate": "passed"
+    },
+    {
+      "index": 5,
+      "trial": {
+        "task": "propagate-limit",
+        "repetition": 1,
+        "arm": "candidate"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 3714080208,
+      "grading_nanos": 381630125,
+      "usage": {
+        "input_tokens": 980,
+        "output_tokens": 524,
+        "cached_input_tokens": 514,
+        "reasoning_output_tokens": 460
+      },
+      "source_sha256": "822c973ddbee14e79e39108ae7cfc1e36dc6c1a86849d9a142704edcb7072cd0",
+      "behavior": "passed",
+      "discipline_gate": "passed"
+    },
+    {
+      "index": 6,
+      "trial": {
+        "task": "reuse-email",
+        "repetition": 2,
+        "arm": "candidate"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 3062204209,
+      "grading_nanos": 319445833,
+      "usage": {
+        "input_tokens": 896,
+        "output_tokens": 173,
+        "cached_input_tokens": 497,
+        "reasoning_output_tokens": 145
+      },
+      "source_sha256": "875bc674e968a737db345c85ed480f50d96ab43005ecc7b818d62ab48b1d97ef",
+      "behavior": "passed",
+      "discipline_gate": "passed"
+    },
+    {
+      "index": 7,
+      "trial": {
+        "task": "reuse-email",
+        "repetition": 2,
+        "arm": "baseline"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 3150356208,
+      "grading_nanos": 397165250,
+      "usage": {
+        "input_tokens": 772,
+        "output_tokens": 319,
+        "cached_input_tokens": 513,
+        "reasoning_output_tokens": 282
+      },
+      "source_sha256": "875bc674e968a737db345c85ed480f50d96ab43005ecc7b818d62ab48b1d97ef",
+      "behavior": "passed",
+      "discipline_gate": "passed"
+    },
+    {
+      "index": 8,
+      "trial": {
+        "task": "overbuild-slug",
+        "repetition": 2,
+        "arm": "baseline"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 4763160458,
+      "grading_nanos": 391177250,
+      "usage": {
+        "input_tokens": 696,
+        "output_tokens": 979,
+        "cached_input_tokens": 509,
+        "reasoning_output_tokens": 917
+      },
+      "source_sha256": "25012cc9cdaf6de971e155e7c8d695ea50cb3bb684389a7956cf613f07620c65",
+      "behavior": "passed",
+      "discipline_gate": "passed"
+    },
+    {
+      "index": 9,
+      "trial": {
+        "task": "overbuild-slug",
+        "repetition": 2,
+        "arm": "candidate"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 3177393875,
+      "grading_nanos": 401516375,
+      "usage": {
+        "input_tokens": 863,
+        "output_tokens": 264,
+        "cached_input_tokens": 518,
+        "reasoning_output_tokens": 195
+      },
+      "source_sha256": "066b8fb58f2e5b23f96b4daa78896cf1edbc1898eabdd70e01b7deafc4634da7",
+      "behavior": "passed",
+      "discipline_gate": "passed"
+    },
+    {
+      "index": 10,
+      "trial": {
+        "task": "propagate-limit",
+        "repetition": 2,
+        "arm": "candidate"
+      },
+      "status": "failed",
+      "quality_passed": false,
+      "execution_nanos": 3322277500,
+      "grading_nanos": 308922541,
+      "usage": {
+        "input_tokens": 993,
+        "output_tokens": 235,
+        "cached_input_tokens": 520,
+        "reasoning_output_tokens": 204
+      },
+      "source_sha256": "00a1971d07b2a217914d1f9e47acab4f5f74c4237a09b7ec5d7e51331b228b11",
+      "behavior": "passed",
+      "discipline_gate": "failed"
+    },
+    {
+      "index": 11,
+      "trial": {
+        "task": "propagate-limit",
+        "repetition": 2,
+        "arm": "baseline"
+      },
+      "status": "passed",
+      "quality_passed": true,
+      "execution_nanos": 3363950792,
+      "grading_nanos": 323957792,
+      "usage": {
+        "input_tokens": 822,
+        "output_tokens": 435,
+        "cached_input_tokens": 511,
+        "reasoning_output_tokens": 381
+      },
+      "source_sha256": "57668fae7da98be042fd19090903cf54e6cad2ba79b21cdc33788535228c7d27",
+      "behavior": "passed",
+      "discipline_gate": "passed"
+    }
+  ],
+  "pairs": [
+    {
+      "baseline_index": 0,
+      "candidate_index": 1,
+      "quality_eligible": true,
+      "successful_execution_delta_nanos": 906140709,
+      "reported_token_delta": 570
+    },
+    {
+      "baseline_index": 3,
+      "candidate_index": 2,
+      "quality_eligible": true,
+      "successful_execution_delta_nanos": null,
+      "reported_token_delta": 1297
+    },
+    {
+      "baseline_index": 4,
+      "candidate_index": 5,
+      "quality_eligible": true,
+      "successful_execution_delta_nanos": 636122749,
+      "reported_token_delta": 573
+    },
+    {
+      "baseline_index": 7,
+      "candidate_index": 6,
+      "quality_eligible": true,
+      "successful_execution_delta_nanos": -88151999,
+      "reported_token_delta": -22
+    },
+    {
+      "baseline_index": 8,
+      "candidate_index": 9,
+      "quality_eligible": true,
+      "successful_execution_delta_nanos": -1585766583,
+      "reported_token_delta": -548
+    },
+    {
+      "baseline_index": 11,
+      "candidate_index": 10,
+      "quality_eligible": true,
+      "successful_execution_delta_nanos": null,
+      "reported_token_delta": -29
+    }
+  ],
+  "replay": {
+    "state": "matched",
+    "changed_attempt_indexes": []
+  }
+}

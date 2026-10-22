@@ -663,6 +663,48 @@ func TestMergeCheckReview(t *testing.T) {
 		r.requirePass(t, "reviewing agent: codex (record at "+headCommitSHA+")")
 	})
 
+	t.Run("record then merge-of-main with a file list over the Linux argv limit", func(t *testing.T) {
+		// GitHub's files payload carries each file's patch; a 200 KiB list must not be
+		// handed to jq as one argv string (Linux MAX_ARG_STRLEN is 128 KiB, #122).
+		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		st.files = strings.Replace(st.files, `"filename":"scripts/x.sh",`,
+			`"filename":"scripts/x.sh","patch":"`+strings.Repeat("+x", 100<<10)+`",`, 1)
+		if len(st.files) <= 128<<10 {
+			t.Fatalf("files payload is %d bytes; the case needs more than 128 KiB", len(st.files))
+		}
+		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 2, mergeMainSHA)
+		st.commits = listJSON(
+			prCommitJSON(headCommitSHA, "feat: add script", baseCommitSHA),
+			prCommitJSON(mergeMainSHA, "Merge branch 'main' into claude/feat", headCommitSHA, mainTipSHA),
+		)
+		st.commitDetails = map[string]string{
+			mergeMainSHA: commitDetailJSON(mergeMainSHA, "Merge branch 'main' into claude/feat",
+				[]string{headCommitSHA, mainTipSHA}, "internal/other/main_only.go"),
+		}
+		runMergeCheck(t, st, "12").requirePass(t, "reviewing agent: codex (record at "+headCommitSHA+")")
+	})
+
+	t.Run("record with a commit list over the Linux argv limit", func(t *testing.T) {
+		// Full commit objects run to about 4 KB each, so a branch with a few dozen
+		// commits must not reach the record filter as one argv string (#122).
+		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
+		const filler = 40
+		commits := make([]string, 0, filler+1)
+		parent := baseCommitSHA
+		for i := 0; i < filler; i++ {
+			sha := fmt.Sprintf("%040x", i+1)
+			commits = append(commits, prCommitJSON(sha, "chore: filler "+strings.Repeat("x", 4<<10), parent))
+			parent = sha
+		}
+		commits = append(commits, prCommitJSON(headCommitSHA, "feat: add script", parent))
+		st.commits = listJSON(commits...)
+		if len(st.commits) <= 128<<10 {
+			t.Fatalf("commits payload is %d bytes; the case needs more than 128 KiB", len(st.commits))
+		}
+		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, filler+1, headCommitSHA)
+		runMergeCheck(t, st, "12").requirePass(t, "reviewing agent: codex (record at "+headCommitSHA+")")
+	})
+
 	t.Run("record then content commit", func(t *testing.T) {
 		st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
 		st.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 2, contentCommitSHA)

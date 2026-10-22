@@ -14,7 +14,7 @@
     "baseline_sha256": "b595bcb7f0070c9a5eaa7ae9a85468f2e9b2cb4c005aeda4494c2768573df353",
     "candidate_sha256": "5b995f0944f3d441fd11aa5d46531e170e1d3dd1387b0b1e378ed1d9f0de0981",
     "runner_sha256": "087bf5ca75c48138e467aae95a7822de0e76437105bbfdd2163148d047e445db",
-    "evaluator_sha256": "575f5ca48aa627281f5750d1d40430091722cf751f64db394d1384e75ada54d1",
+    "evaluator_sha256": "39776fe30a0e1633eb9ab02f3f6609dcdafeca03b2770b1d4865ce269ac72eea",
     "go_driver_sha256": "15ffb35e7eb03ea8de594435da97d22d884501ca88467c1feb3de7eb75146e75",
     "go_driver_version": "synthetic Go",
     "command_file_sha256": [
@@ -154,6 +154,10 @@
       "candidate/passed": 1
     },
     "successful_pair_mean_delta_nanos": 30,
+    "both_passed_source_bytes": {
+      "baseline": 43,
+      "candidate": 43
+    },
     "usage_pairs": 2,
     "missing_usage_pairs": 0,
     "total_token_delta": 20

@@ -272,6 +272,42 @@ func TestReportReplayAssociation(t *testing.T) {
 	}
 }
 
+// Original and replay differ only in discipline; passed and verdict are identical.
+// spec: openspec/specs/benchmark-reports/spec.md#Requirement: Explicit replay association and outcome
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
+func TestReportReplayDisciplineChange(t *testing.T) {
+	build := func(discipline string) ExperimentRun {
+		r := reportFixture()
+		cfg := r.Resolved.Experiment
+		cfg.Tasks = []string{"reuse-email"}
+		r.Resolved.Original, r.Resolved.Experiment = cfg, cfg
+		r.Resolved.ConfigSHA = jsonDigest(cfg)
+		r.Resolved.EvaluatorSHA = evaluatorDigest(cfg.Tasks)
+		r.Resolved.Schedule = Schedule(cfg)
+		for i := range r.Attempts {
+			a := &r.Attempts[i]
+			a.Request = newAdapterRequest(cfg, r.Resolved.Schedule[i])
+			a.Status = "failed"
+			a.Grade = CandidateEvaluation{Supported: true, Verdict: "failed", Behavior: "failed", Discipline: "passed"}
+		}
+		r.Attempts[0].Grade.Discipline = discipline
+		r.Digest = runDigest(r)
+		return r
+	}
+	original := build("passed")
+	same, err := projectExperimentReport(original, &reportSnapshot{Run: build("passed")})
+	if err != nil || same.Replay.State != "matched" {
+		t.Fatalf("identical replay: %+v %v", same.Replay, err)
+	}
+	got, err := projectExperimentReport(original, &reportSnapshot{Run: build("failed")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Replay.State != "different-results" || len(got.Replay.ChangedAttempts) != 1 || got.Replay.ChangedAttempts[0] != 0 {
+		t.Fatalf("discipline-only replay change not reported: %+v", got.Replay)
+	}
+}
+
 // spec: openspec/specs/benchmark-reports/spec.md#Requirement: Honest accounting and scoped publication
 func TestReportHostileMetadata(t *testing.T) {
 	label := "</td>\n# WINNER | [click](https://bad) & \x1b\u202e"

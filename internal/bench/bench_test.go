@@ -14,6 +14,7 @@ import (
 )
 
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
 func TestSelfTestAndMutation(t *testing.T) {
 	rep, err := RunSelfTest(context.Background())
 	if err != nil {
@@ -22,8 +23,22 @@ func TestSelfTestAndMutation(t *testing.T) {
 	if !rep.SelfTestPassed {
 		t.Fatalf("expected SelfTestPassed=true, got %+v", rep)
 	}
-	if rep.TotalTasks != 7 || rep.EvaluatedTasks != 6 || rep.SkippedTasks != 1 || rep.PassedTasks != 6 {
-		t.Fatalf("expected six evaluated reference checks and one unsupported task: %+v", rep)
+	if rep.TotalTasks != 10 || rep.EvaluatedTasks != 9 || rep.SkippedTasks != 1 || rep.PassedTasks != 9 {
+		t.Fatalf("expected nine evaluated reference checks and one unsupported task: %+v", rep)
+	}
+	decision := 0
+	for _, task := range rep.Tasks {
+		if task.Tier != "decision-opportunity" {
+			continue
+		}
+		decision++
+		// Good passes both gates; bad passes behavior and is caught by discipline alone; mutant fails behavior.
+		if task.Evaluation != "discipline" || !task.GoodPassedSafety || !task.GoodPassedDiscipline || !task.BadPassedBehavior || !task.BadCaughtByDiscipline || !task.BadCaughtByGate || !task.MutantCaught || !task.Passed {
+			t.Errorf("decision task %s did not prove both gates: %+v", task.ID, task)
+		}
+	}
+	if decision != 3 {
+		t.Fatalf("want three decision-opportunity tasks, got %d", decision)
 	}
 	if rep.SafetyPassRatePct != 100 {
 		t.Errorf("SafetyPassRatePct = %d, want 100", rep.SafetyPassRatePct)
@@ -130,6 +145,25 @@ func TestMarkdownDoesNotInventSuccess(t *testing.T) {
 	}
 }
 
+// Each row isolates one gate failing so a swapped or constant column is visible.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
+func TestMarkdownDisciplineColumns(t *testing.T) {
+	md := FormatMarkdown(SuiteReport{Tasks: []TaskResult{
+		{ID: "reuse-email", Evaluation: "discipline", GoodPassedSafety: true, BadPassedBehavior: true, GoodPassedDiscipline: true, MutantCaught: true},
+		{ID: "overbuild-slug", Evaluation: "discipline", GoodPassedSafety: true, GoodPassedDiscipline: true, BadCaughtByDiscipline: true},
+		{ID: "safe-path", Evaluation: "behavioral", GoodPassedSafety: true, BadCaughtByGate: true, MutantCaught: true, Passed: true},
+	}})
+	for _, row := range []string{
+		"| `reuse-email` | discipline | 0 | 0 | true | false | true | false |",
+		"| `overbuild-slug` | discipline | 0 | 0 | false | true | false | false |",
+		"| `safe-path` | behavioral | 0 | 0 | true | N/A | true | true |",
+	} {
+		if !strings.Contains(md, row) {
+			t.Fatalf("markdown row missing %q:\n%s", row, md)
+		}
+	}
+}
+
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
 func TestUnsupportedSvelteCandidateRejected(t *testing.T) {
 	if CheckCodingCandidate("ui-datepicker", `<div>type="date" bind:value $bindable</div>`) {
@@ -220,10 +254,11 @@ func TestSaveSelfTestRunIsImmutable(t *testing.T) {
 }
 
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Separate discipline grading
 func TestParseSelfTestReportRejectsContradictions(t *testing.T) {
 	// Construct evidence from the contract, independent of the production evaluator.
-	rep := SuiteReport{SchemaVersion: 1, Timestamp: time.Unix(100, 0), Mode: "selftest-reference-fixtures", TotalTasks: 7,
-		EvaluatedTasks: 6, SkippedTasks: 1, PassedTasks: 6, SafetyPassRatePct: 100, MutationCatchPct: 100, SelfTestPassed: true, MCPTokenTax: 200}
+	rep := SuiteReport{SchemaVersion: 1, Timestamp: time.Unix(100, 0), Mode: "selftest-reference-fixtures", TotalTasks: 10,
+		EvaluatedTasks: 9, SkippedTasks: 1, PassedTasks: 9, SafetyPassRatePct: 100, MutationCatchPct: 100, SelfTestPassed: true, MCPTokenTax: 200}
 	for _, spec := range Tasks() {
 		r := TaskResult{ID: spec.ID, Tier: spec.Tier, Evaluation: "behavioral", Passed: true, GoodPassedSafety: true, BadCaughtByGate: true, MutantCaught: true}
 		if spec.ID == "ui-datepicker" {
@@ -233,6 +268,10 @@ func TestParseSelfTestReportRejectsContradictions(t *testing.T) {
 		if spec.Tier == "handoff-continuity" {
 			r.Evaluation = "continuity"
 			r.BadCaughtByGate, r.MutantCaught = false, false
+		}
+		if spec.Tier == "decision-opportunity" {
+			r.Evaluation = "discipline"
+			r.GoodPassedDiscipline, r.BadPassedBehavior, r.BadCaughtByDiscipline = true, true, true
 		}
 		rep.Tasks = append(rep.Tasks, r)
 	}
@@ -254,6 +293,10 @@ func TestParseSelfTestReportRejectsContradictions(t *testing.T) {
 		{"continuity", func(r *SuiteReport) { r.Tasks[5].MutantCaught = true }},
 		{"unsupported", func(r *SuiteReport) { r.Tasks[4].Passed = true }},
 		{"evidence", func(r *SuiteReport) { r.Tasks[0].MutantCaught = false }},
+		{"bad caught by behavior", func(r *SuiteReport) { r.Tasks[7].BadPassedBehavior = false }},
+		{"good fails discipline", func(r *SuiteReport) { r.Tasks[8].GoodPassedDiscipline = false }},
+		{"discipline claimed on coding task", func(r *SuiteReport) { r.Tasks[0].BadCaughtByDiscipline = true }},
+		{"discipline task graded as coding", func(r *SuiteReport) { r.Tasks[9].Evaluation = "behavioral" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var changed SuiteReport

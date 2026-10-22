@@ -1,0 +1,1 @@
+Return a correct, minimal Go implementation. Follow the requested JSON schema.

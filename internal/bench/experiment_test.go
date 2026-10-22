@@ -121,6 +121,10 @@ func TestCommandAdapterHelper(_ *testing.T) {
 		os.Exit(0)
 	}
 	response := AdapterResponse{Version: 1, Source: "package safepath"}
+	if source, ok := strings.CutPrefix(req.Instructions, "source:"); ok && mode == "fixture" {
+		_ = json.NewEncoder(os.Stdout).Encode(AdapterResponse{Version: 1, Source: source})
+		os.Exit(0)
+	}
 	if mode == "fixture" {
 		for _, spec := range Tasks() {
 			if spec.ID == req.Trial.Task {

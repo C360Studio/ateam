@@ -103,6 +103,8 @@ type reportAttempt struct {
 	GradeNanos int64        `json:"grading_nanos"`
 	Usage      *reportUsage `json:"usage"`
 	SourceSHA  string       `json:"source_sha256"`
+	Behavior   string       `json:"behavior,omitempty"`
+	Discipline string       `json:"discipline_gate,omitempty"`
 }
 
 type reportPair struct {
@@ -270,6 +272,7 @@ func projectExperimentReport(run ExperimentRun, replay *reportSnapshot) (experim
 		if a.Status == "passed" || a.Status == "failed" {
 			pass := a.Status == "passed"
 			row.Passed = &pass
+			row.Behavior, row.Discipline = a.Grade.Behavior, a.Grade.Discipline
 			report.Counts.Graded++
 			if pass {
 				report.Counts.Passed++
@@ -318,7 +321,8 @@ func associateReportReplay(original ExperimentRun, replay *reportSnapshot) (repo
 	result.State = "matched"
 	for i, a := range original.Attempts {
 		b := replay.Run.Attempts[i]
-		if a.Status != b.Status || a.Grade.Supported != b.Grade.Supported || a.Grade.Passed != b.Grade.Passed || a.Grade.Verdict != b.Grade.Verdict {
+		if a.Status != b.Status || a.Grade.Supported != b.Grade.Supported || a.Grade.Passed != b.Grade.Passed || a.Grade.Verdict != b.Grade.Verdict ||
+			a.Grade.Behavior != b.Grade.Behavior || a.Grade.Discipline != b.Grade.Discipline {
 			result.State = "different-results"
 			result.ChangedAttempts = append(result.ChangedAttempts, i)
 		}

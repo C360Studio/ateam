@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "name": "decision-tier-v1-candidate",
+  "files": [
+    "baseline.md",
+    "ateam.md"
+  ]
+}

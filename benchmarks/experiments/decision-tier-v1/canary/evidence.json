@@ -1,0 +1,21 @@
+{
+  "exporter_source_sha256": "9c141e72627ce81fdb13bac8c183822390dea78bb4cb335549ad9e0daadb5cf5",
+  "exporter_source_scope": "report.go, report_markdown.go, report_files.go; library implementation only, not a whole-binary or transitive dependency attestation",
+  "kind": "ateam.benchmark-report-evidence",
+  "version": 1,
+  "original": {
+    "file_sha256": "84caba30a1db7075f95a4f1fafc14831d763bc33b1a64a5be47031543f64029b",
+    "run_sha256": "bf46224eb8d0fa5c37617c1b06f00d2a2ae1bf39e2f54a9af2f1cd3d6246a82e"
+  },
+  "replay": {
+    "file_sha256": "46e1f1efe3522652dc7d99ea3d891239f2e00f37ae62c8204b774f43542bbb4a",
+    "run_sha256": "d01e126c2a9a27f52438c36caa9d2036e89a27744d26e242fe326bd7d518db73"
+  },
+  "files_sha256": {
+    "results.json": "00a37bedc562856852847a812e1d7408292e5d80cabdf83c029b137182c7ccf8",
+    "results.md": "1a9a447bb4485543a049d6b93af78bf519ded1e23fa02b10c8e8cb7dc6fcc33a"
+  },
+  "originals_included": false,
+  "availability": "Original and replay artifacts are not included; rederivation requires separately retained originals and the matching evaluator version.",
+  "limitation": "Hashes detect changes, not authorship or independent execution. Review metadata before publication; field omission is not universal secret scrubbing."
+}
