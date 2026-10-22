@@ -1466,8 +1466,11 @@ func TestReadDiskBinaryBuildOutlivesTheOldTwoSecondBudget(t *testing.T) {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The marker path reaches the script through the environment, never through
+	// shell source: TMPDIR may contain spaces or apostrophes.
 	started := filepath.Join(dir, "started")
-	script := "#!/bin/sh\n: > '" + started + "'\nsleep 3\necho 'ateam v0.1.0 (e37563b)'\n" // quoted: TMPDIR may contain spaces
+	t.Setenv("ATEAM_TEST_STARTED", started)
+	script := "#!/bin/sh\n: > \"$ATEAM_TEST_STARTED\"\nsleep 3\necho 'ateam v0.1.0 (e37563b)'\n"
 	if err := os.WriteFile(filepath.Join(binDir, "ateam"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
