@@ -42,4 +42,3 @@
 
 - **WHEN** an event has no supported lifecycle mapping
 - **THEN** the hook returns no context
-
