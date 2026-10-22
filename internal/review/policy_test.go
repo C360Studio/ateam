@@ -165,6 +165,7 @@ func FuzzPolicyJSON(f *testing.F) {
 	f.Add([]byte(`{"version":1,"models":[]}`))
 	f.Add([]byte(`{"version":1,"version":1}`))
 	f.Add([]byte(`{"models":[{"id":"inherit"}]}`))
+	f.Add([]byte(tiersPolicy))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		p, err := ParsePolicy(data)
 		if err != nil {
@@ -251,5 +252,11 @@ func TestValidateTiersPolicy(t *testing.T) {
 	full.EffortBands = EffortBands{Claude: Bands{High: []string{"max"}}, Codex: Bands{High: []string{"max"}}, Gemini: Bands{High: []string{"high"}}}
 	if _, err := ParsePolicy(mustJSON(t, full)); err != nil {
 		t.Fatalf("policy with models and tiers must parse: %v", err)
+	}
+	// Bands supplied without tiers are still validated (Codex review of b44186d).
+	orphan := testPolicy()
+	orphan.EffortBands = EffortBands{Claude: Bands{Low: []string{"high"}, High: []string{"high"}}, Codex: Bands{High: []string{"max"}}, Gemini: Bands{High: []string{"high"}}}
+	if _, err := ParsePolicy(mustJSON(t, orphan)); err == nil {
+		t.Fatal("contradictory effort bands on a policy without tiers must be rejected")
 	}
 }

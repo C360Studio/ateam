@@ -10,11 +10,11 @@ import (
 // Policy declares model relationships; model names and effort never imply rank.
 type Policy struct {
 	Version        int      `json:"version"`
-	Models         []Model  `json:"models"`
+	Models         []Model  `json:"models,omitempty"`
 	Routes         Routes   `json:"routes"`
-	Owners         []string `json:"owners"`
-	ReviewAuthors  []string `json:"review_authors"`
-	RequiredChecks []string `json:"required_checks"`
+	Owners         []string `json:"owners,omitempty"`
+	ReviewAuthors  []string `json:"review_authors,omitempty"`
+	RequiredChecks []string `json:"required_checks,omitempty"`
 	CrossProvider  bool     `json:"cross_provider"`
 	// ModelTiers and EffortBands rank runs for merge-check (ADR 0002). A policy may
 	// declare only these; Models, Routes and the lists above serve the dormant
@@ -42,6 +42,15 @@ type Bands struct {
 	Low  []string `json:"low,omitempty"`
 	Mid  []string `json:"mid,omitempty"`
 	High []string `json:"high,omitempty"`
+}
+
+// HasBands reports whether the policy maps any native effort value.
+func (p Policy) HasBands() bool {
+	n := 0
+	for _, b := range []Bands{p.EffortBands.Claude, p.EffortBands.Codex, p.EffortBands.Gemini} {
+		n += len(b.Low) + len(b.Mid) + len(b.High)
+	}
+	return n > 0
 }
 
 // HasRoutes reports whether the policy configures the dormant route/check path.
@@ -98,7 +107,8 @@ func ValidatePolicy(p Policy) error {
 	if p.Version != 1 {
 		return fmt.Errorf("unsupported policy version %d", p.Version)
 	}
-	if p.HasTiers() {
+	// Supplied tiers or bands are validated together, with or without models.
+	if p.HasTiers() || p.HasBands() {
 		if err := p.validateTiers(); err != nil {
 			return err
 		}

@@ -158,4 +158,3 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 
 - **WHEN** a tier entry lacks a supported provider prefix, appears in two tiers, a provider maps no effort values, an effort value repeats for one provider, or routes, owners, review authors or required checks appear without models
 - **THEN** the policy is rejected
-
