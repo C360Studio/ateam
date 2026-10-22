@@ -147,12 +147,13 @@ The authenticated dashboard API SHALL expose configured developer and reviewer m
 
 ### Requirement: Model tiers and effort bands policy
 
-ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `workhorse`, `light`, each a list of `claude:`, `codex:` or `gemini:` model names) and `effort_bands` (for each of `claude`, `codex` and `gemini`, native effort values listed under `low`, `mid` and `high`) per ADR 0002. A policy declaring only these SHALL be valid and SHALL NOT configure routes: `review route` and `review check` SHALL fail closed naming the missing routes, setup and doctor SHALL install and expect no route cards, and the dashboard SHALL report `unconfigured`. Tier entries SHALL be unique across tiers and name a supported provider. Each provider SHALL map at least one effort value, and no value SHALL appear twice for one provider.
+ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `workhorse`, `light`, each a list of `claude:`, `codex:` or `gemini:` model names) and `effort_bands` (for each of `claude`, `codex` and `gemini`, native effort values listed under `low`, `mid` and `high`) per ADR 0002. Tier entries SHALL be unique across tiers and name a supported provider. Each provider SHALL map at least one effort value, and no value SHALL appear twice for one provider.
 
 #### Scenario: Tiers-only policy
 
 - **WHEN** `.agents/review-policy.json` declares only `version`, `model_tiers`, `effort_bands` and `cross_provider`
 - **THEN** the policy parses, `ateam doctor --check` reports no review violations, and `ateam review route` exits non-zero stating that the policy declares model tiers only
+- **AND** the policy configures no routes: `review route` and `review check` fail closed naming the missing routes, setup and doctor install and expect no route cards, and the dashboard reports `unconfigured`
 
 #### Scenario: Malformed tiers
 

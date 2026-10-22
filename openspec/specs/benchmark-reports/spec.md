@@ -53,7 +53,13 @@ Optional retained replay evidence SHALL be validated and bound to original execu
 
 ### Requirement: Deterministic non-overwriting output and read-only checks
 
-Identical validated input bytes/options SHALL produce identical generated files. The caller SHALL provide a trusted destination parent stable during initial creation/open through identity capture; replacement in the portable mkdir-to-open gap is outside this guarantee. After that capture, output SHALL use anchored operations and detect destination replacement. Output SHALL use fixed filenames in an exclusively claimed new directory and SHALL not overwrite or delete unrelated data. Write/close failure or cancellation SHALL prevent successful completion. Check mode SHALL perform no writes, compare regenerated facts/provenance with stored generated files, refuse unsafe paths, and leave human interpretation alone.
+Identical validated input bytes/options SHALL produce identical generated files. Output SHALL use anchored operations after destination identity capture and fixed filenames in an exclusively claimed new directory and SHALL not overwrite or delete unrelated data. Write/close failure or cancellation SHALL prevent successful completion. Check mode SHALL perform no writes, compare regenerated facts/provenance with stored generated files, refuse unsafe paths, and leave human interpretation alone.
+
+#### Scenario: Destination parent trust boundary
+
+- **WHEN** the caller provides the destination parent
+- **THEN** that parent is trusted and stable during initial creation/open through identity capture, and replacement in the portable mkdir-to-open gap is outside this guarantee
+- **AND** after identity capture, output uses anchored operations and detects destination replacement
 
 #### Scenario: Existing or interrupted output
 
