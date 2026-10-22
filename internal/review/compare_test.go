@@ -51,6 +51,11 @@ func TestCompare(t *testing.T) {
 		{name: "loose model text", implementers: []string{"gemini:Gemini 4 Argon:HIGH"}, reviewer: "codex:GPT-6  Astra:low"},
 		{name: "unranked model passes with a note", implementers: []string{"claude:opus:high"}, reviewer: "codex:gpt-7:low", note: "unranked: codex (gpt-7, low)"},
 		{name: "unranked effort passes with a note", implementers: []string{"claude:opus:high"}, reviewer: "claude:opus:turbo", note: "an effort missing from effort_bands"},
+		// From the Codex review of 3fd18e9: the effort exception holds across unequal tiers, on either side.
+		{name: "unranked reviewer effort at a weaker tier", implementers: []string{"claude:opus:high"}, reviewer: "codex:gpt-6-sol:turbo", note: "an effort missing from effort_bands"},
+		{name: "unranked implementer effort above the reviewer tier", implementers: []string{"claude:opus:turbo"}, reviewer: "codex:gpt-6-sol:high", note: "an effort missing from effort_bands"},
+		{name: "unranked reviewer effort at a stronger tier keeps the note", implementers: []string{"claude:sonnet:high"}, reviewer: "codex:gpt-6-astra:turbo", note: "an effort missing from effort_bands"},
+		{name: "unranked implementer effort below the reviewer tier keeps the note", implementers: []string{"claude:haiku:turbo"}, reviewer: "codex:gpt-6-astra:high", note: "an effort missing from effort_bands"},
 		{name: "several implementers, one stronger than the reviewer", implementers: []string{"claude:haiku:max", "claude:sonnet:high"}, reviewer: "gemini:gemini-4-argon:medium", finding: "weaker than implementer claude (sonnet, high)"},
 		{name: "several implementers, all covered", implementers: []string{"claude:haiku:max", "claude:sonnet:medium"}, reviewer: "gemini:gemini-4-argon:medium"},
 		{name: "reviewer effort missing", implementers: []string{"claude:opus:high"}, reviewer: "codex:gpt-6-astra:", finding: "codex (gpt-6-astra) names no effort"},

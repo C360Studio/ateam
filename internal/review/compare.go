@@ -41,20 +41,17 @@ func (p Policy) Compare(implementers []Run, reviewer Run) (findings, notes []str
 	rb, rbok := p.band(reviewer)
 	for _, dev := range implementers {
 		dt, dtok := p.tier(dev)
+		db, dbok := p.band(dev)
+		// ADR 0002 rule 2: an unmapped model or effort passes with a note whatever
+		// the tiers, so both are checked before any tier comparison.
 		switch {
 		case !rtok || !dtok:
 			notes = append(notes, fmt.Sprintf("unranked: %s against %s; a model missing from model_tiers passes", describe(reviewer), describe(dev)))
-			continue
-		case rt > dt:
-			continue
-		case rt < dt:
-			findings = append(findings, fmt.Sprintf("reviewer %s is %s tier, weaker than implementer %s at %s tier", describe(reviewer), tierNames[rt], describe(dev), tierNames[dt]))
-			continue
-		}
-		db, dbok := p.band(dev)
-		switch {
 		case !rbok || !dbok:
 			notes = append(notes, fmt.Sprintf("unranked: %s against %s; an effort missing from effort_bands passes", describe(reviewer), describe(dev)))
+		case rt > dt:
+		case rt < dt:
+			findings = append(findings, fmt.Sprintf("reviewer %s is %s tier, weaker than implementer %s at %s tier", describe(reviewer), tierNames[rt], describe(dev), tierNames[dt]))
 		case rb < db:
 			findings = append(findings, fmt.Sprintf("reviewer %s is %s tier at %s band, weaker than implementer %s at %s band", describe(reviewer), tierNames[rt], bandNames[rb], describe(dev), bandNames[db]))
 		}
