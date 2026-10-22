@@ -38,3 +38,7 @@ Every attempt retained complete provider usage; no retries, replacements, timeou
 ## Not claimed
 
 Three tasks and six pairs cannot establish significance, equivalence or general ROI. The discipline gate reads candidate syntax only (see PR #114 residual risk). Mercury results do not transfer to other models. Raw native traces, sources and provider responses stay private under `benchmarks/runs/`.
+
+## Grader patch after the cohort
+
+These exports were recorded with the grader at `70334aa` (evaluator `2a93e1b6…`) and are left unchanged. Codex review at `57ab500` then found two grading defects, both fixed in `ef2f887`. First, compiler diagnostics reported only in the protected `existing.go` (for example a missing or string-typed `MaxLen`) were recorded as grading errors and dropped from quality comparison; they are now failed attempts. Second, the `propagate-limit` test accepted `var LengthError error`, because `errors.Is(nil, nil)` is true; it now requires a non-nil sentinel and a non-nil error for invalid lengths. Re-evaluating the 20 retained cohort sources with the fixed grader (private, not committed): `re-evaluated 20 sources; 0 outcomes changed`. Every behavior, discipline and pass outcome matches the recorded grade. The committed exports still name the earlier evaluator digest, so the fixed binary reports `evaluator mismatch` for them.
