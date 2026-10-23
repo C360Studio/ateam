@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,22 @@ func TestServerEndpoints(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/handoff status = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4b. #135: a different session's handoff into the same slot is refused (409); ?force=1 replaces it.
+	for _, tc := range []struct {
+		query string
+		want  int
+	}{{"", http.StatusConflict}, {"?force=1", http.StatusOK}} {
+		body, _ := json.Marshal(state.Handoff{Goal: "Other session", SessionID: "web-B"})
+		req = httptest.NewRequest(http.MethodPost, "/api/handoff"+tc.query, bytes.NewReader(body))
+		req.RemoteAddr = "127.0.0.1:12345"
+		req.Header.Set("Content-Type", "application/json")
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.want || (tc.want == http.StatusConflict && !strings.Contains(rec.Body.String(), "is held by")) {
+			t.Fatalf("POST /api/handoff%s status = %d, want %d: %s", tc.query, rec.Code, tc.want, rec.Body.String())
+		}
 	}
 
 	// 5. POST /api/mode

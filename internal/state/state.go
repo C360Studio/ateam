@@ -715,6 +715,18 @@ func (st *State) SetHandoff(h Handoff) {
 	if st.Handoffs == nil && st.LastHandoff != nil {
 		st.migrateLegacyLastHandoff()
 	}
+	key := st.normalizeHandoffSlot(&h)
+	st.syncWorktreeHead(h.Branch, h.CheckpointSHA)
+	if st.Handoffs == nil {
+		st.Handoffs = make(map[string]*Handoff)
+	}
+	cp := h
+	st.Handoffs[key] = &cp
+	st.LastHandoff = &cp
+}
+
+// normalizeHandoffSlot fills h's branch and agent the way SetHandoff stores them and returns its slot key.
+func (st *State) normalizeHandoffSlot(h *Handoff) string {
 	branch := strings.TrimSpace(h.Branch)
 	if branch == "" {
 		branch = strings.TrimSpace(st.Git.Branch)
@@ -728,14 +740,56 @@ func (st *State) SetHandoff(h Handoff) {
 		agent = st.EffectiveAgent()
 	}
 	h.Agent = agent
-	st.syncWorktreeHead(branch, h.CheckpointSHA)
-	if st.Handoffs == nil {
-		st.Handoffs = make(map[string]*Handoff)
+	return HandoffSlotKey(agent, branch)
+}
+
+// AutoSaveGoal begins the goal of every pre-compact fallback handoff.
+const AutoSaveGoal = "UNKNOWN — Auto-saved before context compaction"
+
+// HoldsSlotAgainst reports whether h is a fresh deliberate handoff that a write from
+// sessionID must not replace: not stale, not a pre-compact auto-save, and from a
+// different or unknown session (#124, #135).
+func (h *Handoff) HoldsSlotAgainst(sessionID string) bool {
+	if h == nil || h.Stale || strings.HasPrefix(h.Goal, AutoSaveGoal) {
+		return false
 	}
-	cp := h
-	key := HandoffSlotKey(agent, branch)
-	st.Handoffs[key] = &cp
-	st.LastHandoff = &cp
+	return h.SessionID == "" || sessionID == "" || h.SessionID != sessionID
+}
+
+// HandoffSlotHeldError is SetHandoffGuarded's refusal: Slot holds Holder, another session's fresh handoff.
+type HandoffSlotHeldError struct {
+	Slot   string
+	Holder Handoff
+}
+
+func (e *HandoffSlotHeldError) Error() string {
+	holder := "an unknown session"
+	if e.Holder.SessionID != "" {
+		holder = "session " + e.Holder.SessionID
+	}
+	return fmt.Sprintf("handoff slot %s is held by %s (goal: %q, %s); force replaces it, or hand off from a dedicated worktree",
+		e.Slot, holder, e.Holder.Goal, formatHandoffRelativeAge(e.Holder.UpdatedAt))
+}
+
+// SetHandoffGuarded records a deliberate handoff like SetHandoff, but unless force it
+// refuses a slot that HoldsSlotAgainst h's session and returns *HandoffSlotHeldError (#135).
+func (st *State) SetHandoffGuarded(h Handoff, force bool) error {
+	if st == nil {
+		return nil
+	}
+	if !force {
+		if st.Handoffs == nil && st.LastHandoff != nil {
+			st.migrateLegacyLastHandoff()
+		}
+		st.RefreshHandoffStaleness()
+		probe := h
+		key := st.normalizeHandoffSlot(&probe)
+		if cur := st.Handoffs[key]; cur.HoldsSlotAgainst(h.SessionID) {
+			return &HandoffSlotHeldError{Slot: key, Holder: *cur}
+		}
+	}
+	st.SetHandoff(h)
+	return nil
 }
 
 func (st *State) effectiveSessionID() string {

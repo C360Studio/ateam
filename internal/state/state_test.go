@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1516,6 +1517,61 @@ func TestDiskBuildFailureIsNotReportedAsTheRunningBuild(t *testing.T) {
 			}
 			if summary := BuildPickupSummary(st); !strings.Contains(summary, "build="+tc.want+" mcp=7606b7e") {
 				t.Fatalf("pickup header does not show build=%s:\n%s", tc.want, summary)
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestSetHandoffGuardedRefusesAnotherSessionsFreshHandoff(t *testing.T) {
+	// #135: a deliberate handoff must not silently replace a fresh one from a
+	// different or unknown session in the same agent@branch slot.
+	held := Handoff{Goal: "session A goal", Agent: "claude", Branch: "main", CheckpointSHA: "1111111", UpdatedAt: time.Now().UTC()}
+	for _, tc := range []struct {
+		name         string
+		holder       string // existing slot owner; "-" = empty slot
+		holderGoal   string
+		holderStale  bool
+		writer       string
+		force        bool
+		wantRefusal  bool
+		wantInSlotIs string
+	}{
+		{"different session", "A", "", false, "B", false, true, "session A goal"},
+		{"unknown writer", "A", "", false, "", false, true, "session A goal"},
+		{"unknown holder", "", "", false, "B", false, true, "session A goal"},
+		{"different session forced", "A", "", false, "B", true, false, "B goal"},
+		{"same session", "A", "", false, "A", false, false, "B goal"},
+		{"empty slot", "-", "", false, "B", false, false, "B goal"},
+		{"stale holder", "A", "", true, "B", false, false, "B goal"},
+		{"auto-save holder", "A", AutoSaveGoal, false, "B", false, false, "B goal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := defaultState()
+			st.Git.Branch = "main"
+			st.Git.HeadSHA = "1111111"
+			if tc.holder != "-" {
+				h := held
+				h.SessionID = tc.holder
+				if tc.holderGoal != "" {
+					h.Goal = tc.holderGoal
+				}
+				if tc.holderStale {
+					// HEAD moved since the holder's checkpoint: RefreshHandoffStaleness marks it stale.
+					h.CheckpointSHA = "2222222"
+				}
+				st.SetHandoff(h)
+			}
+			err := st.SetHandoffGuarded(Handoff{Goal: "B goal", Agent: "claude", SessionID: tc.writer, CheckpointSHA: "1111111", UpdatedAt: time.Now().UTC()}, tc.force)
+			var refusal *HandoffSlotHeldError
+			if gotRefusal := errors.As(err, &refusal); gotRefusal != tc.wantRefusal || (err != nil && !gotRefusal) {
+				t.Fatalf("SetHandoffGuarded err = %v, want refusal=%v", err, tc.wantRefusal)
+			}
+			if got := st.Handoffs["claude@main"].Goal; got != tc.wantInSlotIs {
+				t.Fatalf("slot goal = %q, want %q", got, tc.wantInSlotIs)
+			}
+			if tc.wantRefusal && (!strings.Contains(err.Error(), "handoff slot claude@main is held by") || !strings.Contains(err.Error(), `"session A goal"`)) {
+				t.Fatalf("refusal does not name the slot, holder and goal: %v", err)
 			}
 		})
 	}

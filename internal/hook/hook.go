@@ -16,8 +16,6 @@ import (
 
 var inspectClientMCP = bootstrap.InspectClientMCPProcesses
 
-const autoSaveGoal = "UNKNOWN — Auto-saved before context compaction"
-
 // Input represents the normalized JSON payload passed on stdin by Claude, Codex, Gemini, or Antigravity hooks.
 type Input struct {
 	HookEventName  string `json:"hook_event_name,omitempty"`
@@ -221,7 +219,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 				curHandoff = cur.LastHandoff
 			}
 			foreignSession := curHandoff != nil && (curHandoff.SessionID == "" || sessionID == "" || curHandoff.SessionID != sessionID)
-			if foreignSession && !curHandoff.Stale && !strings.HasPrefix(curHandoff.Goal, autoSaveGoal) {
+			if curHandoff.HoldsSlotAgainst(sessionID) {
 				// #124: the slot is keyed agent@branch, so a fresh handoff here may be another
 				// session's deliberate one; an auto-save must not replace it. Another auto-save
 				// carries nothing worth keeping and is replaced as before.
@@ -233,7 +231,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 			}
 			if curHandoff == nil || curHandoff.Stale || foreignSession {
 				cur.SetHandoff(state.Handoff{
-					Goal:          autoSaveGoal,
+					Goal:          state.AutoSaveGoal,
 					Addresses:     fmt.Sprintf("branch %s, SHA %s", cur.Git.Branch, cur.Git.HeadSHA),
 					Constraints:   fmt.Sprintf("%d active holds, %d shortcuts", len(cur.Holds), len(cur.Shortcuts)),
 					DoneWhen:      "Run task verify and reconcile via /pickup",
