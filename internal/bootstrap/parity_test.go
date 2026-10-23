@@ -340,7 +340,7 @@ func TestDiskBuildStatusForDoctor(t *testing.T) {
 	// #121: doctor reports the disk build, and warns when a binary exists but its build cannot be read.
 	for _, tc := range []struct {
 		name, script, want string
-		warn             bool
+		warn               bool
 	}{
 		{"no binary", "", "absent", false},
 		{"probe exits non-zero", "#!/bin/sh\nexit 1\n", "unreadable", true},
