@@ -152,6 +152,12 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 - **THEN** `.ateam/state.json` stores each handoff in `handoffs["<agent>@<branch>"]` (with `agent` resolved from `--agent`/`agent`, `ATEAM_AGENT`, the active writer lease, or branch prefix) while keeping `last_handoff` aliased to the current session's `<agent>@<branch>` slot
 - **AND** `BuildPickupSummary` drops stale entries from `handoffs` per entry, prints the current session's `<agent>@<branch>` handoff first (`Last Handoff:\n...` or `Last Handoff: none for <agent>@<branch>`), and prints one deterministic line per other live handoff (`other handoffs: <agent>@<branch> (<age>, PR #<n>)`)
 
+#### Scenario: A deliberate handoff does not replace another session's fresh handoff
+
+- **WHEN** `ateam state handoff`, `ateam_state(action="handoff")`, or the HTTP API records a handoff into a slot that holds a non-stale handoff which is not a pre-compact auto-save and belongs to a different or unknown session
+- **THEN** the write is refused and the slot is unchanged, no PR comment is posted, and the refusal names the slot, the holding session, its goal and its age (CLI exit 2, MCP tool error, HTTP 409)
+- **AND** `--force` (CLI), `force: true` (MCP), or `?force=1` (HTTP) replaces it
+
 ### Requirement: Fast Git identity across worktrees
 
 Git identity reads SHALL resolve loose and packed refs, detached HEADs, and linked-worktree gitdir/commondir pointers, returning the branch and seven-character commit identity.

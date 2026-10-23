@@ -179,3 +179,31 @@ func TestMCPPickupBuildProvenanceAndStaleBinaryWarning(t *testing.T) {
 		t.Fatalf("expected MCP process registry to be cleaned up after Serve exits, got: %+v", live)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestMCPHandoffRefusesAnotherSessionsFreshHandoff(t *testing.T) {
+	// #135: the MCP handoff is a tool error naming the holder; force replaces it.
+	dir := t.TempDir()
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"handoff","agent":"claude","session_id":"mcp-A","goal":"goal A","post":false}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"handoff","agent":"claude","session_id":"mcp-B","goal":"goal B","post":false}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"handoff","agent":"claude","session_id":"mcp-B","goal":"goal C","post":false,"force":true}}}`,
+	}, "\n") + "\n"
+	var out bytes.Buffer
+	if err := Serve(context.Background(), dir, strings.NewReader(input), &out); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("got %d responses, want 3:\n%s", len(lines), out.String())
+	}
+	if !strings.Contains(lines[1], `"isError":true`) || !strings.Contains(lines[1], "is held by session mcp-A") {
+		t.Fatalf("session B handoff was not refused naming mcp-A: %s", lines[1])
+	}
+	if !strings.Contains(lines[2], "Goal: goal C") {
+		t.Fatalf("force handoff did not record goal C: %s", lines[2])
+	}
+	if st, _ := state.Load(dir); st.Handoffs["claude@main"] == nil || st.Handoffs["claude@main"].Goal != "goal C" {
+		t.Fatalf("slot after force = %+v, want goal C", st.Handoffs["claude@main"])
+	}
+}

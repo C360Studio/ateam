@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -235,6 +236,7 @@ func runStateHandoff(repoRoot string, args []string) int {
 	agent := fs.String("agent", "", "optional agent identifier (claude, codex, gemini, agy)")
 	session := fs.String("session", "", "optional session identifier")
 	noPost := fs.Bool("no-post", false, "skip posting handoff comment to open PR on forge")
+	force := fs.Bool("force", false, "replace a fresh handoff another session holds in this agent@branch slot")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -265,16 +267,22 @@ func runStateHandoff(repoRoot string, args []string) int {
 	if strings.TrimSpace(ho.Addresses) == "" {
 		ho.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 	}
-	_ = state.ClearWriterLease(repoRoot)
 	if _, err := state.Update(repoRoot, func(cur *state.State) error {
+		if err := cur.SetHandoffGuarded(ho, *force); err != nil {
+			return err
+		}
 		cur.CurrentAgent = agentName
-		cur.SetHandoff(ho)
 		cur.Writer = nil
 		return nil
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "ateam state handoff: %v\n", err)
+		var held *state.HandoffSlotHeldError
+		if errors.As(err, &held) {
+			return 2
+		}
 		return 1
 	}
+	_ = state.ClearWriterLease(repoRoot)
 	prompt := state.FormatFiveFieldPrompt(ho)
 	if !*noPost && st.Forge.Provider != state.ForgeLocal {
 		if _, err := state.PostPRHandoffComment(context.Background(), repoRoot, st.Forge, ho.Branch, prompt); err != nil {

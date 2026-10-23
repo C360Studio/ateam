@@ -67,6 +67,7 @@ func Tools() []ToolDef {
 					"done_when":     map[string]any{"type": "string"},
 					"checks_to_run": map[string]any{"type": "string"},
 					"post":          map[string]any{"type": "boolean"},
+					"force":         map[string]any{"type": "boolean"},
 				},
 				"required": []string{"action"},
 			},
@@ -263,6 +264,7 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		DoneWhen       string `json:"done_when"`
 		ChecksToRun    string `json:"checks_to_run"`
 		Post           *bool  `json:"post"`
+		Force          bool   `json:"force"`
 		SessionID      string `json:"session_id"`
 		ConversationID string `json:"conversationId"`
 	}
@@ -305,15 +307,17 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		if h.Addresses == "" {
 			h.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 		}
-		_ = state.ClearWriterLease(root)
 		if _, err := state.Update(root, func(cur *state.State) error {
+			if err := cur.SetHandoffGuarded(h, args.Force); err != nil {
+				return err
+			}
 			cur.CurrentAgent = st.CurrentAgent
-			cur.SetHandoff(h)
 			cur.Writer = nil
 			return nil
 		}); err != nil {
 			return err.Error(), true
 		}
+		_ = state.ClearWriterLease(root)
 		prompt := state.FormatFiveFieldPrompt(h)
 		shouldPost := args.Post == nil || *args.Post
 		statusLine := "PR comment: skipped (post=false)"

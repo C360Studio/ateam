@@ -213,3 +213,26 @@ func TestRecoveryCommandRefreshesSupplyingForge(t *testing.T) {
 		t.Fatalf("advertised recovery %q succeeded without attempting the stale provider; label remains %q", command, afterFail.WorktreePRStatus(wt))
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestStateHandoffRefusesAnotherSessionsFreshHandoff(t *testing.T) {
+	// #135: the CLI refuses with exit 2 and leaves the slot alone; --force replaces it.
+	dir := t.TempDir()
+	t.Setenv("ATEAM_SESSION_ID", "cli-A")
+	if code := runStateHandoff(dir, []string{"--agent", "claude", "--goal", "goal A", "--no-post"}); code != 0 {
+		t.Fatalf("session A handoff = %d, want 0", code)
+	}
+	t.Setenv("ATEAM_SESSION_ID", "cli-B")
+	if code := runStateHandoff(dir, []string{"--agent", "claude", "--goal", "goal B", "--no-post"}); code != 2 {
+		t.Fatalf("session B handoff over A = %d, want 2", code)
+	}
+	if st, _ := state.Load(dir); st.Handoffs["claude@main"] == nil || st.Handoffs["claude@main"].Goal != "goal A" {
+		t.Fatalf("refused handoff changed the slot: %+v", st.Handoffs["claude@main"])
+	}
+	if code := runStateHandoff(dir, []string{"--agent", "claude", "--goal", "goal B", "--no-post", "--force"}); code != 0 {
+		t.Fatalf("session B handoff --force = %d, want 0", code)
+	}
+	if st, _ := state.Load(dir); st.Handoffs["claude@main"].Goal != "goal B" {
+		t.Fatalf("--force did not replace the slot: %+v", st.Handoffs["claude@main"])
+	}
+}

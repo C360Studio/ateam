@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -579,10 +580,17 @@ func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(ho.Addresses) == "" {
 			ho.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 		}
-		cur.SetHandoff(ho)
+		if err := cur.SetHandoffGuarded(ho, r.URL.Query().Get("force") == "1"); err != nil {
+			return err
+		}
 		saved = *cur.LastHandoff
 		return nil
 	})
+	var held *state.HandoffSlotHeldError
+	if errors.As(err, &held) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
