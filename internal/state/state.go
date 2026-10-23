@@ -2775,9 +2775,16 @@ func worktreeHandoffLines(st *State, wt Worktree) []string {
 	if len(slots) == 0 && wtState.LastHandoff != nil {
 		slots = map[string]*Handoff{HandoffSlotKey(wtState.LastHandoff.Agent, wtState.LastHandoff.Branch): wtState.LastHandoff}
 	}
+	// A detached worktree is listed with branch "" but its handoffs are recorded on "HEAD".
+	wtBranch := strings.TrimSpace(wt.Branch)
+	detached := wtBranch == "" || wtBranch == "HEAD"
 	keys := make([]string, 0, len(slots))
 	for key, h := range slots {
-		if h == nil || st.Handoffs[key] != nil || strings.TrimSpace(h.Branch) != strings.TrimSpace(wt.Branch) {
+		if h == nil || st.Handoffs[key] != nil {
+			continue
+		}
+		hBranch := strings.TrimSpace(h.Branch)
+		if (detached && hBranch != "" && hBranch != "HEAD") || (!detached && hBranch != wtBranch) {
 			continue
 		}
 		keys = append(keys, key)
@@ -2786,8 +2793,14 @@ func worktreeHandoffLines(st *State, wt Worktree) []string {
 	lines := make([]string, 0, len(keys))
 	for _, key := range keys {
 		h := slots[key]
+		// Judge staleness with this state's facts (worktree head, PR cards, session), not the
+		// worktree's saved flag alone: its cache may predate its PR closing (#136 review).
+		stale := h.Stale || (h.CheckpointSHA != "" && wt.Head != "" && !SameCommitSHA(h.CheckpointSHA, wt.Head))
+		if !detached && len(st.HandoffStaleReasonsFor(key, h)) > 0 {
+			stale = true
+		}
 		suffix := ""
-		if h.Stale || (h.CheckpointSHA != "" && wt.Head != "" && !SameCommitSHA(h.CheckpointSHA, wt.Head)) {
+		if stale {
 			suffix = ", stale"
 		}
 		lines = append(lines, fmt.Sprintf("%s (%s, %s%s)", cleanTaskText(h.Goal), key, formatHandoffRelativeAge(h.UpdatedAt), suffix))

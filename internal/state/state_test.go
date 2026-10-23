@@ -1633,3 +1633,46 @@ func lineWithPrefixIn(text, prefix string) string {
 	}
 	return ""
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPickupWorktreeHandoffsUseCurrentFactsAndDetachedBranches(t *testing.T) {
+	// #136 review: a worktree cache can predate its PR closing, and a detached
+	// worktree is listed with branch "" while its handoffs are recorded on "HEAD".
+	t.Setenv("ATEAM_SESSION_ID", "")
+	write := func(dir, agent, branch, sha, session, goal string) {
+		wt := defaultState()
+		wt.SetHandoff(Handoff{Goal: goal, Agent: agent, Branch: branch, CheckpointSHA: sha, SessionID: session, UpdatedAt: time.Now().UTC()})
+		if err := Save(dir, wt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	closed, same, detached := t.TempDir(), t.TempDir(), t.TempDir()
+	write(closed, "claude", "claude/closed", "eeeeeee", "other-session", "Finish PR #99")
+	write(same, "claude", "claude/same", "fffffff", "main-session", "Finish PR #98")
+	write(detached, "codex", "HEAD", "9999999", "review-session", "Review PR #97")
+
+	st := defaultState()
+	st.CurrentSessionID = "main-session"
+	st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
+	st.Cards = []BoardCard{
+		{ID: "PR-99", Type: "pr", Column: "done", Branch: "claude/closed"},
+		{ID: "PR-98", Type: "pr", Column: "done", Branch: "claude/same"},
+	}
+	st.Git.Worktrees = []Worktree{
+		{Path: t.TempDir(), Branch: "main", Head: "1111111"},
+		{Path: closed, Branch: "claude/closed", Head: "eeeeeee"},
+		{Path: same, Branch: "claude/same", Head: "fffffff"},
+		{Path: detached, Branch: "", Head: "9999999"},
+	}
+	summary := BuildPickupSummary(st)
+	for _, tc := range []struct{ prefix, want, notWant string }{
+		{"    handoff: Finish PR #99 (claude@claude/closed,", ", stale)", ""},
+		{"    handoff: Finish PR #98 (claude@claude/same,", ")", ", stale"},
+		{"    handoff: Review PR #97 (codex@HEAD,", ")", ", stale"},
+	} {
+		line := lineWithPrefixIn(summary, tc.prefix)
+		if line == "" || !strings.Contains(line, tc.want) || (tc.notWant != "" && strings.Contains(line, tc.notWant)) {
+			t.Fatalf("pickup line for %q = %q, want it present with %q and without %q:\n%s", tc.prefix, line, tc.want, tc.notWant, summary)
+		}
+	}
+}

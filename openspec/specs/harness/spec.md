@@ -160,8 +160,8 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 
 #### Scenario: Pickup shows handoffs recorded inside linked worktrees
 
-- **WHEN** `BuildPickupSummary` renders a worktree other than the current checkout whose own `.ateam/state.json` holds a handoff for that worktree's branch in a slot the current state does not hold
-- **THEN** pickup prints `    handoff: <goal> (<agent>@<branch>, <age>)` under that worktree's line, adding `, stale` when the handoff is marked stale or its checkpoint differs from the worktree head
+- **WHEN** `BuildPickupSummary` renders a worktree other than the current checkout whose own `.ateam/state.json` holds a handoff for that worktree's branch (`HEAD` for a detached worktree) in a slot the current state does not hold
+- **THEN** pickup prints `    handoff: <goal> (<agent>@<branch>, <age>)` under that worktree's line, adding `, stale` when the current state's staleness rules (saved flag, worktree head, closed or merged PR, same-session exception) find it stale
 - **AND** a missing or unreadable worktree state prints nothing, and storage of handoffs is unchanged
 
 ### Requirement: Fast Git identity across worktrees
