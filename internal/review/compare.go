@@ -22,12 +22,14 @@ func ParseRunSpec(s string) (Run, error) {
 
 // Compare applies ADR 0002 rule 2: the reviewer passes when it is not weaker than
 // every implementer, by tier and then by effort band. A missing effort or a weaker
-// reviewer is a finding; a model or effort the policy does not map is a note.
+// reviewer is a finding. A model or effort the policy does not map passes only when
+// both sides of the comparison are unmapped (owner ruling on #125, 2026-10-22): an
+// unranked run against a ranked one is a finding, since nothing shows it is not weaker.
 func (p Policy) Compare(implementers []Run, reviewer Run) (findings, notes []string) {
 	for _, r := range append([]Run{reviewer}, implementers...) {
 		switch {
-		case r.Effort == "":
-			findings = append(findings, fmt.Sprintf("%s names no effort", describe(r)))
+		case noEffort(r.Effort):
+			findings = append(findings, fmt.Sprintf("%s names no effort; an agent that cannot read its own effort names the band it was launched at", describe(r)))
 		case p.isModel(r.Provider, r.Effort):
 			// "(sonnet, opus)" read as pairs puts a model where the effort goes, and
 			// an unranked effort would pass it without comparing opus at all.
@@ -42,21 +44,64 @@ func (p Policy) Compare(implementers []Run, reviewer Run) (findings, notes []str
 	for _, dev := range implementers {
 		dt, dtok := p.tier(dev)
 		db, dbok := p.band(dev)
-		// ADR 0002 rule 2: an unmapped model or effort passes with a note whatever
-		// the tiers, so both are checked before any tier comparison.
 		switch {
+		case !rtok && !dtok:
+			notes = append(notes, fmt.Sprintf("unranked: %s against %s; neither model is in model_tiers, so they pass unranked", describe(reviewer), describe(dev)))
 		case !rtok || !dtok:
-			notes = append(notes, fmt.Sprintf("unranked: %s against %s; a model missing from model_tiers passes", describe(reviewer), describe(dev)))
-		case !rbok || !dbok:
-			notes = append(notes, fmt.Sprintf("unranked: %s against %s; an effort missing from effort_bands passes", describe(reviewer), describe(dev)))
+			findings = append(findings, p.unrankedFinding("model_tiers", reviewer, rtok, dev))
 		case rt > dt:
 		case rt < dt:
 			findings = append(findings, fmt.Sprintf("reviewer %s is %s tier, weaker than implementer %s at %s tier", describe(reviewer), tierNames[rt], describe(dev), tierNames[dt]))
+		case !rbok && !dbok:
+			notes = append(notes, fmt.Sprintf("unranked: %s against %s; neither effort is in effort_bands, so they pass unranked", describe(reviewer), describe(dev)))
+		case !rbok || !dbok:
+			findings = append(findings, p.unrankedFinding("effort_bands", reviewer, rbok, dev))
 		case rb < db:
 			findings = append(findings, fmt.Sprintf("reviewer %s is %s tier at %s band, weaker than implementer %s at %s band", describe(reviewer), tierNames[rt], bandNames[rb], describe(dev), bandNames[db]))
 		}
 	}
 	return findings, notes
+}
+
+// unrankedFinding names which side of a reviewer-implementer pair is missing from table,
+// with the tier entries its model text could have meant.
+func (p Policy) unrankedFinding(table string, reviewer Run, reviewerRanked bool, dev Run) string {
+	side, r := "reviewer", reviewer
+	if reviewerRanked {
+		side, r = "implementer", dev
+	}
+	msg := fmt.Sprintf("unranked: %s %s is not in %s, so it cannot be shown not weaker than the ranked side (reviewer %s, implementer %s)", side, describe(r), table, describe(reviewer), describe(dev))
+	if table == "model_tiers" {
+		if guesses := p.modelsLike(r); len(guesses) > 0 {
+			msg += fmt.Sprintf("; did you mean %s?", strings.Join(guesses, " or "))
+		}
+	}
+	return msg
+}
+
+// modelsLike lists the provider's tier entries whose loose text begins with r's model, so
+// a vague "GPT-6" suggests gpt-6-astra and its siblings.
+func (p Policy) modelsLike(r Run) []string {
+	prefix := r.Provider + ":" + loose(r.Model)
+	var out []string
+	for _, entries := range [][]string{p.ModelTiers.Frontier, p.ModelTiers.Workhorse, p.ModelTiers.Light} {
+		for _, entry := range entries {
+			if strings.HasPrefix(loose(entry), prefix) {
+				out = append(out, strings.TrimPrefix(entry, r.Provider+":"))
+			}
+		}
+	}
+	return out
+}
+
+// noEffort reports an empty effort or a placeholder for one: an agent writing
+// "unknown" has named no effort (#125). "none" is not here: it is a codex effort.
+func noEffort(effort string) bool {
+	switch strings.ToLower(strings.TrimSpace(effort)) {
+	case "", "unknown", "n/a", "na", "?":
+		return true
+	}
+	return false
 }
 
 func describe(r Run) string {

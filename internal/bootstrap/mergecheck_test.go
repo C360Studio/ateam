@@ -557,7 +557,8 @@ func TestMergeCheckReview(t *testing.T) {
 		for _, tc := range []struct{ body, says string }{
 			{"implemented-by: claude (opus, high)\nreviewed-by: codex (GPT-6 Astra, xhigh)\n", "strength: pass"},
 			{"implemented-by: claude (sonnet, medium, opus, high)\nreviewed-by: gemini (gemini-4-argon, high)\n", ""},
-			{"implemented-by: claude (opus, high)\nreviewed-by: codex (gpt-7, low)\n", "strength: note: unranked: codex (gpt-7, low)"},
+			// Owner ruling on #125: unranked passes only against unranked.
+			{"implemented-by: claude (opus-9, high)\nreviewed-by: codex (gpt-7, low)\n", "strength: note: unranked: codex (gpt-7, low)"},
 		} {
 			st := reviewGH(false, "User", tc.body, "scripts/x.sh")
 			st.policy = tiersPolicyJSON(false)
@@ -570,6 +571,8 @@ func TestMergeCheckReview(t *testing.T) {
 		}
 		for _, tc := range []struct{ body, says string }{
 			{"implemented-by: claude (opus, high)\nreviewed-by: claude (fable, medium)\n", "frontier tier at mid band, weaker than implementer claude (opus, high) at high band"},
+			{"implemented-by: claude (opus, high)\nreviewed-by: codex (gpt-7, low)\n", "unranked: reviewer codex (gpt-7, low) is not in model_tiers"},
+			{"implemented-by: claude (opus, unknown)\nreviewed-by: codex (GPT-6, unknown)\n", "names no effort"},
 			{"implemented-by: claude (opus)\nreviewed-by: codex (gpt-6-astra, high)\n", "claude (opus) names no effort"},
 			{"implemented-by: claude (opus, high)\nreviewed-by: codex (gpt-6-astra)\n", "codex (gpt-6-astra) names no effort"},
 			// The #108 multi-model form without efforts reads opus as an effort; it must not pass unranked.
