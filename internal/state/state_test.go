@@ -1576,3 +1576,141 @@ func TestSetHandoffGuardedRefusesAnotherSessionsFreshHandoff(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPickupShowsHandoffsRecordedInsideWorktrees(t *testing.T) {
+	// #136: each linked worktree has its own .ateam, so pickup from main must read them.
+	mainDir, fresh, stale, broken := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	write := func(dir, branch, sha, goal string) {
+		wt := defaultState()
+		wt.Git.Branch, wt.Git.HeadSHA = branch, sha
+		wt.SetHandoff(Handoff{Goal: goal, Agent: "claude", Branch: branch, CheckpointSHA: sha, UpdatedAt: time.Now().UTC()})
+		if err := Save(dir, wt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The current checkout's own file is skipped even when st no longer holds its (stale) slot.
+	write(mainDir, "main", "0000000", "current checkout goal")
+	write(fresh, "claude/fresh", "aaaaaaa", "fresh worktree goal")
+	write(stale, "claude/stale", "bbbbbbb", "stale worktree goal")
+	if err := os.MkdirAll(filepath.Join(broken, ".ateam"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(CacheFilePath(broken), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st := defaultState()
+	st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
+	st.Git.Worktrees = []Worktree{
+		{Path: mainDir, Branch: "main", Head: "1111111"},
+		{Path: fresh, Branch: "claude/fresh", Head: "aaaaaaa"},
+		{Path: stale, Branch: "claude/stale", Head: "ccccccc"}, // moved past its checkpoint
+		{Path: broken, Branch: "claude/broken", Head: "ddddddd"},
+	}
+	summary := BuildPickupSummary(st)
+	for _, want := range []string{
+		"  - claude/fresh (head=aaaaaaa",
+		"    handoff: fresh worktree goal (claude@claude/fresh, ",
+		"    handoff: stale worktree goal (claude@claude/stale, ",
+		", stale)",
+		"Last Handoff: none for ",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("pickup summary missing %q:\n%s", want, summary)
+		}
+	}
+	if strings.Contains(lineWithPrefixIn(summary, "    handoff: fresh worktree goal"), ", stale") || strings.Count(summary, "    handoff:") != 2 {
+		t.Fatalf("expected exactly the two worktree handoffs, fresh not marked stale:\n%s", summary)
+	}
+}
+
+func lineWithPrefixIn(text, prefix string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+	return ""
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPickupWorktreeHandoffsUseCurrentFactsAndDetachedBranches(t *testing.T) {
+	// #136 review: a worktree cache can predate its PR closing, and a detached
+	// worktree is listed with branch "" while its handoffs are recorded on "HEAD".
+	t.Setenv("ATEAM_SESSION_ID", "")
+	write := func(dir, agent, branch, sha, session, goal string) {
+		wt := defaultState()
+		wt.SetHandoff(Handoff{Goal: goal, Agent: agent, Branch: branch, CheckpointSHA: sha, SessionID: session, UpdatedAt: time.Now().UTC()})
+		if err := Save(dir, wt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	closed, same, detached := t.TempDir(), t.TempDir(), t.TempDir()
+	write(closed, "claude", "claude/closed", "eeeeeee", "other-session", "Finish PR #99")
+	write(same, "claude", "claude/same", "fffffff", "main-session", "Finish PR #98")
+	write(detached, "codex", "HEAD", "9999999", "review-session", "Review PR #97")
+
+	st := defaultState()
+	st.CurrentSessionID = "main-session"
+	st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
+	st.Cards = []BoardCard{
+		{ID: "PR-99", Type: "pr", Column: "done", Branch: "claude/closed"},
+		{ID: "PR-98", Type: "pr", Column: "done", Branch: "claude/same"},
+	}
+	st.Git.Worktrees = []Worktree{
+		{Path: t.TempDir(), Branch: "main", Head: "1111111"},
+		{Path: closed, Branch: "claude/closed", Head: "eeeeeee"},
+		{Path: same, Branch: "claude/same", Head: "fffffff"},
+		{Path: detached, Branch: "", Head: "9999999"},
+	}
+	summary := BuildPickupSummary(st)
+	for _, tc := range []struct{ prefix, want, notWant string }{
+		{"    handoff: Finish PR #99 (claude@claude/closed,", ", stale)", ""},
+		{"    handoff: Finish PR #98 (claude@claude/same,", ")", ", stale"},
+		{"    handoff: Review PR #97 (codex@HEAD,", ")", ", stale"},
+	} {
+		line := lineWithPrefixIn(summary, tc.prefix)
+		if line == "" || !strings.Contains(line, tc.want) || (tc.notWant != "" && strings.Contains(line, tc.notWant)) {
+			t.Fatalf("pickup line for %q = %q, want it present with %q and without %q:\n%s", tc.prefix, line, tc.want, tc.notWant, summary)
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPickupDetachedWorktreeHandoffStaleness(t *testing.T) {
+	// #136 second review: a detached worktree's handoff gets the same closed-PR and
+	// same-session rules, judged at that worktree's own head.
+	t.Setenv("ATEAM_SESSION_ID", "")
+	for _, tc := range []struct {
+		name, session, prColumn, wtHead string
+		wantStale                       bool
+	}{
+		{"open PR, other session", "other", "in-review", "9999999", false},
+		{"closed PR, other session", "other", "done", "9999999", true},
+		{"closed PR, same session at head", "current", "done", "9999999", false},
+		{"closed PR, same session, head moved", "current", "done", "8888888", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			wt := defaultState()
+			wt.SetHandoff(Handoff{Goal: "Review PR #97", Agent: "codex", Branch: "HEAD", CheckpointSHA: "9999999", SessionID: tc.session, UpdatedAt: time.Now().UTC()})
+			if err := Save(dir, wt); err != nil {
+				t.Fatal(err)
+			}
+			st := defaultState()
+			st.CurrentSessionID = "current"
+			st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
+			st.Cards = []BoardCard{{ID: "PR-97", Type: "pr", Column: tc.prColumn}}
+			st.Git.Worktrees = []Worktree{
+				{Path: t.TempDir(), Branch: "main", Head: "1111111"},
+				{Path: dir, Branch: "", Head: tc.wtHead},
+			}
+			summary := BuildPickupSummary(st)
+			line := lineWithPrefixIn(summary, "    handoff: Review PR #97 (codex@HEAD,")
+			if line == "" || strings.Contains(line, ", stale") != tc.wantStale {
+				t.Fatalf("detached handoff line = %q, want stale=%v:\n%s", line, tc.wantStale, summary)
+			}
+		})
+	}
+}

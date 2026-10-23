@@ -1,0 +1,7 @@
+## 1. Implementation
+
+- [x] 1.1 Read other worktrees' state in `writePickupWorktrees` and print their handoffs, skipping the current checkout and slots the current state already holds; missing or unreadable state is silent (#136).
+- [x] 1.2 `TestPickupShowsHandoffsRecordedInsideWorktrees` (fresh, HEAD-drifted, unreadable, current-checkout file). `task mutate:check` mutants, all `detection` at `state.go` sha256 `2a84e92e`: worktree read removed, HEAD-drift stale mark removed, current-checkout skip removed (#136).
+- [x] 1.3 Cost: `BuildPickupSummary` with ten worktree states measured at about 0.2 ms per call (1.9 ms under `-race`), inside the hook budget (#136).
+- [x] 1.4 Fix the Codex review of `d39c2b6`: staleness uses the current state's `HandoffStaleReasonsFor` (closed PR, worktree head, same-session exception), and a detached worktree (`branch ""`) matches handoffs recorded on `HEAD`. `TestPickupWorktreeHandoffsUseCurrentFactsAndDetachedBranches`; mutants dropping each fix both `detection` at `state.go` sha256 `863e4dfc` (#136).
+- [x] 1.5 Fix the Codex review of `8f18325`: a detached worktree's handoff gets the same closed-PR and same-session rules, judged at that worktree's own branch and head (`handoffStaleReasonsAt`). `TestPickupDetachedWorktreeHandoffStaleness` (open/other, closed/other, closed/same at head, closed/same moved); the previous commit's file and a by-name head lookup as mutants, both `detection` at `state.go` sha256 `64041407` (#136).

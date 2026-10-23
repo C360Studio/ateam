@@ -841,7 +841,11 @@ func (st *State) HandoffStaleReasonsFor(slotKey string, h *Handoff) []string {
 	if expectedBranch == "" {
 		expectedBranch = strings.TrimSpace(st.Git.Branch)
 	}
-	headSHA := st.headSHAForBranch(expectedBranch)
+	return st.handoffStaleReasonsAt(h, expectedBranch, st.headSHAForBranch(expectedBranch))
+}
+
+// handoffStaleReasonsAt applies the staleness rules to h for a checkout of expectedBranch at headSHA.
+func (st *State) handoffStaleReasonsAt(h *Handoff, expectedBranch, headSHA string) []string {
 	var reasons []string
 	headDrifted := h.CheckpointSHA != "" && headSHA != "" && !SameCommitSHA(h.CheckpointSHA, headSHA)
 	if headDrifted {
@@ -2744,5 +2748,63 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 			dirtyStr = fmt.Sprintf("%v", st.Git.Dirty)
 		}
 		fmt.Fprintf(b, "  - %s (head=%s, dirty=%s, ahead=%d, %s)\n", branch, wt.Head, dirtyStr, wt.AheadCount, statuses[i])
+		for _, line := range worktreeHandoffLines(st, wt) {
+			fmt.Fprintf(b, "    handoff: %s\n", line)
+		}
 	}
+}
+
+// worktreeHandoffLines reads the handoffs a linked worktree recorded in its own
+// .ateam/state.json, which pickup from another checkout cannot otherwise see (#136).
+// Slots already in st are skipped, so the current checkout is not listed twice.
+// A missing or unreadable worktree state is silent.
+func worktreeHandoffLines(st *State, wt Worktree) []string {
+	path := strings.TrimSpace(wt.Path)
+	// A branch is checked out in at most one worktree, so this one is the current checkout.
+	if path == "" || (wt.Branch != "" && wt.Branch == st.Git.Branch) {
+		return nil
+	}
+	data, err := os.ReadFile(CacheFilePath(path))
+	if err != nil {
+		return nil
+	}
+	var wtState struct {
+		Handoffs    map[string]*Handoff `json:"handoffs"`
+		LastHandoff *Handoff            `json:"last_handoff"`
+	}
+	if json.Unmarshal(data, &wtState) != nil {
+		return nil
+	}
+	slots := wtState.Handoffs
+	if len(slots) == 0 && wtState.LastHandoff != nil {
+		slots = map[string]*Handoff{HandoffSlotKey(wtState.LastHandoff.Agent, wtState.LastHandoff.Branch): wtState.LastHandoff}
+	}
+	// A detached worktree is listed with branch "" but its handoffs are recorded on "HEAD".
+	wtBranch := strings.TrimSpace(wt.Branch)
+	detached := wtBranch == "" || wtBranch == "HEAD"
+	keys := make([]string, 0, len(slots))
+	for key, h := range slots {
+		if h == nil || st.Handoffs[key] != nil {
+			continue
+		}
+		hBranch := strings.TrimSpace(h.Branch)
+		if (detached && hBranch != "" && hBranch != "HEAD") || (!detached && hBranch != wtBranch) {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		h := slots[key]
+		// Judge staleness with this state's PR cards and session at this worktree's own branch
+		// and head, not the worktree's saved flag alone: its cache may predate its PR closing.
+		// A detached worktree's head is not findable by branch name, so pass it directly.
+		suffix := ""
+		if len(st.handoffStaleReasonsAt(h, strings.TrimSpace(h.Branch), strings.TrimSpace(wt.Head))) > 0 {
+			suffix = ", stale"
+		}
+		lines = append(lines, fmt.Sprintf("%s (%s, %s%s)", cleanTaskText(h.Goal), key, formatHandoffRelativeAge(h.UpdatedAt), suffix))
+	}
+	return lines
 }

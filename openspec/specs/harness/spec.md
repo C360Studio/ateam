@@ -158,6 +158,12 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 - **THEN** the write is refused and the slot is unchanged, no PR comment is posted, and the refusal names the slot, the holding session, its goal and its age (CLI exit 2, MCP tool error, HTTP 409)
 - **AND** `--force` (CLI), `force: true` (MCP), or `?force=1` (HTTP) replaces it
 
+#### Scenario: Pickup shows handoffs recorded inside linked worktrees
+
+- **WHEN** `BuildPickupSummary` renders a worktree other than the current checkout whose own `.ateam/state.json` holds a handoff for that worktree's branch (`HEAD` for a detached worktree) in a slot the current state does not hold
+- **THEN** pickup prints `    handoff: <goal> (<agent>@<branch>, <age>)` under that worktree's line, adding `, stale` when the current state's staleness rules (saved flag, worktree head, closed or merged PR, same-session exception) find it stale
+- **AND** a missing or unreadable worktree state prints nothing, and storage of handoffs is unchanged
+
 ### Requirement: Fast Git identity across worktrees
 
 Git identity reads SHALL resolve loose and packed refs, detached HEADs, and linked-worktree gitdir/commondir pointers, returning the branch and seven-character commit identity.
