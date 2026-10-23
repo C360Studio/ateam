@@ -841,7 +841,11 @@ func (st *State) HandoffStaleReasonsFor(slotKey string, h *Handoff) []string {
 	if expectedBranch == "" {
 		expectedBranch = strings.TrimSpace(st.Git.Branch)
 	}
-	headSHA := st.headSHAForBranch(expectedBranch)
+	return st.handoffStaleReasonsAt(h, expectedBranch, st.headSHAForBranch(expectedBranch))
+}
+
+// handoffStaleReasonsAt applies the staleness rules to h for a checkout of expectedBranch at headSHA.
+func (st *State) handoffStaleReasonsAt(h *Handoff, expectedBranch, headSHA string) []string {
 	var reasons []string
 	headDrifted := h.CheckpointSHA != "" && headSHA != "" && !SameCommitSHA(h.CheckpointSHA, headSHA)
 	if headDrifted {
@@ -2793,14 +2797,11 @@ func worktreeHandoffLines(st *State, wt Worktree) []string {
 	lines := make([]string, 0, len(keys))
 	for _, key := range keys {
 		h := slots[key]
-		// Judge staleness with this state's facts (worktree head, PR cards, session), not the
-		// worktree's saved flag alone: its cache may predate its PR closing (#136 review).
-		stale := h.Stale || (h.CheckpointSHA != "" && wt.Head != "" && !SameCommitSHA(h.CheckpointSHA, wt.Head))
-		if !detached && len(st.HandoffStaleReasonsFor(key, h)) > 0 {
-			stale = true
-		}
+		// Judge staleness with this state's PR cards and session at this worktree's own branch
+		// and head, not the worktree's saved flag alone: its cache may predate its PR closing.
+		// A detached worktree's head is not findable by branch name, so pass it directly.
 		suffix := ""
-		if stale {
+		if len(st.handoffStaleReasonsAt(h, strings.TrimSpace(h.Branch), strings.TrimSpace(wt.Head))) > 0 {
 			suffix = ", stale"
 		}
 		lines = append(lines, fmt.Sprintf("%s (%s, %s%s)", cleanTaskText(h.Goal), key, formatHandoffRelativeAge(h.UpdatedAt), suffix))

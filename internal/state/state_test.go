@@ -1676,3 +1676,41 @@ func TestPickupWorktreeHandoffsUseCurrentFactsAndDetachedBranches(t *testing.T) 
 		}
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPickupDetachedWorktreeHandoffStaleness(t *testing.T) {
+	// #136 second review: a detached worktree's handoff gets the same closed-PR and
+	// same-session rules, judged at that worktree's own head.
+	t.Setenv("ATEAM_SESSION_ID", "")
+	for _, tc := range []struct {
+		name, session, prColumn, wtHead string
+		wantStale                       bool
+	}{
+		{"open PR, other session", "other", "in-review", "9999999", false},
+		{"closed PR, other session", "other", "done", "9999999", true},
+		{"closed PR, same session at head", "current", "done", "9999999", false},
+		{"closed PR, same session, head moved", "current", "done", "8888888", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			wt := defaultState()
+			wt.SetHandoff(Handoff{Goal: "Review PR #97", Agent: "codex", Branch: "HEAD", CheckpointSHA: "9999999", SessionID: tc.session, UpdatedAt: time.Now().UTC()})
+			if err := Save(dir, wt); err != nil {
+				t.Fatal(err)
+			}
+			st := defaultState()
+			st.CurrentSessionID = "current"
+			st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
+			st.Cards = []BoardCard{{ID: "PR-97", Type: "pr", Column: tc.prColumn}}
+			st.Git.Worktrees = []Worktree{
+				{Path: t.TempDir(), Branch: "main", Head: "1111111"},
+				{Path: dir, Branch: "", Head: tc.wtHead},
+			}
+			summary := BuildPickupSummary(st)
+			line := lineWithPrefixIn(summary, "    handoff: Review PR #97 (codex@HEAD,")
+			if line == "" || strings.Contains(line, ", stale") != tc.wantStale {
+				t.Fatalf("detached handoff line = %q, want stale=%v:\n%s", line, tc.wantStale, summary)
+			}
+		})
+	}
+}
