@@ -1,0 +1,5 @@
+## 1. Implementation
+
+- [x] 1.1 `scripts/gate-files.sh` and `.github/workflows/gate-files.yml` (`pull_request_target`, base checkout with `persist-credentials: false`, `contents: read` and `pull-requests: read`) (#140).
+- [x] 1.2 `TestGateFilesCheck` (no gate file, each gate path, rename, exact label, both reads failing) and `TestGateFilesWorkflowRunsFromBase` (trigger, permissions, no PR ref). Non-destructive `cp` + SHA-256 mutants of the script, all `detection`, restored byte-identical (`8f09cb22`): substring label match, final `exit 1` to `0`, files read failing open, `internal/review/` dropped from the gate paths (#140).
+- [x] 1.3 Rule rows in `AGENTS.md` and `.agents/rules-index.md`, and the protocol § 4 paragraph (#140).
