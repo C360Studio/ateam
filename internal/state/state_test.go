@@ -1576,3 +1576,60 @@ func TestSetHandoffGuardedRefusesAnotherSessionsFreshHandoff(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPickupShowsHandoffsRecordedInsideWorktrees(t *testing.T) {
+	// #136: each linked worktree has its own .ateam, so pickup from main must read them.
+	mainDir, fresh, stale, broken := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	write := func(dir, branch, sha, goal string) {
+		wt := defaultState()
+		wt.Git.Branch, wt.Git.HeadSHA = branch, sha
+		wt.SetHandoff(Handoff{Goal: goal, Agent: "claude", Branch: branch, CheckpointSHA: sha, UpdatedAt: time.Now().UTC()})
+		if err := Save(dir, wt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The current checkout's own file is skipped even when st no longer holds its (stale) slot.
+	write(mainDir, "main", "0000000", "current checkout goal")
+	write(fresh, "claude/fresh", "aaaaaaa", "fresh worktree goal")
+	write(stale, "claude/stale", "bbbbbbb", "stale worktree goal")
+	if err := os.MkdirAll(filepath.Join(broken, ".ateam"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(CacheFilePath(broken), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st := defaultState()
+	st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
+	st.Git.Worktrees = []Worktree{
+		{Path: mainDir, Branch: "main", Head: "1111111"},
+		{Path: fresh, Branch: "claude/fresh", Head: "aaaaaaa"},
+		{Path: stale, Branch: "claude/stale", Head: "ccccccc"}, // moved past its checkpoint
+		{Path: broken, Branch: "claude/broken", Head: "ddddddd"},
+	}
+	summary := BuildPickupSummary(st)
+	for _, want := range []string{
+		"  - claude/fresh (head=aaaaaaa",
+		"    handoff: fresh worktree goal (claude@claude/fresh, ",
+		"    handoff: stale worktree goal (claude@claude/stale, ",
+		", stale)",
+		"Last Handoff: none for ",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("pickup summary missing %q:\n%s", want, summary)
+		}
+	}
+	if strings.Contains(lineWithPrefixIn(summary, "    handoff: fresh worktree goal"), ", stale") || strings.Count(summary, "    handoff:") != 2 {
+		t.Fatalf("expected exactly the two worktree handoffs, fresh not marked stale:\n%s", summary)
+	}
+}
+
+func lineWithPrefixIn(text, prefix string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+	return ""
+}

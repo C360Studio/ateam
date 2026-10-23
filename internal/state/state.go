@@ -2744,5 +2744,53 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 			dirtyStr = fmt.Sprintf("%v", st.Git.Dirty)
 		}
 		fmt.Fprintf(b, "  - %s (head=%s, dirty=%s, ahead=%d, %s)\n", branch, wt.Head, dirtyStr, wt.AheadCount, statuses[i])
+		for _, line := range worktreeHandoffLines(st, wt) {
+			fmt.Fprintf(b, "    handoff: %s\n", line)
+		}
 	}
+}
+
+// worktreeHandoffLines reads the handoffs a linked worktree recorded in its own
+// .ateam/state.json, which pickup from another checkout cannot otherwise see (#136).
+// Slots already in st are skipped, so the current checkout is not listed twice.
+// A missing or unreadable worktree state is silent.
+func worktreeHandoffLines(st *State, wt Worktree) []string {
+	path := strings.TrimSpace(wt.Path)
+	// A branch is checked out in at most one worktree, so this one is the current checkout.
+	if path == "" || (wt.Branch != "" && wt.Branch == st.Git.Branch) {
+		return nil
+	}
+	data, err := os.ReadFile(CacheFilePath(path))
+	if err != nil {
+		return nil
+	}
+	var wtState struct {
+		Handoffs    map[string]*Handoff `json:"handoffs"`
+		LastHandoff *Handoff            `json:"last_handoff"`
+	}
+	if json.Unmarshal(data, &wtState) != nil {
+		return nil
+	}
+	slots := wtState.Handoffs
+	if len(slots) == 0 && wtState.LastHandoff != nil {
+		slots = map[string]*Handoff{HandoffSlotKey(wtState.LastHandoff.Agent, wtState.LastHandoff.Branch): wtState.LastHandoff}
+	}
+	keys := make([]string, 0, len(slots))
+	for key, h := range slots {
+		if h == nil || st.Handoffs[key] != nil || strings.TrimSpace(h.Branch) != strings.TrimSpace(wt.Branch) {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		h := slots[key]
+		suffix := ""
+		if h.Stale || (h.CheckpointSHA != "" && wt.Head != "" && !SameCommitSHA(h.CheckpointSHA, wt.Head)) {
+			suffix = ", stale"
+		}
+		lines = append(lines, fmt.Sprintf("%s (%s, %s%s)", cleanTaskText(h.Goal), key, formatHandoffRelativeAge(h.UpdatedAt), suffix))
+	}
+	return lines
 }
