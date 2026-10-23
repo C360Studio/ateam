@@ -177,7 +177,8 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 #### Scenario: Unranked or missing effort
 
 - **WHEN** a model or effort is missing from the policy maps (model text matches tier entries ignoring case, with a run of spaces matching one hyphen)
-- **THEN** compare passes with an `unranked` note; when a run names no effort, compare exits 1 asking for one
+- **THEN** compare passes with an `unranked` note only when both runs of the compared pair are unranked; when one side is ranked it exits 1 naming the unranked side and, for a model, the tier entries its text begins (`GPT-6` suggests `gpt-6-astra`); an unmapped effort matters only between runs of equal tier
+- **AND** when a run names no effort, or names a placeholder (`unknown`, `n/a`, `na`, `?`, any case; `none` is a codex effort, not a placeholder), compare exits 1 asking for one
 
 #### Scenario: No policy
 

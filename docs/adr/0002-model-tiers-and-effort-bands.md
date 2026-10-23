@@ -1,10 +1,10 @@
 # ADR 0002: Model tiers and effort bands for reviewer strength
 
-- **Status:** Accepted (owner, 2026-10-22)
+- **Status:** Accepted (owner, 2026-10-22); § 2 unranked rule amended (owner, #125, 2026-10-22)
 - **Date:** 2026-10-22
 - **Deciders:** repository owner
 - **Amends:** [ADR 0001](0001-review-gate-scope.md), decision steps 1 and 2
-- **Evidence:** owner rulings on #81 (2026-10-21 and 2026-10-22); the owner's tier table and provider effort-parameter data, posted on #81 and in the Enjoy conversation "Pickup epic 101 v0.3"
+- **Evidence:** owner rulings on #81 (2026-10-21 and 2026-10-22) and #125 (2026-10-22); the owner's tier table and provider effort-parameter data, posted on #81 and in the Enjoy conversation "Pickup epic 101 v0.3"
 
 ## Context
 
@@ -79,11 +79,11 @@ A run's rank is its (tier, band) pair. The reviewer passes against an implemente
 
 With several implementer models, the reviewer must pass against every one. Equal (tier, band) passes, so a `frontier` / `high` implementer can always be reviewed by a `frontier` / `high` run. That covers the "higher effort if able" intent without ever blocking at the ceiling.
 
-A model or effort value missing from the maps passes with an `unranked` note, so a new model release never blocks merges (owner ruling, #81, 2026-10-21).
+A model or effort value missing from the maps passes with an `unranked` note only when the other side of the comparison is unranked too. An unranked run against a ranked one is a finding: nothing shows the unranked side is not weaker (owner ruling, #125, 2026-10-22, narrowing #81). The band only breaks a tier tie, so an unmapped effort matters only between runs of equal tier. A new model release therefore blocks a merge against ranked runs until it is added to `model_tiers`, which is a one-line change to the policy.
 
 ### 3. PR lines carry model and native effort
 
-Once a policy exists, both PR-body lines must carry the model and its native effort, for example `implemented-by: claude (opus, high)` and `reviewed-by: codex (gpt-6-astra, xhigh)`. A missing effort is a finding, the same as a missing model (#108). Several implementer runs are comma-separated pairs: `implemented-by: claude (sonnet, medium, opus, high)`. Model text matches the tier names loosely: case and spaces are ignored, so `Gemini 4 Argon` matches `gemini-4-argon` and `GPT-6 Astra` matches `gpt-6-astra`.
+Once a policy exists, both PR-body lines must carry the model and its native effort, for example `implemented-by: claude (opus, high)` and `reviewed-by: codex (gpt-6-astra, xhigh)`. A missing effort is a finding, the same as a missing model (#108); a placeholder (`unknown`, `n/a`, `na`, `?`, any case) is a missing effort (#125). An agent that cannot read its own effort names the band it was launched at. `none` is not a placeholder: it is a codex effort. Several implementer runs are comma-separated pairs: `implemented-by: claude (sonnet, medium, opus, high)`. Model text matches the tier names loosely: case and spaces are ignored, so `Gemini 4 Argon` matches `gemini-4-argon` and `GPT-6 Astra` matches `gpt-6-astra`.
 
 Without a policy, the model is still required (#108), effort is optional, and the strength check reports `skipped: no policy`.
 
