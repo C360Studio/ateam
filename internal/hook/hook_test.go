@@ -241,8 +241,12 @@ func TestHookLatencyBudget(t *testing.T) {
 		}
 	}
 	avg := time.Since(start) / (iterations * 2)
-	if avg > 5*time.Millisecond {
-		t.Errorf("average hook latency %v exceeds 5ms budget", avg)
+	// Same gate as doctor: 5ms is the target, 25ms the hard ceiling. A wall-clock
+	// average under -race on a shared CI runner drifts past 5ms (#137).
+	if avg > 25*time.Millisecond {
+		t.Errorf("average hook latency %v exceeds 25ms hard ceiling (target <5ms)", avg)
+	} else if avg > 5*time.Millisecond {
+		t.Logf("average hook latency %v exceeds the 5ms target (hard ceiling 25ms)", avg)
 	}
 }
 
