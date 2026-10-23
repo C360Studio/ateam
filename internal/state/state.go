@@ -92,8 +92,11 @@ func ReadDiskBinaryBuild(ctx context.Context, root string) (shortRev, label stri
 		return "", "unreadable"
 	}
 	label = strings.TrimSpace(line[openIdx+1 : closeIdx])
-	label = strings.TrimPrefix(label, "build=")
+	label = strings.TrimSpace(strings.TrimPrefix(label, "build="))
 	shortRev = strings.TrimSuffix(label, "-dirty")
+	if shortRev == "" {
+		return "", "unreadable"
+	}
 	return shortRev, label
 }
 

@@ -59,7 +59,7 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 #### Scenario: MCP server build provenance and stale binary warning in pickup
 
 - **WHEN** `ateam mcp` handles a `pickup` tool call or resource read
-- **THEN** it captures `state.BuildRevision()` at server startup, reports `build=<disk-sha> mcp=<server-sha>` in the `[ateam]` pickup header line (`build=absent` when there is no `./bin/ateam`, `build=unreadable` when its `--version` fails or names no build, in which case staleness is judged against checkout `HEAD`), and appends `WARNING: MCP server binary is stale; restart the client to pick up <sha>` when the running server's build commit differs from the `./bin/ateam` binary on disk or from checkout `HEAD`
+- **THEN** it captures `state.BuildRevision()` at server startup, reports `build=<disk-sha> mcp=<server-sha>` in the `[ateam]` pickup header line (`build=absent` when there is no `./bin/ateam`, `build=unreadable` when its `--version` fails or names no build, in which case staleness is judged against checkout `HEAD`; `ateam doctor` reports the same label as `disk_build` and warns on `unreadable`), and appends `WARNING: MCP server binary is stale; restart the client to pick up <sha>` when the running server's build commit differs from the `./bin/ateam` binary on disk or from checkout `HEAD`
 
 ### Requirement: OpenSpec queue and stray Hold detection
 

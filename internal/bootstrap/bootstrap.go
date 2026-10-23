@@ -404,6 +404,16 @@ func FormatStaleBinaryWarning(shortBuild, headSHA string) string {
 	return fmt.Sprintf("binary %s is behind HEAD %s; run task build", shortBuild, strings.TrimSpace(headSHA))
 }
 
+// DiskBuildStatus reports the ./bin/ateam build label for doctor, or "absent" / "unreadable",
+// with a warning when a binary exists but its build cannot be read (#121).
+func DiskBuildStatus(ctx context.Context, root string) (string, []string) {
+	_, label := state.ReadDiskBinaryBuild(ctx, root)
+	if label == "unreadable" {
+		return label, []string{"./bin/ateam --version names no build or failed; the disk build is unknown, run task build"}
+	}
+	return label, nil
+}
+
 // CheckBuildProvenance checks whether the running binary's commit is an ancestor of checkout HEAD.
 func CheckBuildProvenance(ctx context.Context, root, buildRev, headSHA string) []string {
 	buildRev = strings.TrimSpace(buildRev)

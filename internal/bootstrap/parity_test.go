@@ -334,3 +334,32 @@ func lineWithPrefix(text, prefix string) string {
 	}
 	return ""
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+func TestDiskBuildStatusForDoctor(t *testing.T) {
+	// #121: doctor reports the disk build, and warns when a binary exists but its build cannot be read.
+	for _, tc := range []struct {
+		name, script, want string
+		warn             bool
+	}{
+		{"no binary", "", "absent", false},
+		{"probe exits non-zero", "#!/bin/sh\nexit 1\n", "unreadable", true},
+		{"probe names a build", "#!/bin/sh\necho 'ateam v0.1.0 (e37563b)'\n", "e37563b", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.script != "" {
+				if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "bin", "ateam"), []byte(tc.script), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			label, warnings := DiskBuildStatus(context.Background(), dir)
+			if label != tc.want || (len(warnings) > 0) != tc.warn {
+				t.Fatalf("DiskBuildStatus = (%q, %q), want label %q and warning=%v", label, warnings, tc.want, tc.warn)
+			}
+		})
+	}
+}

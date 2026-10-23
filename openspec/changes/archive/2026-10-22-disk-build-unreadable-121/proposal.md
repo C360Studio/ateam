@@ -7,3 +7,4 @@ When reading `./bin/ateam --version` failed (missing binary, timeout, non-zero e
 ## What Changes
 
 - The pickup header shows `build=absent` when there is no `./bin/ateam` and `build=unreadable` when its version cannot be read. Staleness is then judged against checkout `HEAD`, as before.
+- `ateam doctor` reports the same label as `disk_build` and warns when it is `unreadable`.

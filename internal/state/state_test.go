@@ -1493,6 +1493,9 @@ func TestDiskBuildFailureIsNotReportedAsTheRunningBuild(t *testing.T) {
 		{"no binary", "", "absent"},
 		{"probe exits non-zero", "#!/bin/sh\nexit 1\n", "unreadable"},
 		{"version without parentheses", "#!/bin/sh\necho 'ateam v0.1.0'\n", "unreadable"},
+		{"blank build in parentheses", "#!/bin/sh\necho 'ateam v0.1.0 (   )'\n", "unreadable"},
+		{"empty build= in parentheses", "#!/bin/sh\necho 'ateam v0.1.0 (build=)'\n", "unreadable"},
+		{"only -dirty in parentheses", "#!/bin/sh\necho 'ateam v0.1.0 (-dirty)'\n", "unreadable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
