@@ -41,10 +41,23 @@ func giteaShape(name, path, what string) error {
 	return fmt.Errorf("the read of %s returned something other than what was asked for (GET %s): %s", name, path, what)
 }
 
-// giteaList reads every page of a list. It stops on an empty page or once
-// X-Total-Count entries are in, and a count that disagrees with the entries
-// read is unavailable. needTotal makes a missing X-Total-Count unavailable too.
-func giteaList[T any](ctx context.Context, s *giteaSource, name, path string, q url.Values, needTotal bool) ([]T, int, error) {
+// giteaTotal says how a list read treats X-Total-Count.
+type giteaTotal int
+
+const (
+	// totalOptional: a header present is the list's total and is checked.
+	totalOptional giteaTotal = iota
+	// totalRequired: as totalOptional, and a missing header is unavailable.
+	totalRequired
+	// totalIgnored: the header is not the total (Gitea 28.2 sets the issue
+	// timeline's to the page length), so pages are read until an empty one.
+	totalIgnored
+)
+
+// giteaList reads every page of a list. It stops on an empty page or, when
+// the header is the total, once X-Total-Count entries are in; a count that
+// disagrees with the entries read is unavailable.
+func giteaList[T any](ctx context.Context, s *giteaSource, name, path string, q url.Values, mode giteaTotal) ([]T, int, error) {
 	var all []T
 	total := -1
 	for page := 1; ; page++ {
@@ -58,7 +71,7 @@ func giteaList[T any](ctx context.Context, s *giteaSource, name, path string, q 
 		if err != nil {
 			return nil, 0, err
 		}
-		if v := h.Get("X-Total-Count"); v != "" {
+		if v := h.Get("X-Total-Count"); v != "" && mode != totalIgnored {
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 0 {
 				return nil, 0, giteaShape(name, path, "X-Total-Count "+strconv.Quote(v))
@@ -73,7 +86,7 @@ func giteaList[T any](ctx context.Context, s *giteaSource, name, path string, q 
 			break
 		}
 	}
-	if needTotal && total < 0 {
+	if mode == totalRequired && total < 0 {
 		return nil, 0, giteaShape(name, path, "no X-Total-Count")
 	}
 	if total >= 0 && len(all) != total {
@@ -135,9 +148,13 @@ func (s *giteaSource) upToDate(ctx context.Context, out io.Writer) (bool, error)
 	return giteaPrint(out, lines, ok), nil
 }
 
+// giteaPrint prints the rule lines; an Actions annotation goes out as is.
 func giteaPrint(out io.Writer, lines []string, ok bool) bool {
 	for _, l := range lines {
-		fmt.Fprintln(out, "merge-check: "+l)
+		if !strings.HasPrefix(l, "::") {
+			l = "merge-check: " + l
+		}
+		fmt.Fprintln(out, l)
 	}
 	return ok
 }
@@ -161,7 +178,9 @@ func giteaProtection(rule string, enabled bool, contexts []string, blockOutdated
 		return append(lines, fmt.Sprintf("no rule in force on main requires %s; branch protection %s has enable_status_check=%t status_check_contexts=%s", giteaRequired, rule, enabled, listed)), false
 	}
 	if blockOutdated == nil {
-		return append(lines, "rule strict=unverified (branch protection needs a repo-admin token; the job token can see protected, status check and context only)"), true
+		// Owner ruling on #143: this passes, and says so in the run summary.
+		return append(lines, "rule strict=unverified (branch protection needs a repo-admin token; the job token can see protected, status check and context only)",
+			"::warning::the up-to-date rule is unverified: this token cannot read block_on_outdated_branch, so a head behind main is not checked here"), true
 	}
 	if !*blockOutdated {
 		return append(lines, fmt.Sprintf("FAIL: branch protection %s requires %s with block_on_outdated_branch=false; a head behind main could merge", rule, giteaRequired)), false
@@ -199,7 +218,7 @@ func (s *giteaSource) pullRequest(ctx context.Context, pr int) (gatePull, error)
 func (s *giteaSource) files(ctx context.Context, pr int) ([]gateFile, error) {
 	name := fmt.Sprintf("the files of pull request #%d", pr)
 	path := fmt.Sprintf("/pulls/%d/files", pr)
-	fs, _, err := giteaList[ghFile](ctx, s, name, path, url.Values{}, true)
+	fs, _, err := giteaList[ghFile](ctx, s, name, path, url.Values{}, totalRequired)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +233,7 @@ func (s *giteaSource) files(ctx context.Context, pr int) ([]gateFile, error) {
 func (s *giteaSource) commits(ctx context.Context, pr int, pull gatePull) ([]gateCommit, int, error) {
 	name := fmt.Sprintf("the commits of pull request #%d", pr)
 	path := fmt.Sprintf("/pulls/%d/commits", pr)
-	cs, total, err := giteaList[ghCommit](ctx, s, name, path, url.Values{"files": {"false"}, "verification": {"false"}}, true)
+	cs, total, err := giteaList[ghCommit](ctx, s, name, path, url.Values{"files": {"false"}, "verification": {"false"}}, totalRequired)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -269,7 +288,7 @@ func (s *giteaSource) commit(context.Context, int, string) (gateCommit, error) {
 func (s *giteaSource) labelExists(ctx context.Context, label string) (bool, error) {
 	ls, _, err := giteaList[struct {
 		Name *string `json:"name"`
-	}](ctx, s, "labels", "/labels", url.Values{}, false)
+	}](ctx, s, "labels", "/labels", url.Values{}, totalOptional)
 	if err != nil {
 		return false, err
 	}
@@ -297,7 +316,7 @@ type giteaIssue struct {
 func (s *giteaSource) openIssues(ctx context.Context, label string) ([]gateIssue, error) {
 	name := "open " + label + " issues"
 	q := url.Values{"type": {"issues"}, "state": {"open"}, "labels": {label}}
-	is, _, err := giteaList[giteaIssue](ctx, s, name, "/issues", q, false)
+	is, _, err := giteaList[giteaIssue](ctx, s, name, "/issues", q, totalOptional)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +365,7 @@ func (s *giteaSource) closingRefs(ctx context.Context, pr int, open []gateIssue)
 	for _, is := range open {
 		name := fmt.Sprintf("the timeline of issue #%d", is.Number)
 		path := fmt.Sprintf("/issues/%d/timeline", is.Number)
-		entries, _, err := giteaList[giteaTimelineEntry](ctx, s, name, path, url.Values{}, false)
+		entries, _, err := giteaList[giteaTimelineEntry](ctx, s, name, path, url.Values{}, totalIgnored)
 		if err != nil {
 			return nil, err
 		}

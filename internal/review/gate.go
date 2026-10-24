@@ -137,7 +137,11 @@ func Gate(ctx context.Context, out io.Writer, cfg ForgeConfig, opts GateOptions)
 	if opts.PolicyPath == "" {
 		opts.PolicyPath = gatePolicy
 	}
-	g := &gateRun{out: out, src: src, opts: opts}
+	actions := "GitHub Actions"
+	if cfg.Provider == "gitea" {
+		actions = "Gitea Actions"
+	}
+	g := &gateRun{out: out, src: src, opts: opts, actions: actions}
 	err := g.run(ctx)
 	var exit *gateExit
 	switch {
@@ -156,6 +160,7 @@ type gateRun struct {
 	out      io.Writer
 	src      gateSource
 	opts     GateOptions
+	actions  string // the Actions host named in the run line
 	pr       int
 	findings int
 }
@@ -202,20 +207,20 @@ func gateFinish(g *gateRun, failed bool) error {
 
 // kind reads the run kind and the pull request number, reporting a push run.
 func (g *gateRun) kind() (bool, error) {
-	how := "outside GitHub Actions; GITHUB_EVENT_NAME not read"
+	how := "outside " + g.actions + "; GITHUB_EVENT_NAME not read"
 	if g.opts.Actions {
 		switch g.opts.Event {
 		case "pull_request":
-			how = "GitHub Actions, pull_request event"
+			how = g.actions + ", pull_request event"
 		case "push":
-			g.say("push run (GitHub Actions, push event); the known-flake check does not apply, the up-to-date rule is checked")
+			g.say("push run (%s, push event); the known-flake check does not apply, the up-to-date rule is checked", g.actions)
 			g.say("the review check does not apply to a push run; no pull request is read")
 			return true, nil
 		case "":
-			g.say("inside GitHub Actions with GITHUB_EVENT_NAME unset")
+			g.say("inside %s with GITHUB_EVENT_NAME unset", g.actions)
 			return false, gateDie("the event is missing")
 		default:
-			g.say("inside GitHub Actions on event %s", g.opts.Event)
+			g.say("inside %s on event %s", g.actions, g.opts.Event)
 			return false, gateDie("event %s has no rule here; add one before the workflow triggers on it", g.opts.Event)
 		}
 	}
@@ -610,7 +615,7 @@ var (
 func gateLetterOrDigit(r rune) bool { return unicode.IsLetter(r) || unicode.IsNumber(r) }
 
 func gateWordRune(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsMark(r) || unicode.IsDigit(r) || unicode.Is(unicode.Pc, r)
+	return unicode.IsLetter(r) || unicode.IsMark(r) || unicode.IsNumber(r) || unicode.Is(unicode.Pc, r)
 }
 
 func gateRuneBefore(s string, i int, class func(rune) bool) bool {

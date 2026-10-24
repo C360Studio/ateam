@@ -38,6 +38,10 @@ type gateWorld struct {
 	giteaOldestFirst bool
 	// giteaStatus answers a Gitea path with an HTTP status instead.
 	giteaStatus map[string]int
+	// giteaTotalSkew adds to the X-Total-Count Gitea sends for a list path.
+	giteaTotalSkew map[string]int
+	// ghNull answers these gh argv with the JSON literal null.
+	ghNull []string
 }
 
 type worldCommit struct {
@@ -51,6 +55,8 @@ type worldIssue struct {
 	flake    bool
 	closedBy []int // pull requests whose closing reference stands
 	neutered []int // pull requests whose closing reference was edited away
+	noise    int   // timeline entries before the references
+	pr       bool  // a pull request carrying the label (Gitea's issue list may return it)
 }
 
 const (
@@ -152,7 +158,7 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 	answers["label list --json name --limit 100"] = mustJSON(t, labels)
 	issues, refs := []map[string]any{}, []map[string]any{}
 	for _, is := range w.issues {
-		if is.flake {
+		if is.flake && !is.pr {
 			issues = append(issues, map[string]any{"number": is.number, "url": issueURL(is.number), "title": "flaky"})
 		}
 		if slices.Contains(is.closedBy, gatePR) {
@@ -161,6 +167,12 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 	}
 	answers["issue list --label class:flake --state open --json number,url,title --limit 100"] = mustJSON(t, issues)
 	answers[fmt.Sprintf("pr view %d --json closingIssuesReferences", gatePR)] = mustJSON(t, map[string]any{"closingIssuesReferences": refs})
+	for _, argv := range w.ghNull {
+		if _, ok := answers[argv]; !ok {
+			t.Fatalf("ghNull names no read: %s", argv)
+		}
+		answers[argv] = []byte("null")
+	}
 	i := 0
 	for argv, out := range answers {
 		i++
@@ -218,8 +230,15 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 		if is.flake {
 			ls = append(ls, map[string]any{"name": "class:flake"})
 		}
-		issues = append(issues, map[string]any{"number": is.number, "html_url": issueURL(is.number), "title": "flaky", "labels": ls, "pull_request": nil})
+		var prMeta any
+		if is.pr {
+			prMeta = map[string]any{"merged": false}
+		}
+		issues = append(issues, map[string]any{"number": is.number, "html_url": issueURL(is.number), "title": "flaky", "labels": ls, "pull_request": prMeta})
 		entries := []any{map[string]any{"type": "comment", "ref_action": "", "ref_issue": nil}}
+		for range is.noise {
+			entries = append(entries, map[string]any{"type": "label", "ref_action": "", "ref_issue": nil})
+		}
 		ref := func(action string, pr int, repo string) map[string]any {
 			return map[string]any{"type": "pull_ref", "ref_action": action, "ref_issue": map[string]any{
 				"number": pr, "pull_request": map[string]any{"merged": false}, "repository": map[string]any{"full_name": repo}}}
@@ -287,8 +306,14 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 		// Gitea reads a missing or invalid page as 1 and caps limit at 50.
 		page, limit := queryInt(r, "page", 1), min(queryInt(r, "limit", 50), 50)
 		start := min((page-1)*limit, len(items))
-		rw.Header().Set("X-Total-Count", strconv.Itoa(len(items)))
-		if err := json.NewEncoder(rw).Encode(append([]any{}, items[start:min(start+limit, len(items))]...)); err != nil {
+		pageItems := items[start:min(start+limit, len(items))]
+		total := len(items) + w.giteaTotalSkew[path]
+		if strings.HasSuffix(path, "/timeline") {
+			// Gitea 28.2 sets the timeline's X-Total-Count to the page length.
+			total = len(pageItems)
+		}
+		rw.Header().Set("X-Total-Count", strconv.Itoa(total))
+		if err := json.NewEncoder(rw).Encode(append([]any{}, pageItems...)); err != nil {
 			t.Errorf("fake gitea: write %s: %v", path, err)
 		}
 	}))
@@ -383,6 +408,21 @@ func TestGateGitea(t *testing.T) {
 		{name: "open flake closed by another pull request", world: func(w *gateWorld) {
 			w.issues = []worldIssue{{number: 40, flake: true, closedBy: []int{7}, neutered: []int{gatePR}}}
 		}, both: &forgeWant{1, []string{"FAIL: known flakes are open and not closed by this pull request:", "  #40 " + issueURL(40) + " flaky"}}},
+		{name: "closing reference past the first timeline page", world: func(w *gateWorld) {
+			w.issues = []worldIssue{{number: 40, flake: true, closedBy: []int{gatePR}, noise: 60}}
+		}, both: &forgeWant{0, []string{"closing #40 exempts pull request #12"}}},
+		{name: "a labelled pull request is not a flake", world: func(w *gateWorld) {
+			w.issues = []worldIssue{{number: 50, flake: true, pr: true}}
+		}, both: &forgeWant{0, []string{"no open class:flake issue", "merge-check: ok"}}},
+		{name: "file total disagrees with the files read", world: func(w *gateWorld) { w.giteaTotalSkew = map[string]int{fmt.Sprintf("/pulls/%d/files", gatePR): 1} },
+			gitea: &forgeWant{2, []string{"unavailable: the read of the files of pull request #12 is incomplete: it has 2 of 3 entries"}}},
+		{name: "null issue list", world: func(w *gateWorld) {
+			w.ghNull = []string{"issue list --label class:flake --state open --json number,url,title --limit 100"}
+		}, github: &forgeWant{2, []string{"unavailable: the read of open class:flake issues returned something other than what was asked for"}}},
+		{name: "null label list", world: func(w *gateWorld) { w.ghNull = []string{"label list --json name --limit 100"} },
+			github: &forgeWant{2, []string{"unavailable: the read of labels returned something other than what was asked for"}}},
+		{name: "null rules", world: func(w *gateWorld) { w.ghNull = []string{"api repos/{owner}/{repo}/rules/branches/main"} },
+			github: &forgeWant{2, []string{"unavailable: the read of the rules in force on main returned something other than what was asked for"}}},
 		{name: "label missing", world: func(w *gateWorld) {
 			w.labels = []string{"bug"}
 			w.issues = []worldIssue{{number: 41}}
@@ -399,11 +439,12 @@ func TestGateGitea(t *testing.T) {
 		// The job token cannot read the rule (owner ruling on #143: no extra
 		// secrets), so the reader-level fields decide and strict is unverified.
 		{name: "branch protection unreadable", world: func(w *gateWorld) { w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusForbidden} },
-			gitea: &forgeWant{0, []string{"block_on_outdated_branch=unverified", "rule strict=unverified (branch protection needs a repo-admin token", "merge-check: ok"}}},
+			gitea: &forgeWant{0, []string{"block_on_outdated_branch=unverified", "rule strict=unverified (branch protection needs a repo-admin token",
+				"\n::warning::the up-to-date rule is unverified", "merge-check: ok"}}},
 		// Live Gitea 28.2: a non-admin token reads protected=true with an empty
 		// effective_branch_protection_name, so the rule cannot even be named.
 		{name: "rule name hidden from a reader", world: func(w *gateWorld) { w.giteaRuleHidden = true },
-			gitea: &forgeWant{0, []string{"name=(hidden from this token)", "rule strict=unverified", "merge-check: ok"}}},
+			gitea: &forgeWant{0, []string{"name=(hidden from this token)", "rule strict=unverified", "\n::warning::the up-to-date rule is unverified", "merge-check: ok"}}},
 		{name: "rule name hidden and the check not required", world: func(w *gateWorld) {
 			w.giteaRuleHidden = true
 			w.required = false
@@ -457,7 +498,77 @@ func TestGateGitea(t *testing.T) {
 						t.Errorf("%s: output lacks %q\n%s", run.forge, l, out)
 					}
 				}
+				// The run line names the forge's Actions; an unverified
+				// up-to-date setting always comes with its annotation.
+				actions := map[string]string{"github": "(outside GitHub Actions;", "gitea": "(outside Gitea Actions;"}[run.forge]
+				if !strings.Contains(out, actions) {
+					t.Errorf("%s: run line lacks %q\n%s", run.forge, actions, out)
+				}
+				if strings.Contains(out, "strict=unverified") != strings.Contains(out, "\n::warning::the up-to-date rule is unverified") {
+					t.Errorf("%s: strict=unverified and its ::warning:: line must appear together\n%s", run.forge, out)
+				}
 			}
 		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
+func TestGateRecordBoundaries(t *testing.T) {
+	// The boundary checks that replace jq's lookaheads and Unicode \b in
+	// scripts/merge-check.sh. Expectations were generated by that script's jq
+	// is_record and designated_commit_indices (reviewer codex, commits A then
+	// C); the test itself needs no jq.
+	commits := []gateCommit{{SHA: shaA}, {SHA: shaContent}}
+	for _, tc := range []struct {
+		body   string
+		record bool
+		idxs   []int
+	}{
+		{"Reviewed at 99d19a4.", false, []int{0}},
+		{"Reviewed at 99d19a4x", false, nil},
+		{"Reviewed at 99d19a4g", false, nil},
+		{"Reviewed at 99d19a4G", false, nil},
+		{"Reviewed at `99d19a4`", false, []int{0}},
+		{"prereviewed at 99d19a4", false, nil},
+		{"éreviewed at 99d19a4", false, nil},
+		{"_reviewed at 99d19a4", false, nil},
+		{"Ⅰreviewed at 99d19a4", false, nil},
+		{"²reviewed at 99d19a4", false, nil},
+		{"-reviewed at 99d19a4", false, []int{0}},
+		{"xre-reviewed at 99d19a4", false, []int{0}},
+		{"Reviewed head commit 7413d0cg", false, nil},
+		{"Reviewed head commit 7413d0c-", false, []int{1}},
+		{"xreviewed head commit 7413d0c", false, nil},
+		{"Reviewed base 99d19a4 → head 7413d0c", false, []int{1}},
+		{"aReviewed base 99d19a4 → head 7413d0c", false, nil},
+		{"Reviewed base 99d19a4 → head 7413d0cz", false, nil},
+		{"Head: 7413d0c", false, []int{1}},
+		{"Head: 7413d0cq", false, nil},
+		{"x\nreviewed-commit: 99d19a4", false, []int{0}},
+		{"x reviewed-commit: 99d19a4", false, nil},
+		{"reviewed-by: codex", true, nil},
+		{"reviewed-by: codexy", false, nil},
+		{"reviewed-by: codex2", false, nil},
+		{"reviewed-by: codex.", true, nil},
+		{"reviewed-by: codexé", false, nil},
+		{"reviewed-by:`codex`", true, nil},
+		{"Reviewed-By: Codex", true, nil},
+		{"### Independent Cross-Agent Review", true, nil},
+		{"### Independent Cross-Agent Reviewer", false, nil},
+		{"### Independent Cross-Agent Review_x", false, nil},
+		{"### Independent Cross-Agent Review2", false, nil},
+		{"### Independent Cross-Agent Reviewé", false, nil},
+		{"### Independent Cross-Agent Review (codex)", true, nil},
+		{"### Independent Cross-Agent Review (claude)", false, nil},
+		{"  ### Independent Cross-Agent Review: codex", true, nil},
+		{"### Independent Cross-Agent Review\nreviewed-by: claude", false, nil},
+		{"reviewed-by: codex\n### Independent Cross-Agent Review (claude)", true, nil},
+	} {
+		if got := gateIsRecord(tc.body, "codex"); got != tc.record {
+			t.Errorf("gateIsRecord(%q) = %t, want %t", tc.body, got, tc.record)
+		}
+		if got := gateDesignated(tc.body, commits); !slices.Equal(got, tc.idxs) {
+			t.Errorf("gateDesignated(%q) = %v, want %v", tc.body, got, tc.idxs)
+		}
 	}
 }

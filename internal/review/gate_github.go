@@ -67,8 +67,10 @@ func (s ghSource) ghRead(ctx context.Context, name string, out any, args ...stri
 	if err != nil {
 		return err
 	}
+	// null decodes into a slice or struct without error; every read here asks
+	// for a list or an object, as the shell's shape checks did.
 	values, err := ghValues(answer)
-	if err != nil || len(values) != 1 || json.Unmarshal(values[0], out) != nil {
+	if err != nil || len(values) != 1 || !(isJSONArray(values[0]) || isJSONObject(values[0])) || json.Unmarshal(values[0], out) != nil {
 		return ghShape(name, args, answer)
 	}
 	return nil
