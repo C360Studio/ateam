@@ -14,7 +14,8 @@
 - **WHEN** a live `ateam mcp` process is not in this root's registry and its working directory is this root, or its working directory cannot be read
 - **THEN** doctor and the hook warn about it as before
 
-#### Scenario: Older-than-HEAD line outside the ateam checkout
+#### Scenario: Older-than-HEAD comparison outside the ateam checkout
 
-- **WHEN** the session-start hook runs in a checkout whose root `go.mod` does not declare `module github.com/c360studio/ateam`
-- **THEN** it prints no `MCP server PID n (build x) is older than HEAD; restart the client` line
+- **WHEN** doctor or the session-start hook runs in a checkout whose root `go.mod` does not declare `module github.com/c360studio/ateam`
+- **THEN** the hook prints no `MCP server PID n (build x) is older than HEAD; restart the client` line
+- **AND** doctor does not compare a server's build with checkout `HEAD`; it compares with the on-disk `bin/ateam` build, as it does when there is no `HEAD`
