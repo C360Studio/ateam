@@ -1,0 +1,6 @@
+## 1. Implementation
+
+- [x] 1.1 GitHub sync (`internal/state/forge.go`): `gh issue list` and `gh pr list` run once with `--state open --limit 1000` and once with `--state closed --limit 50` (`ClosedItemCap`), merged by number per kind; card shape unchanged; the comment-free issue fallback applies per state. Fake-`gh` argv fixtures in `forge_settings_test.go` now expect the four extra calls (#149).
+- [x] 1.2 Gitea sync: `state=open` paged with `page=`/`limit=50` until a short page (`fetchGiteaPages`), plus `state=closed&limit=50`, merged by number per kind (#149). Not changed: the PR-comment lookup at `forge.go` `pulls?state=open&limit=50`, which is not a sync.
+- [x] 1.3 Pickup header now ends `synced=<time> (closed capped at 50)` (`internal/state/state.go`); no golden test matched the old text (#149).
+- [x] 1.4 `TestGitHubSyncNeverCapsOpenPRs` (fake `gh` that honours `--limit`) and `TestGiteaSyncNeverCapsOpenPRs` (`httptest` honouring `page`/`limit`): 60 open PRs numbered 1 to 60 yield 60 cards and a worktree on `claude/pr-1` labels `open PR #1`. `task mutate:check` mutants, both `detection` (`got 50 PR cards, want 60`), `forge.go` SHA-256 `a5c6d90e...f7affe` unchanged: GitHub open limit 1000 -> 50, Gitea paging stops after page 1 (#149).

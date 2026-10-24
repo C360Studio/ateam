@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -263,37 +264,32 @@ func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, err
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 
 	var all []BoardCard
+	repoAPI := fmt.Sprintf("%s/api/v1/repos/%s/%s", baseURL, cfg.Owner, cfg.Repo)
 	for _, endpoint := range []struct {
 		path string
 		isPR bool
 	}{
-		{path: fmt.Sprintf("%s/api/v1/repos/%s/%s/issues?type=issues&state=all&limit=50", baseURL, cfg.Owner, cfg.Repo), isPR: false},
-		{path: fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls?state=all&limit=50", baseURL, cfg.Owner, cfg.Repo), isPR: true},
+		{path: repoAPI + "/issues?type=issues", isPR: false},
+		{path: repoAPI + "/pulls", isPR: true},
 	} {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.path, nil)
+		// Open work is paged to exhaustion; closed work is capped at giteaClosedCap.
+		open, err := fetchGiteaPages(ctx, client, token, endpoint.path+queryJoin(endpoint.path)+"state=open")
 		if err != nil {
 			return nil, err
 		}
-		if token != "" {
-			req.Header.Set("Authorization", "token "+token)
-		}
-		resp, err := client.Do(req)
+		closed, err := fetchGiteaPage(ctx, client, token, fmt.Sprintf("%s%sstate=closed&limit=%d", endpoint.path, queryJoin(endpoint.path), ClosedItemCap))
 		if err != nil {
 			return nil, err
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("gitea API %s returned %d", endpoint.path, resp.StatusCode)
-		}
-		var items []forgeIssuePayload
-		if err := json.Unmarshal(body, &items); err != nil {
-			return nil, err
-		}
-		for _, item := range items {
+		seen := make(map[int]bool, len(open)+len(closed))
+		for _, item := range append(open, closed...) {
+			if seen[item.Number] {
+				continue
+			}
+			seen[item.Number] = true
 			if !endpoint.isPR {
 				if _, count := parseIssueComments(item.Comments); count > 0 {
-					commentsURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%d/comments", baseURL, cfg.Owner, cfg.Repo, item.Number)
+					commentsURL := fmt.Sprintf("%s/issues/%d/comments", repoAPI, item.Number)
 					item.CommentBodies = fetchGiteaIssueComments(ctx, client, token, commentsURL)
 				}
 			}
@@ -301,6 +297,55 @@ func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, err
 		}
 	}
 	return all, nil
+}
+
+// ClosedItemCap is how many of the most recent closed issues and pull requests a forge sync keeps; open items are never capped.
+const ClosedItemCap = 50
+
+func queryJoin(path string) string {
+	if strings.Contains(path, "?") {
+		return "&"
+	}
+	return "?"
+}
+
+// fetchGiteaPages reads every page of an open-state listing until a short page.
+func fetchGiteaPages(ctx context.Context, client *http.Client, token, base string) ([]forgeIssuePayload, error) {
+	var all []forgeIssuePayload
+	for page := 1; ; page++ {
+		items, err := fetchGiteaPage(ctx, client, token, fmt.Sprintf("%s&page=%d&limit=%d", base, page, ClosedItemCap))
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+		if len(items) < ClosedItemCap {
+			return all, nil
+		}
+	}
+}
+
+func fetchGiteaPage(ctx context.Context, client *http.Client, token, path string) ([]forgeIssuePayload, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("gitea API %s returned %d", path, resp.StatusCode)
+	}
+	var items []forgeIssuePayload
+	if err := json.Unmarshal(body, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func fetchGiteaIssueComments(ctx context.Context, client *http.Client, token, commentsURL string) []string {
@@ -381,53 +426,76 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 			issueTimeout = sub
 		}
 	}
-	issueCtx, issueCancel := context.WithTimeout(ctx, issueTimeout)
-	issueCmd := exec.CommandContext(issueCtx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body,comments")
-	issueCmd.Args = append(issueCmd.Args, repoArgs...)
-	issueCmd.Dir = root
-	issueCmd.WaitDelay = 100 * time.Millisecond
-	issueOut, err := issueCmd.Output()
-	issueCancel()
-	if err != nil {
-		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 5*time.Second)
-		fallbackCmd := exec.CommandContext(fallbackCtx, "gh", "issue", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,labels,milestone,url,body")
-		fallbackCmd.Args = append(fallbackCmd.Args, repoArgs...)
-		fallbackCmd.Dir = root
-		fallbackCmd.WaitDelay = 100 * time.Millisecond
-		issueOut, err = fallbackCmd.Output()
-		fallbackCancel()
+	var issues []forgeIssuePayload
+	for _, q := range []struct {
+		state string
+		limit string
+	}{{"open", "1000"}, {"closed", strconv.Itoa(ClosedItemCap)}} {
+		issueCtx, issueCancel := context.WithTimeout(ctx, issueTimeout)
+		issueCmd := exec.CommandContext(issueCtx, "gh", "issue", "list", "--state", q.state, "--limit", q.limit, "--json", "number,title,state,labels,milestone,url,body,comments")
+		issueCmd.Args = append(issueCmd.Args, repoArgs...)
+		issueCmd.Dir = root
+		issueCmd.WaitDelay = 100 * time.Millisecond
+		issueOut, err := issueCmd.Output()
+		issueCancel()
 		if err != nil {
-			return nil, fmt.Errorf("gh issue list failed: %w", err)
+			fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 5*time.Second)
+			fallbackCmd := exec.CommandContext(fallbackCtx, "gh", "issue", "list", "--state", q.state, "--limit", q.limit, "--json", "number,title,state,labels,milestone,url,body")
+			fallbackCmd.Args = append(fallbackCmd.Args, repoArgs...)
+			fallbackCmd.Dir = root
+			fallbackCmd.WaitDelay = 100 * time.Millisecond
+			issueOut, err = fallbackCmd.Output()
+			fallbackCancel()
+			if err != nil {
+				return nil, fmt.Errorf("gh issue list failed: %w", err)
+			}
 		}
+		var page []forgeIssuePayload
+		if err := json.Unmarshal(issueOut, &page); err != nil {
+			return nil, fmt.Errorf("parse gh issue list JSON: %w", err)
+		}
+		issues = append(issues, page...)
+	}
+	seen := make(map[int]bool, len(issues))
+	for _, it := range issues {
+		if seen[it.Number] {
+			continue
+		}
+		seen[it.Number] = true
+		cards = append(cards, mapForgeItemToCard(it, false, "github"))
 	}
 
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-
-	var issues []forgeIssuePayload
-	if err := json.Unmarshal(issueOut, &issues); err != nil {
-		return nil, fmt.Errorf("parse gh issue list JSON: %w", err)
-	}
-	for _, it := range issues {
-		cards = append(cards, mapForgeItemToCard(it, false, "github"))
-	}
-
-	prCmd := exec.CommandContext(cctx, "gh", "pr", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,isDraft,headRefName,headRefOid,mergedAt,labels,url")
-	prCmd.Args = append(prCmd.Args, repoArgs...)
-	prCmd.Dir = root
-	prCmd.WaitDelay = 100 * time.Millisecond
-	prOut, err := prCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("gh pr list failed: %w", err)
-	}
-	var prs []struct {
+	type ghPR struct {
 		forgeIssuePayload
 		IsDraft bool `json:"isDraft"`
 	}
-	if err := json.Unmarshal(prOut, &prs); err != nil {
-		return nil, fmt.Errorf("parse gh pr list JSON: %w", err)
+	var prs []ghPR
+	for _, q := range []struct {
+		state string
+		limit string
+	}{{"open", "1000"}, {"closed", strconv.Itoa(ClosedItemCap)}} {
+		prCmd := exec.CommandContext(cctx, "gh", "pr", "list", "--state", q.state, "--limit", q.limit, "--json", "number,title,state,isDraft,headRefName,headRefOid,mergedAt,labels,url")
+		prCmd.Args = append(prCmd.Args, repoArgs...)
+		prCmd.Dir = root
+		prCmd.WaitDelay = 100 * time.Millisecond
+		prOut, err := prCmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("gh pr list failed: %w", err)
+		}
+		var page []ghPR
+		if err := json.Unmarshal(prOut, &page); err != nil {
+			return nil, fmt.Errorf("parse gh pr list JSON: %w", err)
+		}
+		prs = append(prs, page...)
 	}
+	seenPR := make(map[int]bool, len(prs))
 	for _, pr := range prs {
+		if seenPR[pr.Number] {
+			continue
+		}
+		seenPR[pr.Number] = true
 		pr.Draft = pr.IsDraft
 		cards = append(cards, mapForgeItemToCard(pr.forgeIssuePayload, true, "github"))
 	}
