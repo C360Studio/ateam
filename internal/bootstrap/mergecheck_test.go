@@ -68,9 +68,7 @@ type ghState struct {
 	pull, files, commits, comments     string
 	commitDetails                      map[string]string
 	fail                               []string
-	jqFail                             string
-	// policy, when set, is written to .agents/review-policy.json and the run
-	// calls a freshly built ateam through ATEAM.
+	// policy, when set, is written to .agents/review-policy.json.
 	policy string
 }
 
@@ -101,11 +99,6 @@ func builtAteam(t *testing.T) string {
 	}
 	return ateamBin
 }
-
-const fakeJQ = `#!/bin/sh
-case "$*" in *"$FAKE_JQ_FAIL"*) echo "jq: error (fake)" >&2; exit 5 ;; esac
-exec "$REAL_JQ" "$@"
-`
 
 const (
 	requiredRule = `{"type":"required_status_checks","ruleset_id":24272345,"ruleset_source":"C360Studio/ateam",` +
@@ -265,16 +258,8 @@ func runMergeCheck(t *testing.T, st ghState, pr string, actionsEnv ...string) me
 		if err := os.WriteFile(filepath.Join(root, ".agents", "review-policy.json"), []byte(st.policy), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		extra = append(extra, "ATEAM="+builtAteam(t))
 	}
-	if st.jqFail != "" {
-		realJQ, err := exec.LookPath("jq")
-		if err != nil {
-			t.Fatalf("jq is needed to run merge-check.sh: %v", err)
-		}
-		tools["jq"] = fakeJQ
-		extra = append(extra, "REAL_JQ="+realJQ, "FAKE_JQ_FAIL="+st.jqFail)
-	}
+	extra = append(extra, "ATEAM="+builtAteam(t))
 	var env []string
 	for _, kv := range fakeBin(t, tools, extra...) {
 		if strings.HasPrefix(kv, "GITHUB_ACTIONS=") || strings.HasPrefix(kv, "GITHUB_EVENT_NAME=") {

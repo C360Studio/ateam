@@ -20,13 +20,15 @@ import (
 
 func runReview(root string, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... --reviewer AGENT:MODEL:EFFORT")
+		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... --reviewer AGENT:MODEL:EFFORT | gate [PR]")
 		return 2
 	}
 	var err error
 	switch args[0] {
 	case "compare":
 		return reviewCompare(root, args[1:])
+	case "gate":
+		return reviewGate(root, args[1:])
 	case "setup":
 		err = reviewSetup(root, args[1:])
 	case "route":
@@ -96,6 +98,79 @@ func reviewCompare(root string, args []string) int {
 	}
 	fmt.Println("compare: pass: the reviewer is not weaker than any implementer")
 	return 0
+}
+
+// reviewGate is the merge check (scripts/merge-check.sh runs it): exit 0 pass,
+// 1 fail, 2 unavailable.
+func reviewGate(root string, args []string) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	actions := os.Getenv("GITHUB_ACTIONS") == "true"
+	cfg, source, err := gateForge(ctx, root, actions)
+	if err != nil {
+		fmt.Printf("merge-check: unavailable: %v\n", err)
+		return 2
+	}
+	repo := cfg.Owner + "/" + cfg.Repo
+	if repo == "/" {
+		repo = "(resolved by gh)"
+	}
+	// The host is not printed: a self-hosted forge's name stays out of public logs.
+	fmt.Printf("merge-check: forge=%s repo=%s (from %s)\n", cfg.Provider, repo, source)
+	if cfg.Provider == string(state.ForgeGitea) {
+		token, err := reviewToken(ctx, state.ForgeConfig{Provider: state.ForgeGitea})
+		if err != nil {
+			fmt.Printf("merge-check: unavailable: %v\n", err)
+			return 2
+		}
+		cfg.Token = token
+	}
+	pr := ""
+	if len(args) > 0 {
+		pr = args[0]
+	}
+	opts := review.GateOptions{PR: pr, Actions: actions, Event: os.Getenv("GITHUB_EVENT_NAME"), PolicyPath: filepath.Join(root, ".agents", "review-policy.json")}
+	return review.Gate(ctx, os.Stdout, cfg, opts)
+}
+
+// gateForge picks the forge the merge check reads: ATEAM_FORGE when set; under
+// Actions, GITHUB_SERVER_URL (Gitea Actions sets it to the Gitea root) with
+// GITHUB_REPOSITORY; otherwise origin. With none of them it is GitHub through
+// gh, which resolves the repository itself, as the shell script always did.
+func gateForge(ctx context.Context, root string, actions bool) (review.ForgeConfig, string, error) {
+	explicit := strings.ToLower(strings.TrimSpace(os.Getenv("ATEAM_FORGE")))
+	if explicit != "" && explicit != "github" && explicit != "gitea" {
+		return review.ForgeConfig{}, "", fmt.Errorf("ATEAM_FORGE=%s is neither github nor gitea", explicit)
+	}
+	server := strings.TrimRight(strings.TrimSpace(os.Getenv("GITHUB_SERVER_URL")), "/")
+	if actions && server != "" {
+		provider, source := "gitea", "GITHUB_SERVER_URL"
+		if server == "https://github.com" {
+			provider = "github"
+		}
+		if explicit != "" {
+			provider, source = explicit, "ATEAM_FORGE"
+		}
+		owner, repo, ok := strings.Cut(os.Getenv("GITHUB_REPOSITORY"), "/")
+		if !ok || owner == "" || repo == "" || strings.Contains(repo, "/") {
+			return review.ForgeConfig{}, "", fmt.Errorf("GITHUB_REPOSITORY is not owner/repo")
+		}
+		return review.ForgeConfig{Provider: provider, BaseURL: server, Owner: owner, Repo: repo}, source, nil
+	}
+	source := "origin"
+	if explicit != "" {
+		source = "ATEAM_FORGE"
+	}
+	remote, err := review.GitRemote(ctx, root)
+	if err != nil {
+		remote = ""
+	}
+	cfg := state.DetectForge(ctx, root, remote)
+	switch cfg.Provider {
+	case state.ForgeGitHub, state.ForgeGitea:
+		return review.ForgeConfig{Provider: string(cfg.Provider), BaseURL: cfg.BaseURL, Owner: cfg.Owner, Repo: cfg.Repo}, source, nil
+	}
+	return review.ForgeConfig{Provider: "github"}, "default: no origin forge", nil
 }
 
 func readReviewFile(path string) ([]byte, error) {

@@ -273,3 +273,64 @@ func TestReviewCompareExitCodes(t *testing.T) {
 		t.Fatalf("invalid policy: compare=%d, want 2", code)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
+func TestGateForgeSelection(t *testing.T) {
+	// #143: ATEAM_FORGE wins; under Actions GITHUB_SERVER_URL picks the forge
+	// (Gitea Actions sets it too); otherwise origin; with no origin, gh's GitHub.
+	gitRepo := func(t *testing.T, origin string) string {
+		t.Helper()
+		dir := t.TempDir()
+		for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", origin}} {
+			if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		return dir
+	}
+	for _, tc := range []struct {
+		name       string
+		env        map[string]string
+		actions    bool
+		origin     string
+		want       review.ForgeConfig
+		wantSource string
+		wantErr    string
+	}{
+		{name: "github actions", actions: true, env: map[string]string{"GITHUB_SERVER_URL": "https://github.com/", "GITHUB_REPOSITORY": "acme/widgets"},
+			want: review.ForgeConfig{Provider: "github", BaseURL: "https://github.com", Owner: "acme", Repo: "widgets"}, wantSource: "GITHUB_SERVER_URL"},
+		{name: "gitea actions", actions: true, env: map[string]string{"GITHUB_SERVER_URL": "https://gitea.example.test", "GITHUB_REPOSITORY": "acme/widgets"},
+			want: review.ForgeConfig{Provider: "gitea", BaseURL: "https://gitea.example.test", Owner: "acme", Repo: "widgets"}, wantSource: "GITHUB_SERVER_URL"},
+		{name: "explicit forge under actions", actions: true, env: map[string]string{"ATEAM_FORGE": "github", "GITHUB_SERVER_URL": "https://gitea.example.test", "GITHUB_REPOSITORY": "acme/widgets"},
+			want: review.ForgeConfig{Provider: "github", BaseURL: "https://gitea.example.test", Owner: "acme", Repo: "widgets"}, wantSource: "ATEAM_FORGE"},
+		{name: "malformed repository", actions: true, env: map[string]string{"GITHUB_SERVER_URL": "https://gitea.example.test", "GITHUB_REPOSITORY": "widgets"},
+			wantErr: "GITHUB_REPOSITORY is not owner/repo"},
+		{name: "unknown explicit forge", env: map[string]string{"ATEAM_FORGE": "gitlab"}, wantErr: "neither github nor gitea"},
+		{name: "server url outside actions is not read", env: map[string]string{"GITHUB_SERVER_URL": "https://gitea.example.test", "GITHUB_REPOSITORY": "acme/widgets"},
+			origin: "git@github.com:acme/widgets.git",
+			want:   review.ForgeConfig{Provider: "github", BaseURL: "https://api.github.com", Owner: "acme", Repo: "widgets"}, wantSource: "origin"},
+		{name: "gitea origin", origin: "https://gitea.example.test/acme/widgets.git",
+			want: review.ForgeConfig{Provider: "gitea", BaseURL: "https://gitea.example.test", Owner: "acme", Repo: "widgets"}, wantSource: "origin"},
+		{name: "no origin", want: review.ForgeConfig{Provider: "github"}, wantSource: "default: no origin forge"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range []string{"ATEAM_FORGE", "GITEA_URL", "GITHUB_API_URL", "GITHUB_SERVER_URL", "GITHUB_REPOSITORY"} {
+				t.Setenv(k, tc.env[k])
+			}
+			root := t.TempDir()
+			if tc.origin != "" {
+				root = gitRepo(t, tc.origin)
+			}
+			got, source, err := gateForge(context.Background(), root, tc.actions)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || got != tc.want || source != tc.wantSource {
+				t.Fatalf("gateForge = %+v, %q, %v; want %+v, %q", got, source, err, tc.want, tc.wantSource)
+			}
+		})
+	}
+}
