@@ -31,11 +31,11 @@ func TestAgentSetupParity(t *testing.T) {
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
 func TestInitRepoAndParitySensitivity(t *testing.T) {
 	dir := t.TempDir()
-	written, err := InitRepo(context.Background(), dir, Options{})
+	res, err := InitRepo(context.Background(), dir, Options{})
 	if err != nil {
 		t.Fatalf("InitRepo: %v", err)
 	}
-	if len(written) == 0 {
+	if len(res.Written) == 0 {
 		t.Fatal("InitRepo wrote 0 files")
 	}
 	if v := CheckParity(dir); len(v) > 0 {
