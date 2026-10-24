@@ -132,7 +132,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 		if sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active") {
 			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
 		}
-		if buildWarning := checkSessionBuildProvenance(sha); buildWarning != "" {
+		if buildWarning := checkSessionBuildProvenance(root, sha); buildWarning != "" {
 			ctxText += "\n" + buildWarning
 		}
 		if mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha); len(mcpWarnings) > 0 {
@@ -332,9 +332,12 @@ func reconcileSessionStartHandoffs(root, flagAgent, br, sha string, wtHeadChange
 	}
 }
 
-func checkSessionBuildProvenance(headSHA string) string {
+func checkSessionBuildProvenance(root, headSHA string) string {
 	headSHA = strings.TrimSpace(headSHA)
 	if headSHA == "" || headSHA == "uncommitted" {
+		return ""
+	}
+	if !bootstrap.IsAteamCheckout(root) {
 		return ""
 	}
 	shortBuild, _, _ := state.BuildRevision()

@@ -2,6 +2,7 @@
 package bootstrap
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -414,8 +415,49 @@ func DiskBuildStatus(ctx context.Context, root string) (string, []string) {
 	return label, nil
 }
 
-// CheckBuildProvenance checks whether the running binary's commit is an ancestor of checkout HEAD.
+// ateamModule is the module path whose checkout the binary's build commit can be compared against.
+// Go module paths are case-sensitive, so the match is exact.
+const ateamModule = "github.com/c360studio/ateam"
+
+// IsAteamCheckout reports whether root's go.mod declares the ateam module. It line-scans the file
+// without spawning a subprocess, so the session-start hook stays inside its latency budget (#150).
+func IsAteamCheckout(root string) bool {
+	f, err := os.Open(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(sc.Text()), "module")
+		if !ok || rest == "" || (rest[0] != ' ' && rest[0] != '\t') {
+			continue
+		}
+		return strings.Trim(strings.TrimSpace(rest), `"`) == ateamModule
+	}
+	return false
+}
+
+// BuildProvenanceNotApplicable is the doctor build_provenance value outside the ateam checkout.
+const BuildProvenanceNotApplicable = "not applicable (binary is not built from this checkout)"
+
+// BuildProvenanceStatus returns the doctor build_provenance field and the build warnings, reading
+// go.mod once. Outside the ateam checkout the binary was never built from root, so there are no warnings (#150).
+func BuildProvenanceStatus(ctx context.Context, root, buildRev, headSHA string) (string, []string) {
+	if !IsAteamCheckout(root) {
+		return BuildProvenanceNotApplicable, nil
+	}
+	return "checked", checkBuildProvenance(ctx, root, buildRev, headSHA)
+}
+
+// CheckBuildProvenance returns the build warnings of BuildProvenanceStatus.
 func CheckBuildProvenance(ctx context.Context, root, buildRev, headSHA string) []string {
+	_, warnings := BuildProvenanceStatus(ctx, root, buildRev, headSHA)
+	return warnings
+}
+
+// checkBuildProvenance checks whether the running binary's commit is an ancestor of checkout HEAD.
+func checkBuildProvenance(ctx context.Context, root, buildRev, headSHA string) []string {
 	buildRev = strings.TrimSpace(buildRev)
 	headSHA = strings.TrimSpace(headSHA)
 	if buildRev == "" || buildRev == "dev" || buildRev == "unknown" {
