@@ -198,12 +198,27 @@ func forgeRoot(cfg ForgeConfig) (string, error) {
 	return root + "/repos/" + cfg.Owner + "/" + cfg.Repo, nil
 }
 
+// forgeStatusError is a response other than 200, kept typed so a caller can
+// tell a permission answer from a failure.
+type forgeStatusError struct{ code int }
+
+func (e *forgeStatusError) Error() string {
+	return fmt.Sprintf("review evidence API returned HTTP %d", e.code)
+}
+
 func readForgeJSON(ctx context.Context, client *http.Client, cfg ForgeConfig, endpoint string, out any) error {
+	_, err := readForgePage(ctx, client, cfg, endpoint, maxForgeResponse, out)
+	return err
+}
+
+// readForgePage is readForgeJSON with a caller-chosen byte cap, returning the
+// response headers so list reads can check X-Total-Count.
+func readForgePage(ctx context.Context, client *http.Client, cfg ForgeConfig, endpoint string, limit int64, out any) (http.Header, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return fmt.Errorf("create review evidence request: %w", err)
+		return nil, fmt.Errorf("create review evidence request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	if cfg.Token != "" {
@@ -222,21 +237,21 @@ func readForgeJSON(ctx context.Context, client *http.Client, cfg ForgeConfig, en
 	safeClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := safeClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("read review evidence: %w", err)
+		return nil, fmt.Errorf("read review evidence: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("review evidence API returned HTTP %d", resp.StatusCode)
+		return nil, &forgeStatusError{code: resp.StatusCode}
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxForgeResponse+1))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return fmt.Errorf("read review evidence body: %w", err)
+		return nil, fmt.Errorf("read review evidence body: %w", err)
 	}
-	if len(raw) > maxForgeResponse {
-		return fmt.Errorf("review evidence response exceeds %d bytes", maxForgeResponse)
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("review evidence response exceeds %d bytes", limit)
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("decode review evidence: %w", err)
+		return nil, fmt.Errorf("decode review evidence: %w", err)
 	}
-	return nil
+	return resp.Header, nil
 }

@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  # Every PR gets CI whatever its base, so stacked PRs are covered too. Listing
+  # types replaces GitHub's default three, so they are listed with
+  # ready_for_review: marking a draft ready starts the run that applies the
+  # review check, which does not fail a draft.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Superseded PR runs are cancelled, except the run that marking a draft ready
+# starts: it reuses the head SHA, and cancelling the run already in flight would
+# leave a failed Required on a head that was never broken (#87). Pushes to main
+# are never cancelled, so two quick merges never leave one on a commit either.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}
+
+permissions:
+  contents: read
+
+# Every job is pinned to ubuntu-24.04 by the merge-gate spec.
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      # The root packages carry the OpenSpec CLI; without them spec:check skips strict validation (#127).
+      - run: npm ci
+
+      - run: npm --prefix ui ci
+
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: 3.43.3
+
+      - run: task build
+
+      - run: ./bin/ateam doctor --check
+
+      - run: task verify
+
+  # Up-to-date rule, review check and known-flake check (scripts/merge-check.sh).
+  merge-check:
+    name: Merge check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # The base commit, not the pull request: the script, the review policy it
+      # reads, and the ateam binary built below must not come from the tree they
+      # judge, or a pull request could loosen its own gate (#140). The pull
+      # request itself is read through the API.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # merge-check.sh calls ateam review compare once .agents/review-policy.json exists.
+      - run: go build -o "$RUNNER_TEMP/ateam" ./cmd/ateam
+
+      - name: Check the up-to-date rule, the review and its strength, and known flakes
+        env:
+          ATEAM: ${{ runner.temp }}/ateam
+          # Gitea: the job token only, no extra secret. It cannot read the branch
+          # protection rule, so the up-to-date setting prints strict=unverified.
+          GITEA_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: scripts/merge-check.sh "$PR_NUMBER"
+
+  # Single required status check: anything other than success in a needed job
+  # (failure, cancelled, skipped, or a job that never ran) fails the aggregate.
+  required:
+    name: Required
+    needs: [verify, merge-check]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every needed job to succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "needed job results: ${RESULTS:-<none>}"
+          if [ -z "$RESULTS" ]; then echo "no needed jobs reported"; exit 1; fi
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then echo "required check did not succeed: $r"; exit 1; fi
+          done
