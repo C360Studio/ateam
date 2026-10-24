@@ -424,3 +424,23 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 
 - **WHEN** an open `class:flake` issue exists on Gitea
 - **THEN** the label is read from the repository's labels first (Gitea discards an unknown label in an issue filter, so a missing label never reads as an empty list), the open issues are filtered for the label client side, and a flake counts as closed only when its timeline holds a `ref_action` of `closes` from this pull request in the same repository; the description is not parsed
+
+### Requirement: MCP process attribution
+
+`ateam doctor` and the session-start hook SHALL warn only about `ateam mcp` processes that serve the current repository, and SHALL compare a server's build with checkout `HEAD` only in the ateam checkout.
+
+#### Scenario: Foreign MCP process
+
+- **WHEN** a live `ateam mcp` process is not in this root's registry and its working directory is readable and is neither this root nor a linked worktree of it
+- **THEN** doctor lists it in `running_mcp_processes` with `repo: other` and emits no warning for it, and the session-start hook prints no line for it
+
+#### Scenario: Unregistered MCP process in this repository
+
+- **WHEN** a live `ateam mcp` process is not in this root's registry and its working directory is this root, or its working directory cannot be read
+- **THEN** doctor and the hook warn about it as before
+
+#### Scenario: Older-than-HEAD comparison outside the ateam checkout
+
+- **WHEN** doctor or the session-start hook runs in a checkout whose root `go.mod` does not declare `module github.com/c360studio/ateam`
+- **THEN** the hook prints no `MCP server PID n (build x) is older than HEAD; restart the client` line
+- **AND** doctor does not compare a server's build with checkout `HEAD`; it compares with the on-disk `bin/ateam` build, as it does when there is no `HEAD`

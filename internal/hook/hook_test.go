@@ -494,6 +494,46 @@ func TestAntigravityHookContract(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: MCP process attribution
+func TestSessionStartSkipsOlderThanHeadMCPLineInForeignCheckout(t *testing.T) {
+	const line = "MCP server PID 3475 (build unknown) is older than HEAD; restart the client"
+	origInspect := inspectClientMCP
+	inspectClientMCP = func(context.Context, string, string, int) ([]state.MCPProcess, []string) {
+		return []state.MCPProcess{{PID: 3475, BuildCommit: "unknown"}}, []string{line}
+	}
+	t.Cleanup(func() { inspectClientMCP = origInspect })
+	for name, goMod := range map[string]string{"foreign go.mod": "module example.com/adopter\n", "no go.mod": ""} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			headsDir := filepath.Join(dir, ".git", "refs", "heads")
+			if err := os.MkdirAll(headsDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("990e19c000000000000000000000000000000000\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if goMod != "" {
+				if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-foreign-mcp"}`))
+			if err != nil {
+				t.Fatalf("Handle session-start: %v", err)
+			}
+			if !strings.Contains(out.AdditionalContext, "head=990e19c") {
+				t.Fatalf("HEAD was not resolved, the test proves nothing:\n%s", out.AdditionalContext)
+			}
+			if strings.Contains(out.AdditionalContext, "is older than HEAD") {
+				t.Fatalf("foreign checkout must not get the older-than-HEAD MCP line, got:\n%s", out.AdditionalContext)
+			}
+		})
+	}
+}
+
 // spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
 func TestHookWarnsStaleClientMCPOncePerSession(t *testing.T) {
 	dir := t.TempDir()
@@ -505,6 +545,9 @@ func TestHookWarnsStaleClientMCPOncePerSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("990e19c000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/c360studio/ateam\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

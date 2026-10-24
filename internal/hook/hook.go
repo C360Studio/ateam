@@ -353,6 +353,10 @@ func checkSessionStaleMCPOnce(root, sessionID, headSHA string) []string {
 	if sessionID == "" || headSHA == "" {
 		return nil
 	}
+	// Only the ateam checkout's HEAD says anything about an MCP server's build (#151).
+	if !bootstrap.IsAteamCheckout(root) {
+		return nil
+	}
 	if state.HasMCPCheckedSession(root, sessionID) {
 		return nil
 	}

@@ -112,6 +112,9 @@ type MCPProcess struct {
 	FullCommit  string     `json:"full_commit,omitempty"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	StartToken  string     `json:"start_token,omitempty"`
+	// Repo is "other" when the process serves another repository: it is not in this root's
+	// registry and its working directory is outside this root and its linked worktrees (#151).
+	Repo string `json:"repo,omitempty"`
 }
 
 func mcpProcessesPath(root string) string {
@@ -181,6 +184,33 @@ func mcpCandidateRoots(root string) []string {
 		}
 	}
 	return roots
+}
+
+// InRepository reports whether dir is root, a linked worktree of root's repository, or a
+// directory inside one of them. It reads only git metadata files, no subprocess (#151).
+func InRepository(root, dir string) bool {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return false
+	}
+	dirs := []string{filepath.Clean(dir)}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil && resolved != dirs[0] {
+		dirs = append(dirs, resolved)
+	}
+	for _, r := range mcpCandidateRoots(root) {
+		roots := []string{r}
+		if resolved, err := filepath.EvalSymlinks(r); err == nil && resolved != r {
+			roots = append(roots, resolved)
+		}
+		for _, cr := range roots {
+			for _, d := range dirs {
+				if d == cr || strings.HasPrefix(d, cr+string(filepath.Separator)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func readProcessStartAndArgs(pid int) (lstart, args string, ok bool) {
