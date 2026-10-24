@@ -36,8 +36,8 @@ func TestConfiguredGitHubTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(calls) != 3 {
-		t.Fatalf("calls = %q, want issue, fallback, PR", calls)
+	if len(calls) != 5 {
+		t.Fatalf("calls = %q, want open issue with fallback, closed issue, and open+closed PR lists", calls)
 	}
 	for _, call := range calls {
 		if !strings.Contains(call, "--repo github.com/chosen/target") {
@@ -178,7 +178,7 @@ func TestForgeRemovalPersistsAcrossRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(calls), "--repo github.com/replacement/repo") != 2 {
+	if strings.Count(string(calls), "--repo github.com/replacement/repo") != 4 {
 		t.Fatalf("refresh did not sync configured target: %s", calls)
 	}
 }
@@ -241,7 +241,7 @@ func TestAutomaticForgeTracksOriginChanges(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(strings.Split(strings.TrimSpace(string(calls)), "\n")) != 4 {
+		if len(strings.Split(strings.TrimSpace(string(calls)), "\n")) != 8 {
 			t.Fatalf("local origin triggered remote sync: %s", calls)
 		}
 	}
@@ -262,7 +262,7 @@ func TestAutomaticForgeTracksOriginChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := strings.Split(strings.TrimSpace(string(data)), "\n")
-	expected := []string{"original", "original", "changed", "changed", "pinned", "pinned"}
+	expected := []string{"original", "original", "original", "original", "changed", "changed", "changed", "changed", "pinned", "pinned", "pinned", "pinned"}
 	if len(calls) != len(expected) {
 		t.Fatalf("calls = %q, want six issue/PR requests", calls)
 	}

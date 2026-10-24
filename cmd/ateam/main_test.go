@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,13 +125,13 @@ func TestRecoveryCommandRefreshesSupplyingForge(t *testing.T) {
 	gh := state.ForgeConfig{Provider: state.ForgeGitHub, Owner: "test", Repo: "repo"}
 
 	// Case 1: Inactive Gitea provider is reachable via httptest.Server -> recovery refreshes Gitea and clears (cache 4h).
-	var giteaPullCalls int
+	var giteaPullCalls atomic.Int32 // the sync fetches open and closed pulls concurrently
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/test/repo/issues":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/test/repo/pulls":
-			giteaPullCalls++
+			giteaPullCalls.Add(1)
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"number":   12,
@@ -179,8 +180,8 @@ func TestRecoveryCommandRefreshesSupplyingForge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(liveRoot): %v", err)
 	}
-	if giteaPullCalls == 0 || !afterLive.SyncedAtFor(gtLive).After(old) {
-		t.Fatalf("expected recovery %q to refresh Gitea (calls=%d, syncedAt=%v, old=%v)", command, giteaPullCalls, afterLive.SyncedAtFor(gtLive), old)
+	if giteaPullCalls.Load() == 0 || !afterLive.SyncedAtFor(gtLive).After(old) {
+		t.Fatalf("expected recovery %q to refresh Gitea (calls=%d, syncedAt=%v, old=%v)", command, giteaPullCalls.Load(), afterLive.SyncedAtFor(gtLive), old)
 	}
 	if gotStatus := afterLive.WorktreePRStatus(wt); gotStatus != "open PR #12" {
 		t.Fatalf("expected fresh Gitea label %q after recovery, got %q", "open PR #12", gotStatus)
