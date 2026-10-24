@@ -220,6 +220,9 @@ func copyScript(t *testing.T, name string) string {
 	return root
 }
 
+var forgeEnv = []string{"GITHUB_ACTIONS", "GITHUB_EVENT_NAME", "GITHUB_SERVER_URL", "GITHUB_REPOSITORY",
+	"ATEAM_FORGE", "GITEA_URL", "GITEA_TOKEN", "ATEAM_GITEA_TOKEN"}
+
 func runMergeCheck(t *testing.T, st ghState, pr string, actionsEnv ...string) mergeRun {
 	t.Helper()
 	root := copyScript(t, "merge-check.sh")
@@ -262,7 +265,9 @@ func runMergeCheck(t *testing.T, st ghState, pr string, actionsEnv ...string) me
 	extra = append(extra, "ATEAM="+builtAteam(t))
 	var env []string
 	for _, kv := range fakeBin(t, tools, extra...) {
-		if strings.HasPrefix(kv, "GITHUB_ACTIONS=") || strings.HasPrefix(kv, "GITHUB_EVENT_NAME=") {
+		// The forge comes from these too, and a Gitea runner sets
+		// GITHUB_SERVER_URL to its own host: the fixtures are GitHub's.
+		if slices.ContainsFunc(forgeEnv, func(k string) bool { return strings.HasPrefix(kv, k+"=") }) {
 			continue
 		}
 		env = append(env, kv)
