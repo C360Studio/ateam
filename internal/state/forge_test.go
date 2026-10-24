@@ -267,8 +267,28 @@ func TestDualForgeSyncTimestampIsolation(t *testing.T) {
 	}
 }
 
-// assertOldestOpenPRLabelled merges synced into a fresh state with a worktree on PR 1's branch and checks every PR card survived.
-func assertOldestOpenPRLabelled(t *testing.T, synced []BoardCard, provider ForgeProvider) {
+// Both forge fakes hold open PRs 1-60 and closed (merged) PRs 60-130, newest first. PR 60 is in both lists: it merged
+// between the open and closed reads. Sorted by last update, PR 60 heads the closed list; sorted by creation it is last,
+// outside the 50-item closed cap.
+const fakeOpenPRs, fakeClosedLow, fakeClosedHigh = 60, 60, 130
+
+// fakeClosedPRNumbers lists the closed PRs in the order a forge serves them.
+func fakeClosedPRNumbers(byUpdate bool) []int {
+	var nums []int
+	if byUpdate {
+		nums = append(nums, fakeClosedLow)
+	}
+	for n := fakeClosedHigh; n > fakeClosedLow; n-- {
+		nums = append(nums, n)
+	}
+	if !byUpdate {
+		nums = append(nums, fakeClosedLow)
+	}
+	return nums
+}
+
+// assertSyncedPRs merges synced into a fresh state and checks every open PR survived, wantClosed closed PRs were kept, and PR 60's closed copy won.
+func assertSyncedPRs(t *testing.T, synced []BoardCard, provider ForgeProvider, wantClosed int) {
 	t.Helper()
 	prs := 0
 	for _, c := range synced {
@@ -276,74 +296,181 @@ func assertOldestOpenPRLabelled(t *testing.T, synced []BoardCard, provider Forge
 			prs++
 		}
 	}
-	if prs != 60 {
-		t.Fatalf("got %d PR cards, want 60", prs)
+	// Open PRs 1-59 plus the most recently updated closed PRs (60, then 130 down).
+	if want := fakeOpenPRs - 1 + wantClosed; prs != want {
+		t.Fatalf("got %d PR cards, want %d", prs, want)
 	}
 	st := defaultState()
 	st.Git.Branch = "main"
-	st.Git.Worktrees = []Worktree{{Path: "/repo/.worktrees/old", Branch: "claude/pr-1", Head: "abc1234"}}
-	st.MergeForgeCards(synced, provider)
-	if got := st.WorktreePRStatus(st.Git.Worktrees[0]); got != "open PR #1" {
-		t.Fatalf("WorktreePRStatus = %q, want %q", got, "open PR #1")
+	st.Git.Worktrees = []Worktree{
+		{Path: "/repo/.worktrees/old", Branch: "claude/pr-1", Head: "abc1234"},
+		{Path: "/repo/.worktrees/merged", Branch: "claude/pr-60", Head: "def5678"},
 	}
+	st.MergeForgeCards(synced, provider)
+	for i, want := range []string{"open PR #1", "merged via #60"} {
+		if got := st.WorktreePRStatus(st.Git.Worktrees[i]); got != want {
+			t.Fatalf("WorktreePRStatus(%s) = %q, want %q", st.Git.Worktrees[i].Branch, got, want)
+		}
+	}
+}
+
+// writeGitHubFake installs a fake gh that serves PR lists from files and honours --limit like gh does. Closed lists
+// come back sorted by last update only when the call asks for it with --search sort:updated-desc. delay is a shell
+// sleep argument ("0" for none) that each call spends before answering, standing in for gh's network latency.
+func writeGitHubFake(t *testing.T, delay string) {
+	t.Helper()
+	dir := t.TempDir()
+	write := func(name string, nums []int, state string) {
+		var lines []string
+		for _, n := range nums {
+			line := fmt.Sprintf(`{"number":%d,"title":"PR %d","state":"%s","headRefName":"claude/pr-%d"`, n, n, state, n)
+			if state == "MERGED" {
+				line += `,"mergedAt":"2026-10-24T00:00:00Z"`
+			}
+			lines = append(lines, line+"}")
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var open []int
+	for n := fakeOpenPRs; n >= 1; n-- {
+		open = append(open, n)
+	}
+	write("pr-open", open, "OPEN")
+	write("pr-closed", fakeClosedPRNumbers(false), "MERGED")
+	write("pr-closed-updated", fakeClosedPRNumbers(true), "MERGED")
+	// argv: gh <kind> list --state <state> --limit <n> ...
+	script := "#!/bin/sh\n" +
+		"sleep " + delay + "\n" +
+		"f='" + dir + "'/$1-$4\n" +
+		"case \"$*\" in *sort:updated-desc*) f=\"$f-updated\";; esac\n" +
+		"if [ ! -f \"$f\" ]; then echo '[]'; exit 0; fi\n" +
+		"printf '['; head -n \"$6\" \"$f\" | paste -sd, -; printf ']'\n"
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 // Scenario "Open work is never capped" (openspec/changes/forge-sync-cap-149) joins the main spec on archive.
 func TestGitHubSyncNeverCapsOpenPRs(t *testing.T) {
-	dir := t.TempDir()
-	// One JSON object per line, newest first, so a limit cuts off PR 1 first.
-	var lines []string
-	for n := 60; n >= 1; n-- {
-		lines = append(lines, fmt.Sprintf(`{"number":%d,"title":"PR %d","state":"OPEN","headRefName":"claude/pr-%d"}`, n, n, n))
-	}
-	if err := os.WriteFile(filepath.Join(dir, "prs.txt"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// argv: gh pr list --state <state> --limit <n> ...; closed is empty, anything else honours --limit like gh does.
-	script := "#!/bin/sh\n" +
-		"if [ \"$1\" = \"issue\" ]; then echo '[]'; exit 0; fi\n" +
-		"if [ \"$4\" = \"closed\" ]; then echo '[]'; exit 0; fi\n" +
-		"printf '['; head -n \"$6\" '" + filepath.Join(dir, "prs.txt") + "' | paste -sd, -; printf ']'\n"
-	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
+	writeGitHubFake(t, "0")
 	synced, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub})
 	if err != nil {
 		t.Fatalf("SyncForgeBoard: %v", err)
 	}
-	assertOldestOpenPRLabelled(t, synced, ForgeGitHub)
+	assertSyncedPRs(t, synced, ForgeGitHub, closedItemCap)
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+// Scenario "Open work is never capped" (openspec/changes/forge-sync-cap-149) joins the main spec on archive.
+func TestGitHubSyncFitsPickupBudget(t *testing.T) {
+	// Each gh call takes 1s, so the open-issue comment attempt is killed at its 750ms sub-timeout and its fallback runs.
+	// Run one after another, the five calls need about 4.75s; run together they need about 1.75s.
+	writeGitHubFake(t, "1")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	synced, err := SyncForgeBoard(ctx, t.TempDir(), ForgeConfig{Provider: ForgeGitHub})
+	if err != nil {
+		t.Fatalf("SyncForgeBoard under the 3s pickup budget: %v", err)
+	}
+	assertSyncedPRs(t, synced, ForgeGitHub, closedItemCap)
+}
+
+// newGiteaFake serves open PRs 1-60, closed PRs 60-130, and open issues 1-55, newest first. A closed PR list is sorted
+// by last update only when asked with sort=recentupdate. clamp > 0 caps the page size the way [api] MAX_RESPONSE_ITEMS
+// does; ignorePage serves page 1 for every page.
+func newGiteaFake(t *testing.T, clamp int, ignorePage bool) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		isPR := strings.HasSuffix(r.URL.Path, "/pulls")
+		var nums []int
+		switch {
+		case isPR && q.Get("state") == "open":
+			for n := fakeOpenPRs; n >= 1; n-- {
+				nums = append(nums, n)
+			}
+		case isPR && q.Get("state") == "closed":
+			nums = fakeClosedPRNumbers(q.Get("sort") == "recentupdate")
+		case !isPR && q.Get("type") == "issues" && q.Get("state") == "open":
+			for n := 55; n >= 1; n-- {
+				nums = append(nums, n)
+			}
+		}
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		if limit < 1 {
+			limit = 50
+		}
+		if clamp > 0 && limit > clamp {
+			limit = clamp
+		}
+		page, _ := strconv.Atoi(q.Get("page"))
+		if page < 1 || ignorePage {
+			page = 1
+		}
+		items := []map[string]any{}
+		for i := (page - 1) * limit; i < len(nums) && i < page*limit; i++ {
+			n := nums[i]
+			item := map[string]any{"number": n, "title": fmt.Sprintf("item %d", n), "state": q.Get("state")}
+			if isPR {
+				item["head"] = map[string]any{"ref": fmt.Sprintf("claude/pr-%d", n)}
+				item["merged"] = q.Get("state") == "closed"
+			}
+			items = append(items, item)
+		}
+		_ = json.NewEncoder(w).Encode(items)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 // Scenario "Open work is never capped" (openspec/changes/forge-sync-cap-149) joins the main spec on archive.
 func TestGiteaSyncNeverCapsOpenPRs(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		items := []map[string]any{}
-		if strings.HasSuffix(r.URL.Path, "/pulls") && q.Get("state") == "open" {
-			page, _ := strconv.Atoi(q.Get("page"))
-			limit, _ := strconv.Atoi(q.Get("limit"))
-			if page < 1 {
-				page = 1
+	for _, tc := range []struct {
+		name       string
+		clamp      int
+		wantClosed int
+	}{
+		{name: "server honours limit", clamp: 0, wantClosed: closedItemCap},
+		// The clamp also shortens the single closed page; open work must still page through all 60.
+		{name: "server clamps page size to 30", clamp: 30, wantClosed: 30},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newGiteaFake(t, tc.clamp, false)
+			synced, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "c360", Repo: "ateam"})
+			if err != nil {
+				t.Fatalf("SyncForgeBoard: %v", err)
 			}
-			// Newest first; Gitea serves at most limit items per page.
-			for n := 60 - (page-1)*limit; n >= 1 && len(items) < limit; n-- {
-				items = append(items, map[string]any{
-					"number": n, "title": fmt.Sprintf("PR %d", n), "state": "open",
-					"head": map[string]any{"ref": fmt.Sprintf("claude/pr-%d", n)},
-				})
+			issues := 0
+			for _, c := range synced {
+				if c.Type == "issue" {
+					issues++
+				}
 			}
-		}
-		_ = json.NewEncoder(w).Encode(items)
-	}))
-	defer srv.Close()
+			if issues != 55 {
+				t.Fatalf("got %d issue cards, want 55", issues)
+			}
+			assertSyncedPRs(t, synced, ForgeGitea, tc.wantClosed)
+		})
+	}
+}
 
-	synced, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "c360", Repo: "ateam"})
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+// Scenario "Open work is never capped" (openspec/changes/forge-sync-cap-149) joins the main spec on archive.
+func TestGiteaSyncStopsWhenServerIgnoresPage(t *testing.T) {
+	srv := newGiteaFake(t, 0, true)
+	// Without the no-new-numbers stop the paging loop only ends when this deadline kills it.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	synced, err := SyncForgeBoard(ctx, t.TempDir(), ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "c360", Repo: "ateam"})
 	if err != nil {
 		t.Fatalf("SyncForgeBoard: %v", err)
 	}
-	assertOldestOpenPRLabelled(t, synced, ForgeGitea)
+	if len(synced) == 0 {
+		t.Fatal("got no cards, want page 1 of each list")
+	}
 }

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -249,6 +250,7 @@ func syncGiteaBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardC
 		return fetchGiteaRESTCards(ctx, validated)
 	}
 	// Fallback to tea CLI if installed.
+	// shortcut: the tea fallback lists only tea's default --limit (30) of issues and PRs; page it like the REST path if tea-only setups need older open work.
 	if _, err := exec.LookPath("tea"); err == nil {
 		return fetchTeaCLICards(ctx, root)
 	}
@@ -263,30 +265,40 @@ func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, err
 	}
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 
-	var all []BoardCard
 	repoAPI := fmt.Sprintf("%s/api/v1/repos/%s/%s", baseURL, cfg.Owner, cfg.Repo)
-	for _, endpoint := range []struct {
+	endpoints := []struct {
 		path string
-		isPR bool
+		// closedSort orders the capped closed page; the issues endpoint has no sort parameter, so closed issues stay newest-created first.
+		closedSort string
+		isPR       bool
 	}{
-		{path: repoAPI + "/issues?type=issues", isPR: false},
-		{path: repoAPI + "/pulls", isPR: true},
-	} {
-		// Open work is paged to exhaustion; closed work is capped at giteaClosedCap.
-		open, err := fetchGiteaPages(ctx, client, token, endpoint.path+queryJoin(endpoint.path)+"state=open")
-		if err != nil {
-			return nil, err
-		}
-		closed, err := fetchGiteaPage(ctx, client, token, fmt.Sprintf("%s%sstate=closed&limit=%d", endpoint.path, queryJoin(endpoint.path), ClosedItemCap))
-		if err != nil {
-			return nil, err
-		}
-		seen := make(map[int]bool, len(open)+len(closed))
-		for _, item := range append(open, closed...) {
-			if seen[item.Number] {
-				continue
-			}
-			seen[item.Number] = true
+		{path: repoAPI + "/issues?type=issues"},
+		{path: repoAPI + "/pulls", closedSort: "&sort=recentupdate", isPR: true},
+	}
+	// Open work is paged to exhaustion in creation order, so an item updated mid-paging cannot jump to a page already read; closed work is capped at closedItemCap.
+	opens := make([][]forgeIssuePayload, len(endpoints))
+	closeds := make([][]forgeIssuePayload, len(endpoints))
+	var fetches []func(context.Context) error
+	for i, endpoint := range endpoints {
+		fetches = append(fetches,
+			func(ctx context.Context) error {
+				items, err := fetchGiteaPages(ctx, client, token, endpoint.path+queryJoin(endpoint.path)+"state=open")
+				opens[i] = items
+				return err
+			},
+			func(ctx context.Context) error {
+				items, err := fetchGiteaPage(ctx, client, token, fmt.Sprintf("%s%sstate=closed&limit=%d%s", endpoint.path, queryJoin(endpoint.path), closedItemCap, endpoint.closedSort))
+				closeds[i] = items
+				return err
+			})
+	}
+	if err := runConcurrently(ctx, fetches...); err != nil {
+		return nil, err
+	}
+
+	var all []BoardCard
+	for i, endpoint := range endpoints {
+		for _, item := range mergeOpenClosed(opens[i], closeds[i]) {
 			if !endpoint.isPR {
 				if _, count := parseIssueComments(item.Comments); count > 0 {
 					commentsURL := fmt.Sprintf("%s/issues/%d/comments", repoAPI, item.Number)
@@ -299,8 +311,11 @@ func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, err
 	return all, nil
 }
 
-// ClosedItemCap is how many of the most recent closed issues and pull requests a forge sync keeps; open items are never capped.
-const ClosedItemCap = 50
+// closedItemCap is how many of the most recently updated closed issues and pull requests a forge sync keeps; open items are never capped.
+const closedItemCap = 50
+
+// giteaPageSize is the limit asked for per open-list page; the server may clamp it lower ([api] MAX_RESPONSE_ITEMS).
+const giteaPageSize = 50
 
 func queryJoin(path string) string {
 	if strings.Contains(path, "?") {
@@ -309,16 +324,66 @@ func queryJoin(path string) string {
 	return "?"
 }
 
-// fetchGiteaPages reads every page of an open-state listing until a short page.
+// runConcurrently runs every fn at once, joins them all, and returns the first failure; that failure cancels the others' context.
+func runConcurrently(ctx context.Context, fns ...func(context.Context) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		wg    sync.WaitGroup
+		once  sync.Once
+		first error
+	)
+	for _, fn := range fns {
+		wg.Go(func() {
+			if err := fn(ctx); err != nil {
+				once.Do(func() {
+					first = err
+					cancel()
+				})
+			}
+		})
+	}
+	wg.Wait()
+	return first
+}
+
+// mergeOpenClosed keeps one item per number. The closed copy wins: an item listed in both was closed between the two reads.
+func mergeOpenClosed(open, closed []forgeIssuePayload) []forgeIssuePayload {
+	isClosed := make(map[int]bool, len(closed))
+	for _, it := range closed {
+		isClosed[it.Number] = true
+	}
+	merged := make([]forgeIssuePayload, 0, len(open)+len(closed))
+	for _, it := range open {
+		if !isClosed[it.Number] {
+			merged = append(merged, it)
+		}
+	}
+	return append(merged, closed...)
+}
+
+// fetchGiteaPages reads an open-state listing page by page. It stops on an empty page, not a short one, because the
+// server may clamp the page size; it also stops on a page that adds no new numbers, in case the server ignores page.
 func fetchGiteaPages(ctx context.Context, client *http.Client, token, base string) ([]forgeIssuePayload, error) {
 	var all []forgeIssuePayload
+	seen := make(map[int]bool)
 	for page := 1; ; page++ {
-		items, err := fetchGiteaPage(ctx, client, token, fmt.Sprintf("%s&page=%d&limit=%d", base, page, ClosedItemCap))
+		items, err := fetchGiteaPage(ctx, client, token, fmt.Sprintf("%s&page=%d&limit=%d", base, page, giteaPageSize))
 		if err != nil {
 			return nil, err
 		}
-		all = append(all, items...)
-		if len(items) < ClosedItemCap {
+		if len(items) == 0 {
+			return all, nil
+		}
+		added := 0
+		for _, it := range items {
+			if !seen[it.Number] {
+				seen[it.Number] = true
+				all = append(all, it)
+				added++
+			}
+		}
+		if added == 0 {
 			return all, nil
 		}
 	}
@@ -418,7 +483,7 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 	}
 	var cards []BoardCard
 
-	// G-06: Attempt issue fetch with comments under a bounded sub-timeout that leaves at least 2/3 of any parent deadline for comment-free fallback + PR queries.
+	// G-06: Attempt issue fetch with comments under a bounded sub-timeout that leaves at least 2/3 of any parent deadline for the comment-free fallback (the other lists run alongside it).
 	issueTimeout := 2500 * time.Millisecond
 	if deadline, ok := ctx.Deadline(); ok {
 		issueTimeout = 750 * time.Millisecond
@@ -426,78 +491,89 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 			issueTimeout = sub
 		}
 	}
-	var issues []forgeIssuePayload
-	for _, q := range []struct {
-		state string
-		limit string
-	}{{"open", "1000"}, {"closed", strconv.Itoa(ClosedItemCap)}} {
-		issueCtx, issueCancel := context.WithTimeout(ctx, issueTimeout)
-		issueCmd := exec.CommandContext(issueCtx, "gh", "issue", "list", "--state", q.state, "--limit", q.limit, "--json", "number,title,state,labels,milestone,url,body,comments")
-		issueCmd.Args = append(issueCmd.Args, repoArgs...)
-		issueCmd.Dir = root
-		issueCmd.WaitDelay = 100 * time.Millisecond
-		issueOut, err := issueCmd.Output()
-		issueCancel()
-		if err != nil {
-			fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 5*time.Second)
-			fallbackCmd := exec.CommandContext(fallbackCtx, "gh", "issue", "list", "--state", q.state, "--limit", q.limit, "--json", "number,title,state,labels,milestone,url,body")
-			fallbackCmd.Args = append(fallbackCmd.Args, repoArgs...)
-			fallbackCmd.Dir = root
-			fallbackCmd.WaitDelay = 100 * time.Millisecond
-			issueOut, err = fallbackCmd.Output()
-			fallbackCancel()
-			if err != nil {
-				return nil, fmt.Errorf("gh issue list failed: %w", err)
-			}
-		}
-		var page []forgeIssuePayload
-		if err := json.Unmarshal(issueOut, &page); err != nil {
-			return nil, fmt.Errorf("parse gh issue list JSON: %w", err)
-		}
-		issues = append(issues, page...)
+	// shortcut: open lists stop at 1000 items with no caveat; page them or record a sync caveat when a repo nears 1000 open issues or PRs.
+	const openLimit = "1000"
+	closedLimit := strconv.Itoa(closedItemCap)
+	// Closed lists are ordered by last update, so an old item that just closed or merged stays inside the cap.
+	const closedSort = "sort:updated-desc"
+	ghList := func(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
+		cctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		cmd := exec.CommandContext(cctx, "gh", append(args, repoArgs...)...)
+		cmd.Dir = root
+		cmd.WaitDelay = 100 * time.Millisecond
+		return cmd.Output()
 	}
-	seen := make(map[int]bool, len(issues))
-	for _, it := range issues {
-		if seen[it.Number] {
-			continue
-		}
-		seen[it.Number] = true
-		cards = append(cards, mapForgeItemToCard(it, false, "github"))
-	}
-
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
 	type ghPR struct {
 		forgeIssuePayload
 		IsDraft bool `json:"isDraft"`
 	}
-	var prs []ghPR
-	for _, q := range []struct {
-		state string
-		limit string
-	}{{"open", "1000"}, {"closed", strconv.Itoa(ClosedItemCap)}} {
-		prCmd := exec.CommandContext(cctx, "gh", "pr", "list", "--state", q.state, "--limit", q.limit, "--json", "number,title,state,isDraft,headRefName,headRefOid,mergedAt,labels,url")
-		prCmd.Args = append(prCmd.Args, repoArgs...)
-		prCmd.Dir = root
-		prCmd.WaitDelay = 100 * time.Millisecond
-		prOut, err := prCmd.Output()
-		if err != nil {
-			return nil, fmt.Errorf("gh pr list failed: %w", err)
-		}
-		var page []ghPR
-		if err := json.Unmarshal(prOut, &page); err != nil {
-			return nil, fmt.Errorf("parse gh pr list JSON: %w", err)
-		}
-		prs = append(prs, page...)
+	const prFields = "number,title,state,isDraft,headRefName,headRefOid,mergedAt,labels,url"
+	var openIssues, closedIssues []forgeIssuePayload
+	var openPRs, closedPRs []ghPR
+	// The four lists run at once, so the sync costs the slowest call rather than the sum (the pickup budget is 3s per forge).
+	err := runConcurrently(ctx,
+		func(ctx context.Context) error {
+			out, err := ghList(ctx, issueTimeout, "issue", "list", "--state", "open", "--limit", openLimit, "--json", "number,title,state,labels,milestone,url,body,comments")
+			if err != nil {
+				out, err = ghList(ctx, 5*time.Second, "issue", "list", "--state", "open", "--limit", openLimit, "--json", "number,title,state,labels,milestone,url,body")
+				if err != nil {
+					return fmt.Errorf("gh issue list failed: %w", err)
+				}
+			}
+			if err := json.Unmarshal(out, &openIssues); err != nil {
+				return fmt.Errorf("parse gh issue list JSON: %w", err)
+			}
+			return nil
+		},
+		// Closed issues skip comment expansion: their decision summaries are not needed.
+		func(ctx context.Context) error {
+			out, err := ghList(ctx, 5*time.Second, "issue", "list", "--state", "closed", "--limit", closedLimit, "--search", closedSort, "--json", "number,title,state,labels,milestone,url,body")
+			if err != nil {
+				return fmt.Errorf("gh issue list failed: %w", err)
+			}
+			if err := json.Unmarshal(out, &closedIssues); err != nil {
+				return fmt.Errorf("parse gh issue list JSON: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			out, err := ghList(ctx, 5*time.Second, "pr", "list", "--state", "open", "--limit", openLimit, "--json", prFields)
+			if err != nil {
+				return fmt.Errorf("gh pr list failed: %w", err)
+			}
+			if err := json.Unmarshal(out, &openPRs); err != nil {
+				return fmt.Errorf("parse gh pr list JSON: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			out, err := ghList(ctx, 5*time.Second, "pr", "list", "--state", "closed", "--limit", closedLimit, "--search", closedSort, "--json", prFields)
+			if err != nil {
+				return fmt.Errorf("gh pr list failed: %w", err)
+			}
+			if err := json.Unmarshal(out, &closedPRs); err != nil {
+				return fmt.Errorf("parse gh pr list JSON: %w", err)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
 	}
-	seenPR := make(map[int]bool, len(prs))
-	for _, pr := range prs {
-		if seenPR[pr.Number] {
-			continue
+	for _, it := range mergeOpenClosed(openIssues, closedIssues) {
+		cards = append(cards, mapForgeItemToCard(it, false, "github"))
+	}
+	prPayloads := func(prs []ghPR) []forgeIssuePayload {
+		out := make([]forgeIssuePayload, 0, len(prs))
+		for _, pr := range prs {
+			pr.Draft = pr.IsDraft
+			out = append(out, pr.forgeIssuePayload)
 		}
-		seenPR[pr.Number] = true
-		pr.Draft = pr.IsDraft
-		cards = append(cards, mapForgeItemToCard(pr.forgeIssuePayload, true, "github"))
+		return out
+	}
+	for _, pr := range mergeOpenClosed(prPayloads(openPRs), prPayloads(closedPRs)) {
+		cards = append(cards, mapForgeItemToCard(pr, true, "github"))
 	}
 	return cards, nil
 }
@@ -647,26 +723,10 @@ func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, bra
 		if token == "" {
 			token = strings.TrimSpace(os.Getenv("ATEAM_GITEA_TOKEN"))
 		}
-		pullsURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls?state=open&limit=50", strings.TrimRight(cfg.BaseURL, "/"), cfg.Owner, cfg.Repo)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, pullsURL, nil)
+		pullsURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls?state=open", strings.TrimRight(cfg.BaseURL, "/"), cfg.Owner, cfg.Repo)
+		prs, err := fetchGiteaPages(ctx, client, token, pullsURL)
 		if err != nil {
-			return false, err
-		}
-		if token != "" {
-			req.Header.Set("Authorization", "token "+token)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return false, err
-		}
-		rawPulls, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode >= 300 {
-			return false, fmt.Errorf("gitea pulls API returned %d", resp.StatusCode)
-		}
-		var prs []forgeIssuePayload
-		if err := json.Unmarshal(rawPulls, &prs); err != nil {
-			return false, err
+			return false, fmt.Errorf("gitea pulls: %w", err)
 		}
 		prNum := 0
 		for _, pr := range prs {

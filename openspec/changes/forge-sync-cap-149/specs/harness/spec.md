@@ -24,5 +24,6 @@
 #### Scenario: Open work is never capped
 
 - **WHEN** a forge holds more than 50 open issues or more than 50 open pull requests
-- **THEN** synchronization SHALL list every open issue and pull request (GitHub `--state open` with a limit of 1000; Gitea `state=open`, page by page until a short page) and at most the 50 most recent closed ones, merged by number, so a worktree on an old open pull request's branch is labelled `open PR #<n>` and never `no PR`
+- **THEN** synchronization SHALL list every open issue and pull request (GitHub `--state open` with a limit of 1000; Gitea `state=open`, page by page until an empty page or a page that adds no new numbers) and at most the 50 most recently updated closed ones (Gitea closed issues: the 50 newest, since the issues endpoint cannot sort), merged by number with the closed copy winning, so a worktree on an old open pull request's branch is labelled `open PR #<n>` and never `no PR`, and one on a just-merged old pull request is labelled `merged via #<n>`
+- **AND** the list queries for one forge SHALL run concurrently, so the sync fits the 3s per-forge pickup budget
 - **AND** the pickup summary's `synced` line names the closed-item cap

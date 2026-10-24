@@ -36,8 +36,8 @@ func TestConfiguredGitHubTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(calls) != 6 {
-		t.Fatalf("calls = %q, want open+closed issue (each with fallback) and PR lists", calls)
+	if len(calls) != 5 {
+		t.Fatalf("calls = %q, want open issue with fallback, closed issue, and open+closed PR lists", calls)
 	}
 	for _, call := range calls {
 		if !strings.Contains(call, "--repo github.com/chosen/target") {
