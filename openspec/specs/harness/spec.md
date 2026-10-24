@@ -3,7 +3,9 @@
 ## Purpose
 
 Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks across Claude Code, Codex CLI, and Gemini CLI, the 2-tool low-tax MCP server (`ateam_state`, `ateam_task`), OpenSpec queue and `Hold:` validation (`spec:queue` and `spec:check`), dual-forge state synchronization (**GitHub** and **Gitea**), `// shortcut:` debt scanning, and the agentic benchmark suite (`ateam bench`).
+
 ## Requirements
+
 ### Requirement: Lifecycle hook normalization under 5ms
 
 `ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 5ms using cached `.ateam/state.json`.
@@ -353,7 +355,7 @@ ATeam initialization SHALL scaffold the context and compaction defaults specifie
 
 ### Requirement: Merge gate and CI workflow enforcement
 
-CI SHALL enforce the pinned verification workflow and aggregate `Required` check. The merge check SHALL require an active strict `main` ruleset, review by a not-weaker reviewer for non-draft code PRs, and no open known flakes unless the PR closes them.
+CI SHALL enforce the pinned verification workflow and aggregate `Required` check. The merge check SHALL require an active strict `main` ruleset (on Gitea, branch protection requiring `CI / Required (pull_request)` with `block_on_outdated_branch`), review by a not-weaker reviewer for non-draft code PRs, and no open known flakes unless the PR closes them, on GitHub and on Gitea.
 
 #### Scenario: Complete workflow and merge-check contract
 
@@ -372,7 +374,32 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 
 #### Scenario: Gate-file changes wait for the owner
 
-- **WHEN** a pull request's changed files, or a rename's previous path, include `.agents/review-policy.json`, `scripts/merge-check.sh`, `scripts/gate-files.sh`, anything under `.github/workflows/`, or anything under `internal/review/`
+- **WHEN** a pull request's changed files, or a rename's previous path, include `.agents/review-policy.json`, `scripts/merge-check.sh`, `scripts/gate-files.sh`, anything under `.github/workflows/` or `.gitea/workflows/`, or anything under `internal/review/`
 - **THEN** the `Gate files` check (`.github/workflows/gate-files.yml` on `pull_request_target`, running `scripts/gate-files.sh` from the base branch with read-only permissions and never checking out or running pull request code) fails until the pull request carries the label `gate-change-approved`, and passes for a pull request that touches no gate file
 - **AND** a failed read, a file list that is not a list of file objects, or one shorter than the pull request's `changed_files` (the listing stops at 3,000 files) exits 2 naming the read, never counted as no gate file
+- **AND** the same holds on Gitea for `.gitea/workflows/gate-files.yml`, which runs `scripts/gate-files.sh` with `ATEAM_FORGE=gitea` to read Gitea's API with `curl`, every file page until an empty one, and the labels from the pull request
 - **AND** the `Merge check` job checks out and builds from the base commit (`github.event.pull_request.base.sha`, or `github.sha` on a push), so the merge-check script, the review policy it reads, and the `ateam` binary are never taken from the pull request they judge
+
+#### Scenario: Merge check on either forge
+
+- **WHEN** `scripts/merge-check.sh` runs
+- **THEN** it runs `$ATEAM review gate` (default `ateam`), which picks the forge from `ATEAM_FORGE`, else under Actions from `GITHUB_SERVER_URL` (`https://github.com` is GitHub, any other root is Gitea) with `GITHUB_REPOSITORY`, else from `origin`, else GitHub through `gh`, and prints `merge-check: forge=<forge> repo=<owner>/<repo> (from <source>)` without the host
+- **AND** GitHub is read through `gh` with the argv the shell script used, and Gitea through API v1 with `GITEA_TOKEN`, with the same review and known-flake lines on both
+- **AND** `.gitea/workflows/ci.yml` is `.github/workflows/ci.yml` with only the merge-check step's credentials changed, to `GITEA_TOKEN: ${{ github.token }}` (no extra secret)
+
+#### Scenario: Gitea up-to-date rule
+
+- **WHEN** the merge check reads Gitea
+- **THEN** the up-to-date rule holds only when `main` is `protected`, the branch protection in force on it (`effective_branch_protection_name`) has `enable_status_check` and lists exactly `CI / Required (pull_request)` in `status_check_contexts` (no glob), and, when the rule can be read, has `block_on_outdated_branch`; otherwise it fails like a GitHub ruleset without the strict setting
+- **AND** when reading the rule answers 403 or 404 (the Gitea Actions job token, the only token the CI job uses), the branch's `protected`, `enable_status_check` and `status_check_contexts` decide and the run prints `merge-check: rule strict=unverified (branch protection needs a repo-admin token; the job token can see protected, status check and context only)`
+- **AND** any other failed read of the branch or the rule (401, 5xx, a wrong shape) exits 2, never passes
+
+#### Scenario: Gitea review evidence
+
+- **WHEN** the merge check reads a Gitea pull request
+- **THEN** its file and commit lists are read page by page and must match `X-Total-Count` (and the files `changed_files`), the commit list is taken oldest first and must end at `head.sha`, and every commit after the review record is a finding needing a new review until a live run shows Gitea's commit file lists are complete
+
+#### Scenario: Gitea closing references
+
+- **WHEN** an open `class:flake` issue exists on Gitea
+- **THEN** the label is read from the repository's labels first (Gitea discards an unknown label in an issue filter, so a missing label never reads as an empty list), the open issues are filtered for the label client side, and a flake counts as closed only when its timeline holds a `ref_action` of `closes` from this pull request in the same repository; the description is not parsed
