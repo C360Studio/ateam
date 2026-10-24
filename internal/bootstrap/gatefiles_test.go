@@ -76,6 +76,7 @@ func TestGateFilesCheck(t *testing.T) {
 		{name: "no gate file", files: names("README.md", "internal/state/state.go"), reported: -1, wantOut: "touches no gate file"},
 		{name: "policy file without label", files: names("internal/state/state.go", ".agents/review-policy.json"), reported: -1, labels: "bug\n", wantCode: 1, wantOut: "waits for the owner"},
 		{name: "workflow without label", files: names(".github/workflows/ci.yml"), reported: -1, wantCode: 1, wantOut: ".github/workflows/ci.yml"},
+		{name: "gitea workflow without label", files: names(".gitea/workflows/ci.yml"), reported: -1, wantCode: 1, wantOut: ".gitea/workflows/ci.yml"},
 		{name: "review package without label", files: names("internal/review/compare.go"), reported: -1, wantCode: 1, wantOut: "internal/review/compare.go"},
 		{name: "this script without label", files: names("scripts/gate-files.sh"), reported: -1, wantCode: 1, wantOut: "scripts/gate-files.sh"},
 		{name: "renamed away from a gate path", files: []gateFile{{Filename: "scripts/old-check.sh", PreviousFilename: "scripts/merge-check.sh"}}, reported: -1, wantCode: 1, wantOut: "scripts/merge-check.sh"},
@@ -133,33 +134,162 @@ func TestGateFilesCheck(t *testing.T) {
 func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
 	// #140: the gate-files workflow takes its definition from the base branch and never
 	// runs PR code, and the merge-check job builds and runs from the base commit.
-	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "gate-files.yml"))
+	// #143: the Gitea twins under .gitea/workflows/ hold to the same.
+	for _, forge := range []string{".github", ".gitea"} {
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), forge, "workflows", "gate-files.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wf := string(data)
+		for _, want := range []string{"pull_request_target:", "labeled, unlabeled", "runs-on: ubuntu-24.04", "persist-credentials: false", "run: scripts/gate-files.sh \"$PR_NUMBER\"", "  contents: read\n  pull-requests: read\n"} {
+			if !strings.Contains(wf, want) {
+				t.Fatalf("%s gate-files.yml lacks %q", forge, want)
+			}
+		}
+		for _, banned := range []string{"pull_request.head", "head_ref", "ref:", "write", "\n  pull_request:\n"} {
+			if strings.Contains(wf, banned) {
+				t.Fatalf("%s gate-files.yml contains %q: it must not check out or run pull request code, or write", forge, banned)
+			}
+		}
+		ci, err := os.ReadFile(filepath.Join(repoRoot(t), forge, "workflows", "ci.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		job := string(ci)
+		start := strings.Index(job, "\n  merge-check:\n")
+		end := strings.Index(job, "\n  required:\n")
+		if start < 0 || end < start {
+			t.Fatalf("%s ci.yml: cannot find the merge-check job before the required job", forge)
+		}
+		job = job[start:end]
+		if !strings.Contains(job, "ref: ${{ github.event.pull_request.base.sha || github.sha }}") || strings.Contains(job, "pull_request.head") {
+			t.Fatalf("%s ci.yml merge-check job must check out the base commit, not the pull request:\n%s", forge, job)
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
+func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
+	// #143: each Gitea workflow is the GitHub one except the merge-check step's
+	// credentials (Gitea's CI) or the forge and token (Gitea's gate files), so a
+	// change to one that misses the other fails here.
+	for _, tc := range []struct{ file, github, gitea string }{
+		{"ci.yml", "          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
+			"          # Gitea: reading branch protection needs a repository-admin token, so\n" +
+				"          # the job token is not enough; the secret name is the owner's choice.\n" +
+				"          GITEA_TOKEN: ${{ secrets.MERGE_CHECK_TOKEN }}\n"},
+		{"gate-files.yml", "          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
+			"          ATEAM_FORGE: gitea\n          GITEA_TOKEN: ${{ github.token }}\n"},
+	} {
+		gh, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", tc.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		gt, err := os.ReadFile(filepath.Join(repoRoot(t), ".gitea", "workflows", tc.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := strings.Replace(string(gh), tc.github, tc.gitea, 1)
+		if tc.file == "gate-files.yml" {
+			want = strings.Replace(want, "that judges it (#140). It must never check out or run pull request code: the\n",
+				"that judges it (#140; the Gitea twin of .github/workflows/gate-files.yml, #143).\n# It must never check out or run pull request code: the\n", 1)
+		}
+		if want == string(gh) || string(gt) != want {
+			t.Errorf(".gitea/workflows/%s is not .github/workflows/%s with only the Gitea lines changed", tc.file, tc.file)
+		}
+	}
+	gt, err := os.ReadFile(filepath.Join(repoRoot(t), ".gitea", "workflows", "ci.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wf := string(data)
-	for _, want := range []string{"pull_request_target:", "labeled, unlabeled", "runs-on: ubuntu-24.04", "persist-credentials: false", "run: scripts/gate-files.sh \"$PR_NUMBER\"", "  contents: read\n  pull-requests: read\n"} {
-		if !strings.Contains(wf, want) {
-			t.Fatalf("gate-files.yml lacks %q", want)
-		}
+	if v := ciWorkflowViolations(t, gt); len(v) > 0 {
+		t.Fatalf(".gitea/workflows/ci.yml violations:\n- %s", strings.Join(v, "\n- "))
 	}
-	for _, banned := range []string{"pull_request.head", "head_ref", "ref:", "write", "\n  pull_request:\n"} {
-		if strings.Contains(wf, banned) {
-			t.Fatalf("gate-files.yml contains %q: it must not check out or run pull request code, or write", banned)
-		}
+}
+
+// fakeGateCurl answers gate-files.sh's Gitea reads from files in $FAKE_GH_DIR:
+// pull.txt, files-<page>.txt (an empty list past the last page), labels in pull.txt.
+const fakeGateCurl = `#!/bin/sh
+d="$FAKE_GH_DIR"
+for a in "$@"; do url=$a; done
+case "$*" in *"Authorization: token gitea-test-token"*) ;; *) echo "curl: (22) 401" >&2; exit 22 ;; esac
+case "$url" in
+  "https://gitea.example.test/api/v1/repos/acme/widgets/pulls/7") key=pull ;;
+  "https://gitea.example.test/api/v1/repos/acme/widgets/pulls/7/files?page="*"&limit=50")
+    p=${url#*page=}; p=${p%%&*}; key=files-$p
+    [ -e "$d/$key.txt" ] || { echo '[]'; exit 0; } ;;
+  *) echo "fake curl: unexpected call: $*" >&2; exit 3 ;;
+esac
+if [ -e "$d/$key.fail" ]; then echo "curl: (22) The requested URL returned error: 502" >&2; exit 22; fi
+cat "$d/$key.txt"
+`
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
+func TestGateFilesCheckGitea(t *testing.T) {
+	// #143: on Gitea the same rule reads the API with curl, every page of the
+	// file list, and the labels from the pull request itself.
+	many := make([]gateFile, 0, 121)
+	for i := range 120 {
+		many = append(many, gateFile{Filename: fmt.Sprintf("docs/n%03d.md", i)})
 	}
-	ci, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "ci.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	job := string(ci)
-	start := strings.Index(job, "\n  merge-check:\n")
-	end := strings.Index(job, "\n  required:\n")
-	if start < 0 || end < start {
-		t.Fatal("ci.yml: cannot find the merge-check job before the required job")
-	}
-	job = job[start:end]
-	if !strings.Contains(job, "ref: ${{ github.event.pull_request.base.sha || github.sha }}") || strings.Contains(job, "pull_request.head") {
-		t.Fatalf("ci.yml merge-check job must check out the base commit, not the pull request:\n%s", job)
+	many = append(many, gateFile{Filename: ".gitea/workflows/ci.yml"})
+	for _, tc := range []struct {
+		name     string
+		files    []gateFile
+		reported int // changed_files; -1 means len(files)
+		labels   []string
+		failRead string
+		wantCode int
+		wantOut  string
+	}{
+		{name: "no gate file", files: names("README.md", "internal/state/state.go"), reported: -1, wantOut: "touches no gate file"},
+		{name: "gitea workflow without label", files: names(".gitea/workflows/gate-files.yml"), reported: -1, labels: []string{"bug"}, wantCode: 1, wantOut: ".gitea/workflows/gate-files.yml"},
+		{name: "gate file on a later page", files: many, reported: -1, wantCode: 1, wantOut: ".gitea/workflows/ci.yml"},
+		{name: "listing cut short", files: many[:100], reported: 121, wantCode: 2, wantOut: "incomplete"},
+		{name: "gate file with owner label", files: names("internal/review/gate.go"), reported: -1, labels: []string{"gate-change-approved"}, wantOut: "labelled gate-change-approved"},
+		{name: "pull read fails", files: names("README.md"), reported: -1, failRead: "pull", wantCode: 2, wantOut: "could not read pull request"},
+		{name: "files read fails", files: names("README.md"), reported: -1, failRead: "files-1", wantCode: 2, wantOut: "could not read the changed files"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := t.TempDir()
+			reported := tc.reported
+			if reported < 0 {
+				reported = len(tc.files)
+			}
+			labels := make([]map[string]string, len(tc.labels))
+			for i, l := range tc.labels {
+				labels[i] = map[string]string{"name": l}
+			}
+			pull, err := json.Marshal(map[string]any{"number": 7, "changed_files": reported, "labels": labels})
+			if err != nil {
+				t.Fatal(err)
+			}
+			write := func(name, body string) {
+				if err := os.WriteFile(filepath.Join(d, name), []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write("pull.txt", string(pull))
+			for page := 0; page*50 < len(tc.files); page++ {
+				write(fmt.Sprintf("files-%d.txt", page+1), gatePages(t, tc.files[page*50:min(page*50+50, len(tc.files))]))
+			}
+			if tc.failRead != "" {
+				write(tc.failRead+".fail", "")
+			}
+			root := copyScript(t, "gate-files.sh")
+			cmd := exec.Command(filepath.Join(root, "scripts", "gate-files.sh"), "7")
+			cmd.Env = fakeBin(t, map[string]string{"curl": fakeGateCurl, "gh": "#!/bin/sh\necho 'gh must not run on Gitea' >&2; exit 3\n"},
+				"FAKE_GH_DIR="+d, "ATEAM_FORGE=gitea", "GITHUB_SERVER_URL=https://gitea.example.test/", "GITHUB_REPOSITORY=acme/widgets", "GITEA_TOKEN=gitea-test-token")
+			out, err := cmd.CombinedOutput()
+			code := 0
+			if ee, ok := err.(*exec.ExitError); ok {
+				code = ee.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if code != tc.wantCode || !strings.Contains(string(out), tc.wantOut) {
+				t.Fatalf("gate-files.sh exit %d, want %d with %q:\n%s", code, tc.wantCode, tc.wantOut, out)
+			}
+		})
 	}
 }

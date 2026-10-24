@@ -1,0 +1,36 @@
+name: Gate files
+
+# pull_request_target runs this workflow and the script it calls from the base
+# branch, never from the pull request, so a pull request cannot loosen the check
+# that judges it (#140; the Gitea twin of .github/workflows/gate-files.yml, #143).
+# It must never check out or run pull request code: the
+# checkout below is the base branch, and the pull request's files are read
+# through the API only.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+concurrency:
+  group: gate-files-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  gate-files:
+    name: Gate files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fail a gate-file change without the owner label
+        env:
+          ATEAM_FORGE: gitea
+          GITEA_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: scripts/gate-files.sh "$PR_NUMBER"
