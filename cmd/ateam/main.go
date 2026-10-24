@@ -462,6 +462,10 @@ func runDoctor(repoRoot string, args []string) int {
 	_, fullRev, _ := state.BuildRevision()
 	_, headSHA := state.ReadFastGitHead(repoRoot)
 	warnings := bootstrap.CheckBuildProvenance(context.Background(), repoRoot, fullRev, headSHA)
+	buildProvenance := "checked"
+	if !bootstrap.IsAteamCheckout(repoRoot) {
+		buildProvenance = "not applicable (binary is not built from this checkout)"
+	}
 	warnings = append(warnings, bootstrap.CheckUnarchivedOpenSpecChanges(repoRoot)...)
 	if hookUs > hookLatencyBudgetUs {
 		warnings = append(warnings, fmt.Sprintf("hook latency %d us exceeds <5ms (%d us) target budget", hookUs, hookLatencyBudgetUs))
@@ -480,6 +484,7 @@ func runDoctor(repoRoot string, args []string) int {
 	printJSON(map[string]any{
 		"passed":                 passed,
 		"build_commit":           state.BuildLabel(),
+		"build_provenance":       buildProvenance,
 		"disk_build":             diskBuild,
 		"head_commit":            headSHA,
 		"running_serve_pids":     servePIDs,

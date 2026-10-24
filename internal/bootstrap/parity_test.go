@@ -175,11 +175,56 @@ func requireViolation(t *testing.T, violations []string, substrings ...string) {
 	}
 }
 
+func writeGoMod(t *testing.T, dir, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+func TestBuildProvenanceChecksOnlyTheAteamCheckout(t *testing.T) {
+	const staleBuild, head = "ea0c7845a875", "9f11a42"
+	tests := []struct {
+		name    string
+		goMod   *string
+		wantApp bool
+	}{
+		{"ateam module", ptr("module github.com/c360studio/ateam\n\ngo 1.26\n"), true},
+		{"ateam module spelled C360Studio", ptr("// header\nmodule github.com/C360Studio/ateam\n"), true},
+		{"quoted ateam module", ptr("module \"github.com/c360studio/ateam\"\n"), true},
+		{"foreign module", ptr("module example.com/adopter\n\ngo 1.26\n"), false},
+		{"module sharing the ateam prefix", ptr("module github.com/c360studio/ateam-extras\n"), false},
+		{"no go.mod", nil, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.goMod != nil {
+				writeGoMod(t, dir, *tc.goMod)
+			}
+			if got := IsAteamCheckout(dir); got != tc.wantApp {
+				t.Fatalf("IsAteamCheckout = %v, want %v", got, tc.wantApp)
+			}
+			got := CheckBuildProvenance(context.Background(), dir, staleBuild, head)
+			if tc.wantApp && (len(got) != 1 || !strings.Contains(got[0], "is not an ancestor of checkout HEAD")) {
+				t.Fatalf("ateam checkout: want the not-an-ancestor warning, got %v", got)
+			}
+			if !tc.wantApp && len(got) != 0 {
+				t.Fatalf("foreign checkout: want no build warning, got %v", got)
+			}
+		})
+	}
+}
+
+func ptr(s string) *string { return &s }
+
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestDoctorBuildProvenanceAndDuplicateServeDetection(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
+	writeGoMod(t, dir, "module github.com/c360studio/ateam\n\ngo 1.26\n")
 	// 1. Build provenance drift check:
 	if v := CheckBuildProvenance(ctx, dir, "ea0c7845a875", "9f11a42"); len(v) == 0 {
 		t.Fatal("expected build provenance violation when build rev differs from HEAD")

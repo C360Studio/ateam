@@ -566,6 +566,10 @@ func TestSessionStartWarnsWhenBinaryBehindHead(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/c360studio/ateam\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	origBuildCommit := state.BuildCommit
 	t.Cleanup(func() { state.BuildCommit = origBuildCommit })
 
