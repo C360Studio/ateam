@@ -420,7 +420,7 @@ func runInit(repoRoot string, args []string) int {
 	} else if *giteaLabels {
 		forgeOverride = "gitea"
 	}
-	written, err := bootstrap.InitRepo(context.Background(), *dir, bootstrap.Options{
+	res, err := bootstrap.InitRepo(context.Background(), *dir, bootstrap.Options{
 		Force:          *force,
 		BootstrapForge: *ghLabels || *giteaLabels,
 		ForgeOverride:  forgeOverride,
@@ -429,7 +429,7 @@ func runInit(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam init: %v\n", err)
 		return 1
 	}
-	printJSON(map[string]any{"dir": *dir, "written": written, "next_steps": "Existing client configuration is preserved, even with --force. Run ateam doctor --check and follow https://github.com/C360Studio/ateam/blob/main/docs/mcp.md to merge missing registration and verify client discovery."})
+	printJSON(map[string]any{"dir": *dir, "written": res.Written, "backed_up": res.BackedUp, "next_steps": "Existing client configuration is preserved, even with --force; replaced hand-written harness documents are listed under backed_up. Run ateam doctor --check and follow https://github.com/C360Studio/ateam/blob/main/docs/mcp.md to merge missing registration and verify client discovery."})
 	return 0
 }
 

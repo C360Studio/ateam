@@ -37,11 +37,34 @@ type Options struct {
 	Force          bool
 	BootstrapForge bool
 	ForgeOverride  string // "", "github", "gitea"
+
+	now func() time.Time // backup timestamp clock; nil means time.Now
+}
+
+// InitResult lists the files InitRepo wrote and the backups it made first.
+type InitResult struct {
+	Written  []string
+	BackedUp []string
+}
+
+// Adopters write these by hand, so --force keeps a copy before replacing them.
+func isHarnessDocument(rel string) bool {
+	switch rel {
+	case "AGENTS.md", "CLAUDE.md", ".agents/protocol.md", ".agents/rules-index.md":
+		return true
+	default:
+		return false
+	}
 }
 
 // InitRepo idempotently scaffolds universal skills, hooks, MCP configs, and OpenSpec into root.
-func InitRepo(ctx context.Context, root string, opts Options) ([]string, error) {
-	var written []string
+func InitRepo(ctx context.Context, root string, opts Options) (InitResult, error) {
+	var res InitResult
+	now := opts.now
+	if now == nil {
+		now = time.Now
+	}
+	stamp := now().Format("20060102-150405")
 	files := defaultTemplateFiles()
 	for rel, content := range files {
 		abs := filepath.Join(root, filepath.FromSlash(rel))
@@ -50,11 +73,19 @@ func InitRepo(ctx context.Context, root string, opts Options) ([]string, error) 
 			if _, err := os.Lstat(abs); err == nil {
 				continue
 			} else if !os.IsNotExist(err) {
-				return written, fmt.Errorf("inspect %s: %w", rel, err)
+				return res, fmt.Errorf("inspect %s: %w", rel, err)
+			}
+		} else if isHarnessDocument(rel) {
+			backup, err := backupHarnessDocument(abs, rel, content, stamp)
+			if err != nil {
+				return res, err
+			}
+			if backup != "" {
+				res.BackedUp = append(res.BackedUp, backup)
 			}
 		}
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return written, fmt.Errorf("mkdir %s: %w", rel, err)
+			return res, fmt.Errorf("mkdir %s: %w", rel, err)
 		}
 		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 		if preserve {
@@ -62,21 +93,21 @@ func InitRepo(ctx context.Context, root string, opts Options) ([]string, error) 
 		}
 		f, err := os.OpenFile(abs, flags, 0o644)
 		if err != nil {
-			return written, fmt.Errorf("create %s: %w", rel, err)
+			return res, fmt.Errorf("create %s: %w", rel, err)
 		}
 		_, writeErr := f.WriteString(content)
 		closeErr := f.Close()
 		if writeErr != nil {
-			return written, fmt.Errorf("write %s: %w", rel, writeErr)
+			return res, fmt.Errorf("write %s: %w", rel, writeErr)
 		}
 		if closeErr != nil {
-			return written, fmt.Errorf("close %s: %w", rel, closeErr)
+			return res, fmt.Errorf("close %s: %w", rel, closeErr)
 		}
-		written = append(written, rel)
+		res.Written = append(res.Written, rel)
 	}
 
 	if err := ensureGitignore(root); err != nil {
-		return written, err
+		return res, err
 	}
 
 	if opts.BootstrapForge {
@@ -88,10 +119,45 @@ func InitRepo(ctx context.Context, root string, opts Options) ([]string, error) 
 			cfg.Provider = state.ForgeGitea
 		}
 		if _, err := state.BootstrapForgeLabels(ctx, root, cfg); err != nil {
-			return written, err
+			return res, err
 		}
 	}
-	return written, nil
+	return res, nil
+}
+
+// backupHarnessDocument copies abs to <rel>.ateam-backup-<stamp> when it exists
+// and differs from the template, returning the backup's relative path. The copy
+// is synced and closed before the caller truncates abs. O_EXCL refuses to clobber
+// an earlier backup: a collision fails init rather than picking another name.
+func backupHarnessDocument(abs, rel, template, stamp string) (string, error) {
+	existing, err := os.ReadFile(abs)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read %s for backup: %w", rel, err)
+	}
+	if string(existing) == template {
+		return "", nil
+	}
+	backupRel := rel + ".ateam-backup-" + stamp
+	f, err := os.OpenFile(abs+".ateam-backup-"+stamp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return "", fmt.Errorf("back up %s: %w", rel, err)
+	}
+	_, writeErr := f.Write(existing)
+	syncErr := f.Sync()
+	closeErr := f.Close()
+	if writeErr != nil {
+		return "", fmt.Errorf("write backup %s: %w", backupRel, writeErr)
+	}
+	if syncErr != nil {
+		return "", fmt.Errorf("sync backup %s: %w", backupRel, syncErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close backup %s: %w", backupRel, closeErr)
+	}
+	return backupRel, nil
 }
 
 func ensureGitignore(root string) error {
