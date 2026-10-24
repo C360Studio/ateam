@@ -26,7 +26,7 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 
 #### Scenario: Build provenance checks only the ateam checkout
 
-- **WHEN** the session-start hook or `ateam doctor` runs in a checkout whose root `go.mod` does not declare `module github.com/C360Studio/ateam` (or that has no `go.mod`)
+- **WHEN** the session-start hook or `ateam doctor` runs in a checkout whose root `go.mod` does not declare `module github.com/c360studio/ateam` (or that has no `go.mod`)
 - **THEN** neither compares the binary's build commit with the checkout's `HEAD`: the hook prints no `binary <build> is behind HEAD` line, doctor prints no not-an-ancestor warning and reports `build_provenance: not applicable (binary is not built from this checkout)`, and the module path is read from `go.mod` with a line scan, without spawning a subprocess
 - **AND** in the ateam checkout both checks behave as before
 

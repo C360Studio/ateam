@@ -6,7 +6,7 @@ The session-start hook and `ateam doctor` compare the binary's build commit with
 
 ## What Changes
 
-- The build-versus-`HEAD` check runs only when the checkout is the ateam source: the root `go.mod` declares `module github.com/C360Studio/ateam`, read with a line scan (no `go list`, no subprocess).
+- The build-versus-`HEAD` check runs only when the checkout is the ateam source: the root `go.mod` declares `module github.com/c360studio/ateam`, read with a line scan (no `go list`, no subprocess).
 - Elsewhere, the hook skips the check silently, and doctor reports `build_provenance: not applicable (binary is not built from this checkout)` so its JSON stays explicit.
 
 ## Non-goals
