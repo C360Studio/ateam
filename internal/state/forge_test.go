@@ -3,10 +3,13 @@ package state
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -262,4 +265,85 @@ func TestDualForgeSyncTimestampIsolation(t *testing.T) {
 	if _, ok := dualByID["GT-1"]; !ok {
 		t.Fatalf("expected Gitea card GT-1 to remain preserved, got: %+v", dualRefreshed.Cards)
 	}
+}
+
+// assertOldestOpenPRLabelled merges synced into a fresh state with a worktree on PR 1's branch and checks every PR card survived.
+func assertOldestOpenPRLabelled(t *testing.T, synced []BoardCard, provider ForgeProvider) {
+	t.Helper()
+	prs := 0
+	for _, c := range synced {
+		if c.Type == "pr" {
+			prs++
+		}
+	}
+	if prs != 60 {
+		t.Fatalf("got %d PR cards, want 60", prs)
+	}
+	st := defaultState()
+	st.Git.Branch = "main"
+	st.Git.Worktrees = []Worktree{{Path: "/repo/.worktrees/old", Branch: "claude/pr-1", Head: "abc1234"}}
+	st.MergeForgeCards(synced, provider)
+	if got := st.WorktreePRStatus(st.Git.Worktrees[0]); got != "open PR #1" {
+		t.Fatalf("WorktreePRStatus = %q, want %q", got, "open PR #1")
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+// Scenario "Open work is never capped" (openspec/changes/forge-sync-cap-149) joins the main spec on archive.
+func TestGitHubSyncNeverCapsOpenPRs(t *testing.T) {
+	dir := t.TempDir()
+	// One JSON object per line, newest first, so a limit cuts off PR 1 first.
+	var lines []string
+	for n := 60; n >= 1; n-- {
+		lines = append(lines, fmt.Sprintf(`{"number":%d,"title":"PR %d","state":"OPEN","headRefName":"claude/pr-%d"}`, n, n, n))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "prs.txt"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// argv: gh pr list --state <state> --limit <n> ...; closed is empty, anything else honours --limit like gh does.
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"issue\" ]; then echo '[]'; exit 0; fi\n" +
+		"if [ \"$4\" = \"closed\" ]; then echo '[]'; exit 0; fi\n" +
+		"printf '['; head -n \"$6\" '" + filepath.Join(dir, "prs.txt") + "' | paste -sd, -; printf ']'\n"
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	synced, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub})
+	if err != nil {
+		t.Fatalf("SyncForgeBoard: %v", err)
+	}
+	assertOldestOpenPRLabelled(t, synced, ForgeGitHub)
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+// Scenario "Open work is never capped" (openspec/changes/forge-sync-cap-149) joins the main spec on archive.
+func TestGiteaSyncNeverCapsOpenPRs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		items := []map[string]any{}
+		if strings.HasSuffix(r.URL.Path, "/pulls") && q.Get("state") == "open" {
+			page, _ := strconv.Atoi(q.Get("page"))
+			limit, _ := strconv.Atoi(q.Get("limit"))
+			if page < 1 {
+				page = 1
+			}
+			// Newest first; Gitea serves at most limit items per page.
+			for n := 60 - (page-1)*limit; n >= 1 && len(items) < limit; n-- {
+				items = append(items, map[string]any{
+					"number": n, "title": fmt.Sprintf("PR %d", n), "state": "open",
+					"head": map[string]any{"ref": fmt.Sprintf("claude/pr-%d", n)},
+				})
+			}
+		}
+		_ = json.NewEncoder(w).Encode(items)
+	}))
+	defer srv.Close()
+
+	synced, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "c360", Repo: "ateam"})
+	if err != nil {
+		t.Fatalf("SyncForgeBoard: %v", err)
+	}
+	assertOldestOpenPRLabelled(t, synced, ForgeGitea)
 }
