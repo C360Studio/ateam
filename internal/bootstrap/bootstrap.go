@@ -725,13 +725,29 @@ const mcpRepoOther = "other"
 // mcpProcessCwd reads a process's working directory; tests replace it.
 var mcpProcessCwd = readProcessCwd
 
+// listProcesses and loadLiveMCPProcesses feed the MCP inspectors; tests replace them.
+var (
+	listProcesses        = psProcessList
+	loadLiveMCPProcesses = state.LoadLiveMCPProcesses
+)
+
+// psProcessList returns `ps -eo pid=,ppid=,lstart=,args=` output.
+func psProcessList(ctx context.Context) ([]byte, error) {
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "ps", "-eo", "pid=,ppid=,lstart=,args=")
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	return cmd.Output()
+}
+
 // readProcessCwd returns pid's working directory, or false when it cannot be read. macOS has no
 // /proc, so it spawns lsof (about 20ms); callers run it only for unregistered MCP processes.
 func readProcessCwd(ctx context.Context, pid int) (string, bool) {
 	switch runtime.GOOS {
 	case "linux":
 		dir, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/cwd")
-		return dir, err == nil && dir != ""
+		// A removed working directory reads as "<path> (deleted)"; treat it as unreadable.
+		return dir, err == nil && dir != "" && !strings.HasSuffix(dir, " (deleted)")
 	case "darwin":
 		cctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer cancel()
@@ -793,12 +809,8 @@ func CheckClientMCPProcesses(procs []state.MCPProcess, headSHA string) []string 
 
 // InspectClientMCPProcesses enumerates `ateam mcp` processes under clientPID's process tree and returns one-line warnings for any whose build commit is unknown or older than headSHA.
 func InspectClientMCPProcesses(ctx context.Context, root, headSHA string, clientPID int) ([]state.MCPProcess, []string) {
-	recorded := state.LoadLiveMCPProcesses(root)
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, "ps", "-eo", "pid=,ppid=,lstart=,args=")
-	cmd.Env = append(os.Environ(), "LC_ALL=C")
-	out, err := cmd.Output()
+	recorded := loadLiveMCPProcesses(root)
+	out, err := listProcesses(ctx)
 	if err != nil {
 		return nil, nil
 	}
@@ -832,20 +844,18 @@ func CheckRunningMCPProcesses(procs []state.MCPProcess, expectedCommit string) [
 
 // InspectRunningMCPProcesses queries recorded and OS `ateam mcp` processes and warns if any are behind checkout HEAD or on-disk binary.
 func InspectRunningMCPProcesses(ctx context.Context, root, headSHA string) ([]state.MCPProcess, []string) {
-	recorded := state.LoadLiveMCPProcesses(root)
+	recorded := loadLiveMCPProcesses(root)
 	diskRev, _ := state.ReadDiskBinaryBuild(ctx, root)
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, "ps", "-eo", "pid=,ppid=,lstart=,args=")
-	cmd.Env = append(os.Environ(), "LC_ALL=C")
-	out, err := cmd.Output()
+	out, err := listProcesses(ctx)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("unable to inspect running ateam mcp processes via ps: %v", err)}
 	}
 	procs := ParseRunningMCPProcesses(string(out), os.Getpid(), recorded, "unknown")
 	attributeMCPProcesses(ctx, root, procs, recorded)
+	// Only the ateam checkout's HEAD says anything about an MCP server's build (#151); elsewhere
+	// the comparison falls back to the on-disk binary as it does without a HEAD (#116, #121).
 	expected := strings.TrimSpace(headSHA)
-	if expected == "" || expected == "uncommitted" {
+	if !IsAteamCheckout(root) || expected == "" || expected == "uncommitted" {
 		expected = diskRev
 	}
 	return procs, CheckRunningMCPProcesses(procs, expected)

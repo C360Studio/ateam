@@ -494,7 +494,7 @@ func TestAntigravityHookContract(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/mcp-attribution-151/specs/harness/spec.md#Requirement: MCP process attribution
+// spec: openspec/specs/harness/spec.md#Requirement: MCP process attribution
 func TestSessionStartSkipsOlderThanHeadMCPLineInForeignCheckout(t *testing.T) {
 	const line = "MCP server PID 3475 (build unknown) is older than HEAD; restart the client"
 	origInspect := inspectClientMCP
