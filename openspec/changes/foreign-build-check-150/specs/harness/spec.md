@@ -21,12 +21,12 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 
 #### Scenario: Stale or missing binary build provenance warning at session start
 
-- **WHEN** `ateam hook --event session-start` runs in a git checkout with a resolved `HEAD` commit
+- **WHEN** `ateam hook --event session-start` runs in the ateam checkout (root `go.mod` declares `module github.com/c360studio/ateam`) with a resolved `HEAD` commit
 - **THEN** it compares the embedded build commit (`state.BuildRevision()`) against `ReadFastGitHead` without spawning a git subprocess, emits `binary <build> is behind HEAD <head>; run task build` when the binary commit differs from `HEAD`, emits `binary has no build provenance; build with task build` when build provenance is `unknown` or `dev`, and emits neither line when the binary commit matches `HEAD`
 
 #### Scenario: Build provenance checks only the ateam checkout
 
 - **WHEN** the session-start hook or `ateam doctor` runs in a checkout whose root `go.mod` does not declare `module github.com/c360studio/ateam` (or that has no `go.mod`)
-- **THEN** neither compares the binary's build commit with the checkout's `HEAD`: the hook prints no `binary <build> is behind HEAD` line, doctor prints no not-an-ancestor warning and reports `build_provenance: not applicable (binary is not built from this checkout)`, and the module path is read from `go.mod` with a line scan, without spawning a subprocess
+- **THEN** neither compares the binary's build commit with the checkout's `HEAD`: the hook prints neither a `binary <build> is behind HEAD` line nor a `binary has no build provenance` line, doctor prints no not-an-ancestor warning and reports `build_provenance: not applicable (binary is not built from this checkout)`, and the module path is read from `go.mod` with a line scan, without spawning a subprocess
 - **AND** in the ateam checkout both checks behave as before
 

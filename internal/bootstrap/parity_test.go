@@ -191,7 +191,8 @@ func TestBuildProvenanceChecksOnlyTheAteamCheckout(t *testing.T) {
 		wantApp bool
 	}{
 		{"ateam module", ptr("module github.com/c360studio/ateam\n\ngo 1.26\n"), true},
-		{"ateam module spelled C360Studio", ptr("// header\nmodule github.com/C360Studio/ateam\n"), true},
+		{"module spelled C360Studio is a different path", ptr("module github.com/C360Studio/ateam\n"), false},
+		{"header comment before module", ptr("// header\nmodule github.com/c360studio/ateam\n"), true},
 		{"quoted ateam module", ptr("module \"github.com/c360studio/ateam\"\n"), true},
 		{"foreign module", ptr("module example.com/adopter\n\ngo 1.26\n"), false},
 		{"module sharing the ateam prefix", ptr("module github.com/c360studio/ateam-extras\n"), false},
@@ -207,6 +208,14 @@ func TestBuildProvenanceChecksOnlyTheAteamCheckout(t *testing.T) {
 				t.Fatalf("IsAteamCheckout = %v, want %v", got, tc.wantApp)
 			}
 			got := CheckBuildProvenance(context.Background(), dir, staleBuild, head)
+			label, statusWarnings := BuildProvenanceStatus(context.Background(), dir, staleBuild, head)
+			wantLabel := BuildProvenanceNotApplicable
+			if tc.wantApp {
+				wantLabel = "checked"
+			}
+			if label != wantLabel || len(statusWarnings) != len(got) {
+				t.Fatalf("BuildProvenanceStatus = (%q, %v), want label %q and %d warnings", label, statusWarnings, wantLabel, len(got))
+			}
 			if tc.wantApp && (len(got) != 1 || !strings.Contains(got[0], "is not an ancestor of checkout HEAD")) {
 				t.Fatalf("ateam checkout: want the not-an-ancestor warning, got %v", got)
 			}

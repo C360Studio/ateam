@@ -334,10 +334,10 @@ func reconcileSessionStartHandoffs(root, flagAgent, br, sha string, wtHeadChange
 
 func checkSessionBuildProvenance(root, headSHA string) string {
 	headSHA = strings.TrimSpace(headSHA)
-	if !bootstrap.IsAteamCheckout(root) {
+	if headSHA == "" || headSHA == "uncommitted" {
 		return ""
 	}
-	if headSHA == "" || headSHA == "uncommitted" {
+	if !bootstrap.IsAteamCheckout(root) {
 		return ""
 	}
 	shortBuild, _, _ := state.BuildRevision()

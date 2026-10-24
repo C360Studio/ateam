@@ -250,6 +250,46 @@ func TestHookLatencyBudget(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+func TestSessionStartSkipsBuildProvenanceInForeignCheckout(t *testing.T) {
+	origBuildCommit := state.BuildCommit
+	t.Cleanup(func() { state.BuildCommit = origBuildCommit })
+	for _, build := range []string{"990e19c000000000000000000000000000000000", "unknown"} {
+		for name, goMod := range map[string]string{"foreign go.mod": "module example.com/adopter\n", "no go.mod": ""} {
+			t.Run(build[:7]+"/"+name, func(t *testing.T) {
+				state.BuildCommit = build
+				dir := t.TempDir()
+				if err := os.MkdirAll(filepath.Join(dir, ".git", "refs", "heads"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, ".git", "refs", "heads", "main"), []byte("abad85b343390e142faee9edcf1ba14979e3218a\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if goMod != "" {
+					if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				out, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-foreign"}`))
+				if err != nil {
+					t.Fatalf("Handle session-start: %v", err)
+				}
+				if !strings.Contains(out.AdditionalContext, "head=abad85b") {
+					t.Fatalf("HEAD was not resolved, the test proves nothing:\n%s", out.AdditionalContext)
+				}
+				for _, unexpected := range []string{"is behind HEAD", "has no build provenance"} {
+					if strings.Contains(out.AdditionalContext, unexpected) {
+						t.Fatalf("foreign checkout must not get %q, got:\n%s", unexpected, out.AdditionalContext)
+					}
+				}
+			})
+		}
+	}
+}
+
 // spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
 // spec: openspec/specs/harness/spec.md#Requirement: Fast Git identity across worktrees
 // spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
