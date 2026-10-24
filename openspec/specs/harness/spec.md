@@ -103,6 +103,13 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **AND** when the supplying forge cache timestamp (`SyncedAtFor` for the matched card's provider, or the active forge for `no PR`) is at least `10m` old, PR/forge-derived worktree labels append `(cache <age>)` (e.g. `open PR #64 (cache 4h)`, `no PR (cache 4h)`, `merged via #57 (cache 4h)`), `Worktrees:` prints `labels from forge cache synced <age> ago; run ateam state pickup`, and live git-derived fields (`head`, `dirty`, `ahead`, and `default branch` / `detached` / `merged (ancestor of main)` / `no commits yet`) carry no cache caveat
 - **AND** a detached checkout is labeled `detached` on every surface, including after a live head read that names it `HEAD`, and a branch with no PR card whose head equals the `main` head is labeled `no commits yet` rather than `merged (ancestor of main)`
 
+#### Scenario: Open work is never capped
+
+- **WHEN** a forge holds more than 50 open issues or more than 50 open pull requests
+- **THEN** synchronization SHALL list every open issue and pull request (GitHub `--state open` with a limit of 1000; Gitea `state=open`, page by page until an empty page or a page that adds no new numbers) and at most the 50 most recently updated closed ones (Gitea closed issues: the 50 newest, since the issues endpoint cannot sort), merged by number with the closed copy winning, so a worktree on an old open pull request's branch is labelled `open PR #<n>` and never `no PR`, and one on a just-merged old pull request is labelled `merged via #<n>` once GitHub's search index holds the merge (until then a sync may briefly label it `no PR`)
+- **AND** the list queries for one forge SHALL run concurrently, so the sync fits the 3s per-forge pickup budget
+- **AND** the pickup summary's `synced` line names the closed-item cap
+
 ### Requirement: Constant-time forge webhook verification and rate limiting
 
 `ateam serve` SHALL default to loopback, enforce same-origin and JSON content type on browser mutations, and authenticate GitHub/Gitea webhook requests with constant-time HMAC-SHA256 verification and per-IP fixed-window rate limiting. Authentication SHALL fail closed unless unsigned webhooks are explicitly enabled.
