@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -24,25 +25,65 @@ func installForgeCLI(t *testing.T, name, body string) string {
 	return log
 }
 
-// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
-func TestConfiguredGitHubTarget(t *testing.T) {
-	log := installForgeCLI(t, "gh", "case \"$*\" in *comments*) exit 1;; esac\nprintf '[]'\n")
-	_, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub, Owner: "chosen", Repo: "target"})
-	if err != nil {
-		t.Fatal(err)
-	}
+// ghEmptyLists answers every gh list with no items and fails the open-issue attempt with comments, so the
+// comment-free fallback always runs and readListCalls sees the same four list calls on every sync.
+const ghEmptyLists = "case \"$*\" in *comments*) exit 1;; esac\nprintf '[]'\n"
+
+// readListCalls returns the logged comment-free list calls, in log order, and every logged call. The attempt with
+// comments runs under a sub-timeout as short as 750ms, and on a loaded machine its fake can be killed before the shell
+// logs anything, so it is left out of counts; its line, when present, is still in all (#164).
+func readListCalls(t *testing.T, log string) (lists, all []string) {
+	t.Helper()
 	data, err := os.ReadFile(log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(calls) != 5 {
-		t.Fatalf("calls = %q, want open issue with fallback, closed issue, and open+closed PR lists", calls)
+	all = strings.Split(strings.TrimSpace(string(data)), "\n")
+	for _, call := range all {
+		if !strings.Contains(call, "comments") {
+			lists = append(lists, call)
+		}
 	}
-	for _, call := range calls {
+	return lists, all
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestConfiguredGitHubTarget(t *testing.T) {
+	log := installForgeCLI(t, "gh", ghEmptyLists)
+	_, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub, Owner: "chosen", Repo: "target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lists, all := readListCalls(t, log)
+	var kinds []string
+	for _, call := range lists {
+		f := strings.Fields(call)
+		if len(f) < 4 {
+			t.Fatalf("malformed call %q", call)
+		}
+		kinds = append(kinds, f[0]+" "+f[3])
+	}
+	sort.Strings(kinds)
+	if want := []string{"issue closed", "issue open", "pr closed", "pr open"}; !reflect.DeepEqual(kinds, want) {
+		t.Fatalf("list calls = %q, want open issue fallback, closed issue, and open+closed PR lists", lists)
+	}
+	for _, call := range all {
 		if !strings.Contains(call, "--repo github.com/chosen/target") {
 			t.Errorf("configured target missing from call: %s", call)
 		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestGitHubSyncExpandsIssueComments(t *testing.T) {
+	// With no parent deadline the comments attempt gets its 2.5s sub-timeout, and the fake answers it at once.
+	installForgeCLI(t, "gh", "case \"$*\" in *comments*) printf '[{\"number\":7,\"title\":\"Pick a store\",\"state\":\"OPEN\",\"comments\":[{\"body\":\"Decision: X\"}]}]'; exit 0;; esac\nprintf '[]'\n")
+	cards, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub, Owner: "chosen", Repo: "target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 || cards[0].Number != 7 || cards[0].Decision != "Decision: X" {
+		t.Fatalf("cards = %+v, want issue #7 with Decision from its comment", cards)
 	}
 }
 
@@ -150,7 +191,7 @@ func TestForgeRemovalPersistsAcrossRefresh(t *testing.T) {
 	if _, err := Update(root, func(st *State) error { st.RemoveForge(ForgeGitHub); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	log := installForgeCLI(t, "gh", "printf '[]'\n")
+	log := installForgeCLI(t, "gh", ghEmptyLists)
 	for _, syncRemote := range []bool{false, true} {
 		st, err = Refresh(context.Background(), root, syncRemote)
 		if err != nil {
@@ -174,12 +215,9 @@ func TestForgeRemovalPersistsAcrossRefresh(t *testing.T) {
 	if st.Forge.Owner != "replacement" {
 		t.Fatalf("explicit target replaced by origin: %+v", st.Forge)
 	}
-	calls, err := os.ReadFile(log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(string(calls), "--repo github.com/replacement/repo") != 4 {
-		t.Fatalf("refresh did not sync configured target: %s", calls)
+	lists, _ := readListCalls(t, log)
+	if strings.Count(strings.Join(lists, "\n"), "--repo github.com/replacement/repo") != 4 {
+		t.Fatalf("refresh did not sync configured target: %q", lists)
 	}
 }
 
@@ -203,7 +241,7 @@ func TestAutomaticForgeTracksOriginChanges(t *testing.T) {
 	if _, err := Refresh(context.Background(), root, false); err != nil {
 		t.Fatal(err)
 	}
-	log := installForgeCLI(t, "gh", "printf '[]'\n")
+	log := installForgeCLI(t, "gh", ghEmptyLists)
 	for _, owner := range []string{"original", "changed"} {
 		git("remote", "set-url", "origin", "https://github.com/"+owner+"/repo.git")
 		st, err := Refresh(context.Background(), root, true)
@@ -237,12 +275,8 @@ func TestAutomaticForgeTracksOriginChanges(t *testing.T) {
 		if _, err := Refresh(context.Background(), root, true); err != nil {
 			t.Fatal(err)
 		}
-		calls, err := os.ReadFile(log)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(strings.Split(strings.TrimSpace(string(calls)), "\n")) != 8 {
-			t.Fatalf("local origin triggered remote sync: %s", calls)
+		if lists, _ := readListCalls(t, log); len(lists) != 8 {
+			t.Fatalf("local origin triggered remote sync: %q", lists)
 		}
 	}
 	pinned := ForgeConfig{Provider: ForgeGitHub, BaseURL: "https://api.github.com", Owner: "pinned", Repo: "repo"}
@@ -257,14 +291,10 @@ func TestAutomaticForgeTracksOriginChanges(t *testing.T) {
 	if st.Forge != pinned {
 		t.Fatalf("explicit configuration followed changed origin: %+v", st.Forge)
 	}
-	data, err := os.ReadFile(log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	calls := strings.Split(strings.TrimSpace(string(data)), "\n")
+	calls, _ := readListCalls(t, log)
 	expected := []string{"original", "original", "original", "original", "changed", "changed", "changed", "changed", "pinned", "pinned", "pinned", "pinned"}
 	if len(calls) != len(expected) {
-		t.Fatalf("calls = %q, want six issue/PR requests", calls)
+		t.Fatalf("calls = %q, want four list calls per sync", calls)
 	}
 	for i, owner := range expected {
 		if !strings.Contains(calls[i], "--repo github.com/"+owner+"/repo") {
