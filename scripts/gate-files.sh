@@ -26,7 +26,9 @@ esac
 if [ "${ATEAM_FORGE:-}" = gitea ]; then
   api=${GITHUB_SERVER_URL:-}
   api="${api%/}/api/v1/repos/${GITHUB_REPOSITORY:-}"
-  get() { curl -fsS --max-time 30 -H "Authorization: token ${GITEA_TOKEN:-}" -H 'Accept: application/json' "$api/$1"; }
+  # The token goes to curl on stdin (-H @-), never in its argv, which other
+  # users of a shared runner can read; printf is a builtin, so neither is it.
+  get() { printf 'Authorization: token %s\n' "${GITEA_TOKEN:-}" | curl -fsS --max-time 30 -H @- -H 'Accept: application/json' "$api/$1"; }
   read_pull() { get "pulls/$pr"; }
   # Every page until an empty one; 200 pages of 50 is past GitHub's 3,000-file
   # ceiling, and reaching it is a failed read, never a short list.

@@ -209,10 +209,13 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 
 // fakeGateCurl answers gate-files.sh's Gitea reads from files in $FAKE_GH_DIR:
 // pull.txt, files-<page>.txt (an empty list past the last page), labels in pull.txt.
+// The token must arrive on stdin as a header, never in argv.
 const fakeGateCurl = `#!/bin/sh
 d="$FAKE_GH_DIR"
 for a in "$@"; do url=$a; done
-case "$*" in *"Authorization: token gitea-test-token"*) ;; *) echo "curl: (22) 401" >&2; exit 22 ;; esac
+case "$*" in *gitea-test-token*) echo "fake curl: the token is in argv" >&2; exit 3 ;; esac
+case "$*" in *"-H @-"*) headers=$(cat) ;; *) headers= ;; esac
+case "$headers" in *"Authorization: token gitea-test-token"*) ;; *) echo "curl: (22) 401" >&2; exit 22 ;; esac
 case "$url" in
   "https://gitea.example.test/api/v1/repos/acme/widgets/pulls/7") key=pull ;;
   "https://gitea.example.test/api/v1/repos/acme/widgets/pulls/7/files?page="*"&limit=50")
