@@ -190,25 +190,21 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 		t.Fatalf("matching card GH-99 lost HoldReason or Decision: %+v", got99)
 	}
 
-	// Probe 4c (Review Finding #2): Fake gh that blocks on requests containing `comments` and returns instantly otherwise
-	// must NOT exhaust RefreshWithBestEffortSync's 3s parent timeout; comment-free fallback + PR query must succeed and advance BoardSyncedAt.
-	scriptSlowComments := "#!/bin/sh\ncase \"$*\" in\n  *comments*)\n    sleep 5\n    exit 1\n    ;;\nesac\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n"
+	// Probe 4c (Review Finding #2): a comments attempt that never answers is cut off at its sub-timeout, and the
+	// comment-free fallback and PR lists still succeed. Any parent deadline selects the 750ms sub-timeout; 30s keeps a
+	// slow start under load far inside the margin, while an unbounded attempt hangs until the deadline and fails (#164).
+	scriptSlowComments := "#!/bin/sh\ncase \"$*\" in\n  *comments*)\n    exec sleep 60\n    ;;\nesac\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n"
 	if err := os.WriteFile(fakeGH, []byte(scriptSlowComments), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	syncRoot := t.TempDir()
-	if _, err := Update(syncRoot, func(cur *State) error {
-		return cur.UpsertForge(ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"})
-	}); err != nil {
-		t.Fatalf("UpsertForge: %v", err)
-	}
-	refreshed, err := RefreshWithBestEffortSync(context.Background(), syncRoot, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	slow, err := SyncForgeBoard(ctx, t.TempDir(), ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"})
 	if err != nil {
-		t.Fatalf("RefreshWithBestEffortSync slow comments: %v", err)
+		t.Fatalf("SyncForgeBoard with a comments attempt that never answers: %v", err)
 	}
-	if refreshed.BoardSyncedAt.IsZero() || refreshed.BoardSyncError != "" || len(refreshed.Cards) != 2 {
-		t.Fatalf("expected slow comments to fall back and advance BoardSyncedAt, got syncedAt=%v err=%q cards=%+v",
-			refreshed.BoardSyncedAt, refreshed.BoardSyncError, refreshed.Cards)
+	if len(slow) != 2 {
+		t.Fatalf("expected the comment-free fallback and PR lists to yield 2 cards, got %+v", slow)
 	}
 }
 
@@ -317,8 +313,9 @@ func assertSyncedPRs(t *testing.T, synced []BoardCard, provider ForgeProvider, w
 // writeGitHubFake installs a fake gh that serves PR lists from files and honours --limit like gh does. Closed lists
 // come back sorted by last update only when the call asks for it with --search sort:updated-desc. With rendezvous set,
 // the open-issue attempt with comments fails at once, and each of the four comment-free list calls records that it
-// started and then waits until all four have started before answering; a call still alone after about 10s exits 1.
-// Calls made one after another therefore fail on their own, with no wall-clock threshold for load to trip (#164).
+// started and then waits until all four have started before answering. The effective bound is ghList's 5s per-call
+// timeout, which kills a call still alone (the fake's own ~10s give-up never fires). Calls made one after another
+// therefore fail on their own, and four concurrent calls only need to start within 5s of each other (#164).
 func writeGitHubFake(t *testing.T, rendezvous bool) {
 	t.Helper()
 	dir := t.TempDir()
@@ -381,7 +378,7 @@ func TestGitHubSyncNeverCapsOpenPRs(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 // Scenario "Open work is never capped" (openspec/changes/forge-sync-cap-149) joins the main spec on archive.
-func TestGitHubSyncFitsPickupBudget(t *testing.T) {
+func TestGitHubSyncRunsListsConcurrently(t *testing.T) {
 	// The sync fits the 3s pickup budget because it costs the slowest list call, not the sum. The rendezvous fake proves
 	// the four list calls are in flight together: each answers only once all four have started.
 	writeGitHubFake(t, true)

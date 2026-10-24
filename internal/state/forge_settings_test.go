@@ -75,6 +75,19 @@ func TestConfiguredGitHubTarget(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestGitHubSyncExpandsIssueComments(t *testing.T) {
+	// With no parent deadline the comments attempt gets its 2.5s sub-timeout, and the fake answers it at once.
+	installForgeCLI(t, "gh", "case \"$*\" in *comments*) printf '[{\"number\":7,\"title\":\"Pick a store\",\"state\":\"OPEN\",\"comments\":[{\"body\":\"Decision: X\"}]}]'; exit 0;; esac\nprintf '[]'\n")
+	cards, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub, Owner: "chosen", Repo: "target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 || cards[0].Number != 7 || cards[0].Decision != "Decision: X" {
+		t.Fatalf("cards = %+v, want issue #7 with Decision from its comment", cards)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 func TestConfiguredGitHubHostRefusal(t *testing.T) {
 	log := installForgeCLI(t, "gh", "printf '[]'\n")
 	_, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub, BaseURL: "https://github.example/api/v3", Owner: "chosen", Repo: "target"})
