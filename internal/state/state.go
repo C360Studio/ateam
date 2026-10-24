@@ -60,9 +60,13 @@ func BuildLabel() string {
 	return shortRev
 }
 
+// Version is the release this tree builds. A release PR bumps it before the
+// matching tag is cut, so a tagged build reports its own tag.
+const Version = "v0.3.1"
+
 // VersionString formats the human-readable CLI version including build provenance.
 func VersionString() string {
-	return fmt.Sprintf("ateam v0.1.0 (%s)", BuildLabel())
+	return fmt.Sprintf("ateam %s (%s)", Version, BuildLabel())
 }
 
 // ReadDiskBinaryBuild inspects ./bin/ateam in root (if present) and returns its short build revision and label.
