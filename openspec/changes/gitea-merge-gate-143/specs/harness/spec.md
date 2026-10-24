@@ -32,13 +32,14 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 - **WHEN** `scripts/merge-check.sh` runs
 - **THEN** it runs `$ATEAM review gate` (default `ateam`), which picks the forge from `ATEAM_FORGE`, else under Actions from `GITHUB_SERVER_URL` (`https://github.com` is GitHub, any other root is Gitea) with `GITHUB_REPOSITORY`, else from `origin`, else GitHub through `gh`, and prints `merge-check: forge=<forge> repo=<owner>/<repo> (from <source>)` without the host
 - **AND** GitHub is read through `gh` with the argv the shell script used, and Gitea through API v1 with `GITEA_TOKEN`, with the same review and known-flake lines on both
-- **AND** `.gitea/workflows/ci.yml` is `.github/workflows/ci.yml` with only the merge-check step's credentials changed
+- **AND** `.gitea/workflows/ci.yml` is `.github/workflows/ci.yml` with only the merge-check step's credentials changed, to `GITEA_TOKEN: ${{ github.token }}` (no extra secret)
 
 #### Scenario: Gitea up-to-date rule
 
 - **WHEN** the merge check reads Gitea
-- **THEN** the up-to-date rule holds only when the branch protection in force on `main` (`effective_branch_protection_name`) has `enable_status_check`, lists exactly `CI / Required (pull_request)` in `status_check_contexts` (no glob), and has `block_on_outdated_branch`; otherwise it fails like a GitHub ruleset without the strict setting
-- **AND** a protection rule that cannot be read (such as HTTP 403 without a repository-admin token) exits 2, never passes
+- **THEN** the up-to-date rule holds only when `main` is `protected`, the branch protection in force on it (`effective_branch_protection_name`) has `enable_status_check` and lists exactly `CI / Required (pull_request)` in `status_check_contexts` (no glob), and, when the rule can be read, has `block_on_outdated_branch`; otherwise it fails like a GitHub ruleset without the strict setting
+- **AND** when reading the rule answers 403 or 404 (the Gitea Actions job token, the only token the CI job uses), the branch's `protected`, `enable_status_check` and `status_check_contexts` decide and the run prints `merge-check: rule strict=unverified (branch protection needs a repo-admin token; the job token can see protected, status check and context only)`
+- **AND** any other failed read of the branch or the rule (401, 5xx, a wrong shape) exits 2, never passes
 
 #### Scenario: Gitea review evidence
 

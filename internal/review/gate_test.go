@@ -30,8 +30,9 @@ type gateWorld struct {
 	required, strict bool
 	// giteaContexts overrides the status checks Gitea's protection lists;
 	// giteaChecksOff turns its status checks off.
-	giteaContexts  []string
-	giteaChecksOff bool
+	giteaContexts    []string
+	giteaChecksOff   bool
+	giteaUnprotected bool
 	// giteaOldestFirst serves Gitea's commit list oldest first instead of as git log does.
 	giteaOldestFirst bool
 	// giteaStatus answers a Gitea path with an HTTP status instead.
@@ -242,7 +243,8 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 		lists[p] = e
 	}
 	objects := map[string]any{
-		"/branches/main":           map[string]any{"name": "main", "effective_branch_protection_name": "main"},
+		"/branches/main": map[string]any{"name": "main", "protected": !w.giteaUnprotected, "effective_branch_protection_name": "main",
+			"enable_status_check": !w.giteaChecksOff, "status_check_contexts": contexts},
 		"/branch_protections/main": map[string]any{"rule_name": "main", "enable_status_check": !w.giteaChecksOff, "status_check_contexts": contexts, "block_on_outdated_branch": w.strict},
 		fmt.Sprintf("/pulls/%d", gatePR): map[string]any{"draft": w.draft, "changed_files": len(w.files), "body": w.body,
 			"head": map[string]any{"sha": w.commits[len(w.commits)-1].sha}, "user": map[string]any{"type": userType}},
@@ -389,8 +391,33 @@ func TestGateGitea(t *testing.T) {
 			gitea: &forgeWant{1, []string{"enable_status_check=false", "merge-check: FAILED"}}},
 		{name: "glob context is not the exact check", world: func(w *gateWorld) { w.giteaContexts = []string{"CI / *"} },
 			gitea: &forgeWant{1, []string{"no rule in force on main requires " + giteaRequired, "merge-check: FAILED"}}},
+		// The job token cannot read the rule (owner ruling on #143: no extra
+		// secrets), so the reader-level fields decide and strict is unverified.
 		{name: "branch protection unreadable", world: func(w *gateWorld) { w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusForbidden} },
-			gitea: &forgeWant{2, []string{"unavailable: the read of branch protection main failed", "HTTP 403", "needs a token with repository admin rights"}}},
+			gitea: &forgeWant{0, []string{"block_on_outdated_branch=unverified", "rule strict=unverified (branch protection needs a repo-admin token", "merge-check: ok"}}},
+		{name: "branch protection not found to a reader", world: func(w *gateWorld) { w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusNotFound} },
+			gitea: &forgeWant{0, []string{"rule strict=unverified", "merge-check: ok"}}},
+		{name: "branch protection unreadable and the check not required", world: func(w *gateWorld) {
+			w.required = false
+			w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusForbidden}
+		},
+			gitea: &forgeWant{1, []string{"no rule in force on main requires " + giteaRequired, "merge-check: FAILED"}}},
+		{name: "branch protection unreadable and status checks off", world: func(w *gateWorld) {
+			w.giteaChecksOff = true
+			w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusForbidden}
+		},
+			gitea: &forgeWant{1, []string{"enable_status_check=false", "merge-check: FAILED"}}},
+		{name: "branch protection unreadable and the branch unprotected", world: func(w *gateWorld) {
+			w.giteaUnprotected = true
+			w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusForbidden}
+		},
+			gitea: &forgeWant{1, []string{"no branch protection in force on main requires", "merge-check: FAILED"}}},
+		{name: "branch protection read fails", world: func(w *gateWorld) { w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusBadGateway} },
+			gitea: &forgeWant{2, []string{"unavailable: the read of branch protection main failed", "HTTP 502"}}},
+		{name: "branch protection unauthorized", world: func(w *gateWorld) {
+			w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusUnauthorized}
+		},
+			gitea: &forgeWant{2, []string{"unavailable: the read of branch protection main failed", "HTTP 401"}}},
 		{name: "comments unreadable", world: func(w *gateWorld) {
 			w.giteaStatus = map[string]int{fmt.Sprintf("/issues/%d/comments", gatePR): http.StatusBadGateway}
 		},

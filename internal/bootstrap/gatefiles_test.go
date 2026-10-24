@@ -175,9 +175,9 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 	// change to one that misses the other fails here.
 	for _, tc := range []struct{ file, github, gitea string }{
 		{"ci.yml", "          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
-			"          # Gitea: reading branch protection needs a repository-admin token, so\n" +
-				"          # the job token is not enough; the secret name is the owner's choice.\n" +
-				"          GITEA_TOKEN: ${{ secrets.MERGE_CHECK_TOKEN }}\n"},
+			"          # Gitea: the job token only, no extra secret. It cannot read the branch\n" +
+				"          # protection rule, so the up-to-date setting prints strict=unverified.\n" +
+				"          GITEA_TOKEN: ${{ github.token }}\n"},
 		{"gate-files.yml", "          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
 			"          ATEAM_FORGE: gitea\n          GITEA_TOKEN: ${{ github.token }}\n"},
 	} {

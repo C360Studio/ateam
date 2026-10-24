@@ -22,8 +22,9 @@ import (
 //
 //  1. The rules in force on main must require the Required check with the
 //     up-to-date setting on (GitHub: an active ruleset with
-//     strict_required_status_checks_policy; Gitea: branch protection with
-//     block_on_outdated_branch and the status check CI / Required (pull_request)).
+//     strict_required_status_checks_policy; Gitea: branch protection with the
+//     status check CI / Required (pull_request) and block_on_outdated_branch,
+//     the latter printed strict=unverified when the token cannot read the rule).
 //  2. On a pull-request run, a non-draft code pull request needs one
 //     implemented-by: and one reviewed-by: line, a reviewer not weaker than every
 //     implementer once .agents/review-policy.json exists, and a review record

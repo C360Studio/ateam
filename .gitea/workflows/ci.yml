@@ -86,9 +86,9 @@ jobs:
       - name: Check the up-to-date rule, the review and its strength, and known flakes
         env:
           ATEAM: ${{ runner.temp }}/ateam
-          # Gitea: reading branch protection needs a repository-admin token, so
-          # the job token is not enough; the secret name is the owner's choice.
-          GITEA_TOKEN: ${{ secrets.MERGE_CHECK_TOKEN }}
+          # Gitea: the job token only, no extra secret. It cannot read the branch
+          # protection rule, so the up-to-date setting prints strict=unverified.
+          GITEA_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: scripts/merge-check.sh "$PR_NUMBER"
 

@@ -198,6 +198,14 @@ func forgeRoot(cfg ForgeConfig) (string, error) {
 	return root + "/repos/" + cfg.Owner + "/" + cfg.Repo, nil
 }
 
+// forgeStatusError is a response other than 200, kept typed so a caller can
+// tell a permission answer from a failure.
+type forgeStatusError struct{ code int }
+
+func (e *forgeStatusError) Error() string {
+	return fmt.Sprintf("review evidence API returned HTTP %d", e.code)
+}
+
 func readForgeJSON(ctx context.Context, client *http.Client, cfg ForgeConfig, endpoint string, out any) error {
 	_, err := readForgePage(ctx, client, cfg, endpoint, maxForgeResponse, out)
 	return err
@@ -233,7 +241,7 @@ func readForgePage(ctx context.Context, client *http.Client, cfg ForgeConfig, en
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("review evidence API returned HTTP %d", resp.StatusCode)
+		return nil, &forgeStatusError{code: resp.StatusCode}
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
