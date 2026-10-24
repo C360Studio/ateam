@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -235,5 +236,32 @@ func TestStateHandoffRefusesAnotherSessionsFreshHandoff(t *testing.T) {
 	}
 	if st, _ := state.Load(dir); st.Handoffs["claude@main"].Goal != "goal B" {
 		t.Fatalf("--force did not replace the slot: %+v", st.Handoffs["claude@main"])
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+func TestInitFailureReportsBackups(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A regular file where a skill directory belongs fails init after the backup.
+	if err := os.WriteFile(filepath.Join(root, ".agents", "skills"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, stderr := captureBenchError(t, func() int { return runInit(root, []string{"-dir", root, "-force"}) })
+	if code == 0 {
+		t.Fatal("runInit succeeded although .agents/skills is a file")
+	}
+	backups, err := filepath.Glob(filepath.Join(root, "AGENTS.md.ateam-backup-*"))
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("backups on disk = %v (%v), want one", backups, err)
+	}
+	want := "ateam init: backed up before failing: " + filepath.Base(backups[0])
+	if !strings.Contains(stderr, want) {
+		t.Fatalf("stderr = %q, want it to contain %q", stderr, want)
 	}
 }
