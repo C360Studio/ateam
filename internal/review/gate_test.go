@@ -33,6 +33,7 @@ type gateWorld struct {
 	giteaContexts    []string
 	giteaChecksOff   bool
 	giteaUnprotected bool
+	giteaRuleHidden  bool
 	// giteaOldestFirst serves Gitea's commit list oldest first instead of as git log does.
 	giteaOldestFirst bool
 	// giteaStatus answers a Gitea path with an HTTP status instead.
@@ -242,8 +243,12 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 	for p, e := range timelines {
 		lists[p] = e
 	}
+	ruleName := "main"
+	if w.giteaRuleHidden {
+		ruleName = ""
+	}
 	objects := map[string]any{
-		"/branches/main": map[string]any{"name": "main", "protected": !w.giteaUnprotected, "effective_branch_protection_name": "main",
+		"/branches/main": map[string]any{"name": "main", "protected": !w.giteaUnprotected, "effective_branch_protection_name": ruleName,
 			"enable_status_check": !w.giteaChecksOff, "status_check_contexts": contexts},
 		"/branch_protections/main": map[string]any{"rule_name": "main", "enable_status_check": !w.giteaChecksOff, "status_check_contexts": contexts, "block_on_outdated_branch": w.strict},
 		fmt.Sprintf("/pulls/%d", gatePR): map[string]any{"draft": w.draft, "changed_files": len(w.files), "body": w.body,
@@ -395,6 +400,15 @@ func TestGateGitea(t *testing.T) {
 		// secrets), so the reader-level fields decide and strict is unverified.
 		{name: "branch protection unreadable", world: func(w *gateWorld) { w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusForbidden} },
 			gitea: &forgeWant{0, []string{"block_on_outdated_branch=unverified", "rule strict=unverified (branch protection needs a repo-admin token", "merge-check: ok"}}},
+		// Live Gitea 28.2: a non-admin token reads protected=true with an empty
+		// effective_branch_protection_name, so the rule cannot even be named.
+		{name: "rule name hidden from a reader", world: func(w *gateWorld) { w.giteaRuleHidden = true },
+			gitea: &forgeWant{0, []string{"name=(hidden from this token)", "rule strict=unverified", "merge-check: ok"}}},
+		{name: "rule name hidden and the check not required", world: func(w *gateWorld) {
+			w.giteaRuleHidden = true
+			w.required = false
+		},
+			gitea: &forgeWant{1, []string{"no rule in force on main requires " + giteaRequired, "merge-check: FAILED"}}},
 		{name: "branch protection not found to a reader", world: func(w *gateWorld) { w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusNotFound} },
 			gitea: &forgeWant{0, []string{"rule strict=unverified", "merge-check: ok"}}},
 		{name: "branch protection unreadable and the check not required", world: func(w *gateWorld) {

@@ -102,9 +102,15 @@ func (s *giteaSource) upToDate(ctx context.Context, out io.Writer) (bool, error)
 	if branch.Protected == nil || branch.Protection == nil || branch.EnableStatusCheck == nil || branch.Contexts == nil {
 		return false, giteaShape("the main branch", "/branches/main", "protected, effective_branch_protection_name, enable_status_check or status_check_contexts is missing")
 	}
-	if !*branch.Protected || *branch.Protection == "" {
+	if !*branch.Protected {
 		fmt.Fprintf(out, "merge-check: no branch protection in force on main requires %s\n", giteaRequired)
 		return false, nil
+	}
+	// Gitea names the rule in force only to a repository admin; the job token
+	// sees protected=true with an empty name, so the reader-level fields decide.
+	if *branch.Protection == "" {
+		lines, ok := giteaProtection("(hidden from this token)", *branch.EnableStatusCheck, *branch.Contexts, nil)
+		return giteaPrint(out, lines, ok), nil
 	}
 	name := "branch protection " + *branch.Protection
 	path := "/branch_protections/" + url.PathEscape(*branch.Protection)
