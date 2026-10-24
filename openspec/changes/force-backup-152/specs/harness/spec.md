@@ -34,5 +34,7 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 
 - **WHEN** `ateam init --force` would replace `AGENTS.md`, `CLAUDE.md`, `.agents/protocol.md` or `.agents/rules-index.md` and the existing content differs from the template
 - **THEN** the existing bytes are first written to `<name>.ateam-backup-<YYYYMMDD-HHMMSS>` beside the file, and the init result lists each backup path under `backed_up`
-- **AND** a file whose content already equals the template gets no backup, and a file whose backup cannot be written is not replaced and init fails
+- **AND** every backup is written, synced and closed before any file is written, so if any backup cannot be written init fails without replacing any file, and a partly written backup is removed
+- **AND** a file whose content already equals the template, and any generated file other than those four, gets no backup
+- **AND** when init fails after making backups, it still reports their paths, and `backed_up` is an empty list rather than `null` when nothing was backed up
 

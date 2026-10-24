@@ -6,7 +6,7 @@
 
 ## What Changes
 
-- Before `--force` replaces `AGENTS.md`, `CLAUDE.md`, `.agents/protocol.md` or `.agents/rules-index.md`, the existing content is written to `<name>.ateam-backup-<YYYYMMDD-HHMMSS>` beside it, if it differs from the template. If the backup cannot be written, the file is not replaced and init fails.
+- Before `--force` replaces `AGENTS.md`, `CLAUDE.md`, `.agents/protocol.md` or `.agents/rules-index.md`, the existing content is written to `<name>.ateam-backup-<YYYYMMDD-HHMMSS>` beside it, if it differs from the template. All backups are written before any file is; if any backup cannot be written, no file is replaced and init fails.
 - The init JSON lists the backup paths under `backed_up`.
 - `docs/adoption.md` names the backup where it describes `--force`.
 - No flag disables the backup.

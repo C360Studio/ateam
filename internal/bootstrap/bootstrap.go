@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -59,13 +60,31 @@ func isHarnessDocument(rel string) bool {
 
 // InitRepo idempotently scaffolds universal skills, hooks, MCP configs, and OpenSpec into root.
 func InitRepo(ctx context.Context, root string, opts Options) (InitResult, error) {
-	var res InitResult
+	res := InitResult{BackedUp: []string{}}
 	now := opts.now
 	if now == nil {
 		now = time.Now
 	}
 	stamp := now().Format("20060102-150405")
 	files := defaultTemplateFiles()
+	if opts.Force {
+		// Back up every harness document before writing any file, so nothing is
+		// truncated unless every backup succeeded.
+		for rel, content := range files {
+			if !isHarnessDocument(rel) {
+				continue
+			}
+			backup, err := backupHarnessDocument(filepath.Join(root, filepath.FromSlash(rel)), rel, content, stamp)
+			if backup != "" {
+				res.BackedUp = append(res.BackedUp, backup)
+			}
+			if err != nil {
+				sort.Strings(res.BackedUp)
+				return res, err
+			}
+		}
+		sort.Strings(res.BackedUp)
+	}
 	for rel, content := range files {
 		abs := filepath.Join(root, filepath.FromSlash(rel))
 		preserve := !opts.Force || isClientConfig(rel)
@@ -74,14 +93,6 @@ func InitRepo(ctx context.Context, root string, opts Options) (InitResult, error
 				continue
 			} else if !os.IsNotExist(err) {
 				return res, fmt.Errorf("inspect %s: %w", rel, err)
-			}
-		} else if isHarnessDocument(rel) {
-			backup, err := backupHarnessDocument(abs, rel, content, stamp)
-			if err != nil {
-				return res, err
-			}
-			if backup != "" {
-				res.BackedUp = append(res.BackedUp, backup)
 			}
 		}
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
@@ -127,8 +138,10 @@ func InitRepo(ctx context.Context, root string, opts Options) (InitResult, error
 
 // backupHarnessDocument copies abs to <rel>.ateam-backup-<stamp> when it exists
 // and differs from the template, returning the backup's relative path. The copy
-// is synced and closed before the caller truncates abs. O_EXCL refuses to clobber
-// an earlier backup: a collision fails init rather than picking another name.
+// and its directory entry are synced before the caller truncates abs. O_EXCL
+// refuses to clobber an earlier backup: a collision fails init rather than
+// picking another name. A partly written backup is removed; a complete backup
+// whose directory sync fails is still returned with the error.
 func backupHarnessDocument(abs, rel, template, stamp string) (string, error) {
 	existing, err := os.ReadFile(abs)
 	if os.IsNotExist(err) {
@@ -141,23 +154,46 @@ func backupHarnessDocument(abs, rel, template, stamp string) (string, error) {
 		return "", nil
 	}
 	backupRel := rel + ".ateam-backup-" + stamp
-	f, err := os.OpenFile(abs+".ateam-backup-"+stamp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	backupAbs := abs + ".ateam-backup-" + stamp
+	f, err := os.OpenFile(backupAbs, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return "", fmt.Errorf("back up %s: %w", rel, err)
 	}
 	_, writeErr := f.Write(existing)
 	syncErr := f.Sync()
 	closeErr := f.Close()
-	if writeErr != nil {
-		return "", fmt.Errorf("write backup %s: %w", backupRel, writeErr)
+	var copyErr error
+	switch {
+	case writeErr != nil:
+		copyErr = fmt.Errorf("write backup %s: %w", backupRel, writeErr)
+	case syncErr != nil:
+		copyErr = fmt.Errorf("sync backup %s: %w", backupRel, syncErr)
+	case closeErr != nil:
+		copyErr = fmt.Errorf("close backup %s: %w", backupRel, closeErr)
 	}
-	if syncErr != nil {
-		return "", fmt.Errorf("sync backup %s: %w", backupRel, syncErr)
+	if copyErr != nil {
+		if err := os.Remove(backupAbs); err != nil {
+			return "", fmt.Errorf("%w; remove partial backup: %w", copyErr, err)
+		}
+		return "", copyErr
 	}
-	if closeErr != nil {
-		return "", fmt.Errorf("close backup %s: %w", backupRel, closeErr)
+	if err := syncDir(filepath.Dir(backupAbs)); err != nil {
+		return backupRel, fmt.Errorf("sync directory of backup %s: %w", backupRel, err)
 	}
 	return backupRel, nil
+}
+
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	syncErr := d.Sync()
+	closeErr := d.Close()
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
 }
 
 func ensureGitignore(root string) error {
