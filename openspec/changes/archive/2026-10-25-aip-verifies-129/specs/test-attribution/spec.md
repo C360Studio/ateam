@@ -2,7 +2,7 @@
 
 ### Requirement: AIP scenario directive
 
-The checker SHALL accept an attached comment whose raw text starts with `//aip:verifies` as a citation carrying one or more space-separated scenario IDs, each resolved against a `#### Scenario: <ID> ` header outside code fences in a canonical `openspec/specs/*/spec.md` or in-flight `openspec/changes/*/specs/*/spec.md`, never an archived change. The `spec:` citation form SHALL keep its behaviour.
+The checker SHALL accept an attached comment whose raw text starts with `//aip:verifies` as a citation carrying one or more space-separated scenario IDs, each resolved against a `#### Scenario: <ID>` header (the ID followed by a space or end of line) outside code fences in a canonical `openspec/specs/*/spec.md` or in-flight `openspec/changes/*/specs/*/spec.md`, never an archived change. The `spec:` citation form SHALL keep its behaviour.
 
 #### Scenario: Known scenario IDs
 

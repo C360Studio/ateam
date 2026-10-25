@@ -223,6 +223,7 @@ func checkAIP(t *testing.T, directive string, files map[string]string) string {
 func TestAIPDirective(t *testing.T) {
 	const canonical = "openspec/specs/dev/spec.md"
 	const scenarios = "#### Scenario: DEV-001.1 first\n#### Scenario: DEV-001.2\n"
+	const unknown = "sample_test.go:2: TestWorks: unknown scenario ID: "
 	for _, tc := range []struct {
 		name, directive, want string
 		files                 map[string]string
@@ -230,24 +231,46 @@ func TestAIPDirective(t *testing.T) {
 		{"two known IDs", "//aip:verifies DEV-001.1 DEV-001.2\n", "", map[string]string{canonical: scenarios}},
 		{"tab separated", "//aip:verifies\tDEV-001.1\n", "", map[string]string{canonical: scenarios}},
 		{"in-flight change", "//aip:verifies NEW-1\n", "", map[string]string{"openspec/changes/c/specs/dev/spec.md": "#### Scenario: NEW-1 x\n"}},
-		{"archived only", "//aip:verifies OLD-1\n", "sample_test.go:2: TestWorks: unknown scenario ID: OLD-1\n", map[string]string{"openspec/changes/archive/2026-01-01-c/specs/dev/spec.md": "#### Scenario: OLD-1 x\n"}},
-		{"change directory named archive", "//aip:verifies OLD-2\n", "unknown scenario ID: OLD-2", map[string]string{"openspec/changes/archive/specs/dev/spec.md": "#### Scenario: OLD-2 x\n"}},
-		{"unknown", "//aip:verifies DEV-001.1 NOPE-9\n", "sample_test.go:2: TestWorks: unknown scenario ID: NOPE-9\n", map[string]string{canonical: scenarios}},
+		{"archived only", "//aip:verifies OLD-1\n", unknown + "OLD-1\n", map[string]string{"openspec/changes/archive/2026-01-01-c/specs/dev/spec.md": "#### Scenario: OLD-1 x\n"}},
+		{"change directory named archive", "//aip:verifies OLD-2\n", unknown + "OLD-2\n", map[string]string{"openspec/changes/archive/specs/dev/spec.md": "#### Scenario: OLD-2 x\n"}},
+		{"unknown", "//aip:verifies DEV-001.1 NOPE-9\n", unknown + "NOPE-9\n", map[string]string{canonical: scenarios}},
 		{"empty", "//aip:verifies\n", "sample_test.go:2: TestWorks: aip:verifies names no scenario IDs\n", nil},
 		{"spaced form", "// aip:verifies DEV-001.1\n", "sample_test.go:2: TestWorks: write //aip:verifies without a space\n", map[string]string{canonical: scenarios}},
-		{"fenced header", "//aip:verifies FENCED-1\n", "unknown scenario ID: FENCED-1", map[string]string{canonical: "```\n#### Scenario: FENCED-1 x\n```\n"}},
-		{"prefix boundary", "//aip:verifies DEV-001.1\n", "unknown scenario ID: DEV-001.1", map[string]string{canonical: "#### Scenario: DEV-001.10 x\n"}},
+		{"fenced header", "//aip:verifies FENCED-1\n", unknown + "FENCED-1\n", map[string]string{canonical: "```\n#### Scenario: FENCED-1 x\n```\n"}},
+		{"prefix boundary", "//aip:verifies DEV-001.1\n", unknown + "DEV-001.1\n", map[string]string{canonical: "#### Scenario: DEV-001.10 x\n"}},
 		{"duplicate across files", "//aip:verifies DEV-001.1\n", "", map[string]string{canonical: scenarios, "openspec/specs/other/spec.md": scenarios}},
 		{"both forms", citation + "//aip:verifies DEV-001.1\n", "", map[string]string{canonical: scenarios}},
 		{"glued suffix", "//aip:verifiesX\n", "sample_test.go:3: TestWorks: missing spec citation\n", nil},
-		{"spec citation survives a bad aip ID", citation + "//aip:verifies NOPE-9\n", "unknown scenario ID: NOPE-9", nil},
+		{"spec citation survives a bad aip ID", citation + "//aip:verifies NOPE-9\n", "sample_test.go:3: TestWorks: unknown scenario ID: NOPE-9\n", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := checkAIP(t, tc.directive, tc.files)
-			if tc.want == "" && got != "" || tc.want != "" && !strings.Contains(got, tc.want) {
+			if got := checkAIP(t, tc.directive, tc.files); got != tc.want {
 				t.Fatalf("aip verdict: got %q want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// spec: openspec/specs/test-attribution/spec.md#Requirement: AIP scenario directive
+func TestAIPRootWithGlobMetacharacters(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "proj[1")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFiles(t, root, map[string]string{
+		"sample_test.go":             "package p\n//aip:verifies BR-1\nfunc TestWorks(t *testing.T) {}",
+		"openspec/specs/dev/spec.md": "#### Scenario: BR-1 x\n",
+	})
+	ds, err := Check(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Format(ds); got != "" {
+		t.Fatalf("root with [: got %q want no diagnostics", got)
 	}
 }
 

@@ -150,7 +150,7 @@ func Check(ctx context.Context, root string) ([]Diagnostic, error) {
 					diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": aip:verifies names no scenario IDs"})
 					continue
 				}
-				if scenarios == nil && !indexed {
+				if !indexed {
 					var problems []string
 					scenarios, problems = scenarioIndex(root)
 					indexed = true
@@ -334,8 +334,11 @@ func scenarioIndex(root string) ([]string, []string) {
 	var problems []string
 	var paths []string
 	for _, pattern := range []string{"openspec/specs/*/spec.md", "openspec/changes/*/specs/*/spec.md"} {
-		matches, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(pattern))) // shortcut: Glob errs only on a bad pattern, both are literals
-		paths = append(paths, matches...)
+		// fs.Glob over the root keeps glob metacharacters in root itself from acting as pattern.
+		matches, _ := fs.Glob(os.DirFS(root), pattern) // errs only on a malformed pattern; both are constants
+		for _, m := range matches {
+			paths = append(paths, filepath.Join(root, filepath.FromSlash(m)))
+		}
 	}
 	const header = "#### Scenario: "
 	for _, path := range paths {
