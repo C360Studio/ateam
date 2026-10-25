@@ -193,7 +193,7 @@ func TestVitestIntegration(t *testing.T) {
 	}
 }
 
-const aipSpecRef = "// spec: openspec/changes/aip-verifies-129/specs/test-attribution/spec.md#Requirement: AIP scenario directive\n"
+const aipSpecRef = "// spec: openspec/specs/test-attribution/spec.md#Requirement: AIP scenario directive\n"
 
 func writeFiles(t *testing.T, root string, files map[string]string) {
 	t.Helper()
@@ -219,7 +219,7 @@ func checkAIP(t *testing.T, directive string, files map[string]string) string {
 	return Format(ds)
 }
 
-// spec: openspec/changes/aip-verifies-129/specs/test-attribution/spec.md#Requirement: AIP scenario directive
+// spec: openspec/specs/test-attribution/spec.md#Requirement: AIP scenario directive
 func TestAIPDirective(t *testing.T) {
 	const canonical = "openspec/specs/dev/spec.md"
 	const scenarios = "#### Scenario: DEV-001.1 first\n#### Scenario: DEV-001.2\n"
@@ -251,7 +251,7 @@ func TestAIPDirective(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/aip-verifies-129/specs/test-attribution/spec.md#Requirement: AIP scenario directive
+// spec: openspec/specs/test-attribution/spec.md#Requirement: AIP scenario directive
 func TestAIPSpecFileRefusals(t *testing.T) {
 	root := fixture(t, "package p\n//aip:verifies A-1\nfunc TestWorks(t *testing.T) {}", "### Requirement: Works\n")
 	outside := t.TempDir()
