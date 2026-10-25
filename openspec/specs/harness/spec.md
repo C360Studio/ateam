@@ -451,7 +451,7 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 
 #### Scenario: Adopter rule sections that agree
 
-- **WHEN** `AGENTS.md` and `.agents/rules-index.md` have the same numbered rule sections, with the same titles in the same order and the same row count per section, whatever the titles, their number, or the heading level used in each file (per file, the one heading level whose numbered sections own table rows; other numbered headings are ignored), and whatever the table's header wording, separator alignment, indentation or spacing after `|`
+- **WHEN** `AGENTS.md` and `.agents/rules-index.md` have the same numbered rule sections, with the same titles in the same order and the same row count per section, whatever the titles, their number, or the heading level used in each file (per file, the heading level whose numbered sections own the most table rows, `###` on a tie; other numbered headings are ignored), and whatever the table's header wording, separator alignment (a separator row has at least one `-`; an all-blank row is a row), indentation or spacing after `|`
 - **THEN** doctor reports no rules-parity violation
 
 #### Scenario: Adopter rule sections that disagree

@@ -333,7 +333,7 @@ func checkRulesAndSizeParity(root string) []string {
 
 // parseRuleSectionCounts lists the numbered "## N. title" or "### N. title" sections and their table rows.
 // Any other level-2 or level-3 heading ends the current section. Only one heading level is returned:
-// the one whose numbered sections own the most table rows, so numbered non-rule headings are ignored.
+// the one whose numbered sections own the most table rows (### on a tie), so numbered non-rule headings are ignored.
 func parseRuleSectionCounts(text string) []sectionCount {
 	type section struct {
 		sectionCount
@@ -376,14 +376,15 @@ func parseRuleSectionCounts(text string) []sectionCount {
 		lastRow = true
 	}
 	rows := map[int]int{}
-	best := 0
+	has := map[int]bool{}
 	for _, s := range sections {
 		rows[s.level] += s.rows
+		has[s.level] = true
 	}
-	for _, s := range sections {
-		if best == 0 || rows[s.level] > rows[best] {
-			best = s.level
-		}
+	// On a tie, ### wins: rule sections nest under numbered ## prose headings, not the reverse.
+	best := 2
+	if has[3] && (!has[2] || rows[3] >= rows[2]) {
+		best = 3
 	}
 	var out []sectionCount
 	for _, s := range sections {
@@ -394,9 +395,10 @@ func parseRuleSectionCounts(text string) []sectionCount {
 	return out
 }
 
-// isTableSeparator matches a trimmed Markdown table separator row: ^\|[\s:|-]+\|$.
+// isTableSeparator matches a trimmed Markdown table separator row: ^\|[\s:|-]+\|$ with at least one -,
+// so an all-blank row such as "| | |" counts as a row.
 func isTableSeparator(row string) bool {
-	return len(row) >= 3 && row[0] == '|' && row[len(row)-1] == '|' && strings.Trim(row, " \t:|-") == ""
+	return len(row) >= 3 && row[0] == '|' && row[len(row)-1] == '|' && strings.Contains(row, "-") && strings.Trim(row, " \t:|-") == ""
 }
 
 func isNumberedTitle(title string) bool {
