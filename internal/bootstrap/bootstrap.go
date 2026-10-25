@@ -27,11 +27,6 @@ const (
 var (
 	canonicalSkills = []string{"pickup", "handoff", "preflight", "ponytail", "review-pr"}
 	requiredHooks   = []string{"session-start", "before-prompt", "pre-compact", "turn-end"}
-	expectedDomains = []string{
-		"1. Ponytail decision ladder and code discipline",
-		"2. Hooks, MCP budget, and multi-agent parity",
-		"3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done",
-	}
 )
 
 // Options configures InitRepo.
@@ -247,8 +242,10 @@ func checkRequiredFiles(root string) []string {
 	}
 	if protoData, err := os.ReadFile(filepath.Join(root, ".agents", "protocol.md")); err == nil {
 		proto := string(protoData)
-		if !strings.Contains(proto, "## 1. Hybrid State Architecture") || !strings.Contains(proto, "## 2. Work Lifecycle & Definition of Done") {
-			out = append(out, ".agents/protocol.md: missing canonical protocol sections (must not be a placeholder stub)")
+		for _, m := range protocolMarkers {
+			if !strings.Contains(proto, m.marker) {
+				out = append(out, fmt.Sprintf(".agents/protocol.md: missing %q (%s)", m.marker, m.where))
+			}
 		}
 	}
 	if readmeData, err := os.ReadFile(filepath.Join(root, "README.md")); err == nil {
@@ -262,6 +259,16 @@ func checkRequiredFiles(root string) []string {
 		}
 	}
 	return out
+}
+
+// protocolMarkers are what the harness depends on in .agents/protocol.md; headings are the adopter's own.
+var protocolMarkers = []struct{ marker, where string }{
+	{"Deliverable", "the Clarify step of \"## 2. Work Lifecycle & Definition of Done\" in the shipped protocol template (internal/bootstrap/templates.go)"},
+	{"Scope", "the Clarify step of \"## 2. Work Lifecycle & Definition of Done\" in the shipped protocol template (internal/bootstrap/templates.go)"},
+	{"Definition of Done", "the Clarify step of \"## 2. Work Lifecycle & Definition of Done\" in the shipped protocol template (internal/bootstrap/templates.go)"},
+	{"Stop boundary", "the Clarify step of \"## 2. Work Lifecycle & Definition of Done\" in the shipped protocol template (internal/bootstrap/templates.go)"},
+	{"ateam state handoff", "\"## 1. Hybrid State Architecture\" (session handoff) and the Close step of \"## 2\" in the shipped protocol template"},
+	{"openspec/changes/archive/", "the Close step of \"## 2. Work Lifecycle & Definition of Done\" in the shipped protocol template"},
 }
 
 type sectionCount struct {
@@ -293,37 +300,44 @@ func checkRulesAndSizeParity(root string) []string {
 	if len(agentsData) >= maxAgentsMDBytes {
 		out = append(out, fmt.Sprintf("AGENTS.md: %d bytes is not strictly under %d bytes", len(agentsData), maxAgentsMDBytes))
 	}
-	agentsCounts := parseRuleSectionCounts(string(agentsData), "### ")
-	indexCounts := parseRuleSectionCounts(string(indexData), "## ")
-	if len(agentsCounts) != len(expectedDomains) || len(indexCounts) != len(expectedDomains) {
-		return append(out, fmt.Sprintf("AGENTS.md (%d sections) and .agents/rules-index.md (%d sections) must both have %d numbered rule sections",
-			len(agentsCounts), len(indexCounts), len(expectedDomains)))
+	agents := parseRuleSectionCounts(string(agentsData))
+	index := parseRuleSectionCounts(string(indexData))
+	if len(agents) == 0 && len(index) == 0 {
+		return append(out, "AGENTS.md and .agents/rules-index.md have no numbered rule sections (## N. or ### N. headings)")
 	}
-	for i, wantTitle := range expectedDomains {
-		a, b := agentsCounts[i], indexCounts[i]
-		if a.title != wantTitle || b.title != wantTitle {
-			out = append(out, fmt.Sprintf("rule section %d: AGENTS.md = %q, .agents/rules-index.md = %q, want %q", i+1, a.title, b.title, wantTitle))
-			continue
-		}
-		if a.rows == 0 || a.rows != b.rows {
+	for i := 0; i < len(agents) || i < len(index); i++ {
+		switch {
+		case i >= len(index):
+			out = append(out, fmt.Sprintf("rule section %q is in AGENTS.md but missing from .agents/rules-index.md", agents[i].title))
+		case i >= len(agents):
+			out = append(out, fmt.Sprintf("rule section %q is in .agents/rules-index.md but missing from AGENTS.md", index[i].title))
+		case agents[i].title != index[i].title:
+			out = append(out, fmt.Sprintf("rule section %d: AGENTS.md = %q, .agents/rules-index.md = %q", i+1, agents[i].title, index[i].title))
+		case agents[i].rows != index[i].rows:
 			out = append(out, fmt.Sprintf("AGENTS.md and .agents/rules-index.md disagree on row count in %q: AGENTS.md has %d, .agents/rules-index.md has %d",
-				wantTitle, a.rows, b.rows))
+				agents[i].title, agents[i].rows, index[i].rows))
 		}
 	}
 	return out
 }
 
-func parseRuleSectionCounts(text, prefix string) []sectionCount {
+// parseRuleSectionCounts lists the numbered "## N. title" or "### N. title" sections and their table rows.
+// Any other level-2 or level-3 heading ends the current section.
+func parseRuleSectionCounts(text string) []sectionCount {
 	var sections []sectionCount
 	cur := -1
 	for _, line := range strings.Split(text, "\n") {
-		if title, ok := strings.CutPrefix(line, prefix); ok && len(title) >= 3 && title[0] >= '1' && title[0] <= '9' && title[1] == '.' {
-			sections = append(sections, sectionCount{title: strings.TrimSpace(title)})
-			cur = len(sections) - 1
-			continue
+		title, ok := strings.CutPrefix(line, "### ")
+		if !ok {
+			title, ok = strings.CutPrefix(line, "## ")
 		}
-		if cur >= 0 && strings.HasPrefix(line, "## ") && prefix != "## " {
-			cur = -1
+		if ok {
+			if isNumberedTitle(title) {
+				sections = append(sections, sectionCount{title: strings.TrimSpace(title)})
+				cur = len(sections) - 1
+			} else {
+				cur = -1
+			}
 			continue
 		}
 		if cur < 0 || !strings.HasPrefix(line, "| ") {
@@ -335,6 +349,14 @@ func parseRuleSectionCounts(text, prefix string) []sectionCount {
 		sections[cur].rows++
 	}
 	return sections
+}
+
+func isNumberedTitle(title string) bool {
+	i := 0
+	for i < len(title) && title[i] >= '0' && title[i] <= '9' {
+		i++
+	}
+	return i > 0 && i+1 < len(title) && title[i] == '.'
 }
 
 func discoverSkills(root string) []string {
