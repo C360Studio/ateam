@@ -39,6 +39,8 @@ type declaration struct {
 	Error    string    `json:"error"`
 }
 
+const aipDirective = "aip:verifies"
+
 //go:embed vitest.mjs
 var vitestScanner string
 
@@ -119,6 +121,8 @@ func Check(ctx context.Context, root string) ([]Diagnostic, error) {
 		declarations = append(declarations, ds...)
 	}
 	var diagnostics []Diagnostic
+	indexed := false
+	var scenarios []string // scenario header remainders, built on the first aip directive
 	for _, d := range declarations {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -130,6 +134,37 @@ func Check(ctx context.Context, root string) ([]Diagnostic, error) {
 		found := false
 		for _, c := range d.Comments {
 			text := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
+			if strings.HasPrefix(text, aipDirective) {
+				if !strings.HasPrefix(c.Text, "//"+aipDirective) {
+					found = true
+					diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": write //aip:verifies without a space"})
+					continue
+				}
+				rest := strings.TrimPrefix(c.Text, "//"+aipDirective)
+				if rest != "" && !unicode.IsSpace([]rune(rest)[0]) {
+					continue // //aip:verifiesX is not the directive
+				}
+				found = true
+				ids := strings.Fields(rest)
+				if len(ids) == 0 {
+					diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": aip:verifies names no scenario IDs"})
+					continue
+				}
+				if scenarios == nil && !indexed {
+					var problems []string
+					scenarios, problems = scenarioIndex(root)
+					indexed = true
+					for _, p := range problems {
+						diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": " + p})
+					}
+				}
+				for _, id := range ids {
+					if !hasScenario(scenarios, id) {
+						diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": unknown scenario ID: " + id})
+					}
+				}
+				continue
+			}
 			if !strings.HasPrefix(text, "spec:") {
 				continue
 			}
@@ -223,25 +258,48 @@ func resolve(root, ref string) error {
 	if !canonical && !inflight {
 		return fmt.Errorf("expected canonical or in-flight spec.md")
 	}
-	full, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(path)))
+	full := filepath.Join(root, filepath.FromSlash(path))
+	data, err := readSpec(root, full)
 	if err != nil {
-		return fmt.Errorf("resolve spec: %w", err)
+		return err
+	}
+	count := 0
+	eachUnfencedLine(data, func(line string) {
+		if line == "### "+heading {
+			count++
+		}
+	})
+	if count != 1 {
+		return fmt.Errorf("requirement resolves %d times: %s", count, ref)
+	}
+	return nil
+}
+
+// readSpec resolves symlinks, refuses paths leaving root, and returns UTF-8 content.
+func readSpec(root, path string) (string, error) {
+	full, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve spec: %w", err)
 	}
 	relative, err := filepath.Rel(root, full)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("spec path escapes repository")
+		return "", fmt.Errorf("spec path escapes repository")
 	}
 	data, err := os.ReadFile(full)
 	if err != nil {
-		return fmt.Errorf("read spec: %w", err)
+		return "", fmt.Errorf("read spec: %w", err)
 	}
 	if !utf8.Valid(data) {
-		return fmt.Errorf("spec is not UTF-8")
+		return "", fmt.Errorf("spec is not UTF-8")
 	}
-	count := 0
+	return string(data), nil
+}
+
+// eachUnfencedLine calls fn for every line of data outside Markdown code fences.
+func eachUnfencedLine(data string, fn func(line string)) {
 	var fence byte
 	fenceLength := 0
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(data, "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		trimmed := strings.TrimLeft(line, " ")
 		indentation := len(line) - len(trimmed)
@@ -263,14 +321,51 @@ func resolve(root, ref string) error {
 				}
 			}
 		}
-		if fence == 0 && line == "### "+heading {
-			count++
+		if fence == 0 {
+			fn(line)
 		}
 	}
-	if count != 1 {
-		return fmt.Errorf("requirement resolves %d times: %s", count, ref)
+}
+
+// scenarioIndex collects scenario header remainders from canonical and in-flight specs, never archive/.
+// Unreadable or escaping spec files are returned as problems rather than skipped silently.
+func scenarioIndex(root string) ([]string, []string) {
+	var headers []string
+	var problems []string
+	var paths []string
+	for _, pattern := range []string{"openspec/specs/*/spec.md", "openspec/changes/*/specs/*/spec.md"} {
+		matches, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(pattern))) // shortcut: Glob errs only on a bad pattern, both are literals
+		paths = append(paths, matches...)
 	}
-	return nil
+	const header = "#### Scenario: "
+	for _, path := range paths {
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		if strings.HasPrefix(rel, "openspec/changes/archive/") {
+			continue
+		}
+		data, err := readSpec(root, path)
+		if err != nil {
+			problems = append(problems, rel+": "+err.Error())
+			continue
+		}
+		eachUnfencedLine(data, func(line string) {
+			if rest, ok := strings.CutPrefix(line, header); ok {
+				headers = append(headers, rest)
+			}
+		})
+	}
+	return headers, problems
+}
+
+// hasScenario reports whether some header remainder is id or starts with id and a space.
+func hasScenario(headers []string, id string) bool {
+	for _, h := range headers {
+		if h == id || strings.HasPrefix(h, id+" ") {
+			return true
+		}
+	}
+	return false
 }
 
 // Format renders diagnostics in their deterministic check order.
