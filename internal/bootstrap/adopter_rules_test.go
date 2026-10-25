@@ -12,7 +12,7 @@ const adopterProtocol = `# How we work
 
 ## Intake
 
-Before touching state, agree the Deliverable, the Scope, the Definition of Done and the Stop boundary.
+Before touching state, agree the Deliverable, the Scope and non-goals, the Definition of Done and the Stop boundary.
 
 ## Handoff
 
@@ -35,7 +35,6 @@ func adopterRules(prefix string, rows []int) string {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("## Appendix\n\n| not | counted |\n")
 	return b.String()
 }
 
@@ -58,7 +57,9 @@ func brownfield(t *testing.T, agents, index, protocol string) string {
 // spec: openspec/specs/harness/spec.md#Requirement: Adopter rules parity
 func TestAdopterRulesParityAcceptsProjectOwnedFiles(t *testing.T) {
 	rows := []int{2, 1, 3, 1, 2}
-	dir := brownfield(t, adopterRules("### ", rows), adopterRules("## ", rows), adopterProtocol)
+	// The appendix table is in AGENTS.md only: it agrees only if the non-numbered heading ends "5. On-call".
+	agents := adopterRules("### ", rows) + "## Appendix\n\n| not | counted |\n"
+	dir := brownfield(t, agents, adopterRules("## ", rows), adopterProtocol)
 	if v := CheckParity(dir); len(v) > 0 {
 		t.Fatalf("brownfield files failed CheckParity:\n- %s", strings.Join(v, "\n- "))
 	}
@@ -69,18 +70,84 @@ func TestAdopterRulesParityDisagreement(t *testing.T) {
 	rows := []int{2, 1, 3, 1, 2}
 	agents := adopterRules("### ", rows)
 	cases := []struct {
-		name  string
-		index string
-		want  []string
+		name   string
+		agents string
+		index  string
+		want   []string
 	}{
-		{"title differs", strings.Replace(adopterRules("## ", rows), "3. Release train", "3. Release trains", 1), []string{"rule section 3", "AGENTS.md", ".agents/rules-index.md", "3. Release train"}},
-		{"row count differs", adopterRules("## ", []int{2, 1, 4, 1, 2}), []string{"row count", "3. Release train", "AGENTS.md has 3", ".agents/rules-index.md has 4"}},
-		{"section missing from index", strings.Replace(adopterRules("## ", rows), "5. On-call", "On-call", 1), []string{"5. On-call", "missing from .agents/rules-index.md"}},
+		{"title differs", agents, strings.Replace(adopterRules("## ", rows), "3. Release train", "3. Release trains", 1), []string{"rule section 3", "AGENTS.md", ".agents/rules-index.md", "3. Release train"}},
+		{"row count differs", agents, adopterRules("## ", []int{2, 1, 4, 1, 2}), []string{"row count", "3. Release train", "AGENTS.md has 3", ".agents/rules-index.md has 4"}},
+		{"section missing from index", agents, strings.Replace(adopterRules("## ", rows), "5. On-call", "On-call", 1), []string{"5. On-call", "missing from .agents/rules-index.md"}},
+		{"compact rows differ", "### 1. Safety\n\n|Gate|Rule|\n|---|---|\n|a|b|\n",
+			"## 1. Safety\n\n|Gate|Rule|\n|---|---|\n|a|b|\n|c|d|\n|e|f|\n",
+			[]string{"row count", "1. Safety", "AGENTS.md has 1", ".agents/rules-index.md has 3"}},
+		{"zero-row section", "### 1. Safety\n\n- a rule written as a list\n",
+			"## 1. Safety\n\n- a rule written as a list\n",
+			[]string{"AGENTS.md: rule section \"1. Safety\" has no table rows", ".agents/rules-index.md: rule section \"1. Safety\" has no table rows"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			dir := brownfield(t, agents, c.index, adopterProtocol)
+			dir := brownfield(t, c.agents, c.index, adopterProtocol)
 			requireViolation(t, CheckParity(dir), c.want...)
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Adopter rules parity
+func TestAdopterRulesParityAcceptsAdopterLayouts(t *testing.T) {
+	index := "# Index\n\n## 1. Safety\n\n| Rule | Enforced by |\n| :--- | ---: |\n| a | b |\n| c | d |\n\n## 2. Data\n\n|Gate|Rule|\n|:-:|:-:|\n|e|f|\n"
+	cases := []struct{ name, agents string }{
+		{"numbered ## headings above ### rule sections",
+			"# Project\n\n## 1. Purpose\n\nWhy.\n\n## 2. Rules\n\n### 1. Safety\n\n| Gate | Rule |\n| --- | --- |\n| a | b |\n| c | d |\n\n### 2. Data\n\n| Gate | Rule |\n| --- | --- |\n| e | f |\n"},
+		{"indented compact rows",
+			"### 1. Safety\n\n  |Gate|Rule|\n  |---|---|\n  |a|b|\n  |c|d|\n\n### 2. Data\n\n|x|y|\n|-|-|\n|e|f|\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if v := CheckParity(brownfield(t, c.agents, index, adopterProtocol)); len(v) > 0 {
+				t.Fatalf("CheckParity:\n- %s", strings.Join(v, "\n- "))
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Adopter rules parity
+func TestParseRuleSectionCounts(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want []sectionCount
+	}{
+		{"custom header and aligned separator",
+			"## 1. Safety\n\n| Rule | Enforced by |\n| :--- | ---: |\n| a | b |\n| c | d |\n",
+			[]sectionCount{{"1. Safety", 2}}},
+		{"compact and indented rows",
+			"### 1. Safety\n\n |Gate|Rule|\n |---|---|\n |a|b|\n|c|d|\n|e|f|\n",
+			[]sectionCount{{"1. Safety", 3}}},
+		{"rows without a separator all count",
+			"## 1. Safety\n\n| a | b |\n| c | d |\n",
+			[]sectionCount{{"1. Safety", 2}}},
+		{"non-numbered heading ends a section",
+			"### 1. Safety\n\n| a | b |\n\n## Appendix\n\n| x | y |\n| z | w |\n\n### Notes\n\n| q | r |\n",
+			[]sectionCount{{"1. Safety", 1}}},
+		{"numbered ## headings without rows are ignored",
+			"## 1. Purpose\n\nWhy.\n\n## 2. Rules\n\n### 1. Safety\n\n| a | b |\n| c | d |\n\n### 2. Data\n\n| e | f |\n",
+			[]sectionCount{{"1. Safety", 2}, {"2. Data", 1}}},
+		{"zero-row sections are kept",
+			"## 1. Safety\n\n- a list\n\n## 2. Data\n",
+			[]sectionCount{{"1. Safety", 0}, {"2. Data", 0}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := parseRuleSectionCounts(c.text)
+			if len(got) != len(c.want) {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Fatalf("got %v, want %v", got, c.want)
+				}
+			}
 		})
 	}
 }
@@ -91,7 +158,7 @@ func TestAdopterProtocolMarkers(t *testing.T) {
 	agents, index := adopterRules("### ", rows), adopterRules("## ", rows)
 	for _, c := range []struct{ marker, want string }{
 		{"Deliverable", "Clarify step"},
-		{"Scope", "Clarify step"},
+		{"non-goals", "Clarify step"},
 		{"Definition of Done", "Clarify step"},
 		{"Stop boundary", "Clarify step"},
 		{"ateam state handoff", "session handoff"},
@@ -105,6 +172,6 @@ func TestAdopterProtocolMarkers(t *testing.T) {
 	}
 	t.Run("all Clarify fields named", func(t *testing.T) {
 		v := CheckParity(brownfield(t, agents, index, "# Protocol\n\nClarify, Claim, Merge, Close. ateam state handoff openspec/changes/archive/\n"))
-		requireViolation(t, v, `"Deliverable"`, `"Scope"`, `"Definition of Done"`, `"Stop boundary"`)
+		requireViolation(t, v, `"Deliverable"`, `"non-goals"`, `"Definition of Done"`, `"Stop boundary"`)
 	})
 }

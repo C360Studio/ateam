@@ -264,7 +264,7 @@ func checkRequiredFiles(root string) []string {
 // protocolMarkers are what the harness depends on in .agents/protocol.md; headings are the adopter's own.
 var protocolMarkers = []struct{ marker, where string }{
 	{"Deliverable", "the Clarify step of \"## 2. Work Lifecycle & Definition of Done\" in the shipped protocol template (internal/bootstrap/templates.go)"},
-	{"Scope", "the Clarify step of \"## 2. Work Lifecycle & Definition of Done\" in the shipped protocol template (internal/bootstrap/templates.go)"},
+	{"non-goals", "the Clarify step of \"## 2. Work Lifecycle & Definition of Done\" in the shipped protocol template (internal/bootstrap/templates.go)"},
 	{"Definition of Done", "the Clarify step of \"## 2. Work Lifecycle & Definition of Done\" in the shipped protocol template (internal/bootstrap/templates.go)"},
 	{"Stop boundary", "the Clarify step of \"## 2. Work Lifecycle & Definition of Done\" in the shipped protocol template (internal/bootstrap/templates.go)"},
 	{"ateam state handoff", "\"## 1. Hybrid State Architecture\" (session handoff) and the Close step of \"## 2\" in the shipped protocol template"},
@@ -305,6 +305,16 @@ func checkRulesAndSizeParity(root string) []string {
 	if len(agents) == 0 && len(index) == 0 {
 		return append(out, "AGENTS.md and .agents/rules-index.md have no numbered rule sections (## N. or ### N. headings)")
 	}
+	for _, f := range []struct {
+		name     string
+		sections []sectionCount
+	}{{"AGENTS.md", agents}, {".agents/rules-index.md", index}} {
+		for _, s := range f.sections {
+			if s.rows == 0 {
+				out = append(out, fmt.Sprintf("%s: rule section %q has no table rows", f.name, s.title))
+			}
+		}
+	}
 	for i := 0; i < len(agents) || i < len(index); i++ {
 		switch {
 		case i >= len(index):
@@ -322,33 +332,71 @@ func checkRulesAndSizeParity(root string) []string {
 }
 
 // parseRuleSectionCounts lists the numbered "## N. title" or "### N. title" sections and their table rows.
-// Any other level-2 or level-3 heading ends the current section.
+// Any other level-2 or level-3 heading ends the current section. Only one heading level is returned:
+// the one whose numbered sections own the most table rows, so numbered non-rule headings are ignored.
 func parseRuleSectionCounts(text string) []sectionCount {
-	var sections []sectionCount
+	type section struct {
+		sectionCount
+		level int
+	}
+	var sections []section
 	cur := -1
+	lastRow := false
 	for _, line := range strings.Split(text, "\n") {
+		// shortcut: a ## line inside a fenced code block ends a section, when an adopter reports it
+		level := 3
 		title, ok := strings.CutPrefix(line, "### ")
 		if !ok {
+			level = 2
 			title, ok = strings.CutPrefix(line, "## ")
 		}
 		if ok {
+			lastRow = false
 			if isNumberedTitle(title) {
-				sections = append(sections, sectionCount{title: strings.TrimSpace(title)})
+				sections = append(sections, section{sectionCount{title: strings.TrimSpace(title)}, level})
 				cur = len(sections) - 1
 			} else {
 				cur = -1
 			}
 			continue
 		}
-		if cur < 0 || !strings.HasPrefix(line, "| ") {
+		row := strings.TrimSpace(line)
+		if cur < 0 || !strings.HasPrefix(row, "|") {
+			lastRow = false
 			continue
 		}
-		if strings.HasPrefix(line, "| ---") || strings.HasPrefix(line, "| Gate |") {
+		if isTableSeparator(row) {
+			if lastRow {
+				sections[cur].rows-- // the row above a separator is the header
+			}
+			lastRow = false
 			continue
 		}
 		sections[cur].rows++
+		lastRow = true
 	}
-	return sections
+	rows := map[int]int{}
+	best := 0
+	for _, s := range sections {
+		rows[s.level] += s.rows
+	}
+	for _, s := range sections {
+		if best == 0 || rows[s.level] > rows[best] {
+			best = s.level
+		}
+	}
+	var out []sectionCount
+	for _, s := range sections {
+		if s.level == best {
+			out = append(out, s.sectionCount)
+		}
+	}
+	return out
+}
+
+// isTableSeparator matches a trimmed Markdown table separator row: ^\|[\s:|-]+\|$.
+func isTableSeparator(row string) bool {
+	return len(row) >= 3 && row[0] == '|' && row[len(row)-1] == '|' && strings.Trim(row, " \t:|-") == ""
 }
 
 func isNumberedTitle(title string) bool {
