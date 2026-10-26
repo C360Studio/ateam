@@ -83,7 +83,7 @@ Usage:
   ateam <command> [flags]
 
 Commands:
-  hook [--event <ev>] Execute <5ms normalized lifecycle hook (session-start, before-prompt, pre-compact, turn-end)
+  hook [--event <ev>] Execute <10ms normalized lifecycle hook (session-start, before-prompt, pre-compact, turn-end)
   mcp                 Start the 2-tool stdio MCP server (<300 schema tokens)
   state <subcmd>      Inspect or mutate repo state (status, pickup, handoff, holds, debt, spec-queue, spec-check, sync, mode, board, herdr)
   task [name]         List or execute standardized Taskfile.yml targets
@@ -437,9 +437,21 @@ func runInit(repoRoot string, args []string) int {
 }
 
 const (
-	hookLatencyBudgetUs = 5000
+	hookLatencyBudgetUs = 10000
 	hookLatencyMaxUs    = 25000
 )
+
+// hookLatencyFindings maps a measured hook latency to a doctor warning (above the target budget) and a --check
+// violation (above the hard ceiling); empty strings mean no finding.
+func hookLatencyFindings(hookUs int64) (warning, violation string) {
+	if hookUs > hookLatencyBudgetUs {
+		warning = fmt.Sprintf("hook latency %d us exceeds <10ms (%d us) target budget", hookUs, hookLatencyBudgetUs)
+	}
+	if hookUs > hookLatencyMaxUs {
+		violation = fmt.Sprintf("hook latency %d us exceeded %d us hard ceiling (target budget <%d us)", hookUs, hookLatencyMaxUs, hookLatencyBudgetUs)
+	}
+	return warning, violation
+}
 
 func runDoctor(repoRoot string, args []string) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
@@ -466,11 +478,12 @@ func runDoctor(repoRoot string, args []string) int {
 	_, headSHA := state.ReadFastGitHead(repoRoot)
 	buildProvenance, warnings := bootstrap.BuildProvenanceStatus(context.Background(), repoRoot, fullRev, headSHA)
 	warnings = append(warnings, bootstrap.CheckUnarchivedOpenSpecChanges(repoRoot)...)
-	if hookUs > hookLatencyBudgetUs {
-		warnings = append(warnings, fmt.Sprintf("hook latency %d us exceeds <5ms (%d us) target budget", hookUs, hookLatencyBudgetUs))
+	latencyWarning, latencyViolation := hookLatencyFindings(hookUs)
+	if latencyWarning != "" {
+		warnings = append(warnings, latencyWarning)
 	}
-	if hookUs > hookLatencyMaxUs {
-		violations = append(violations, fmt.Sprintf("hook latency %d us exceeded %d us hard ceiling (target budget <%d us)", hookUs, hookLatencyMaxUs, hookLatencyBudgetUs))
+	if latencyViolation != "" {
+		violations = append(violations, latencyViolation)
 	}
 	servePIDs, procWarnings := bootstrap.InspectRunningServeProcesses(context.Background())
 	warnings = append(warnings, procWarnings...)

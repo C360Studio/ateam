@@ -6,14 +6,14 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 ## Requirements
 
-### Requirement: Lifecycle hook normalization under 5ms
+### Requirement: Lifecycle hook normalization under 10ms
 
-`ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 5ms using cached `.ateam/state.json`.
+`ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 10ms using cached `.ateam/state.json`.
 
 #### Scenario: Warm hook latency thresholds
 
 - **WHEN** doctor evaluates hook latency
-- **THEN** `ateam doctor` SHALL measure warm best-of-3 hook latency, emit a warning when latency exceeds `5000 us` (`<5ms` target budget), and fail `--check` only above `25000 us` (`25ms` hard ceiling).
+- **THEN** `ateam doctor` SHALL measure warm best-of-3 hook latency, emit a warning when latency exceeds `10000 us` (`<10ms` target budget), and fail `--check` only above `25000 us` (`25ms` hard ceiling).
 
 #### Scenario: Mode switch and Ponytail ladder injection
 

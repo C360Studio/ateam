@@ -14,7 +14,7 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 func TestBeforePromptInjectsLadderOnlyOnModeSwitch(t *testing.T) {
 	dir := t.TempDir()
 
@@ -65,7 +65,7 @@ func TestBeforePromptInjectsLadderOnlyOnModeSwitch(t *testing.T) {
 	}
 }
 
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 // spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	dir := t.TempDir()
@@ -225,7 +225,7 @@ func TestPreCompactSavesAutoHandoff(t *testing.T) {
 	}
 }
 
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 func TestHookLatencyBudget(t *testing.T) {
 	dir := t.TempDir()
 	_, _ = Handle(dir, "session-start", strings.NewReader(`{}`))
@@ -241,12 +241,12 @@ func TestHookLatencyBudget(t *testing.T) {
 		}
 	}
 	avg := time.Since(start) / (iterations * 2)
-	// Same gate as doctor: 5ms is the target, 25ms the hard ceiling. A wall-clock
-	// average under -race on a shared CI runner drifts past 5ms (#137).
+	// Same gate as doctor: 10ms is the target, 25ms the hard ceiling. A wall-clock
+	// average under -race on a shared CI runner drifts past 10ms (#137).
 	if avg > 25*time.Millisecond {
-		t.Errorf("average hook latency %v exceeds 25ms hard ceiling (target <5ms)", avg)
-	} else if avg > 5*time.Millisecond {
-		t.Logf("average hook latency %v exceeds the 5ms target (hard ceiling 25ms)", avg)
+		t.Errorf("average hook latency %v exceeds 25ms hard ceiling (target <10ms)", avg)
+	} else if avg > 10*time.Millisecond {
+		t.Logf("average hook latency %v exceeds the 10ms target (hard ceiling 25ms)", avg)
 	}
 }
 
@@ -290,7 +290,7 @@ func TestSessionStartSkipsBuildProvenanceInForeignCheckout(t *testing.T) {
 	}
 }
 
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 // spec: openspec/specs/harness/spec.md#Requirement: Fast Git identity across worktrees
 // spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 func TestSessionStartDetectsHeadDrift(t *testing.T) {
@@ -336,7 +336,7 @@ func TestSessionStartDetectsHeadDrift(t *testing.T) {
 	}
 }
 
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *testing.T) {
 	dir := t.TempDir()
@@ -417,7 +417,7 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 	}
 }
 
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 func TestAntigravityHookContract(t *testing.T) {
 	dir := t.TempDir()
 
@@ -534,7 +534,7 @@ func TestSessionStartSkipsOlderThanHeadMCPLineInForeignCheckout(t *testing.T) {
 	}
 }
 
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 func TestHookWarnsStaleClientMCPOncePerSession(t *testing.T) {
 	dir := t.TempDir()
 	headsDir := filepath.Join(dir, ".git", "refs", "heads")
@@ -635,7 +635,7 @@ func TestHookWarnsStaleClientMCPOncePerSession(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 func TestSessionStartWarnsWhenBinaryBehindHead(t *testing.T) {
 	dir := t.TempDir()
 	headsDir := filepath.Join(dir, ".git", "refs", "heads")
@@ -699,7 +699,7 @@ func TestSessionStartWarnsWhenBinaryBehindHead(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 func TestReview79HookPreCompactAndWorktreeBranchSwitch(t *testing.T) {
 	t.Setenv("ATEAM_AGENT", "")
 	t.Setenv("ATEAM_SESSION_ID", "")

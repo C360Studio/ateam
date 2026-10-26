@@ -265,3 +265,27 @@ func TestInitFailureReportsBackups(t *testing.T) {
 		t.Fatalf("stderr = %q, want it to contain %q", stderr, want)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
+func TestHookLatencyFindings(t *testing.T) {
+	tests := []struct {
+		name          string
+		us            int64
+		wantWarning   bool
+		wantViolation bool
+	}{
+		{"within target", 10000, false, false},
+		{"just over target", 10001, true, false},
+		{"old 5ms target no longer warns", 6000, false, false},
+		{"at ceiling", 25000, true, false},
+		{"over ceiling", 25001, true, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			warning, violation := hookLatencyFindings(tc.us)
+			if (warning != "") != tc.wantWarning || (violation != "") != tc.wantViolation {
+				t.Fatalf("hookLatencyFindings(%d) = (%q, %q), want warning=%v violation=%v", tc.us, warning, violation, tc.wantWarning, tc.wantViolation)
+			}
+		})
+	}
+}

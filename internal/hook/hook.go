@@ -1,4 +1,4 @@
-// Package hook normalizes Claude Code, Codex CLI, and Gemini CLI lifecycle hook events in under 5ms.
+// Package hook normalizes Claude Code, Codex CLI, and Gemini CLI lifecycle hook events in under 10ms.
 package hook
 
 import (
@@ -80,7 +80,7 @@ func NormalizeEvent(flagEvent, payloadEvent string) string {
 	}
 }
 
-// Handle processes a hook event against root without external subprocesses so latency stays <5ms.
+// Handle processes a hook event against root without external subprocesses so latency stays <10ms.
 func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 	return HandleWithAgent(root, flagEvent, "", stdin)
 }
