@@ -437,38 +437,83 @@ var requiredSkillMarkers = map[string][]string{
 // (never ending in "."), group 3 an optional path inside it.
 var skillLinkRe = regexp.MustCompile(`((?:\.\.?/)*)\.agents/skills/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)(/[A-Za-z0-9._/-]*)?`)
 
+// skillPathRe is skillLinkRe for a whole Markdown destination.
+var skillPathRe = regexp.MustCompile(`^` + skillLinkRe.String() + `$`)
+
+// markdownDestRe matches an inline Markdown link destination after "](" and optional whitespace: an
+// angle-bracketed one (group 1, which may hold spaces) or a bare one up to whitespace or ")" (group 2).
+var markdownDestRe = regexp.MustCompile(`\]\(\s*(?:<([^<>\n]*)>|([^\s()<>]+))`)
+
+type skillLink struct {
+	pos         int
+	m           []string // as skillLinkRe groups
+	unsupported string   // the destination, when it is not a plain .agents/skills/ path
+}
+
 // adapterTarget reports every .agents/skills/ link in the adapter at rel that does not name a regular file,
-// and returns the skill its first link names, or "" when it has none. A link with a ./ or ../ prefix resolves
-// from the adapter's directory, a bare one from the repository root, and one naming only a skill means its
-// SKILL.md.
+// and returns the skill its first link names, or "" when it has none. A Markdown destination is checked
+// whole (after any #fragment or ?query), so SKILL.md,backup is not checked as SKILL.md; a bare mention in
+// prose may end on sentence punctuation. A link with a ./ or ../ prefix resolves from the adapter's
+// directory, a bare one from the repository root, and one naming only a skill means its SKILL.md.
 func adapterTarget(root, rel, text string) (string, []string) {
-	var out []string
-	skill := ""
-	seen := map[string]bool{}
+	var links []skillLink
+	var spans [][]int
+	for _, loc := range markdownDestRe.FindAllStringSubmatchIndex(text, -1) {
+		spans = append(spans, loc[:2])
+		g := 2
+		if loc[2] >= 0 {
+			g = 1
+		}
+		dest := text[loc[2*g]:loc[2*g+1]]
+		if k := strings.IndexAny(dest, "#?"); k >= 0 {
+			dest = dest[:k]
+		}
+		if !strings.Contains(dest, ".agents/skills/") {
+			continue
+		}
+		if m := skillPathRe.FindStringSubmatch(dest); m != nil {
+			links = append(links, skillLink{pos: loc[2*g], m: m})
+		} else {
+			links = append(links, skillLink{pos: loc[2*g], m: skillLinkRe.FindStringSubmatch(dest), unsupported: dest})
+		}
+	}
+bare:
 	for _, loc := range skillLinkRe.FindAllStringSubmatchIndex(text, -1) {
+		for _, sp := range spans {
+			if loc[0] >= sp[0] && loc[0] < sp[1] {
+				continue bare
+			}
+		}
 		m := make([]string, 4)
 		for i := range m {
 			if loc[2*i] >= 0 {
 				m[i] = text[loc[2*i]:loc[2*i+1]]
 			}
 		}
-		if skill == "" {
-			skill = m[2]
+		l := skillLink{pos: loc[0], m: m}
+		// A mention cut short by a character the pattern does not take (SKILL.md~) names a different file.
+		if end := loc[1]; end < len(text) && !strings.ContainsRune(" \t\r\n)]\"'`>,;:#?!*", rune(text[end])) &&
+			!(text[end] == '.' && (end+1 == len(text) || strings.ContainsRune(" \t\r\n", rune(text[end+1])))) {
+			l.unsupported = strings.Fields(text[loc[0]:])[0]
 		}
-		// A match cut short by a character the pattern does not take (SKILL.md~) names a different file.
-		// Inside a Markdown destination "](...)" only the destination's own end, a title or a fragment or
-		// query may follow, so SKILL.md,backup is not checked as SKILL.md; prose may also end on punctuation.
-		before := text[:loc[0]]
-		stops, inDest := " \t\r\n)]\"'`>,;:#?!*", strings.HasSuffix(before, "](") || strings.HasSuffix(before, "](<")
-		if inDest {
-			stops = " \t)>#?"
+		m[3] = strings.TrimRight(m[3], ".") // sentence punctuation, only in prose
+		links = append(links, l)
+	}
+	sort.Slice(links, func(a, b int) bool { return links[a].pos < links[b].pos })
+
+	var out []string
+	skill := ""
+	seen := map[string]bool{}
+	for _, l := range links {
+		if skill == "" && l.m != nil {
+			skill = l.m[2]
 		}
-		if end := loc[1]; end < len(text) && !strings.ContainsRune(stops, rune(text[end])) &&
-			(inDest || !(text[end] == '.' && (end+1 == len(text) || strings.ContainsRune(" \t\r\n", rune(text[end+1]))))) {
-			out = append(out, fmt.Sprintf("%s: links to unsupported path %s", rel, strings.Fields(text[loc[0]:])[0]))
+		if l.unsupported != "" {
+			out = append(out, fmt.Sprintf("%s: links to unsupported path %s", rel, l.unsupported))
 			continue
 		}
-		sub := strings.TrimRight(m[3], ".")
+		m := l.m
+		sub := m[3]
 		if strings.Trim(sub, "/") == "" {
 			sub = "/SKILL.md"
 		}
