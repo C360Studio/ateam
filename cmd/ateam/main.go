@@ -445,7 +445,7 @@ const (
 // violation (above the hard ceiling); empty strings mean no finding.
 func hookLatencyFindings(hookUs int64) (warning, violation string) {
 	if hookUs > hookLatencyBudgetUs {
-		warning = fmt.Sprintf("hook latency %d us exceeds <10ms (%d us) target budget", hookUs, hookLatencyBudgetUs)
+		warning = fmt.Sprintf("hook latency %d us exceeds <%dms (%d us) target budget", hookUs, hookLatencyBudgetUs/1000, hookLatencyBudgetUs)
 	}
 	if hookUs > hookLatencyMaxUs {
 		violation = fmt.Sprintf("hook latency %d us exceeded %d us hard ceiling (target budget <%d us)", hookUs, hookLatencyMaxUs, hookLatencyBudgetUs)

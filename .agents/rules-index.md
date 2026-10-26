@@ -22,7 +22,7 @@
 | `verify` | Canonical skills in `.agents/skills/*/SKILL.md` have matching thin adapters in `.claude/skills/` and `.gemini/commands/` | `internal/bootstrap/parity_test.go` (`TestAgentSetupParity`) |
 | `verify` | Hook configs in `.claude/settings.json`, `.codex/hooks.json`, `.gemini/settings.json`, and `.agents/hooks.json` map native events to `ateam hook` | `internal/bootstrap/parity_test.go` (`TestAgentSetupParity`) |
 | `verify` | `ateam mcp` exposes only the 2 multiplexed tools (`ateam_state`, `ateam_task`) with `<300` total schema tokens | `internal/mcpserver/server_test.go` (`TestMCPTokenBudget`) |
-| `verify` | `ateam hook` executes normalized lifecycle events in `<10ms` target budget (`doctor` warns `>10ms`, fails `--check` `>25ms`) with zero external runtime dependencies | `internal/hook/hook_test.go` (`TestHookLatencyBudget`); `cmd/ateam/main_test.go` (`TestCLISubcommands`) |
+| `verify` | `ateam hook` executes normalized lifecycle events in `<10ms` target budget (`doctor` warns `>10ms`, fails `--check` `>25ms`) with zero external runtime dependencies | `internal/hook/hook_test.go` (`TestHookLatencyBudget`); `cmd/ateam/main_test.go` (`TestCLISubcommands`, `TestHookLatencyFindings`) |
 
 ## 3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done
 
