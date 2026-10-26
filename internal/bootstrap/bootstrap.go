@@ -471,9 +471,14 @@ func adapterTarget(root, rel, text string) (string, []string) {
 		if !strings.Contains(dest, ".agents/skills/") {
 			continue
 		}
-		if m := skillPathRe.FindStringSubmatch(dest); m != nil {
+		// A bare destination ends only at whitespace or ")": one stopped by "(" (SKILL.md(backup)) is partial.
+		partial := g == 2 && loc[1] < len(text) && !strings.ContainsRune(" \t\r\n)", rune(text[loc[1]]))
+		if m := skillPathRe.FindStringSubmatch(dest); m != nil && !partial {
 			links = append(links, skillLink{pos: loc[2*g], m: m})
 		} else {
+			if partial {
+				dest = strings.Fields(text[loc[2*g]:])[0]
+			}
 			links = append(links, skillLink{pos: loc[2*g], m: skillLinkRe.FindStringSubmatch(dest), unsupported: dest})
 		}
 	}
