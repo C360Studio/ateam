@@ -62,7 +62,7 @@ func BuildLabel() string {
 
 // Version is the release this tree builds. A release PR bumps it before the
 // matching tag is cut, so a tagged build reports its own tag.
-const Version = "v0.3.1"
+const Version = "v0.3.2"
 
 // VersionString formats the human-readable CLI version including build provenance.
 func VersionString() string {

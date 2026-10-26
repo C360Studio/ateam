@@ -267,7 +267,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 
 | Command | What it does |
 | --- | --- |
-| `ateam version` | Print the release and build commit (`ateam v0.3.1 (<commit>)`) |
+| `ateam version` | Print the release and build commit (`ateam v0.3.2 (<commit>)`) |
 | `ateam init [--force] [--github\|--gitea]` | Create missing multi-agent instruction files, skills, hooks, MCP configs, ~500k context defaults, and optional GitHub/Gitea labels; `--force` backs up replaced documents first |
 | `ateam doctor [--check]` | Verify multi-agent file parity, `<300` token MCP schema budget, and measured hook latency (25ms `--check` ceiling; 10ms target) |
 | `ateam review setup --policy FILE` | Install approved model policy and role cards/pointers, refusing existing conflicts |
