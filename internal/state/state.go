@@ -82,7 +82,7 @@ func ReadDiskBinaryBuild(ctx context.Context, root string) (shortRev, label stri
 	}
 	// 10s, not 2s: --version exits at once, so this only guards a hung binary.
 	// Under a full -race suite a 2s spawn timed out and the running build was
-	// reported as the disk build (#116). Not on the <5ms hook path.
+	// reported as the disk build (#116). Not on the <10ms hook path.
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(cctx, binPath, "--version").Output()
@@ -2437,7 +2437,7 @@ func runGitOutput(ctx context.Context, root string, args ...string) string {
 	return string(out)
 }
 
-// ReadFastGitHead reads .git/HEAD (including linked worktree .git files and commondir refs) directly from disk without spawning git, keeping hook latency <5ms.
+// ReadFastGitHead reads .git/HEAD (including linked worktree .git files and commondir refs) directly from disk without spawning git, keeping hook latency <10ms.
 func ReadFastGitHead(root string) (branch, shortSHA string) {
 	gitDir, commonDir, ok := resolveGitDirs(root)
 	if !ok {
