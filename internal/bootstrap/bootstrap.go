@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -426,24 +428,6 @@ func isNumberedTitle(title string) bool {
 	return i > 0 && i+1 < len(title) && title[i] == '.'
 }
 
-func discoverSkills(root string) []string {
-	seen := make(map[string]bool, len(canonicalSkills))
-	out := make([]string, 0, len(canonicalSkills))
-	for _, s := range canonicalSkills {
-		out = append(out, s)
-		seen[s] = true
-	}
-	if entries, err := os.ReadDir(filepath.Join(root, ".agents", "skills")); err == nil {
-		for _, e := range entries {
-			if e.IsDir() && !seen[e.Name()] {
-				out = append(out, e.Name())
-				seen[e.Name()] = true
-			}
-		}
-	}
-	return out
-}
-
 var requiredSkillMarkers = map[string][]string{
 	"handoff":   {"## 1.", "ateam state handoff", "Goal:"},
 	"pickup":    {"## 1.", "ateam state pickup", "Verify Write Ownership"},
@@ -452,31 +436,171 @@ var requiredSkillMarkers = map[string][]string{
 	"review-pr": {"## 1.", "reviewed-by:", "Reviewed at"},
 }
 
-func checkSkillAdapters(root string) []string {
-	var out []string
-	for _, name := range discoverSkills(root) {
-		canonRel := ".agents/skills/" + name + "/SKILL.md"
-		canonBytes, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(canonRel)))
-		if err != nil || len(strings.TrimSpace(string(canonBytes))) == 0 {
-			out = append(out, fmt.Sprintf("%s: missing canonical skill", canonRel))
+// skillLinkRe matches a link into .agents/skills/: group 1 is a leading ./ or ../ chain, group 2 the skill
+// (never ending in "."), group 3 an optional path inside it.
+var skillLinkRe = regexp.MustCompile(`((?:\.\.?/)*)\.agents/skills/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)(/[A-Za-z0-9._/-]*)?`)
+
+// skillPathRe is skillLinkRe for a whole Markdown destination.
+var skillPathRe = regexp.MustCompile(`^` + skillLinkRe.String() + `$`)
+
+// markdownDestRe matches an inline Markdown link destination after "](" and optional whitespace: an
+// angle-bracketed one (group 1, which may hold spaces) or a bare one up to whitespace or ")" (group 2).
+var markdownDestRe = regexp.MustCompile(`\]\(\s*(?:<([^<>\n]*)>|([^\s()<>]+))`)
+
+type skillLink struct {
+	pos         int
+	m           []string // as skillLinkRe groups
+	unsupported string   // the destination, when it is not a plain .agents/skills/ path
+}
+
+// adapterTarget reports every .agents/skills/ link in the adapter at rel that does not name a regular file,
+// and returns the skill its first link names, or "" when it has none. A Markdown destination is checked
+// whole (after any #fragment or ?query), so SKILL.md,backup is not checked as SKILL.md; a bare mention in
+// prose may end on sentence punctuation. A link with a ./ or ../ prefix resolves from the adapter's
+// directory, a bare one from the repository root, and one naming only a skill means its SKILL.md.
+func adapterTarget(root, rel, text string) (string, []string) {
+	var links []skillLink
+	var spans [][]int
+	for _, loc := range markdownDestRe.FindAllStringSubmatchIndex(text, -1) {
+		spans = append(spans, loc[:2])
+		g := 2
+		if loc[2] >= 0 {
+			g = 1
+		}
+		dest := text[loc[2*g]:loc[2*g+1]]
+		if k := strings.IndexAny(dest, "#?"); k >= 0 {
+			dest = dest[:k]
+		}
+		if !strings.Contains(dest, ".agents/skills/") {
+			continue
+		}
+		// A bare destination ends only at whitespace or ")": one stopped by "(" (SKILL.md(backup)) is partial.
+		partial := g == 2 && loc[1] < len(text) && !strings.ContainsRune(" \t\r\n)", rune(text[loc[1]]))
+		if m := skillPathRe.FindStringSubmatch(dest); m != nil && !partial {
+			links = append(links, skillLink{pos: loc[2*g], m: m})
 		} else {
-			canonText := string(canonBytes)
-			if !strings.Contains(canonText, "## 1.") {
-				out = append(out, fmt.Sprintf("%s: missing numbered workflow steps (placeholder skill not allowed)", canonRel))
+			if partial {
+				dest = strings.Fields(text[loc[2*g]:])[0]
 			}
-			for _, marker := range requiredSkillMarkers[name] {
-				if !strings.Contains(canonText, marker) {
-					out = append(out, fmt.Sprintf("%s: missing required workflow procedure marker %q", canonRel, marker))
-				}
+			links = append(links, skillLink{pos: loc[2*g], m: skillLinkRe.FindStringSubmatch(dest), unsupported: dest})
+		}
+	}
+bare:
+	for _, loc := range skillLinkRe.FindAllStringSubmatchIndex(text, -1) {
+		for _, sp := range spans {
+			if loc[0] >= sp[0] && loc[0] < sp[1] {
+				continue bare
 			}
 		}
+		m := make([]string, 4)
+		for i := range m {
+			if loc[2*i] >= 0 {
+				m[i] = text[loc[2*i]:loc[2*i+1]]
+			}
+		}
+		l := skillLink{pos: loc[0], m: m}
+		// A mention cut short by a character the pattern does not take (SKILL.md~) names a different file.
+		if end := loc[1]; end < len(text) && !strings.ContainsRune(" \t\r\n)]\"'`>,;:#?!*", rune(text[end])) &&
+			!(text[end] == '.' && (end+1 == len(text) || strings.ContainsRune(" \t\r\n", rune(text[end+1])))) {
+			l.unsupported = strings.Fields(text[loc[0]:])[0]
+		}
+		m[3] = strings.TrimRight(m[3], ".") // sentence punctuation, only in prose
+		links = append(links, l)
+	}
+	sort.Slice(links, func(a, b int) bool { return links[a].pos < links[b].pos })
+
+	var out []string
+	skill := ""
+	seen := map[string]bool{}
+	for _, l := range links {
+		if skill == "" && l.m != nil {
+			skill = l.m[2]
+		}
+		if l.unsupported != "" {
+			out = append(out, fmt.Sprintf("%s: links to unsupported path %s", rel, l.unsupported))
+			continue
+		}
+		m := l.m
+		sub := m[3]
+		if strings.Trim(sub, "/") == "" {
+			sub = "/SKILL.md"
+		}
+		// Clean before the prefix check: a bare link keeps its ".." segments, which os.Stat would follow.
+		target := path.Clean(".agents/skills/" + m[2] + sub)
+		if m[1] != "" {
+			target = path.Join(path.Dir(rel), m[1]+target)
+		}
+		// Key by the named skill too: the same target reached through another skill's .. must still fail.
+		key := m[2] + "\x00" + target
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(target)))
+		if !strings.HasPrefix(target, ".agents/skills/"+m[2]+"/") || err != nil || !info.Mode().IsRegular() {
+			out = append(out, fmt.Sprintf("%s: links to missing %s", rel, target))
+		}
+	}
+	return skill, out
+}
+
+// SkillInventory lists the adopter skills (directories under .agents/skills/ that neither are canonical
+// nor carry a canonical skill's checks through an alias) and the adapter aliases, for doctor's report.
+func SkillInventory(root string) (adopter, aliases []string) {
+	_, adopter, aliases = inspectSkills(root)
+	return adopter, aliases
+}
+
+func checkSkillAdapters(root string) []string {
+	out, _, _ := inspectSkills(root)
+	return out
+}
+
+func inspectSkills(root string) (out, adopter, aliases []string) {
+	adopter, aliases = []string{}, []string{}
+	strict := map[string]bool{} // skills whose SKILL.md carries canonical checks
+	isCanonical := map[string]bool{}
+	for _, s := range canonicalSkills {
+		isCanonical[s] = true
+	}
+	// alias records an adapter for name whose links resolve into another skill, and returns the skill
+	// its first link names (name itself when it has no link).
+	alias := func(adapterRel, adapterLabel, name, text string) string {
+		skill, dangling := adapterTarget(root, adapterRel, text)
+		out = append(out, dangling...)
+		if skill == "" {
+			return name
+		}
+		if skill != name && len(dangling) == 0 {
+			aliases = append(aliases, fmt.Sprintf("alias: %s -> .agents/skills/%s", adapterLabel, skill))
+		}
+		return skill
+	}
+
+	for _, name := range canonicalSkills {
+		// The generic file and each adapter's target carry the canonical checks; the Claude and Gemini
+		// adapters may resolve to different skills, and then every target is checked.
+		var targets []string
+		addTarget := func(skill string) {
+			for _, t := range targets {
+				if t == skill {
+					return
+				}
+			}
+			targets = append(targets, skill)
+		}
+		// Codex and Antigravity read .agents/skills/ directly, so the generic file is checked even when
+		// both adapters alias elsewhere.
+		addTarget(name)
 
 		claudeRel := ".claude/skills/" + name + "/SKILL.md"
 		if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(claudeRel))); err != nil {
 			out = append(out, fmt.Sprintf("%s: missing Claude skill adapter", claudeRel))
 		} else {
 			text := string(data)
-			wantLink := "../../../.agents/skills/" + name + "/SKILL.md"
+			skill := alias(claudeRel, ".claude/skills/"+name, name, text)
+			addTarget(skill)
+			wantLink := "../../../.agents/skills/" + skill + "/SKILL.md"
 			if !strings.Contains(text, wantLink) || !strings.Contains(text, "fully") {
 				out = append(out, fmt.Sprintf("%s: must link to %s and instruct to read it fully", claudeRel, wantLink))
 			}
@@ -494,13 +618,66 @@ func checkSkillAdapters(root string) []string {
 			out = append(out, fmt.Sprintf("%s: missing Gemini command adapter", geminiRel))
 		} else {
 			text := string(data)
-			wantLink := ".agents/skills/" + name + "/SKILL.md"
+			skill := alias(geminiRel, geminiRel, name, text)
+			addTarget(skill)
+			wantLink := ".agents/skills/" + skill + "/SKILL.md"
 			if !strings.Contains(text, wantLink) || !strings.Contains(text, "fully") {
 				out = append(out, fmt.Sprintf("%s: must reference %s and instruct to read it fully", geminiRel, wantLink))
 			}
 		}
+
+		for _, skill := range targets {
+			strict[skill] = true
+			canonRel := ".agents/skills/" + skill + "/SKILL.md"
+			canonBytes, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(canonRel)))
+			if err != nil || len(strings.TrimSpace(string(canonBytes))) == 0 {
+				out = append(out, fmt.Sprintf("%s: missing canonical skill", canonRel))
+				continue
+			}
+			canonText := string(canonBytes)
+			if !strings.Contains(canonText, "## 1.") {
+				out = append(out, fmt.Sprintf("%s: missing numbered workflow steps (placeholder skill not allowed)", canonRel))
+			}
+			for _, marker := range requiredSkillMarkers[name] {
+				if !strings.Contains(canonText, marker) {
+					out = append(out, fmt.Sprintf("%s: missing required workflow procedure marker %q", canonRel, marker))
+				}
+			}
+		}
 	}
-	return out
+
+	// Adopter adapters are checked only for links that resolve.
+	if entries, err := os.ReadDir(filepath.Join(root, ".claude", "skills")); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() || isCanonical[e.Name()] {
+				continue
+			}
+			rel := ".claude/skills/" + e.Name() + "/SKILL.md"
+			if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+				alias(rel, ".claude/skills/"+e.Name(), e.Name(), string(data))
+			}
+		}
+	}
+	if entries, err := os.ReadDir(filepath.Join(root, ".gemini", "commands")); err == nil {
+		for _, e := range entries {
+			name, ok := strings.CutSuffix(e.Name(), ".toml")
+			if e.IsDir() || !ok || isCanonical[name] {
+				continue
+			}
+			rel := ".gemini/commands/" + e.Name()
+			if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+				alias(rel, rel, name, string(data))
+			}
+		}
+	}
+	if entries, err := os.ReadDir(filepath.Join(root, ".agents", "skills")); err == nil {
+		for _, e := range entries {
+			if e.IsDir() && !strict[e.Name()] && !isCanonical[e.Name()] {
+				adopter = append(adopter, e.Name())
+			}
+		}
+	}
+	return out, adopter, aliases
 }
 
 func checkHookConfigs(root string) []string {

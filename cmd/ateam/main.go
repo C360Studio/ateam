@@ -493,6 +493,8 @@ func runDoctor(repoRoot string, args []string) int {
 	warnings = append(warnings, diskWarnings...)
 	warnings = append(warnings, forgeTokenWarnings()...)
 
+	adopterSkills, skillAliases := bootstrap.SkillInventory(repoRoot)
+
 	passed := len(violations) == 0
 	printJSON(map[string]any{
 		"passed":                 passed,
@@ -502,6 +504,8 @@ func runDoctor(repoRoot string, args []string) int {
 		"head_commit":            headSHA,
 		"running_serve_pids":     servePIDs,
 		"running_mcp_processes":  mcpProcs,
+		"adopter_skills":         adopterSkills,
+		"skill_aliases":          skillAliases,
 		"warnings":               warnings,
 		"mcp_schema_tokens":      tokens,
 		"mcp_connection_checked": false,
