@@ -231,6 +231,10 @@ func TestProposalApprovedByHeader(t *testing.T) {
 		{name: "missing header", proposal: ptr("# Change\n\n## Why\n\nApproved by the owner later.\n"), want: ""},
 		{name: "missing proposal", proposal: nil, want: ""},
 		{name: "fenced example is not the header", proposal: ptr("```\nApproved-by: <name> (<YYYY-MM-DD>)\n```\nApproved-by:\n"), want: ""},
+		{name: "longer outer fence hides inner example", proposal: ptr("````markdown\n```\nApproved-by: Example (2026-10-26)\n```\n````\n"), want: ""},
+		{name: "tilde fence ignores backtick lines", proposal: ptr("~~~\n```\nApproved-by: Example (2026-10-26)\n~~~\n"), want: ""},
+		{name: "fence line with trailing text does not close", proposal: ptr("```\n``` not a close\nApproved-by: Example (2026-10-26)\n```\n"), want: ""},
+		{name: "real header after outer fence", proposal: ptr("````\n```\n````\nApproved-by: Coby (2026-10-26)\n"), want: "Coby (2026-10-26)"},
 		{name: "first header wins", proposal: ptr("Approved-by: Ann (2026-01-02)\nApproved-by: Bob (2026-03-04)\n"), want: "Ann (2026-01-02)"},
 	}
 	for _, tc := range cases {
@@ -291,9 +295,16 @@ func TestOpenQApprovalHoldKeepsChangeOpen(t *testing.T) {
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestProposalLengthWarning(t *testing.T) {
 	for _, tc := range []struct {
-		lines int
-		warn  bool
-	}{{60, false}, {61, true}} {
+		name     string
+		proposal string
+		warn     bool
+	}{
+		{"60 lines", strings.Repeat("line\n", 60), false},
+		{"60 lines, no final newline", strings.Repeat("line\n", 59) + "line", false},
+		{"61 lines", strings.Repeat("line\n", 61), true},
+		{"61 lines, no final newline", strings.Repeat("line\n", 60) + "line", true},
+		{"60 lines plus a trailing blank line", strings.Repeat("line\n", 60) + "\n", true},
+	} {
 		dir := t.TempDir()
 		changeDir := filepath.Join(dir, "openspec", "changes", "long")
 		if err := os.MkdirAll(changeDir, 0o755); err != nil {
@@ -305,20 +316,19 @@ func TestProposalLengthWarning(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(changeDir, "tasks.md"), []byte("## 1. Tasks\n\n- [ ] 1.1 Do it\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		proposal := strings.Repeat("line\n", tc.lines)
-		if err := os.WriteFile(filepath.Join(changeDir, "proposal.md"), []byte(proposal), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(changeDir, "proposal.md"), []byte(tc.proposal), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		out, code, err := CheckOpenSpec(context.Background(), dir)
 		if code != 0 || err != nil {
-			t.Fatalf("%d lines: CheckOpenSpec code=%d err=%v; a long proposal must warn, not fail", tc.lines, code, err)
+			t.Fatalf("%s: CheckOpenSpec code=%d err=%v; a long proposal must warn, not fail", tc.name, code, err)
 		}
 		wantLine := "warning: openspec/changes/long/proposal.md has 61 lines, over the one-page limit of 60"
 		if got := strings.Contains(out, wantLine); got != tc.warn {
-			t.Fatalf("%d lines: warning present = %v, want %v; output:\n%s", tc.lines, got, tc.warn, out)
+			t.Fatalf("%s: warning present = %v, want %v; output:\n%s", tc.name, got, tc.warn, out)
 		}
 		if !tc.warn && strings.Contains(out, "warning:") {
-			t.Fatalf("%d lines: unexpected warning:\n%s", tc.lines, out)
+			t.Fatalf("%s: unexpected warning:\n%s", tc.name, out)
 		}
 	}
 }

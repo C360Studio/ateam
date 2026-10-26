@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/c360studio/ateam/internal/testspec"
 	"unicode/utf8"
 )
 
@@ -48,28 +50,27 @@ type OpenSpecChange struct {
 // maxProposalLines is the one-page limit for proposal.md; spec:check warns, never fails, past it.
 const maxProposalLines = 60
 
-// parseProposal returns the first `Approved-by:` header value outside code fences and the line count.
+// parseProposal returns the first `Approved-by:` header value outside code fences and the
+// physical line count (a final newline ends the last line; it does not start another).
 func parseProposal(data []byte) (approvedBy string, lines int) {
-	text := strings.TrimRight(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	if text == "" {
 		return "", 0
 	}
-	all := strings.Split(text, "\n")
-	found, fenced := false, false
-	for _, raw := range all {
-		trimmed := strings.TrimSpace(raw)
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			fenced = !fenced
-			continue
+	lines = strings.Count(text, "\n")
+	if !strings.HasSuffix(text, "\n") {
+		lines++
+	}
+	found := false
+	testspec.EachUnfencedLine(text, func(line string) {
+		if found {
+			return
 		}
-		if fenced || found {
-			continue
-		}
-		if v, ok := strings.CutPrefix(trimmed, "Approved-by:"); ok {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "Approved-by:"); ok {
 			approvedBy, found = strings.TrimSpace(v), true
 		}
-	}
-	return approvedBy, len(all)
+	})
+	return approvedBy, lines
 }
 
 // IsCompletedUnarchived reports whether all tasks in the change are done and no caveats remain.
