@@ -21,6 +21,19 @@ See [bringing ateam into an existing repository](brownfield.md) for a worked pat
 
 Sources: [scanner](../internal/state/shortcut.go), [initialization](../internal/bootstrap/bootstrap.go), [task runner](../internal/taskrunner/taskrunner.go), [mutation runner](../internal/mutate/mutate.go), [CLI](../cmd/ateam/main.go), and [benchmark fixtures](../internal/bench/bench.go).
 
+## Hooks outside the project settings
+
+A project that pins its client settings file (for example a review manifest that hashes `.claude/settings.json`) can register ateam's hooks elsewhere and set `ATEAM_HOOK_SCOPE=user` in the environment that runs `ateam doctor`. `ateam hook` itself reads no settings file. With the knob set, a client whose project hook file lacks the hooks passes when one of its local or user-scope files carries them all (`.claude/settings.local.json` is project-local and untracked, not user scope):
+
+| Client | Project file | Local and user-scope files doctor reads, in order |
+| --- | --- | --- |
+| Claude Code | `.claude/settings.json` | `.claude/settings.local.json`, `~/.claude/settings.json` |
+| Codex CLI | `.codex/hooks.json` | `~/.codex/hooks.json` |
+| Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` |
+| Antigravity | `.agents/hooks.json` | none; doctor reports that `agy` has no user-scope hooks doctor reads |
+
+The file must be valid JSON and carry every required `ateam hook --event <event>` command and the client's `--agent`, the same checks as the project file. Hooks split across files fail: each file is checked on its own, so a partial or malformed file never passes. Doctor's JSON names the file that satisfied each client under `hook_sources`. Unset, doctor reads only the project files, as before; any other value is a violation. `~` is the home directory from `os.UserHomeDir` (`$HOME` on Unix), and Codex's `$CODEX_HOME` is not read. Gemini's context file (the nested `context.fileName`, else the top-level `contextFileName`) must be `AGENTS.md`: the project file's value wins when it sets one, as Gemini gives project settings precedence; only when it sets none and the knob is set does `~/.gemini/settings.json` decide, and the violation names the file whose value was checked. Doctor checks files, not whether the client loads them: Codex loads project hooks only from a trusted `.codex/` layer.
+
 ## Command dependencies
 
 A single compiled executable does not mean every command works without external tools.

@@ -506,6 +506,7 @@ func runDoctor(repoRoot string, args []string) int {
 		"running_mcp_processes":  mcpProcs,
 		"adopter_skills":         adopterSkills,
 		"skill_aliases":          skillAliases,
+		"hook_sources":           bootstrap.HookSources(repoRoot),
 		"warnings":               warnings,
 		"mcp_schema_tokens":      tokens,
 		"mcp_connection_checked": false,

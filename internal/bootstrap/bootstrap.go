@@ -699,69 +699,175 @@ func inspectSkills(root string) (out, adopter, aliases []string) {
 	return out, adopter, aliases
 }
 
+// hookScopeEnv selects where doctor may find ateam's hooks: unset reads only the project files; "user" also
+// reads each client's documented user-scope hook file (#128).
+const hookScopeEnv = "ATEAM_HOOK_SCOPE"
+
+type hookFile struct {
+	label string // reported name: repo-relative, or ~/-prefixed for the user's home
+	path  string // empty when the home directory cannot be resolved
+}
+
+type hookClient struct {
+	agent   string
+	project string   // repo-relative project hook file
+	events  []string // ateam hook events the file must register
+	// user lists the client's local and user-scope hook files in the order doctor reads them, "~/" meaning the
+	// home directory; nil means doctor reads none for this client.
+	user []string
+}
+
+// hookClients lists each client's project hook file and its documented local and user-scope hook files (sources in
+// openspec/changes/archive/2026-10-26-hook-scope-128/tasks.md).
+var hookClients = []hookClient{
+	{agent: "claude", project: ".claude/settings.json", events: requiredHooks,
+		user: []string{".claude/settings.local.json", "~/.claude/settings.json"}},
+	{agent: "codex", project: ".codex/hooks.json", events: requiredHooks,
+		user: []string{"~/.codex/hooks.json"}},
+	{agent: "gemini", project: ".gemini/settings.json", events: requiredHooks,
+		user: []string{"~/.gemini/settings.json"}},
+	// shortcut: Antigravity hooks.json omits pre-compact, add pre-compact hook when Antigravity exposes a compaction event
+	// shortcut: doctor reads no user-scope hooks for agy, read ~/.gemini/config/hooks.json when an adopter needs it
+	{agent: "agy", project: ".agents/hooks.json", events: []string{"session-start", "before-prompt", "turn-end"}},
+}
+
+// HookSources reports, per client agent, the file that satisfied doctor's hook check, for doctor's report.
+func HookSources(root string) map[string]string {
+	_, sources := inspectHookConfigs(root)
+	return sources
+}
+
 func checkHookConfigs(root string) []string {
-	var out []string
-	configs := []struct {
-		rel   string
-		agent string
-	}{
-		{rel: ".claude/settings.json", agent: "claude"},
-		{rel: ".codex/hooks.json", agent: "codex"},
-		{rel: ".gemini/settings.json", agent: "gemini"},
+	out, _ := inspectHookConfigs(root)
+	return append(out, checkAntigravityConfigs(root)...)
+}
+
+// inspectHookConfigs checks each client's hook file. With ATEAM_HOOK_SCOPE=user, a client whose project file
+// lacks the hooks passes when one local or user-scope file carries all of them on its own: hooks split across files
+// fail, so a partial or malformed file never passes.
+func inspectHookConfigs(root string) (out []string, sources map[string]string) {
+	sources = map[string]string{}
+	scope := strings.ToLower(strings.TrimSpace(os.Getenv(hookScopeEnv)))
+	if scope != "" && scope != "user" {
+		out = append(out, fmt.Sprintf("%s=%s: unknown value; set it to user or unset it", hookScopeEnv, scope))
 	}
-	for _, cfg := range configs {
-		rel := cfg.rel
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
-		if err != nil {
-			out = append(out, fmt.Sprintf("%s: missing hook config file", rel))
-			continue
+	userScope := scope == "user"
+	home, homeErr := os.UserHomeDir()
+	resolve := func(label string) hookFile {
+		rest, ok := strings.CutPrefix(label, "~/")
+		if !ok {
+			return hookFile{label: label, path: filepath.Join(root, filepath.FromSlash(label))}
 		}
-		var parsed map[string]any
-		if err := json.Unmarshal(data, &parsed); err != nil {
-			out = append(out, fmt.Sprintf("%s: invalid JSON: %v", rel, err))
-			continue
+		if homeErr != nil {
+			return hookFile{label: label}
 		}
-		text := string(data)
-		for _, ev := range requiredHooks {
-			if !strings.Contains(text, "ateam hook --event "+ev) {
-				out = append(out, fmt.Sprintf("%s: missing hook command for event %s", rel, ev))
+		return hookFile{label: label, path: filepath.Join(home, filepath.FromSlash(rest))}
+	}
+	for _, c := range hookClients {
+		project, violations := hookFileViolations(resolve(c.project), c.agent, c.events)
+		source := c.project
+		if len(violations) > 0 && userScope {
+			source = ""
+			if c.user == nil {
+				violations = append(violations, fmt.Sprintf("%s: %s=user, but %s has no user-scope hooks doctor reads", c.project, hookScopeEnv, c.agent))
+			}
+			for _, label := range c.user {
+				_, userViolations := hookFileViolations(resolve(label), c.agent, c.events)
+				if len(userViolations) == 0 {
+					source, violations = label, nil
+					break
+				}
+				violations = append(violations, userViolations...)
 			}
 		}
-		if !strings.Contains(text, "--agent "+cfg.agent) {
-			out = append(out, fmt.Sprintf("%s: missing --agent %s in hook commands", rel, cfg.agent))
+		out = append(out, violations...)
+		if len(violations) == 0 {
+			sources[c.agent] = source
 		}
-
-		if rel == ".gemini/settings.json" && !strings.Contains(text, `"contextFileName": "AGENTS.md"`) {
-			out = append(out, fmt.Sprintf("%s: missing contextFileName AGENTS.md", rel))
+		if c.agent == "gemini" {
+			out = append(out, geminiContextViolations(c.project, project, resolve("~/.gemini/settings.json"), userScope)...)
 		}
 	}
-	out = append(out, checkAntigravityConfigs(root)...)
-	return out
+	return out, sources
+}
+
+// geminiContextFileName returns the context file a Gemini settings object names and whether it names one:
+// the nested context.fileName that current Gemini CLI reads, else the legacy top-level contextFileName.
+func geminiContextFileName(settings map[string]any) (string, bool) {
+	if ctx, ok := settings["context"].(map[string]any); ok {
+		if v, set := ctx["fileName"]; set {
+			s, _ := v.(string)
+			return s, true
+		}
+	}
+	v, set := settings["contextFileName"]
+	s, _ := v.(string)
+	return s, set
+}
+
+// geminiContextViolations requires Gemini's effective contextFileName to be AGENTS.md. Gemini's project
+// settings take precedence over its user settings, so the user file decides only when the project file sets
+// no contextFileName and ATEAM_HOOK_SCOPE=user; the violation names the file whose value was checked.
+func geminiContextViolations(projectLabel string, project map[string]any, user hookFile, userScope bool) []string {
+	label, settings := projectLabel, project
+	if _, set := geminiContextFileName(project); !set && userScope {
+		if parsed := readJSONObject(user.path); parsed != nil {
+			label, settings = user.label, parsed
+		}
+	}
+	if settings == nil {
+		return nil // the project file is missing or invalid, already reported, and no user file decides
+	}
+	// shortcut: contextFileName must be the string "AGENTS.md" (Gemini also takes a list), accept a list containing it when an adopter needs one
+	if v, _ := geminiContextFileName(settings); v != "AGENTS.md" {
+		return []string{fmt.Sprintf("%s: missing contextFileName AGENTS.md", label)}
+	}
+	return nil
+}
+
+func readJSONObject(path string) map[string]any {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var parsed map[string]any
+	if json.Unmarshal(data, &parsed) != nil {
+		return nil
+	}
+	return parsed
+}
+
+// hookFileViolations reads one hook file and reports what it lacks; parsed is the file's JSON object when
+// it parses.
+func hookFileViolations(f hookFile, agent string, events []string) (parsed map[string]any, out []string) {
+	if f.path == "" {
+		return nil, []string{fmt.Sprintf("%s: cannot resolve the home directory", f.label)}
+	}
+	data, err := os.ReadFile(f.path)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("%s: missing hook config file", f.label)}
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, []string{fmt.Sprintf("%s: invalid JSON: %v", f.label, err)}
+	}
+	text := string(data)
+	// shortcut: hook commands match as substrings anywhere in the file so turn-ended satisfies turn-end and --agent may sit outside the hooks, parse hooks.<event>[].hooks[].command and match tokens exactly (#177)
+	for _, ev := range events {
+		if !strings.Contains(text, "ateam hook --event "+ev) {
+			out = append(out, fmt.Sprintf("%s: missing hook command for event %s", f.label, ev))
+		}
+	}
+	if !strings.Contains(text, "--agent "+agent) {
+		out = append(out, fmt.Sprintf("%s: missing --agent %s in hook commands", f.label, agent))
+	}
+	return parsed, out
 }
 
 func checkAntigravityConfigs(root string) []string {
 	var out []string
-	// shortcut: Antigravity hooks.json omits pre-compact, add pre-compact hook when Antigravity exposes a compaction event
-	agyRel := ".agents/hooks.json"
-	if agyData, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(agyRel))); err != nil {
-		out = append(out, fmt.Sprintf("%s: missing hook config file", agyRel))
-	} else {
-		var parsed map[string]any
-		if err := json.Unmarshal(agyData, &parsed); err != nil {
-			out = append(out, fmt.Sprintf("%s: invalid JSON: %v", agyRel, err))
-		} else {
-			text := string(agyData)
-			for _, ev := range []string{"session-start", "before-prompt", "turn-end"} {
-				if !strings.Contains(text, "ateam hook --event "+ev) {
-					out = append(out, fmt.Sprintf("%s: missing hook command for event %s", agyRel, ev))
-				}
-			}
-			if !strings.Contains(text, "--agent agy") {
-				out = append(out, fmt.Sprintf("%s: missing --agent agy in hook commands", agyRel))
-			}
-		}
-	}
-
 	for _, rel := range []string{".agents/plugins/ateam/plugin.json", ".agents/plugins/ateam/mcp_config.json"} {
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
