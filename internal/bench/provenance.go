@@ -20,7 +20,7 @@ type GraderIdentity struct {
 	Version string `json:"version"`
 }
 
-func currentGrader() (GraderIdentity, error) {
+func currentGrader(ctx context.Context) (GraderIdentity, error) {
 	var identity GraderIdentity
 	path, err := exec.LookPath("go")
 	if err != nil {
@@ -34,7 +34,7 @@ func currentGrader() (GraderIdentity, error) {
 	if err != nil {
 		return identity, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), versionProbeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, versionProbeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "version")
 	configureBenchmarkProcess(cmd)

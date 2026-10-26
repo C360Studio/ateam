@@ -276,9 +276,12 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 	for _, timeout := range []bool{false, true} {
 		t.Run(fmt.Sprint(timeout), func(t *testing.T) {
 			e := mercuryFixture(t)
-			if timeout {
-				e.TimeoutSeconds = 5
-			}
+			// The attempt clock starts before the bridge does: two race-binary
+			// re-execs plus the readiness poll, measured at up to 5.6s each on a
+			// loaded host (#186). The budget must cover that with margin, and a
+			// handshake cannot arrive after it, so it also bounds the wait.
+			e.TimeoutSeconds = 20
+			handshakeWait := time.Duration(e.TimeoutSeconds) * time.Second
 			connected, closed, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			// The adapter makes exactly one provider request on this path: the proxy
 			// and fixture CLIs never retry. Only requests carrying the proxy's path
@@ -330,10 +333,14 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 			}()
 			select {
 			case <-connected:
-			case <-time.After(4 * time.Second):
+			case <-time.After(handshakeWait):
 				t.Fatal("provider handshake absent")
 			}
-			if !timeout {
+			stopWait := 5 * time.Second
+			if timeout {
+				// The attempt deadline is at most TimeoutSeconds past the handshake.
+				stopWait += time.Duration(e.TimeoutSeconds) * time.Second
+			} else {
 				cancel()
 			}
 			select {
@@ -345,7 +352,7 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 				if got.err == nil || got.status != want {
 					t.Fatalf("got %s/%v want %s", got.status, got.err, want)
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(stopWait):
 				t.Fatal("attempt did not stop")
 			}
 			select {
@@ -456,23 +463,31 @@ func TestMercuryCaptureReadFailures(t *testing.T) {
 	}
 }
 
-// A loaded host can take seconds to start even a trivial CLI (#186). The
-// version probes bound a hung CLI, so a slow but finishing one must resolve.
+// A slow but finishing --version must resolve with its provenance intact. The
+// production bound's floor against loaded-host startup (#186) is asserted by
+// TestVersionProbeBoundCoversMeasuredStartup, so this probe sleeps briefly.
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Mercury through the existing Claude runtime
 func TestVersionProbeToleratesSlowStartup(t *testing.T) {
 	for _, role := range []string{"claude", "bridge"} {
 		t.Run(role, func(t *testing.T) {
 			e := mercuryFixture(t)
-			path := filepath.Join(filepath.Dir(e.Command[0]), role)
-			script, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// 6s exceeds the former fixed 5s probe bound.
-			slow := strings.Replace(string(script), "#!/bin/sh\n", "#!/bin/sh\nif [ \"$1\" = --version ]; then sleep 6; fi\n", 1)
-			if err := os.WriteFile(path, []byte(slow), 0700); err != nil {
-				t.Fatal(err)
+			// Answer --version in sh so only the injected delay, not race-binary
+			// startup, sets this test's pace.
+			for name, version := range map[string]string{"claude": "2.1.292 (Claude Code)", "bridge": "LiteLLM: Current Version = 1.99.0"} {
+				path := filepath.Join(filepath.Dir(e.Command[0]), name)
+				script, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				delay := ""
+				if name == role {
+					delay = "sleep 0.3; "
+				}
+				answer := "#!/bin/sh\nif [ \"$1\" = --version ]; then " + delay + "echo '" + version + "'; exit 0; fi\n"
+				if err := os.WriteFile(path, []byte(strings.Replace(string(script), "#!/bin/sh\n", answer, 1)), 0700); err != nil {
+					t.Fatal(err)
+				}
 			}
 			r, err := ResolveExperiment(e, ".")
 			if err != nil {
