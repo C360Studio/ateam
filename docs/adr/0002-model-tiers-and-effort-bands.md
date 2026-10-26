@@ -93,6 +93,8 @@ Owner ruling (#81, 2026-10-22): cross-service review is optional; "not weaker" i
 
 Independence stays required: the review is a separate run that wrote none of the deliverable. With one shared forge login, that was already an attestation (ADR 0001). The different-agent check was the gate's only mechanical proxy for it, so a same-agent review now rests on the reviewer's written record alone.
 
+Owner ruling (2026-10-26): this repository sets `cross_provider` to `true` in `.agents/review-policy.json`. A same-agent subagent review, spawned by the session that orchestrated the implementation, rested on attestation alone; the different-agent rule restores the mechanical proxy here. The default for other repositories stays optional.
+
 ### 5. Instruction text follows
 
 These all change from "effort is not rank" / "a different agent reviews" to "not weaker by tier and band; cross-provider optional":
