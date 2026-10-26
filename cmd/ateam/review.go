@@ -374,6 +374,10 @@ func reviewCommentPayload(body, marker string) ([]byte, error) {
 }
 
 func reviewToken(ctx context.Context, cfg state.ForgeConfig) (string, error) {
+	// Review evidence and the merge check only read the forge, so they take the read role (#160).
+	if token := state.ReadToken(); token != "" {
+		return token, nil
+	}
 	if cfg.Provider == state.ForgeGitea {
 		if token := strings.TrimSpace(os.Getenv("GITEA_TOKEN")); token != "" {
 			return token, nil
@@ -396,4 +400,14 @@ func reviewToken(ctx context.Context, cfg state.ForgeConfig) (string, error) {
 		return "", nil
 	} // Public read-only repositories do not need a token.
 	return strings.TrimSpace(string(out)), nil
+}
+
+// forgeTokenWarnings nags when forge reads and writes would authenticate with one credential: neither role token set
+// (the forge's single token serves both), only one set, or both set to the same value. It names variables, never
+// token values, and is a warning only so solo setups keep passing doctor --check (#160).
+func forgeTokenWarnings() []string {
+	if state.ReadToken() != state.WriteToken() {
+		return nil
+	}
+	return []string{"forge reads and writes share one token; set ATEAM_TOKEN_READ and ATEAM_TOKEN_WRITE to separate tokens scoped to each role"}
 }

@@ -148,6 +148,8 @@ func TestReviewCLICurrentForgeEvidence(t *testing.T) {
 			t.Setenv("ATEAM_FORGE", "gitea")
 			t.Setenv("GITEA_URL", srv.URL)
 			t.Setenv("GITEA_TOKEN", "")
+			t.Setenv("ATEAM_TOKEN_READ", "")
+			t.Setenv("ATEAM_TOKEN_WRITE", "")
 			args := []string{"--pr", "15", "--record-comment", "1"}
 			if scenario == "exception" || scenario == "wrong-owner" || scenario == "moving-exception" {
 				args = append(args, "--exception-comment", "2")
@@ -186,6 +188,8 @@ func TestReviewCommentAndFileBoundaries(t *testing.T) {
 func TestReviewTokenDoesNotReadDefaultAccountForCustomAPI(t *testing.T) {
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("ATEAM_TOKEN_READ", "")
+	t.Setenv("ATEAM_TOKEN_WRITE", "")
 	t.Setenv("PATH", t.TempDir())
 	token, err := reviewToken(context.Background(), state.ForgeConfig{Provider: state.ForgeGitHub, BaseURL: "https://custom.example.invalid"})
 	if err != nil || token != "" {
@@ -194,12 +198,16 @@ func TestReviewTokenDoesNotReadDefaultAccountForCustomAPI(t *testing.T) {
 }
 
 // spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
+// spec: openspec/specs/harness/spec.md#Requirement: Forge token roles
 func TestReviewTokenEnvironment(t *testing.T) {
 	for _, tc := range []struct {
-		name                               string
-		provider                           state.ForgeProvider
-		gitea, alternate, gh, github, want string
+		name                                            string
+		provider                                        state.ForgeProvider
+		gitea, alternate, gh, github, read, write, want string
 	}{
+		{name: "gitea read role first", provider: state.ForgeGitea, gitea: "primary", read: "fake-read", write: "fake-write", want: "fake-read"},
+		{name: "github read role first", provider: state.ForgeGitHub, gh: "primary", read: "fake-read", write: "fake-write", want: "fake-read"},
+		{name: "write role alone serves review reads", provider: state.ForgeGitHub, gh: "primary", write: " fake-write ", want: "fake-write"},
 		{name: "gitea fallback", provider: state.ForgeGitea, alternate: " fallback \n", want: "fallback"},
 		{name: "gitea whitespace fallback", provider: state.ForgeGitea, gitea: " \t", alternate: " fallback ", want: "fallback"},
 		{name: "gitea primary", provider: state.ForgeGitea, gitea: " primary \n", alternate: "fallback", want: "primary"},
@@ -212,9 +220,41 @@ func TestReviewTokenEnvironment(t *testing.T) {
 			t.Setenv("ATEAM_GITEA_TOKEN", tc.alternate)
 			t.Setenv("GH_TOKEN", tc.gh)
 			t.Setenv("GITHUB_TOKEN", tc.github)
+			t.Setenv("ATEAM_TOKEN_READ", tc.read)
+			t.Setenv("ATEAM_TOKEN_WRITE", tc.write)
 			got, err := reviewToken(context.Background(), state.ForgeConfig{Provider: tc.provider, BaseURL: "https://custom.example.invalid"})
 			if err != nil || got != tc.want {
 				t.Fatalf("token normalization/fallback mismatch: got %q want %q, err=%v", got, tc.want, err)
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Forge token roles
+func TestForgeTokenWarnings(t *testing.T) {
+	for _, tc := range []struct {
+		name, read, write string
+		warn              bool
+	}{
+		{name: "neither set", warn: true},
+		{name: "read only", read: "fake-read", warn: true},
+		{name: "write only", write: "fake-write", warn: true},
+		{name: "same token in both", read: "fake-same", write: " fake-same\n", warn: true},
+		{name: "separate tokens", read: "fake-read", write: "fake-write"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ATEAM_TOKEN_READ", tc.read)
+			t.Setenv("ATEAM_TOKEN_WRITE", tc.write)
+			got := forgeTokenWarnings()
+			if !tc.warn {
+				if len(got) != 0 {
+					t.Fatalf("separate tokens warned: %q", got)
+				}
+				return
+			}
+			want := "forge reads and writes share one token; set ATEAM_TOKEN_READ and ATEAM_TOKEN_WRITE to separate tokens scoped to each role"
+			if len(got) != 1 || got[0] != want {
+				t.Fatalf("warnings = %q, want [%q]", got, want)
 			}
 		})
 	}
