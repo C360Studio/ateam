@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -432,5 +433,23 @@ func TestExperimentMaximumBoundary(t *testing.T) {
 	data, _ = json.Marshal(cfg)
 	if _, err := ParseExperiment(data); err == nil {
 		t.Fatal("accepted timeout above maximum")
+	}
+}
+
+// Revalidation re-runs the version probes, so a Ctrl-C before execution must
+// reach them instead of a fresh background context.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+func TestRevalidateExperimentHonorsContext(t *testing.T) {
+	resolved, err := ResolveExperiment(testExperiment(), ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := revalidateExperiment(context.Background(), resolved); err != nil {
+		t.Fatalf("live context refused: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := revalidateExperiment(ctx, resolved); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled revalidation: got %v, want context.Canceled", err)
 	}
 }

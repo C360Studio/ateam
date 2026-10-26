@@ -4,6 +4,7 @@ package bench
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -54,6 +55,19 @@ func hungProbeFixture(t *testing.T, role string, signal bool) (Experiment, <-cha
 			_, _ = io.Copy(io.Discard, f)
 			_ = f.Close()
 		}()
+		t.Cleanup(func() {
+			// A probe that never wrote leaves the reader blocked in open; a
+			// read-write open is a writer that releases it, and closing it ends
+			// the copy at EOF so the goroutine is joined, not leaked.
+			if f, err := os.OpenFile(fifo, os.O_RDWR, 0); err == nil {
+				_ = f.Close()
+			}
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Error("FIFO reader goroutine did not exit")
+			}
+		})
 	}
 	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
 		t.Fatal(err)
@@ -76,8 +90,10 @@ func TestVersionProbeStopsOnCancelAndBound(t *testing.T) {
 				// An hour leaves cancellation as the only way out; the short
 				// bound is the only way out when nothing cancels.
 				versionProbeTimeout = time.Hour
+				wantCause := context.Canceled
 				if stop == "bound" {
 					versionProbeTimeout = 100 * time.Millisecond
+					wantCause = context.DeadlineExceeded
 				}
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -91,13 +107,15 @@ func TestVersionProbeStopsOnCancelAndBound(t *testing.T) {
 					case <-started:
 					case err := <-done:
 						t.Fatalf("resolve returned before the %s probe started: %v", role, err)
+					case <-time.After(20 * time.Second):
+						t.Fatalf("%s probe never started", role)
 					}
 					cancel()
 				}
 				select {
 				case err := <-done:
-					if err == nil || !strings.Contains(err.Error(), wantErr) {
-						t.Fatalf("hung %s probe: got %v, want %q", role, err, wantErr)
+					if err == nil || !strings.Contains(err.Error(), wantErr) || !errors.Is(err, wantCause) {
+						t.Fatalf("hung %s probe: got %v, want %q caused by %v", role, err, wantErr, wantCause)
 					}
 				case <-time.After(20 * time.Second):
 					t.Fatalf("hung %s probe outlived the %s", role, stop)

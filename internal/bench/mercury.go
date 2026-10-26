@@ -86,7 +86,7 @@ func resolveMercury(ctx context.Context, r *ResolvedExperiment, e *Experiment, b
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("probe Mercury bridge version: %w", err)
+		return fmt.Errorf("probe Mercury bridge version: %w", probeError(ctx, err))
 	}
 	if out.overflow || strings.TrimSpace(out.String()) != mercuryBridgeVersion {
 		return fmt.Errorf("Mercury requires %s", mercuryBridgeVersion)

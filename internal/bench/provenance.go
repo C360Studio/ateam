@@ -42,7 +42,7 @@ func currentGrader(ctx context.Context) (GraderIdentity, error) {
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GOENV=off", "GOTOOLCHAIN=local"}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return identity, fmt.Errorf("identify grader: %w", err)
+		return identity, fmt.Errorf("identify grader: %w", probeError(ctx, err))
 	}
 	return GraderIdentity{Path: path, SHA: digest(data), Version: strings.TrimSpace(string(output))}, nil
 }

@@ -67,6 +67,15 @@ func parseNativeOutput(e Experiment, output string) (AdapterResponse, error) {
 // A var so tests can shrink it.
 var versionProbeTimeout = 30 * time.Second
 
+// probeError reports why a version probe stopped: a cancelled run context or
+// the probe bound reads as such rather than as the killed child's exit status.
+func probeError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
 func resolveNative(ctx context.Context, r *ResolvedExperiment, e Experiment) error {
 	if e.Gemini != nil {
 		if err := validateNewGeminiExecution(e.Gemini); err != nil {
@@ -85,7 +94,7 @@ func resolveNative(ctx context.Context, r *ResolvedExperiment, e Experiment) err
 	cmd.Stdout = &out
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("probe %s version: %w", e.Agent, err)
+		return fmt.Errorf("probe %s version: %w", e.Agent, probeError(ctx, err))
 	}
 	version := strings.TrimSpace(out.String())
 	want := geminiStableVersion
