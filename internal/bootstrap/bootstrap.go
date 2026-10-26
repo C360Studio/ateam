@@ -445,9 +445,21 @@ func adapterTarget(root, rel, text string) (string, []string) {
 	var out []string
 	skill := ""
 	seen := map[string]bool{}
-	for _, m := range skillLinkRe.FindAllStringSubmatch(text, -1) {
+	for _, loc := range skillLinkRe.FindAllStringSubmatchIndex(text, -1) {
+		m := make([]string, 4)
+		for i := range m {
+			if loc[2*i] >= 0 {
+				m[i] = text[loc[2*i]:loc[2*i+1]]
+			}
+		}
 		if skill == "" {
 			skill = m[2]
+		}
+		// A match cut short by a character the pattern does not take (SKILL.md~) names a different file.
+		if end := loc[1]; end < len(text) && !strings.ContainsRune(" \t\r\n)]\"'`>,;:#?!*", rune(text[end])) &&
+			!(text[end] == '.' && (end+1 == len(text) || strings.ContainsRune(" \t\r\n", rune(text[end+1])))) {
+			out = append(out, fmt.Sprintf("%s: links to unsupported path %s", rel, strings.Fields(text[loc[0]:])[0]))
+			continue
 		}
 		sub := strings.TrimRight(m[3], ".")
 		if strings.Trim(sub, "/") == "" {
@@ -458,10 +470,12 @@ func adapterTarget(root, rel, text string) (string, []string) {
 		if m[1] != "" {
 			target = path.Join(path.Dir(rel), m[1]+target)
 		}
-		if seen[target] {
+		// Key by the named skill too: the same target reached through another skill's .. must still fail.
+		key := m[2] + "\x00" + target
+		if seen[key] {
 			continue
 		}
-		seen[target] = true
+		seen[key] = true
 		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(target)))
 		if !strings.HasPrefix(target, ".agents/skills/"+m[2]+"/") || err != nil || !info.Mode().IsRegular() {
 			out = append(out, fmt.Sprintf("%s: links to missing %s", rel, target))
