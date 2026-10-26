@@ -453,7 +453,8 @@ func adapterTarget(root, rel, text string) (string, []string) {
 		if strings.Trim(sub, "/") == "" {
 			sub = "/SKILL.md"
 		}
-		target := ".agents/skills/" + m[2] + sub
+		// Clean before the prefix check: a bare link keeps its ".." segments, which os.Stat would follow.
+		target := path.Clean(".agents/skills/" + m[2] + sub)
 		if m[1] != "" {
 			target = path.Join(path.Dir(rel), m[1]+target)
 		}

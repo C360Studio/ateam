@@ -166,6 +166,12 @@ func TestAdopterSkillsSensitivity(t *testing.T) {
 		{name: "relative link with the wrong depth",
 			files: map[string]string{".claude/skills/x/SKILL.md": "Read [it](../.agents/skills/query-pattern/SKILL.md) fully.\n"},
 			want:  []string{".claude/skills/x/SKILL.md: links to missing .claude/skills/.agents/skills/query-pattern/SKILL.md"}},
+		{name: "bare link escapes its skill with ..",
+			files: map[string]string{".claude/skills/qp/SKILL.md": "Read .agents/skills/query-pattern/../../../AGENTS.md fully.\n"},
+			want:  []string{".claude/skills/qp/SKILL.md: links to missing AGENTS.md"}},
+		{name: "bare link crosses into another skill with ..",
+			files: map[string]string{".claude/skills/qp/SKILL.md": "Read .agents/skills/query-pattern/../semteams-preflight/SKILL.md fully.\n"},
+			want:  []string{".claude/skills/qp/SKILL.md: links to missing .agents/skills/semteams-preflight/SKILL.md"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
