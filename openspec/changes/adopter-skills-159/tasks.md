@@ -1,0 +1,6 @@
+## 1. Implementation
+
+- [ ] 1.1 `checkSkillAdapters` applies the heading, marker, adapter-pair, link-text, line-cap and checkbox checks to the five `canonicalSkills` only; other directories under `.agents/skills/` are adopter skills, listed under `adopter_skills` in doctor's JSON (#159).
+- [ ] 1.2 Every `.claude/skills/<x>/SKILL.md` and `.gemini/commands/<x>.toml` that links into `.agents/skills/` must name an existing target; a target naming a different skill is an alias, reported as `alias: .claude/skills/<x> -> .agents/skills/<y>`, and a canonical skill's checks read its aliased target (#159).
+- [ ] 1.3 Tests: the brownfield fixture from #158 plus a `query-pattern` skill with prose headings and no adapters and a `.claude/skills/preflight/SKILL.md` aliasing `semteams-preflight`; doctor passes and reports one alias and one adopter skill. Sensitivity: a canonical skill missing `## 1.` fails; a canonical missing its Gemini adapter fails; an adapter linking to a missing target fails; an alias whose target lacks the preflight markers fails. `task mutate:check`: dropping the target-exists check must be `detection`.
+- [ ] 1.4 Move the requirement into `openspec/specs/harness/spec.md` and cite it there, then archive the change.
