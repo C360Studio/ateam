@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -423,24 +424,6 @@ func isNumberedTitle(title string) bool {
 	return i > 0 && i+1 < len(title) && title[i] == '.'
 }
 
-func discoverSkills(root string) []string {
-	seen := make(map[string]bool, len(canonicalSkills))
-	out := make([]string, 0, len(canonicalSkills))
-	for _, s := range canonicalSkills {
-		out = append(out, s)
-		seen[s] = true
-	}
-	if entries, err := os.ReadDir(filepath.Join(root, ".agents", "skills")); err == nil {
-		for _, e := range entries {
-			if e.IsDir() && !seen[e.Name()] {
-				out = append(out, e.Name())
-				seen[e.Name()] = true
-			}
-		}
-	}
-	return out
-}
-
 var requiredSkillMarkers = map[string][]string{
 	"handoff":   {"## 1.", "ateam state handoff", "Goal:"},
 	"pickup":    {"## 1.", "ateam state pickup", "Verify Write Ownership"},
@@ -449,31 +432,86 @@ var requiredSkillMarkers = map[string][]string{
 	"review-pr": {"## 1.", "reviewed-by:", "Reviewed at"},
 }
 
-func checkSkillAdapters(root string) []string {
+// skillLinkRe matches a path into .agents/skills/; group 1 is the skill it names.
+var skillLinkRe = regexp.MustCompile(`\.agents/skills/([A-Za-z0-9_-][A-Za-z0-9._-]*)(/[A-Za-z0-9._/-]*)?`)
+
+// adapterTarget reports every .agents/skills/ link in an adapter that does not exist, and returns the
+// skill its first link names, or "" when it has none.
+func adapterTarget(root, rel, text string) (string, []string) {
 	var out []string
-	for _, name := range discoverSkills(root) {
-		canonRel := ".agents/skills/" + name + "/SKILL.md"
-		canonBytes, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(canonRel)))
-		if err != nil || len(strings.TrimSpace(string(canonBytes))) == 0 {
-			out = append(out, fmt.Sprintf("%s: missing canonical skill", canonRel))
-		} else {
-			canonText := string(canonBytes)
-			if !strings.Contains(canonText, "## 1.") {
-				out = append(out, fmt.Sprintf("%s: missing numbered workflow steps (placeholder skill not allowed)", canonRel))
-			}
-			for _, marker := range requiredSkillMarkers[name] {
-				if !strings.Contains(canonText, marker) {
-					out = append(out, fmt.Sprintf("%s: missing required workflow procedure marker %q", canonRel, marker))
+	skill := ""
+	seen := map[string]bool{}
+	for _, m := range skillLinkRe.FindAllStringSubmatch(text, -1) {
+		if skill == "" {
+			skill = m[1]
+		}
+		target := strings.TrimRight(m[0], ".")
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(target))); err != nil {
+			out = append(out, fmt.Sprintf("%s: links to missing %s", rel, target))
+		}
+	}
+	return skill, out
+}
+
+// SkillInventory lists the adopter skills (directories under .agents/skills/ that neither are canonical
+// nor carry a canonical skill's checks through an alias) and the adapter aliases, for doctor's report.
+func SkillInventory(root string) (adopter, aliases []string) {
+	_, adopter, aliases = inspectSkills(root)
+	return adopter, aliases
+}
+
+func checkSkillAdapters(root string) []string {
+	out, _, _ := inspectSkills(root)
+	return out
+}
+
+func inspectSkills(root string) (out, adopter, aliases []string) {
+	adopter, aliases = []string{}, []string{}
+	strict := map[string]bool{} // skills whose SKILL.md carries canonical checks
+	isCanonical := map[string]bool{}
+	for _, s := range canonicalSkills {
+		isCanonical[s] = true
+	}
+	// alias records an adapter for name whose links resolve into another skill, and returns the skill
+	// its first link names (name itself when it has no link).
+	alias := func(adapterRel, adapterLabel, name, text string) string {
+		skill, dangling := adapterTarget(root, adapterRel, text)
+		out = append(out, dangling...)
+		if skill == "" {
+			return name
+		}
+		if skill != name && len(dangling) == 0 {
+			aliases = append(aliases, fmt.Sprintf("alias: %s -> .agents/skills/%s", adapterLabel, skill))
+		}
+		return skill
+	}
+
+	for _, name := range canonicalSkills {
+		// Each adapter's target carries the canonical checks; the Claude and Gemini adapters may resolve
+		// to different skills, and then both targets are checked.
+		var targets []string
+		addTarget := func(skill string) {
+			for _, t := range targets {
+				if t == skill {
+					return
 				}
 			}
+			targets = append(targets, skill)
 		}
 
 		claudeRel := ".claude/skills/" + name + "/SKILL.md"
 		if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(claudeRel))); err != nil {
 			out = append(out, fmt.Sprintf("%s: missing Claude skill adapter", claudeRel))
+			addTarget(name)
 		} else {
 			text := string(data)
-			wantLink := "../../../.agents/skills/" + name + "/SKILL.md"
+			skill := alias(claudeRel, ".claude/skills/"+name, name, text)
+			addTarget(skill)
+			wantLink := "../../../.agents/skills/" + skill + "/SKILL.md"
 			if !strings.Contains(text, wantLink) || !strings.Contains(text, "fully") {
 				out = append(out, fmt.Sprintf("%s: must link to %s and instruct to read it fully", claudeRel, wantLink))
 			}
@@ -489,15 +527,69 @@ func checkSkillAdapters(root string) []string {
 		geminiRel := ".gemini/commands/" + name + ".toml"
 		if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(geminiRel))); err != nil {
 			out = append(out, fmt.Sprintf("%s: missing Gemini command adapter", geminiRel))
+			addTarget(name)
 		} else {
 			text := string(data)
-			wantLink := ".agents/skills/" + name + "/SKILL.md"
+			skill := alias(geminiRel, geminiRel, name, text)
+			addTarget(skill)
+			wantLink := ".agents/skills/" + skill + "/SKILL.md"
 			if !strings.Contains(text, wantLink) || !strings.Contains(text, "fully") {
 				out = append(out, fmt.Sprintf("%s: must reference %s and instruct to read it fully", geminiRel, wantLink))
 			}
 		}
+
+		for _, skill := range targets {
+			strict[skill] = true
+			canonRel := ".agents/skills/" + skill + "/SKILL.md"
+			canonBytes, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(canonRel)))
+			if err != nil || len(strings.TrimSpace(string(canonBytes))) == 0 {
+				out = append(out, fmt.Sprintf("%s: missing canonical skill", canonRel))
+				continue
+			}
+			canonText := string(canonBytes)
+			if !strings.Contains(canonText, "## 1.") {
+				out = append(out, fmt.Sprintf("%s: missing numbered workflow steps (placeholder skill not allowed)", canonRel))
+			}
+			for _, marker := range requiredSkillMarkers[name] {
+				if !strings.Contains(canonText, marker) {
+					out = append(out, fmt.Sprintf("%s: missing required workflow procedure marker %q", canonRel, marker))
+				}
+			}
+		}
 	}
-	return out
+
+	// Adopter adapters are checked only for links that resolve.
+	if entries, err := os.ReadDir(filepath.Join(root, ".claude", "skills")); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() || isCanonical[e.Name()] {
+				continue
+			}
+			rel := ".claude/skills/" + e.Name() + "/SKILL.md"
+			if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+				alias(rel, ".claude/skills/"+e.Name(), e.Name(), string(data))
+			}
+		}
+	}
+	if entries, err := os.ReadDir(filepath.Join(root, ".gemini", "commands")); err == nil {
+		for _, e := range entries {
+			name, ok := strings.CutSuffix(e.Name(), ".toml")
+			if e.IsDir() || !ok || isCanonical[name] {
+				continue
+			}
+			rel := ".gemini/commands/" + e.Name()
+			if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+				alias(rel, rel, name, string(data))
+			}
+		}
+	}
+	if entries, err := os.ReadDir(filepath.Join(root, ".agents", "skills")); err == nil {
+		for _, e := range entries {
+			if e.IsDir() && !strict[e.Name()] && !isCanonical[e.Name()] {
+				adopter = append(adopter, e.Name())
+			}
+		}
+	}
+	return out, adopter, aliases
 }
 
 func checkHookConfigs(root string) []string {
