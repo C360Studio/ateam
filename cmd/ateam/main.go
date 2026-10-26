@@ -478,6 +478,7 @@ func runDoctor(repoRoot string, args []string) int {
 	warnings = append(warnings, mcpWarnings...)
 	diskBuild, diskWarnings := bootstrap.DiskBuildStatus(context.Background(), repoRoot)
 	warnings = append(warnings, diskWarnings...)
+	warnings = append(warnings, forgeTokenWarnings()...)
 
 	passed := len(violations) == 0
 	printJSON(map[string]any{

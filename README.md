@@ -50,7 +50,7 @@ To build `ateam` from source, you need:
 - **Go 1.26.4+** (the version declared in `go.mod`)
 - **Node.js 20+ and npm** (used to build the static web UI embedded into the Go binary)
 - **[Task](https://taskfile.dev) (`task`)** (optional, for running `Taskfile.yml` commands)
-- **`gh`** (GitHub CLI) or **`tea` / `GITEA_TOKEN`** (optional, for syncing issues and PR comments with GitHub or Gitea)
+- **`gh`** (GitHub CLI) or **`tea` / `GITEA_TOKEN`** (optional, for syncing issues and PR comments with GitHub or Gitea). To give each role its own scoped token, set `ATEAM_TOKEN_READ` (board, sync, pickup, review evidence) and `ATEAM_TOKEN_WRITE` (PR comments, label bootstrap); either one alone serves both, and with neither set the tokens above are used. `ateam doctor` warns while one token serves both roles.
 
 Clone the repository and build the binary:
 
