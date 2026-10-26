@@ -23,7 +23,9 @@ Own the complete change, callers, fixtures, tests and verification evidence. An 
 Record model and reasoning effort separately; the merge gate ranks a run by model tier, then effort band, and needs a reviewer not weaker than every implementing run. A configured route is intent, not proof of the runtime model. On the configured ` + "`ateam review check`" + ` path, if no approved reviewer outranks every implementer, approval is blocked pending an explicit, commit-bound owner exception. Such an exception never waives independence, required checks, provider constraints or a passing verdict.
 `
 
-const reviewerContract = `# Independent reviewer contract
+const reviewerContract = reviewerContractBody + reviewerRecordPRComment
+
+const reviewerContractBody = `# Independent reviewer contract
 
 Read AGENTS.md and .agents/protocol.md fully. Review in a separate run that wrote none of the deliverable. Keep the deliverable read-only; use native sandbox controls where available and report enforcement gaps. The author makes corrections. Do not edit the deliverable you grade.
 
@@ -33,7 +35,10 @@ Inspect the complete base-to-head diff and affected callers, tests, fixtures and
 
 Record base/head commits, policy revision, all implementation runs/models, your independent run/provider/model/effort, checks actually run, checks only reported by others, unavailable evidence, findings and verdict. Approval requires no blocking/high findings and all required verification. Changed commits or policy invalidate previous evidence. Eligibility alone is not approval. Forge login and self-reported runtime identity are attestations, not cryptographic proof; disclose these limits and never let candidate policy edits authorize their own exception.
 
-## Record
+`
+
+// reviewerRecordPRComment is the contract's record section under the default review_record.
+const reviewerRecordPRComment = `## Record
 
 Post the record as one pull request comment. ` + "`task merge:check`" + ` accepts a comment whose ` + "`reviewed-by:`" + ` lines name only you, or, with no such line, whose ` + "`### Independent Cross-Agent Review`" + ` heading names no agent but you. The comment must designate exactly one commit of the pull request, written ` + "`Reviewed at <sha>`" + ` (7 to 40 hex characters); any other commit it designates the same way (such as a ` + "`Head: <sha>`" + ` line) makes it no record. Copy:
 
@@ -65,7 +70,7 @@ func ConfigureReview(root string, policyData []byte) ([]string, error) {
 	if conflicts := unexpectedReviewFiles(root, policy); len(conflicts) != 0 {
 		return nil, fmt.Errorf("%s", strings.Join(conflicts, "; "))
 	}
-	files := reviewFiles(policy)
+	files := reviewFiles(policy, parsed.ReviewRecord)
 	files[reviewPolicyPath] = string(policyData)
 	paths := make([]string, 0, len(files))
 	for rel := range files {
@@ -130,10 +135,12 @@ func rejectReviewSymlinks(root, rel string) error {
 	return nil
 }
 
-func reviewFiles(policy *review.Policy) map[string]string {
+// reviewFiles lists the generated role instructions for a policy (nil when it
+// configures no routes) and its review_record value.
+func reviewFiles(policy *review.Policy, record string) map[string]string {
 	files := map[string]string{
 		".agents/contracts/developer.md": developerContract,
-		".agents/contracts/reviewer.md":  reviewerContract,
+		".agents/contracts/reviewer.md":  reviewerContractFor(record),
 	}
 	if policy == nil {
 		return files
@@ -164,11 +171,13 @@ func checkReviewSetup(root string) []string {
 		return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
 	}
 	var policy *review.Policy
+	record := ""
 	if err == nil {
 		parsed, err := review.ParsePolicy(data)
 		if err != nil {
 			return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
 		}
+		record = parsed.ReviewRecord
 		if parsed.HasRoutes() {
 			if err := supportedReviewProviders(parsed); err != nil {
 				return []string{fmt.Sprintf("%s: %v", reviewPolicyPath, err)}
@@ -177,7 +186,7 @@ func checkReviewSetup(root string) []string {
 		}
 	}
 	out := unexpectedReviewFiles(root, policy)
-	for rel, expected := range reviewFiles(policy) {
+	for rel, expected := range reviewFiles(policy, record) {
 		if err := rejectReviewSymlinks(root, rel); err != nil {
 			out = append(out, err.Error())
 			continue
@@ -195,7 +204,7 @@ func checkReviewSetup(root string) []string {
 // no longer selected and orphan cards left after policy removal. Never delete
 // these files: an owner must reconcile stale or custom instructions explicitly.
 func unexpectedReviewFiles(root string, policy *review.Policy) []string {
-	expected := reviewFiles(policy)
+	expected := reviewFiles(policy, "")
 	var out []string
 	for _, role := range []string{"developer", "reviewer"} {
 		for _, rel := range []string{

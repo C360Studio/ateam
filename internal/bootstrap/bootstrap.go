@@ -62,7 +62,10 @@ func InitRepo(ctx context.Context, root string, opts Options) (InitResult, error
 		now = time.Now
 	}
 	stamp := now().Format("20060102-150405")
-	files := defaultTemplateFiles()
+	files, err := templateFiles(root)
+	if err != nil {
+		return res, err
+	}
 	if opts.Force {
 		// Back up every harness document before writing any file, so nothing is
 		// truncated unless every backup succeeded.

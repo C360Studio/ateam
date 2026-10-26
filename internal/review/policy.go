@@ -21,7 +21,17 @@ type Policy struct {
 	// route/check path and are then absent.
 	ModelTiers  ModelTiers  `json:"model_tiers"`
 	EffortBands EffortBands `json:"effort_bands"`
+	// ReviewRecord names where the review record lives: RecordPRComment (the
+	// default when absent) or RecordAIP (owner ruling on #130).
+	ReviewRecord string `json:"review_record,omitempty"`
 }
+
+// Review record modes. Under RecordAIP the record is an archived REVIEW-002
+// review-implementation.md with a matching approval.md, not a PR comment.
+const (
+	RecordPRComment = "pr-comment"
+	RecordAIP       = "aip"
+)
 
 // ModelTiers lists "provider:model" names from strongest tier to weakest.
 type ModelTiers struct {
@@ -106,6 +116,11 @@ func (p Policy) Model(id string) (Model, bool) {
 func ValidatePolicy(p Policy) error {
 	if p.Version != 1 {
 		return fmt.Errorf("unsupported policy version %d", p.Version)
+	}
+	switch p.ReviewRecord {
+	case "", RecordPRComment, RecordAIP:
+	default:
+		return fmt.Errorf("review_record %q must be %q or %q", p.ReviewRecord, RecordPRComment, RecordAIP)
 	}
 	// Supplied tiers or bands are validated together, with or without models.
 	if p.HasTiers() || p.HasBands() {

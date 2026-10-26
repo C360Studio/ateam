@@ -7,6 +7,8 @@
 > - **JSON review records, reviewer-executed required checks and owner exceptions** are off. `ateam review check` is invoked by neither CI nor merge-check. ADR 0001 lists the triggers for enabling them.
 >
 > Where this document says "approval blocks", it means `ateam review check`, not the merge gate.
+>
+> A repository whose AIP workflow forbids a second review record sets `"review_record": "aip"`; see [Review record mode](#review-record-mode-review_record).
 
 The rest of this document describes the dormant path; the merge gate's tier-and-band rule above does not apply to it. ATeam validates project-approved model relationships and commit-bound review evidence. The reviewer must be a separate run that wrote none of the implementation and use a model approved as stronger than **every actual implementation model**. Same-provider review is allowed unless the project also requires provider separation. Reasoning effort is recorded separately; it never increases a model's rank.
 
@@ -135,3 +137,19 @@ The PM dashboard shows the selected repository's configured developer and review
 Statuses are `eligible` (configured routes pass policy eligibility), `blocked` (valid policy with ineligible routes, including a reason), `unconfigured` (missing policy), `invalid` (malformed or over 1 MiB), and `unavailable` (read failure or unsafe/non-regular file). Eligible and blocked summaries include `developer`, `reviewer` and `policy_digest`; each route has `model`, `provider` and `effort`. Other states omit route metadata. The read is confined to the selected repository and does not expose policy owners or review authors.
 
 This is a read-only view of local configuration, not trusted default-branch PR approval evidence or live model identity. It does not launch agents, edit policy, apply owner exceptions, or verify generated route-card drift. Effort remains separate from model strength and Ponytail mode.
+
+## Review record mode (`review_record`)
+
+This section is about the merge gate's review record, not the dormant path. `.agents/review-policy.json` takes an optional `"review_record"`: `"pr-comment"` (the default when the key is absent) or `"aip"`. Policy validation rejects any other value (owner ruling on #130, 2026-10-26; ADR 0002 addendum).
+
+- **`pr-comment`.** The record is the PR comment described in `.agents/contracts/reviewer.md` § Record, read by `task merge:check`. `ateam init` output is byte-identical to a repository with no `review_record` key.
+- **`aip`.** For repositories that follow AIP, where only the project's own reviewer agent writes review records and branches merge `--ff-only` with no PR. The review record is the archived `openspec/changes/archive/<date>-<id>/review-implementation.md` (AIP's REVIEW-002 format) with `Verdict: PASS`, plus a matching `approval.md`. ateam agents never post a `reviewed-by:` PR comment. `task merge:check` does not apply and does not read file records. When the policy sets `aip` before `ateam init` runs, init writes this text into `.agents/protocol.md` step 4, the `AGENTS.md` and `.agents/rules-index.md` rule row (same row count), and the reviewer contract's § Record. `ateam review setup` and `ateam doctor` expect the matching contract, so changing the value on an initialized repository shows as contract drift to reconcile by hand. An unreadable or invalid policy fails `ateam init`.
+
+Under `aip`, check reviewer strength from the record:
+
+```sh
+ateam review compare --implementer claude:sonnet:high \
+  --reviewer-record openspec/changes/archive/2026-10-26-example/review-implementation.md
+```
+
+`--reviewer-record` replaces `--reviewer`. Compare reads the record's `## Verdict` section and needs exactly one `**Stage**: implementation`, one `**Verdict**: PASS` and one `**Reviewer**:` field whose value starts with `<agent> (<model>, <effort>)` (for example `claude (opus, high), agent type example-reviewer`). It also needs `approval.md` in the same folder with a row `| implementation | <approver> | <date> | <digest> |` whose digest is the SHA-256 of the record. A missing or non-PASS verdict, a missing or non-matching approval, or a Reviewer value with no agent run is a finding (exit 1), and the tier-and-band comparison still runs when the Reviewer parses. An unreadable record or approval file exits 2. Compare checks only these fields; the project's own gate owns the rest of REVIEW-002 (the Manifest digests and the Findings table).

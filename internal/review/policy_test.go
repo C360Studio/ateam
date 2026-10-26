@@ -260,3 +260,31 @@ func TestValidateTiersPolicy(t *testing.T) {
 		t.Fatal("contradictory effort bands on a policy without tiers must be rejected")
 	}
 }
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Review record mode
+func TestReviewRecordPolicy(t *testing.T) {
+	const tiers = `"model_tiers":{"frontier":["claude:opus"]},"effort_bands":{"claude":{"high":["high"]},"codex":{"high":["high"]},"gemini":{"high":["high"]}}`
+	for _, tc := range []struct {
+		field string
+		want  string // "-" means rejected
+	}{
+		{``, ""},
+		{`,"review_record":"pr-comment"`, "pr-comment"},
+		{`,"review_record":"aip"`, "aip"},
+		{`,"review_record":"AIP"`, "-"},
+		{`,"review_record":"file"`, "-"},
+		{`,"review_record":""`, ""},
+		{`,"review_record":" aip"`, "-"},
+	} {
+		p, err := ParsePolicy([]byte(`{"version":1,` + tiers + tc.field + `}`))
+		if tc.want == "-" {
+			if err == nil {
+				t.Errorf("%s: unknown review_record accepted", tc.field)
+			}
+			continue
+		}
+		if err != nil || p.ReviewRecord != tc.want {
+			t.Errorf("%s: got %q, %v; want %q", tc.field, p.ReviewRecord, err, tc.want)
+		}
+	}
+}

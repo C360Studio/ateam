@@ -1,6 +1,6 @@
 # ADR 0002: Model tiers and effort bands for reviewer strength
 
-- **Status:** Accepted (owner, 2026-10-22); § 2 unranked rule amended (owner, #125, 2026-10-22)
+- **Status:** Accepted (owner, 2026-10-22); § 2 unranked rule amended (owner, #125, 2026-10-22); review record mode added (owner, #130, 2026-10-26; see the addendum)
 - **Date:** 2026-10-22
 - **Deciders:** repository owner
 - **Amends:** [ADR 0001](0001-review-gate-scope.md), decision steps 1 and 2
@@ -127,3 +127,9 @@ The two PRs are code PRs and need a review that is not weaker, per this ADR's ow
 **Neutral.**
 - `internal/bench` passes native effort to each CLI and doesn't rank, so it is unchanged.
 - Ponytail modes (#92) are a separate axis from effort.
+
+## Addendum: review record mode (owner ruling on #130, 2026-10-26)
+
+[Ruling](https://github.com/C360Studio/ateam/issues/130#issuecomment-6416383301): the record switch lives in `.agents/review-policy.json` as `"review_record": "pr-comment" | "aip"`, not in a separate file. Absent means `pr-comment`, and generated output stays byte-identical. Policy validation rejects other values.
+
+Under `aip`, the review record is the archived `openspec/changes/archive/<date>-<id>/review-implementation.md` (AIP's REVIEW-002 format) with `Verdict: PASS` and a matching `approval.md`. ateam agents never post a `reviewed-by:` PR comment. merge-check does not learn to read file records: it does not apply under `aip`, because AIP merges `--ff-only` with no PR. Rule 2 still applies. `ateam review compare --reviewer-record <path>` takes the reviewer run from the record's Reviewer field and runs the same tier-and-band comparison. A verdict other than PASS, or a missing or non-matching `approval.md`, is a finding. `docs/model-review.md` § Review record mode has the details.
