@@ -52,7 +52,7 @@ To fire `pre-compact` checkpoints before long-context attention drift on 1M-toke
 | OpenSpec tasks, inline Holds, and shortcut comments | Keep blockers and deferred work close to the repository's actual work. | Scans depend on recognized syntax and supported source extensions; see [adoption limits](adoption.md). |
 | Taskfile verification and mutation evidence | Make checks repeatable and show that a test can catch a plausible defect. | Hooks do not run these checks. The agent, user, or CI must invoke them; the mutation runner is Go-only. |
 
-The sub-5ms hook budget is a design target. `ateam doctor` currently fails its timing check above 50ms; its measured value is not a performance guarantee for every checkout.
+The sub-10ms hook budget is a design target. `ateam doctor` currently fails its timing check above 25ms; its measured value is not a performance guarantee for every checkout.
 
 ## Modes and writer ownership
 

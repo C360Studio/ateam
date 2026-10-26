@@ -4,7 +4,7 @@ Guidance for coding agents. Codex and Gemini load this file as `AGENTS.md`; `CLA
 
 ## What this is for
 
-`ateam` is an opinionated, Go-first experimentation lab with a harness, CLI, MCP server, and project-management UI for Claude Code, Codex CLI, and Gemini CLI. It combines `semengine`'s shared-state handoff/pickup/preflight protocol, OpenSpec (`openspec/`) spec-driven change & `Hold:` queue discipline, dual-forge support (**GitHub** and **Gitea**), and `Taskfile.yml` standardization with Ponytail's senior-developer decision ladder, zero-dependency Go lifecycle hooks (`<5ms`), a low-tax 2-tool MCP server (`<300` tokens), an agentic benchmark suite (`ateam bench`), and an embedded Svelte 5 + SvelteKit PM board (`ateam serve`).
+`ateam` is an opinionated, Go-first experimentation lab with a harness, CLI, MCP server, and project-management UI for Claude Code, Codex CLI, and Gemini CLI. It combines `semengine`'s shared-state handoff/pickup/preflight protocol, OpenSpec (`openspec/`) spec-driven change & `Hold:` queue discipline, dual-forge support (**GitHub** and **Gitea**), and `Taskfile.yml` standardization with Ponytail's senior-developer decision ladder, zero-dependency Go lifecycle hooks (`<10ms`), a low-tax 2-tool MCP server (`<300` tokens), an agentic benchmark suite (`ateam bench`), and an embedded Svelte 5 + SvelteKit PM board (`ateam serve`).
 
 The lab aims to measure harness effects; current fixture self-tests do not prove improved agent performance. See [adoption boundaries](docs/adoption.md) before using its generated instructions in another project.
 
@@ -71,7 +71,7 @@ Domain-grouped reference. `.agents/rules-index.md` carries the matching 3-column
 | `verify` | Canonical skills in `.agents/skills/*/SKILL.md` have matching thin adapters in `.claude/skills/` and `.gemini/commands/` | `internal/bootstrap`; `.agents/README.md` |
 | `verify` | Hook configs in `.claude/settings.json`, `.codex/hooks.json`, `.gemini/settings.json`, and `.agents/hooks.json` map native events to `ateam hook` | `internal/hook`; `internal/bootstrap` |
 | `verify` | `ateam mcp` exposes only the 2 multiplexed tools (`ateam_state`, `ateam_task`) with `<300` total schema tokens | `internal/mcpserver` |
-| `verify` | `ateam hook` executes normalized lifecycle events in `<5ms` target budget (`doctor` warns `>5ms`, fails `--check` `>25ms`) with zero external runtime dependencies | `internal/hook`; `cmd/ateam` |
+| `verify` | `ateam hook` executes normalized lifecycle events in `<10ms` target budget (`doctor` warns `>10ms`, fails `--check` `>25ms`) with zero external runtime dependencies | `internal/hook`; `cmd/ateam` |
 
 ### 3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done
 

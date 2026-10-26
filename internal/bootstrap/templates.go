@@ -209,7 +209,7 @@ You are a lazy senior developer. The best code is the code never written. Solve 
 | ` + "`verify`" + ` | Canonical skills in ` + "`.agents/skills/*/SKILL.md`" + ` have matching thin adapters in ` + "`.claude/skills/`" + ` and ` + "`.gemini/commands/`" + ` | ` + "`.agents/README.md`" + ` |
 | ` + "`verify`" + ` | Hook configs in ` + "`.claude/settings.json`" + `, ` + "`.codex/hooks.json`" + `, ` + "`.gemini/settings.json`" + `, and ` + "`.agents/hooks.json`" + ` map native events to ` + "`ateam hook`" + ` | ` + "`.agents/README.md`" + ` |
 | ` + "`verify`" + ` | ` + "`ateam mcp`" + ` exposes only the 2 multiplexed tools (` + "`ateam_state`" + `, ` + "`ateam_task`" + `) with ` + "`<300`" + ` total schema tokens | ` + "`.agents/README.md`" + ` |
-| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<5ms`" + ` target budget (` + "`doctor`" + ` warns ` + "`>5ms`" + `, fails ` + "`--check`" + ` ` + "`>25ms`" + `) with zero external runtime dependencies | ` + "`.agents/README.md`" + ` |
+| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<10ms`" + ` target budget (` + "`doctor`" + ` warns ` + "`>10ms`" + `, fails ` + "`--check`" + ` ` + "`>25ms`" + `) with zero external runtime dependencies | ` + "`.agents/README.md`" + ` |
 
 ### 3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done
 
@@ -248,7 +248,7 @@ const defaultRulesIndexMD = `# Rules Enforcement Index
 | ` + "`verify`" + ` | Canonical skills in ` + "`.agents/skills/*/SKILL.md`" + ` have matching thin adapters in ` + "`.claude/skills/`" + ` and ` + "`.gemini/commands/`" + ` | ` + "`ateam doctor`" + ` |
 | ` + "`verify`" + ` | Hook configs in ` + "`.claude/settings.json`" + `, ` + "`.codex/hooks.json`" + `, ` + "`.gemini/settings.json`" + `, and ` + "`.agents/hooks.json`" + ` map native events to ` + "`ateam hook`" + ` | ` + "`ateam doctor`" + ` |
 | ` + "`verify`" + ` | ` + "`ateam mcp`" + ` exposes only the 2 multiplexed tools (` + "`ateam_state`" + `, ` + "`ateam_task`" + `) with ` + "`<300`" + ` total schema tokens | ` + "`ateam doctor`" + ` |
-| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<5ms`" + ` target budget (` + "`doctor`" + ` warns ` + "`>5ms`" + `, fails ` + "`--check`" + ` ` + "`>25ms`" + `) with zero external runtime dependencies | ` + "`ateam doctor`" + ` |
+| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<10ms`" + ` target budget (` + "`doctor`" + ` warns ` + "`>10ms`" + `, fails ` + "`--check`" + ` ` + "`>25ms`" + `) with zero external runtime dependencies | ` + "`ateam doctor`" + ` |
 
 ## 3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done
 
@@ -273,7 +273,7 @@ Canonical protocol for ` + "`ateam`" + ` and repositories bootstrapped with ` + 
 
 ## 1. Hybrid State Architecture (GitHub + Gitea + OpenSpec + Local Cache)
 
-Shared truth lives in the repository's versioned code, ` + "`openspec/`" + ` specs and changes, git worktrees, and the repository's remote forge (**GitHub** or **Gitea**), backed by a fast gitignored local cache (` + "`.ateam/state.json`" + `) so CLI lifecycle hooks execute in ` + "`<5ms`" + ` without blocking on network calls:
+Shared truth lives in the repository's versioned code, ` + "`openspec/`" + ` specs and changes, git worktrees, and the repository's remote forge (**GitHub** or **Gitea**), backed by a fast gitignored local cache (` + "`.ateam/state.json`" + `) so CLI lifecycle hooks execute in ` + "`<10ms`" + ` without blocking on network calls:
 
 - **What is wanted & decided (GitHub & Gitea):** Issues with labels ` + "`type:epic`" + `, ` + "`status:needs-decision`" + `, ` + "`status:blocked`" + `, ` + "`class:flake`" + `.
 - **Who has claimed what:** A draft PR on an agent-prefixed branch (` + "`claude/<topic>`" + `, ` + "`codex/<topic>`" + `, ` + "`gemini/<topic>`" + `) in its own worktree (` + "`git worktree list`" + `), with ` + "`Closes #n`" + ` or ` + "`Addresses #n`" + `.

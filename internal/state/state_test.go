@@ -332,7 +332,7 @@ func TestWriterLeaseHerdrIdentity(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Optional herdr pane identity in the writer lease
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 func TestPickupWarningNamesHerdrPane(t *testing.T) {
 	t.Setenv("ATEAM_SESSION_ID", "")
 	livePID := os.Getpid()

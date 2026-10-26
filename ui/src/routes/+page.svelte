@@ -1162,7 +1162,7 @@
 								</div>
 								<div class="metric-box">
 									<span class="metric-val">{benchReport.hook_latency_us} µs</span>
-									<span class="metric-lbl">Hook Latency (&lt;5ms)</span>
+									<span class="metric-lbl">Hook Latency (&lt;10ms)</span>
 								</div>
 								<div class="metric-box">
 									<span class="metric-val">{benchReport.passed_tasks}/{benchReport.evaluated_tasks} PASS · {benchReport.skipped_tasks} skipped</span>

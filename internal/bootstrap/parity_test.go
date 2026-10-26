@@ -327,7 +327,7 @@ func TestReview65ReusedPIDIsNotMCP(t *testing.T) {
 	}
 }
 
-// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 5ms
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
 func TestFilterAndCheckClientMCPProcesses(t *testing.T) {
 	psTree := strings.Join([]string{

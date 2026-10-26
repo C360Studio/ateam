@@ -659,7 +659,7 @@ export function buildOpsItems(state?: DashboardPayload['state'], activeRepo?: st
 }
 
 const DOMAIN_CLUSTERS = [
-	['hook', 'hooks', 'lifecycle', '5ms'],
+	['hook', 'hooks', 'lifecycle', '10ms'],
 	['mcp', 'ateam_state', 'ateam_task', '300 tokens'],
 	['openspec', 'spec:queue', 'spec:check', 'spec-queue', 'spec-check'],
 	['gitea', 'dual-forge'],
