@@ -2,13 +2,13 @@
 
 ATeam is a Go-first lab for testing agent harness configuration. Its portable coordination mechanisms can be useful in other projects, but it does not provide a validated end-to-end workflow for every language. Choose its workflow intentionally: the generated instructions favor Ponytail’s smallest-complete-change discipline, OpenSpec, worktrees, issue-linked draft PRs, and explicit handoffs.
 
-See [how the harness runs](hook-flow.md) for the hook lifecycle and which workflow rules rely on agent cooperation.
+See [bringing ateam into an existing repository](brownfield.md) for a worked path through `init` and `doctor`, and [how the harness runs](hook-flow.md) for the hook lifecycle and which workflow rules rely on agent cooperation.
 
 ## Feature and language boundaries
 
 | Feature | Current behavior |
 | --- | --- |
-| `ateam init` | Writes the same templates regardless of language across Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy` via `.agents/hooks.json` and `.agents/plugins/ateam/`), including ~500k token context/auto-compaction defaults where supported (`.claude/settings.json`, `.codex/config.toml`, `.gemini/settings.json`). Does not inspect manifests to select a toolchain, create a Taskfile, install tools, or migrate existing configuration. Existing client configuration is always preserved, including with `--force`; that flag may overwrite other generated files; missing files are added and ignore entries are appended. |
+| `ateam init` | Writes the same templates regardless of language across Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy` via `.agents/hooks.json` and `.agents/plugins/ateam/`), including ~500k token context/auto-compaction defaults where supported (`.claude/settings.json`, `.codex/config.toml`, `.gemini/settings.json`). Does not inspect manifests to select a toolchain, create a Taskfile, install tools, or migrate existing configuration. Existing client configuration is always preserved, including with `--force`; that flag replaces generated documents and adapters, first copying a hand-written `AGENTS.md`, `CLAUDE.md`, `.agents/protocol.md` or `.agents/rules-index.md` to `<name>.ateam-backup-<YYYYMMDD-HHMMSS>`; missing files are added and ignore entries are appended. |
 | Hooks, modes, pickup/handoff, forge state, board | Operate on repository/session metadata rather than a language compiler. This is architectural portability, not evidence of complete support for every project or agent version. |
 | `ateam test-spec` | Validates attached `// spec:` references on Go Test/Fuzz/executable Example and Vitest declarations against exact OpenSpec requirement headings. This is syntactic attribution, not semantic coverage. Other test frameworks/languages need project-owned enforcement; initialization does not create a Taskfile gate. See [the protocol](../.agents/protocol.md#test-to-spec-attribution). |
 | `ateam review` | Optional project-approved model comparisons and independent review evidence. Requires explicit policy; does not launch models, enforce a runtime sandbox, or install branch protection. See [model review](model-review.md). |
@@ -16,7 +16,7 @@ See [how the harness runs](hook-flow.md) for the hook lifecycle and which workfl
 | `ateam state debt` | Scans only `.go`, `.ts`, `.js`, `.svelte`, `.sh`, `.yml`, `.yaml`. Skips `_test.go` and `.test.ts`, plus generated/dependency directories such as `vendor`, `node_modules`, `dist`, and `build`. Python, Rust, Java, JSX, and TSX files are skipped, not diagnosed as unsupported. |
 | Shortcut syntax | A line must begin with optional whitespace followed by `//`, `#`, or `--`, then `shortcut:`. The first comma separates the limit from its revisit trigger. This is a text scan, not a language parser; trailing code comments and HTML comments are not recognized. |
 | `ateam task` / `ateam_task` | Requires a project-owned `Taskfile.yml` and the Task executable to run targets. Target discovery handles two-space-indented top-level tasks, not the full YAML/includes feature set. Missing Taskfiles or unknown targets produce errors. |
-| `ateam doctor` | Checks local file/configuration parity, schema budget, measured hook latency, whether the running `ateam` binary's embedded VCS commit is behind `HEAD`, and whether duplicate `ateam serve` processes are running. Does not validate your language toolchain, task coverage, or actual live-agent integration. The current latency failure threshold is 25ms; <10ms is the design target. |
+| `ateam doctor` | Checks local file/configuration parity, schema budget, and measured hook latency (warns above the 10ms target, fails `--check` above 25ms; best of three warm runs). `AGENTS.md` and `.agents/rules-index.md` must agree with each other on numbered rule sections and table rows, and `.agents/protocol.md` must keep the phrases the harness depends on, but the rules themselves are yours (#158). Only the five canonical skills (`pickup`, `handoff`, `preflight`, `ponytail`, `review-pr`) get strict checks; other skills are listed as `adopter_skills` and adapter aliases as `skill_aliases` (#159). It warns about completed but unarchived OpenSpec changes, duplicate `ateam serve` processes, and a running `ateam mcp` process that serves this repository and is older than the build it is compared with (`HEAD` in the ateam checkout, the on-disk `bin/ateam` elsewhere); processes serving other repositories are listed but not warned about, and the binary-versus-`HEAD` provenance check applies only in the ateam checkout (#150, #151). Does not validate your language toolchain, task coverage, or actual live-agent integration. |
 | `ateam bench` | Runs built-in offline self-tests (`--selftest`, `--rescore`) and paired Go benchmark experiments (`run`, `compare`, `rescore`) with command or native API adapters (`claude`, `codex`, `gemini`) and versioned instruction bundles ([benchmarks/README.md](../benchmarks/README.md)). Does not benchmark arbitrary non-Go repositories or prove general agent performance gains on real project work. |
 
 Sources: [scanner](../internal/state/shortcut.go), [initialization](../internal/bootstrap/bootstrap.go), [task runner](../internal/taskrunner/taskrunner.go), [mutation runner](../internal/mutate/mutate.go), [CLI](../cmd/ateam/main.go), and [benchmark fixtures](../internal/bench/bench.go).
@@ -55,13 +55,34 @@ A single compiled executable does not mean every command works without external 
 ## Adoption steps
 
 1. Build/install ATeam and make the executable available to your agents. Building ATeam is separate from building the project you want agents to edit.
-2. Review your existing agent instructions and settings. Run `ateam init` in the intended repository; review its diff before using `--force`, which overwrites generated documents/adapters but preserves client settings. Before `--force` replaces a hand-edited `AGENTS.md`, `CLAUDE.md`, `.agents/protocol.md` or `.agents/rules-index.md`, it copies the old bytes to `<name>.ateam-backup-<YYYYMMDD-HHMMSS>` beside the file and lists those paths under `backed_up` in its JSON output; move your own rules back from there. Follow the [MCP migration guide](mcp.md#migrating-existing-configurations) to merge registration into existing files.
+2. Review your existing agent instructions and settings. Run `ateam init` in the intended repository without `--force` and merge what `ateam doctor --check` lists, as in the [brownfield guide](brownfield.md); `--force` is not the migration path. It overwrites generated documents/adapters but preserves client settings. Before it replaces a hand-edited `AGENTS.md`, `CLAUDE.md`, `.agents/protocol.md` or `.agents/rules-index.md`, it copies the old bytes to `<name>.ateam-backup-<YYYYMMDD-HHMMSS>` beside the file and lists those paths under `backed_up` in its JSON output; move your own rules back from there. Follow the [MCP migration guide](mcp.md#migrating-existing-configurations) to merge registration into existing files.
 3. Adapt the instructions to your language and actual delivery policy. Generated references to Go tooling, mutation checks, and verification targets are not automatic implementations of those checks. Keep canonical instructions and adapter/rule-index parity consistent.
 4. Create a `Taskfile.yml` exposing your project's checks. For example, a Python project's `verify` task could run its existing lint/type/test commands. Do not copy ATeam's own Taskfile unchanged: it expects this repository's `cmd/`, `internal/`, `go.mod`, and Svelte `ui/` layout.
 5. Run `ateam doctor --check`, inspect `ateam task list`, and execute the project checks. Separately verify that your installed agent versions actually load the intended instructions, hooks, and MCP settings. A parity pass is not an integration certification.
 6. Use pickup and handoff for continuity. Handoff can post to the open PR; use `--no-post` for a local-only checkpoint.
 
 For non-Go mutation evidence, the shared protocol describes a manual backup/checksum approach. That is a workflow responsibility, not a built-in equivalent of `ateam mutate` for another language.
+
+## Forge tokens
+
+Forge reads (board, sync, pickup, review evidence, the merge check) and writes (PR handoff comments, label bootstrap) can use separate tokens: `ATEAM_TOKEN_READ` for reads and `ATEAM_TOKEN_WRITE` for writes. Either one alone serves both roles. When neither is set, `ateam doctor` warns that reads and writes share one token, in CI too; the warning is intended and does not fail `--check`. The merge check treats the variables differently on each forge:
+
+- **Gitea:** `ateam review gate` and `ateam review check` resolve `ATEAM_TOKEN_READ`, then `ATEAM_TOKEN_WRITE`, then `GITEA_TOKEN`, then `ATEAM_GITEA_TOKEN`.
+- **GitHub:** the merge check ignores the role variables and uses `gh`'s own resolution (`GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth`). `ateam review check` does honor them first.
+
+CI sets neither role variable, so both gates run on the job token. A role token with less access makes the check fail rather than pass.
+
+## The merge gate on GitHub and Gitea
+
+Call the released binary from your own CI or `task verify`; do not copy ateam's workflows or `Taskfile.yml`. `ateam review gate [PR]` exits 0 on pass, 1 on a failed rule, and 2 when a read was unavailable (`scripts/merge-check.sh` is only a wrapper around it). It checks that main requires a status check with the up-to-date rule, that a non-draft code PR carries `implemented-by:` and `reviewed-by:` with a record at its head, and that no `class:flake` issue is open.
+
+| Behavior | GitHub | Gitea |
+| --- | --- | --- |
+| Required check | An active ruleset on `main` requires a status check named `Required` with `strict_required_status_checks_policy`. | Branch protection on `main` requires the context `CI / Required (pull_request)`: workflow name `CI`, job name `Required`. Renaming either breaks the gate. |
+| Transport | Reads go through the `gh` CLI. | HTTPS only; plain HTTP is refused except on a loopback address. |
+| Token in CI | Whatever `gh` finds (`GH_TOKEN` or `GITHUB_TOKEN`). | The Actions job token only, passed as `GITEA_TOKEN`. It cannot read the up-to-date setting, so the gate prints `strict=unverified` and a warning; a local run with an admin token checks it fully. |
+
+Local forge selection: an exported `GITEA_URL` takes priority over a github.com `origin` (unless `ATEAM_FORGE=github`), so unset it when working on a GitHub repository. Forge transport errors print the full request URL, host included, so do not paste gate output from a private Gitea instance into a public place.
 
 ## Optional herdr adapter
 
@@ -88,6 +109,6 @@ The commands validate eligibility and supplied evidence; they do not automatical
 
 ## Ponytail and measurement
 
-The decision ladder is guidance for choosing the smallest complete solution. Its Go implementation injects compact prompts and records a repository discipline mode. `lite`, `full`, and `ultra` vary the wording; `off` suppresses ladder injection but does not erase repository rules or stop all state bookkeeping. These modes do not select a model, change its reasoning budget, or enforce obedience.
+The decision ladder is guidance for choosing the smallest complete solution. Its Go implementation injects compact prompts and records a repository discipline mode. `lite`, `full`, and `ultra` vary the wording (`ultra` here is a Ponytail mode set with `ateam state mode`, unrelated to Claude's multi-agent mode of the same name); `off` suppresses ladder injection but does not erase repository rules or stop all state bookkeeping. These modes do not select a model, change its reasoning budget, or enforce obedience.
 
 The benchmark self-tests (`ateam bench --selftest` and `--rescore <selftest.json>`) establish whether the supplied fixtures and checks behave as expected. Paired experiments (`ateam bench run|compare|rescore`, documented in [benchmarks/README.md](../benchmarks/README.md)) run counterbalanced A/A calibrations and A/B instruction or bundle comparisons against isolated Go tasks, and `ateam bench rescore <run.json>` reruns the Go grader against saved candidate source without invoking the adapter again. Small pilot tasks and calibration runs validate the measurement harness; they do not prove general productivity or quality gains on arbitrary production repositories.
