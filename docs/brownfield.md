@@ -82,8 +82,9 @@ Hooks for Claude Code are the `.claude/settings.json` route that works today: ma
 ```
 
 Codex uses the same shape in `.codex/hooks.json` with `--agent codex`; Gemini uses `SessionStart`, `BeforeAgent`,
-`PreCompress` and `AfterAgent` in `.gemini/settings.json` with `--agent gemini`. Registering these at user scope
-instead of in the project files is tracked in [#128](https://github.com/C360Studio/ateam/issues/128).
+`PreCompress` and `AfterAgent` in `.gemini/settings.json` with `--agent gemini`. If your project pins its settings
+file, register the hooks in `.claude/settings.local.json` or `~/.claude/settings.json` instead and run doctor with
+`ATEAM_HOOK_SCOPE=user`; see [adoption boundaries](adoption.md) for which files each client reads.
 
 Rerun `ateam doctor --check` until `"passed": true`. Then start a session: the `session-start` hook injects the pickup
 summary, and `ateam state pickup` prints it on demand.
