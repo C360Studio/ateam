@@ -456,8 +456,15 @@ func adapterTarget(root, rel, text string) (string, []string) {
 			skill = m[2]
 		}
 		// A match cut short by a character the pattern does not take (SKILL.md~) names a different file.
-		if end := loc[1]; end < len(text) && !strings.ContainsRune(" \t\r\n)]\"'`>,;:#?!*", rune(text[end])) &&
-			!(text[end] == '.' && (end+1 == len(text) || strings.ContainsRune(" \t\r\n", rune(text[end+1])))) {
+		// Inside a Markdown destination "](...)" only the destination's own end, a title or a fragment or
+		// query may follow, so SKILL.md,backup is not checked as SKILL.md; prose may also end on punctuation.
+		before := text[:loc[0]]
+		stops, inDest := " \t\r\n)]\"'`>,;:#?!*", strings.HasSuffix(before, "](") || strings.HasSuffix(before, "](<")
+		if inDest {
+			stops = " \t)>#?"
+		}
+		if end := loc[1]; end < len(text) && !strings.ContainsRune(stops, rune(text[end])) &&
+			(inDest || !(text[end] == '.' && (end+1 == len(text) || strings.ContainsRune(" \t\r\n", rune(text[end+1]))))) {
 			out = append(out, fmt.Sprintf("%s: links to unsupported path %s", rel, strings.Fields(text[loc[0]:])[0]))
 			continue
 		}
