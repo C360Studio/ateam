@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -279,7 +280,22 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 				e.TimeoutSeconds = 5
 			}
 			connected, closed, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			// The adapter makes exactly one provider request on this path: the proxy
+			// and fixture CLIs never retry. Only requests carrying the proxy's path
+			// and credential count; anything else reaching the loopback port is
+			// foreign and must neither fake the handshake nor panic a second close.
+			var requests atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer fixture-inception-secret" {
+					t.Logf("ignored foreign request %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+					http.NotFound(w, r)
+					return
+				}
+				if n := requests.Add(1); n > 1 {
+					t.Errorf("provider request %d from %s: the adapter must make exactly one", n, r.RemoteAddr)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
 				_, _ = io.Copy(io.Discard, r.Body)
 				_ = r.Body.Close()
 				w.WriteHeader(200)
@@ -290,10 +306,17 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 					close(closed)
 				case <-release:
 				}
-
 			}))
 			defer server.Close()
 			defer close(release)
+			foreign, err := http.Get(server.URL + "/")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = foreign.Body.Close()
+			if foreign.StatusCode != http.StatusNotFound {
+				t.Fatalf("foreign request status %d, want 404", foreign.StatusCode)
+			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			type outcome struct {
@@ -428,6 +451,35 @@ func TestMercuryCaptureReadFailures(t *testing.T) {
 			}
 			if replay, replayErr := parseMercuryOutput(raw); replayErr == nil || replay.Usage != nil {
 				t.Fatal("capture failure became valid on replay")
+			}
+		})
+	}
+}
+
+// A loaded host can take seconds to start even a trivial CLI (#186). The
+// version probes bound a hung CLI, so a slow but finishing one must resolve.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Mercury through the existing Claude runtime
+func TestVersionProbeToleratesSlowStartup(t *testing.T) {
+	for _, role := range []string{"claude", "bridge"} {
+		t.Run(role, func(t *testing.T) {
+			e := mercuryFixture(t)
+			path := filepath.Join(filepath.Dir(e.Command[0]), role)
+			script, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// 6s exceeds the former fixed 5s probe bound.
+			slow := strings.Replace(string(script), "#!/bin/sh\n", "#!/bin/sh\nif [ \"$1\" = --version ]; then sleep 6; fi\n", 1)
+			if err := os.WriteFile(path, []byte(slow), 0700); err != nil {
+				t.Fatal(err)
+			}
+			r, err := ResolveExperiment(e, ".")
+			if err != nil {
+				t.Fatalf("slow %s --version: %v", role, err)
+			}
+			if r.ClaudeVersion != "2.1.292 (Claude Code)" || r.MercuryBridgeVersion != mercuryBridgeVersion {
+				t.Fatal("slow probe lost version provenance")
 			}
 		})
 	}

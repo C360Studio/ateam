@@ -61,6 +61,11 @@ func parseNativeOutput(e Experiment, output string) (AdapterResponse, error) {
 	return parseGeminiVersionedOutput(e.Gemini, output)
 }
 
+// versionProbeTimeout only guards against a CLI that never exits; it is not a
+// performance check. A trivial shell --version took up to 5.6s on a loaded
+// race-enabled test run (#186); the real CLIs are Node and Python programs.
+const versionProbeTimeout = 30 * time.Second
+
 func resolveNative(r *ResolvedExperiment, e Experiment) error {
 	if e.Gemini != nil {
 		if err := validateNewGeminiExecution(e.Gemini); err != nil {
@@ -70,7 +75,7 @@ func resolveNative(r *ResolvedExperiment, e Experiment) error {
 	if e.Claude != nil && e.Claude.OutputFormat != "json-schema" {
 		return fmt.Errorf("claude new execution requires output_format json-schema; legacy text format is replay-only")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), versionProbeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, e.Command[0], "--version")
 	configureBenchmarkProcess(cmd)
