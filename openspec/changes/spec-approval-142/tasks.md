@@ -1,0 +1,14 @@
+## 1. Approval
+
+- [ ] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit (#142).
+  Hold: OPEN-Q proposal awaits owner approval
+
+## 2. Implementation
+
+- [x] 2.1 Parse `Approved-by:` from `proposal.md` and expose it as `approved_by` on the change `ScanOpenSpecQueue` returns (#142). Evidence: `OpenSpecChange.ApprovedBy`, `parseProposal` in `internal/state/openspec.go`; "" for an empty or absent header or a missing `proposal.md`; the first header outside ``` / ~~~ fences wins. Test: `TestProposalApprovedByHeader` (filled, empty, missing header, missing proposal, fenced example, first header wins).
+- [x] 2.2 An `OPEN-Q` approval hold keeps the change open (#142). Evidence: no parser change; the hold is a `BLOCKED` caveat whose text names `OPEN-Q`. Test: `TestOpenQApprovalHoldKeepsChangeOpen` (not `IsCompletedUnarchived`, hold on task 1.1, queue output flags it).
+- [x] 2.3 One-page warning: `task spec:check` warns, exit 0, when `proposal.md` exceeds 60 lines (#142). Evidence: `maxProposalLines` and the warning loop in `CheckOpenSpec`. Test: `TestProposalLengthWarning` (60 no warning, 61 warning).
+- [x] 2.4 Protocol, rules and spec (#142). Evidence: `.agents/protocol.md` § 1 spec:check, § 2 Clarify Stop boundary and Close; one `review` row in `AGENTS.md` § 3 and `.agents/rules-index.md`; the `ateam init` mirror in `internal/bootstrap/templates.go` (Clarify line, Close step, one row in each template table) and the aip Close step in `internal/bootstrap/reviewrecord.go`; harness spec scenarios "Proposal awaiting owner approval" and "Proposal over one page".
+- [x] 2.5 Mutation checks with `task mutate:check` (mutants under `/tmp`, `internal/state/openspec.go` SHA-256 unchanged after each) (#142). Evidence: header prefix never matched, fence toggle removed, first-wins removed, value untrimmed, `ApprovedBy` not wired into the scan: each `detection` by `TestProposalApprovedByHeader`. `>` → `>=` and limit 60 → 61: each `detection` by `TestProposalLengthWarning`. Hold capture disabled: `detection` by `TestOpenQApprovalHoldKeepsChangeOpen`; `IsCompletedUnarchived` ignoring caveats: `survivor`, since the held task is itself open and the done count already keeps the change open.
+
+Generated checks: not used. The header parser has one prefix, a fence toggle and first-wins; the table covers each branch. The limit is one comparison, checked at 60 and 61.

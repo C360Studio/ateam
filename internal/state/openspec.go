@@ -37,6 +37,39 @@ type OpenSpecChange struct {
 	TotalTasks     int              `json:"total_tasks"`
 	Caveats        []OpenSpecCaveat `json:"caveats,omitempty"`
 	StrayHolds     []int            `json:"stray_holds,omitempty"`
+	// ApprovedBy is the value of the proposal.md `Approved-by:` header, trimmed. It is ""
+	// when the header is empty, absent, or proposal.md is missing; the change's
+	// `Hold: OPEN-Q` task, not this field, is what keeps an unapproved change open.
+	ApprovedBy string `json:"approved_by,omitempty"`
+	// proposalLines is the line count of proposal.md (0 when missing), for the one-page warning.
+	proposalLines int
+}
+
+// maxProposalLines is the one-page limit for proposal.md; spec:check warns, never fails, past it.
+const maxProposalLines = 60
+
+// parseProposal returns the first `Approved-by:` header value outside code fences and the line count.
+func parseProposal(data []byte) (approvedBy string, lines int) {
+	text := strings.TrimRight(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	if text == "" {
+		return "", 0
+	}
+	all := strings.Split(text, "\n")
+	found, fenced := false, false
+	for _, raw := range all {
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			fenced = !fenced
+			continue
+		}
+		if fenced || found {
+			continue
+		}
+		if v, ok := strings.CutPrefix(trimmed, "Approved-by:"); ok {
+			approvedBy, found = strings.TrimSpace(v), true
+		}
+	}
+	return approvedBy, len(all)
 }
 
 // IsCompletedUnarchived reports whether all tasks in the change are done and no caveats remain.
@@ -277,19 +310,25 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 	for _, name := range names {
 		rel := filepath.ToSlash(filepath.Join("openspec", "changes", name, "tasks.md"))
 		abs := filepath.Join(root, filepath.FromSlash(rel))
+		var ch OpenSpecChange
 		data, err := os.ReadFile(abs)
-		if err != nil {
-			if os.IsNotExist(err) {
-				out = append(out, OpenSpecChange{Name: name})
-				continue
+		switch {
+		case err == nil:
+			if ch, _, err = ParseTasksMarkdown(rel, data); err != nil {
+				return nil, err
 			}
+		case !os.IsNotExist(err):
 			return nil, fmt.Errorf("queue unavailable: cannot read %s", rel)
 		}
-		ch, _, err := ParseTasksMarkdown(rel, data)
-		if err != nil {
-			return nil, err
-		}
 		ch.Name = name
+		propRel := filepath.ToSlash(filepath.Join("openspec", "changes", name, "proposal.md"))
+		prop, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(propRel)))
+		switch {
+		case err == nil:
+			ch.ApprovedBy, ch.proposalLines = parseProposal(prop)
+		case !os.IsNotExist(err):
+			return nil, fmt.Errorf("queue unavailable: cannot read %s", propRel)
+		}
 		out = append(out, ch)
 	}
 	return out, nil
@@ -439,6 +478,11 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	}
 	if misplaced {
 		return out.String(), 1, fmt.Errorf("stray Hold: outside task block")
+	}
+	for _, ch := range changes {
+		if ch.proposalLines > maxProposalLines {
+			fmt.Fprintf(&out, "warning: openspec/changes/%s/proposal.md has %d lines, over the one-page limit of %d; move detail to tasks.md or design.md\n", ch.Name, ch.proposalLines, maxProposalLines)
+		}
 	}
 	if strictSkipped {
 		out.WriteString("openspec: strict validation skipped (node_modules/.bin/openspec not installed; run npm ci at the repository root)\n")
