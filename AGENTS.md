@@ -59,7 +59,7 @@ Domain-grouped reference. `.agents/rules-index.md` carries the matching 3-column
 | `verify+review` | Every intentional deferral uses `// shortcut: <the limit>, <when to upgrade>`, scanned by `ateam state debt` | `internal/state`; `.agents/skills/ponytail/SKILL.md` |
 | `verify+review` | Non-trivial logic ships with a test using an independent oracle and proven able to fail via non-destructive mutation check (`task mutate:check` or `cp` + SHA-256; never `git checkout`/`restore`/`stash`/`reset`), reporting `detection`, `survivor`, `invalid`, or `inconclusive` | `internal/mutate`; `internal/bench`; `.agents/protocol.md` |
 | `verify+review` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (`testing.F` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | `internal/state`; `.agents/protocol.md`; `.agents/skills/preflight/SKILL.md` |
-| `verify+review` | Every Go Test/Fuzz/executable Example and Vitest test carries attached spec references resolved by `task test:spec`; syntactic attribution does not prove semantic coverage | `ateam test-spec`; `.agents/protocol.md` |
+| `verify+review` | Every Go Test/Fuzz/executable Example and Vitest test carries attached spec references (`// spec:` or `//aip:verifies`) resolved by `task test:spec`; syntactic attribution does not prove semantic coverage | `ateam test-spec`; `.agents/protocol.md` |
 | `verify` | Go packages pass `gofmt`, `go vet`, and `revive` with zero warnings | `Taskfile.yml`; `revive.toml` |
 | `review` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | `.agents/skills/ponytail/SKILL.md` |
 
