@@ -112,6 +112,14 @@ func TestHookScopeUserPasses(t *testing.T) {
 				writeFiles(t, dir, map[string]string{".gemini/settings.json": withContextFileName(t, gemini, nil)})
 			},
 			want: map[string]string{"claude": "~/.claude/settings.json"}},
+		{name: "project context.fileName AGENTS.md",
+			setup: func(t *testing.T, dir, home, claudeHooks string) {
+				gemini := readRepoFile(t, dir, ".gemini/settings.json")
+				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": `{"contextFileName": "GEMINI.md"}`})
+				project := strings.Replace(withContextFileName(t, gemini, nil), "{", `{"context": {"fileName": "AGENTS.md"},`, 1)
+				writeFiles(t, dir, map[string]string{".gemini/settings.json": project})
+			},
+			want: map[string]string{"claude": "~/.claude/settings.json"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -213,6 +221,14 @@ func TestHookScopeSensitivity(t *testing.T) {
 				gemini := readRepoFile(t, dir, ".gemini/settings.json")
 				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": gemini})
 				project := withContextFileName(t, strings.ReplaceAll(gemini, "ateam hook --event", "ateam hook --evnt"), "GEMINI.md")
+				writeFiles(t, dir, map[string]string{".gemini/settings.json": project})
+			},
+			want: []string{".gemini/settings.json: missing contextFileName AGENTS.md"}},
+		{name: "project context.fileName GEMINI.md wins over the user settings", scope: "user",
+			setup: func(t *testing.T, dir, home, claudeHooks string) {
+				gemini := readRepoFile(t, dir, ".gemini/settings.json")
+				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": `{"contextFileName": "AGENTS.md"}`})
+				project := strings.Replace(withContextFileName(t, gemini, nil), "{", `{"context": {"fileName": "GEMINI.md"},`, 1)
 				writeFiles(t, dir, map[string]string{".gemini/settings.json": project})
 			},
 			want: []string{".gemini/settings.json: missing contextFileName AGENTS.md"}},

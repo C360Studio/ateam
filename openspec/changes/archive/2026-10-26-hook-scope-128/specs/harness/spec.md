@@ -21,7 +21,7 @@
 
 #### Scenario: Gemini contextFileName
 
-- **WHEN** `.gemini/settings.json` sets `contextFileName` to anything other than `AGENTS.md`, or sets none while either the knob is unset or `~/.gemini/settings.json` is missing, invalid or lacks `contextFileName: "AGENTS.md"`
+- **WHEN** `.gemini/settings.json` sets its context file (the nested `context.fileName`, else the top-level `contextFileName`) to anything other than `AGENTS.md`, or sets none while either the knob is unset or `~/.gemini/settings.json` is missing, invalid or lacks `contextFileName: "AGENTS.md"`
 - **THEN** doctor reports `<file>: missing contextFileName AGENTS.md` naming the file whose value was checked (the project file when it sets a value, as Gemini gives project settings precedence; `~/.gemini/settings.json` when the knob is set, the project file sets none, and that file parses), whichever file carried the hooks
 
 #### Scenario: Unknown knob value

@@ -791,12 +791,26 @@ func inspectHookConfigs(root string) (out []string, sources map[string]string) {
 	return out, sources
 }
 
+// geminiContextFileName returns the context file a Gemini settings object names and whether it names one:
+// the nested context.fileName that current Gemini CLI reads, else the legacy top-level contextFileName.
+func geminiContextFileName(settings map[string]any) (string, bool) {
+	if ctx, ok := settings["context"].(map[string]any); ok {
+		if v, set := ctx["fileName"]; set {
+			s, _ := v.(string)
+			return s, true
+		}
+	}
+	v, set := settings["contextFileName"]
+	s, _ := v.(string)
+	return s, set
+}
+
 // geminiContextViolations requires Gemini's effective contextFileName to be AGENTS.md. Gemini's project
 // settings take precedence over its user settings, so the user file decides only when the project file sets
 // no contextFileName and ATEAM_HOOK_SCOPE=user; the violation names the file whose value was checked.
 func geminiContextViolations(projectLabel string, project map[string]any, user hookFile, userScope bool) []string {
 	label, settings := projectLabel, project
-	if _, set := project["contextFileName"]; !set && userScope {
+	if _, set := geminiContextFileName(project); !set && userScope {
 		if parsed := readJSONObject(user.path); parsed != nil {
 			label, settings = user.label, parsed
 		}
@@ -805,7 +819,7 @@ func geminiContextViolations(projectLabel string, project map[string]any, user h
 		return nil // the project file is missing or invalid, already reported, and no user file decides
 	}
 	// shortcut: contextFileName must be the string "AGENTS.md" (Gemini also takes a list), accept a list containing it when an adopter needs one
-	if v, _ := settings["contextFileName"].(string); v != "AGENTS.md" {
+	if v, _ := geminiContextFileName(settings); v != "AGENTS.md" {
 		return []string{fmt.Sprintf("%s: missing contextFileName AGENTS.md", label)}
 	}
 	return nil
