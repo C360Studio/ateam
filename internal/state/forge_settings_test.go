@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 func installForgeCLI(t *testing.T, name, body string) string {
@@ -76,7 +77,11 @@ func TestConfiguredGitHubTarget(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 func TestGitHubSyncExpandsIssueComments(t *testing.T) {
-	// With no parent deadline the comments attempt gets its 2.5s sub-timeout, and the fake answers it at once.
+	// With no parent deadline the comments attempt gets ghCommentTimeout. Raise it so a loaded race suite cannot push
+	// the fake past the bound and into the comment-free fallback (#188); the budget tests own the timing.
+	saved := ghCommentTimeout
+	ghCommentTimeout = time.Minute
+	t.Cleanup(func() { ghCommentTimeout = saved })
 	installForgeCLI(t, "gh", "case \"$*\" in *comments*) printf '[{\"number\":7,\"title\":\"Pick a store\",\"state\":\"OPEN\",\"comments\":[{\"body\":\"Decision: X\"}]}]'; exit 0;; esac\nprintf '[]'\n")
 	cards, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub, Owner: "chosen", Repo: "target"})
 	if err != nil {
