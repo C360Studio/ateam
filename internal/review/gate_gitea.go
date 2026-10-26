@@ -391,3 +391,28 @@ func giteaCloses(entries []giteaTimelineEntry, pr int, repo string) bool {
 	}
 	return false
 }
+
+func (s *giteaSource) fileAt(ctx context.Context, path, ref string) ([]byte, error) {
+	name := path + " at " + ref
+	segs := strings.Split(path, "/")
+	for i, seg := range segs {
+		segs[i] = url.PathEscape(seg)
+	}
+	p := "/contents/" + strings.Join(segs, "/") + "?ref=" + url.QueryEscape(ref)
+	var c struct {
+		Content  *string `json:"content"`
+		Encoding *string `json:"encoding"`
+	}
+	if _, err := s.get(ctx, name, p, &c); err != nil {
+		var status *forgeStatusError
+		if errors.As(err, &status) && status.code == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	b, ok := gateContent(c.Content, c.Encoding)
+	if !ok {
+		return nil, giteaShape(name, p, "content is not base64 file content")
+	}
+	return b, nil
+}

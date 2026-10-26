@@ -501,3 +501,24 @@ func (s ghSource) closingRefs(ctx context.Context, pr int, _ []gateIssue) ([]str
 	}
 	return urls, nil
 }
+
+func (s ghSource) fileAt(ctx context.Context, path, ref string) ([]byte, error) {
+	name := path + " at " + ref
+	args := []string{"api", "repos/{owner}/{repo}/contents/" + path + "?ref=" + ref}
+	var c struct {
+		Content  *string `json:"content"`
+		Encoding *string `json:"encoding"`
+	}
+	if err := s.ghRead(ctx, name, &c, args...); err != nil {
+		// gh prints the API status on a failed call: "gh: Not Found (HTTP 404)".
+		if strings.Contains(err.Error(), "(HTTP 404)") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	b, ok := gateContent(c.Content, c.Encoding)
+	if !ok {
+		return nil, ghShape(name, args, []byte("content is not base64 file content"))
+	}
+	return b, nil
+}
