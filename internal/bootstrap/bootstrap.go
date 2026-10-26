@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -432,25 +433,36 @@ var requiredSkillMarkers = map[string][]string{
 	"review-pr": {"## 1.", "reviewed-by:", "Reviewed at"},
 }
 
-// skillLinkRe matches a path into .agents/skills/; group 1 is the skill it names.
-var skillLinkRe = regexp.MustCompile(`\.agents/skills/([A-Za-z0-9_-][A-Za-z0-9._-]*)(/[A-Za-z0-9._/-]*)?`)
+// skillLinkRe matches a link into .agents/skills/: group 1 is a leading ./ or ../ chain, group 2 the skill
+// (never ending in "."), group 3 an optional path inside it.
+var skillLinkRe = regexp.MustCompile(`((?:\.\.?/)*)\.agents/skills/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)(/[A-Za-z0-9._/-]*)?`)
 
-// adapterTarget reports every .agents/skills/ link in an adapter that does not exist, and returns the
-// skill its first link names, or "" when it has none.
+// adapterTarget reports every .agents/skills/ link in the adapter at rel that does not name a regular file,
+// and returns the skill its first link names, or "" when it has none. A link with a ./ or ../ prefix resolves
+// from the adapter's directory, a bare one from the repository root, and one naming only a skill means its
+// SKILL.md.
 func adapterTarget(root, rel, text string) (string, []string) {
 	var out []string
 	skill := ""
 	seen := map[string]bool{}
 	for _, m := range skillLinkRe.FindAllStringSubmatch(text, -1) {
 		if skill == "" {
-			skill = m[1]
+			skill = m[2]
 		}
-		target := strings.TrimRight(m[0], ".")
+		sub := strings.TrimRight(m[3], ".")
+		if strings.Trim(sub, "/") == "" {
+			sub = "/SKILL.md"
+		}
+		target := ".agents/skills/" + m[2] + sub
+		if m[1] != "" {
+			target = path.Join(path.Dir(rel), m[1]+target)
+		}
 		if seen[target] {
 			continue
 		}
 		seen[target] = true
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(target))); err != nil {
+		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(target)))
+		if !strings.HasPrefix(target, ".agents/skills/"+m[2]+"/") || err != nil || !info.Mode().IsRegular() {
 			out = append(out, fmt.Sprintf("%s: links to missing %s", rel, target))
 		}
 	}
@@ -491,8 +503,8 @@ func inspectSkills(root string) (out, adopter, aliases []string) {
 	}
 
 	for _, name := range canonicalSkills {
-		// Each adapter's target carries the canonical checks; the Claude and Gemini adapters may resolve
-		// to different skills, and then both targets are checked.
+		// The generic file and each adapter's target carry the canonical checks; the Claude and Gemini
+		// adapters may resolve to different skills, and then every target is checked.
 		var targets []string
 		addTarget := func(skill string) {
 			for _, t := range targets {
@@ -502,11 +514,13 @@ func inspectSkills(root string) (out, adopter, aliases []string) {
 			}
 			targets = append(targets, skill)
 		}
+		// Codex and Antigravity read .agents/skills/ directly, so the generic file is checked even when
+		// both adapters alias elsewhere.
+		addTarget(name)
 
 		claudeRel := ".claude/skills/" + name + "/SKILL.md"
 		if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(claudeRel))); err != nil {
 			out = append(out, fmt.Sprintf("%s: missing Claude skill adapter", claudeRel))
-			addTarget(name)
 		} else {
 			text := string(data)
 			skill := alias(claudeRel, ".claude/skills/"+name, name, text)
@@ -527,7 +541,6 @@ func inspectSkills(root string) (out, adopter, aliases []string) {
 		geminiRel := ".gemini/commands/" + name + ".toml"
 		if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(geminiRel))); err != nil {
 			out = append(out, fmt.Sprintf("%s: missing Gemini command adapter", geminiRel))
-			addTarget(name)
 		} else {
 			text := string(data)
 			skill := alias(geminiRel, geminiRel, name, text)
