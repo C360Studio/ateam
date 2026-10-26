@@ -461,6 +461,10 @@ Verdict: APPROVE | REQUEST CHANGES
 ` + "`" + `` + "`" + `` + "`" + `
 
 Name your provider, exact model, and reasoning effort. Remove the review checkout (` + "`git worktree remove .worktrees/<agent>-review-pr-<n>`" + `) once the comment is posted. End your reply with 1–2 lines naming what you skipped or did not check and any residual risk.
+
+## 5. Clear the Merge Check
+
+The PR's ` + "`Merge check`" + ` job ran when the PR was marked ready, before your record existed, so it has failed. Rerun it once the run has finished: ` + "`run=$(gh run list --branch <head-branch> --workflow ci.yml --limit 1 --json databaseId -q '.[0].databaseId')`" + `, ` + "`gh run watch \"$run\" --exit-status || true`" + `, then ` + "`gh run rerun \"$run\" --failed`" + `. Only the failed jobs rerun, and ` + "`Merge check`" + ` now finds the record at the head it names; ` + "`gh run rerun`" + ` is refused while the run is still in progress, so wait first. On Gitea, rerun the failed job from the Actions page and say so in your reply. Do not update the branch to clear it.
 `,
 }
 
