@@ -1,6 +1,6 @@
 # Change Proposal: `merge-check-approval-note-182`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-26)
 
 ## Why
 
