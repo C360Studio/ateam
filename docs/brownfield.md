@@ -5,16 +5,18 @@ This is the path for a repository that already has its own `AGENTS.md`, `CLAUDE.
 what you merge by hand; when it exits 0 you are done. Boundaries (Go-first, no language detection, parity is not
 integration) are in the [adoption guide](adoption.md); read them first.
 
-Every output below came from a scratch repository on `v0.3.1`: a hand-written `AGENTS.md` and `CLAUDE.md`, a
+Every output below was recorded on the v0.3.2 candidate (`eeda39d`, the commit that landed this guide; the adopter
+checks from #158, #159 and #152 are in it) against a scratch repository: a hand-written `AGENTS.md` and `CLAUDE.md`, a
 `.claude/settings.json` with one permission and one `SessionStart` hook, and a one-task `Taskfile.yml`.
 
 ## 1. Build the binary
 
 Releases carry no binary assets yet, so build from source as in the
-[README](../README.md#prerequisites-and-installation) (use `git checkout v0.3.1` for a tagged build), put `bin/ateam` on the PATH of your agents, and check it:
+[README](../README.md#prerequisites-and-installation) (released adopters: `git checkout v0.3.2`; reviewing before that tag exists: build `main` at or after `eeda39d`. Do not
+build `v0.3.1`: it predates the adopter checks this guide describes), put `bin/ateam` on the PATH of your agents, and check it:
 
 ```bash
-ateam version   # ateam v0.3.1 (<commit>)
+ateam version   # ateam v0.3.2 (<commit>)
 ```
 
 ## 2. Run init without `--force`
@@ -95,9 +97,13 @@ summary, and `ateam state pickup` prints it on demand.
   strictly: numbered steps, workflow markers, and an adapter that links to them. Any other directory under
   `.agents/skills/` is an adopter skill, listed as `adopter_skills` and checked only for links that resolve. To use
   your own `preflight`, put it at `.agents/skills/<yours>/SKILL.md` and point the Claude and Gemini adapters at it;
-  doctor reports `skill_aliases` such as `alias: .claude/skills/preflight -> .agents/skills/acme-preflight`. Keep the
-  generic `.agents/skills/preflight/SKILL.md`: Codex and Antigravity read it directly, so doctor still requires it
-  with its markers (`## 1.`, `task verify`, `Record Evidence`); deleting it fails with `missing canonical skill`.
+  doctor reports `skill_aliases` such as `alias: .claude/skills/preflight -> .agents/skills/acme-preflight`. An aliased
+  target inherits the canonical skill's obligations: it is not an ordinary adopter skill, and doctor requires `## 1.`
+  and the canonical markers in it (`task verify` and `Record Evidence` for preflight; `Goal:` and `ateam state handoff`
+  for handoff; `Verify Write Ownership` and `ateam state pickup` for pickup). Add the markers to your file or
+  consolidate onto the generic one. Keep the generic `.agents/skills/preflight/SKILL.md` either way: Codex and
+  Antigravity read it directly, so doctor still requires it with its markers; deleting it fails with
+  `missing canonical skill`.
 - **Verification.** Do not copy ateam's `Taskfile.yml`. Keep your own `task verify` or CI entry point and add the
   `ateam` binary to it: `ateam doctor --check` for parity, and `ateam review gate <pr>` for the merge gate (see
   [the merge gate](adoption.md#the-merge-gate-on-github-and-gitea)).
