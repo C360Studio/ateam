@@ -466,6 +466,10 @@ func fetchTeaCLICards(ctx context.Context, root string) ([]BoardCard, error) {
 	return cards, nil
 }
 
+// ghCommentTimeout bounds the open-issues-with-comments call when the caller set no deadline. A variable so a test
+// can prove comment expansion without racing the bound on a loaded machine (#188).
+var ghCommentTimeout = 2500 * time.Millisecond
+
 func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
 	var repoArgs []string
 	if cfg.Owner != "" || cfg.Repo != "" || cfg.BaseURL != "" {
@@ -481,7 +485,7 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 	var cards []BoardCard
 
 	// G-06: Attempt issue fetch with comments under a bounded sub-timeout that leaves at least 2/3 of any parent deadline for the comment-free fallback (the other lists run alongside it).
-	issueTimeout := 2500 * time.Millisecond
+	issueTimeout := ghCommentTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		issueTimeout = 750 * time.Millisecond
 		if sub := time.Until(deadline) / 3; sub > 0 && sub < issueTimeout {
