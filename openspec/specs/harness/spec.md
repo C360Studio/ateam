@@ -524,17 +524,22 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 #### Scenario: Claude hooks at user scope
 
 - **WHEN** `ATEAM_HOOK_SCOPE=user` is set and `.claude/settings.json` has no ateam hooks, but `.claude/settings.local.json` or `~/.claude/settings.json` (read in that order) carries every required `ateam hook --event <event>` command and `--agent claude`
-- **THEN** doctor reports no Claude hook violation and names the file that carried the hooks; Codex reads `~/.codex/hooks.json` and Gemini `~/.gemini/settings.json` the same way, and Gemini's `contextFileName` may come from the project file or from the user file that carried the hooks
+- **THEN** doctor reports no Claude hook violation and names the file that carried the hooks; Codex reads `~/.codex/hooks.json` and Gemini `~/.gemini/settings.json` the same way
 
-#### Scenario: Partial, malformed or split user-scope hooks
+#### Scenario: Partial, malformed or split local or user-scope hooks
 
-- **WHEN** `ATEAM_HOOK_SCOPE=user` is set, the project file lacks the hooks, and no single user-scope file is valid JSON carrying every required event and the client's `--agent` (hooks split across files count as missing)
-- **THEN** doctor reports the project file's violations and each user-scope file's, for example `~/.claude/settings.json: invalid JSON` or `~/.claude/settings.json: missing hook command for event <event>`
+- **WHEN** `ATEAM_HOOK_SCOPE=user` is set, the project file lacks the hooks, and no single local or user-scope file is valid JSON carrying every required event and the client's `--agent` (hooks split across files count as missing)
+- **THEN** doctor reports the project file's violations and each local or user-scope file's, for example `~/.claude/settings.json: invalid JSON` or `~/.claude/settings.json: missing hook command for event <event>`
 
 #### Scenario: Knob unset
 
 - **WHEN** `ATEAM_HOOK_SCOPE` is unset and `.claude/settings.json` has no ateam hooks
-- **THEN** doctor reports `missing hook command for event <event>` for `.claude/settings.json`, as before, whatever the user-scope files contain
+- **THEN** doctor reports `missing hook command for event <event>` for `.claude/settings.json`, as before, whatever the local and user-scope files contain
+
+#### Scenario: Gemini contextFileName
+
+- **WHEN** `.gemini/settings.json` sets `contextFileName` to anything other than `AGENTS.md`, or sets none while either the knob is unset or `~/.gemini/settings.json` is missing, invalid or lacks `contextFileName: "AGENTS.md"`
+- **THEN** doctor reports `<file>: missing contextFileName AGENTS.md` naming the file whose value was checked (the project file when it sets a value, as Gemini gives project settings precedence; `~/.gemini/settings.json` when the knob is set, the project file sets none, and that file parses), whichever file carried the hooks
 
 #### Scenario: Unknown knob value
 

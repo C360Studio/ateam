@@ -703,8 +703,6 @@ func inspectSkills(root string) (out, adopter, aliases []string) {
 // reads each client's documented user-scope hook file (#128).
 const hookScopeEnv = "ATEAM_HOOK_SCOPE"
 
-const geminiContextFile = `"contextFileName": "AGENTS.md"`
-
 type hookFile struct {
 	label string // reported name: repo-relative, or ~/-prefixed for the user's home
 	path  string // empty when the home directory cannot be resolved
@@ -714,12 +712,12 @@ type hookClient struct {
 	agent   string
 	project string   // repo-relative project hook file
 	events  []string // ateam hook events the file must register
-	// user lists the client's user-scope hook files in the order doctor reads them, "~/" meaning the
+	// user lists the client's local and user-scope hook files in the order doctor reads them, "~/" meaning the
 	// home directory; nil means doctor reads none for this client.
 	user []string
 }
 
-// hookClients lists each client's project hook file and its documented user-scope hook files (sources in
+// hookClients lists each client's project hook file and its documented local and user-scope hook files (sources in
 // openspec/changes/archive/2026-10-26-hook-scope-128/tasks.md).
 var hookClients = []hookClient{
 	{agent: "claude", project: ".claude/settings.json", events: requiredHooks,
@@ -745,7 +743,7 @@ func checkHookConfigs(root string) []string {
 }
 
 // inspectHookConfigs checks each client's hook file. With ATEAM_HOOK_SCOPE=user, a client whose project file
-// lacks the hooks passes when one user-scope file carries all of them on its own: hooks split across files
+// lacks the hooks passes when one local or user-scope file carries all of them on its own: hooks split across files
 // fail, so a partial or malformed file never passes.
 func inspectHookConfigs(root string) (out []string, sources map[string]string) {
 	sources = map[string]string{}
@@ -753,30 +751,30 @@ func inspectHookConfigs(root string) (out []string, sources map[string]string) {
 	if scope != "" && scope != "user" {
 		out = append(out, fmt.Sprintf("%s=%s: unknown value; set it to user or unset it", hookScopeEnv, scope))
 	}
+	userScope := scope == "user"
 	home, homeErr := os.UserHomeDir()
+	resolve := func(label string) hookFile {
+		rest, ok := strings.CutPrefix(label, "~/")
+		if !ok {
+			return hookFile{label: label, path: filepath.Join(root, filepath.FromSlash(label))}
+		}
+		if homeErr != nil {
+			return hookFile{label: label}
+		}
+		return hookFile{label: label, path: filepath.Join(home, filepath.FromSlash(rest))}
+	}
 	for _, c := range hookClients {
-		text, violations := hookFileViolations(hookFile{c.project, filepath.Join(root, filepath.FromSlash(c.project))}, c.agent, c.events)
+		project, violations := hookFileViolations(resolve(c.project), c.agent, c.events)
 		source := c.project
-		if len(violations) > 0 && scope == "user" {
+		if len(violations) > 0 && userScope {
 			source = ""
 			if c.user == nil {
 				violations = append(violations, fmt.Sprintf("%s: %s=user, but %s has no user-scope hooks doctor reads", c.project, hookScopeEnv, c.agent))
 			}
 			for _, label := range c.user {
-				f := hookFile{label: label, path: filepath.Join(root, filepath.FromSlash(label))}
-				if rest, ok := strings.CutPrefix(label, "~/"); ok {
-					f.path = ""
-					if homeErr == nil {
-						f.path = filepath.Join(home, filepath.FromSlash(rest))
-					}
-				}
-				userText, userViolations := hookFileViolations(f, c.agent, c.events)
+				_, userViolations := hookFileViolations(resolve(label), c.agent, c.events)
 				if len(userViolations) == 0 {
 					source, violations = label, nil
-					// Gemini merges its settings layers, so the user file may carry contextFileName.
-					if !strings.Contains(text, geminiContextFile) {
-						text = userText
-					}
 					break
 				}
 				violations = append(violations, userViolations...)
@@ -786,27 +784,63 @@ func inspectHookConfigs(root string) (out []string, sources map[string]string) {
 		if len(violations) == 0 {
 			sources[c.agent] = source
 		}
-		if c.agent == "gemini" && text != "" && !strings.Contains(text, geminiContextFile) {
-			out = append(out, fmt.Sprintf("%s: missing contextFileName AGENTS.md", c.project))
+		if c.agent == "gemini" {
+			out = append(out, geminiContextViolations(c.project, project, resolve("~/.gemini/settings.json"), userScope)...)
 		}
 	}
 	return out, sources
 }
 
-// hookFileViolations reads one hook file and reports what it lacks; text is the file's content when it parses.
-func hookFileViolations(f hookFile, agent string, events []string) (text string, out []string) {
+// geminiContextViolations requires Gemini's effective contextFileName to be AGENTS.md. Gemini's project
+// settings take precedence over its user settings, so the user file decides only when the project file sets
+// no contextFileName and ATEAM_HOOK_SCOPE=user; the violation names the file whose value was checked.
+func geminiContextViolations(projectLabel string, project map[string]any, user hookFile, userScope bool) []string {
+	label, settings := projectLabel, project
+	if _, set := project["contextFileName"]; !set && userScope {
+		if parsed := readJSONObject(user.path); parsed != nil {
+			label, settings = user.label, parsed
+		}
+	}
+	if settings == nil {
+		return nil // the project file is missing or invalid, already reported, and no user file decides
+	}
+	// shortcut: contextFileName must be the string "AGENTS.md" (Gemini also takes a list), accept a list containing it when an adopter needs one
+	if v, _ := settings["contextFileName"].(string); v != "AGENTS.md" {
+		return []string{fmt.Sprintf("%s: missing contextFileName AGENTS.md", label)}
+	}
+	return nil
+}
+
+func readJSONObject(path string) map[string]any {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var parsed map[string]any
+	if json.Unmarshal(data, &parsed) != nil {
+		return nil
+	}
+	return parsed
+}
+
+// hookFileViolations reads one hook file and reports what it lacks; parsed is the file's JSON object when
+// it parses.
+func hookFileViolations(f hookFile, agent string, events []string) (parsed map[string]any, out []string) {
 	if f.path == "" {
-		return "", []string{fmt.Sprintf("%s: cannot resolve the home directory", f.label)}
+		return nil, []string{fmt.Sprintf("%s: cannot resolve the home directory", f.label)}
 	}
 	data, err := os.ReadFile(f.path)
 	if err != nil {
-		return "", []string{fmt.Sprintf("%s: missing hook config file", f.label)}
+		return nil, []string{fmt.Sprintf("%s: missing hook config file", f.label)}
 	}
-	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
-		return "", []string{fmt.Sprintf("%s: invalid JSON: %v", f.label, err)}
+		return nil, []string{fmt.Sprintf("%s: invalid JSON: %v", f.label, err)}
 	}
-	text = string(data)
+	text := string(data)
+	// shortcut: hook commands match as substrings anywhere in the file so turn-ended satisfies turn-end and --agent may sit outside the hooks, parse hooks.<event>[].hooks[].command and match tokens exactly (#177)
 	for _, ev := range events {
 		if !strings.Contains(text, "ateam hook --event "+ev) {
 			out = append(out, fmt.Sprintf("%s: missing hook command for event %s", f.label, ev))
@@ -815,7 +849,7 @@ func hookFileViolations(f hookFile, agent string, events []string) (text string,
 	if !strings.Contains(text, "--agent "+agent) {
 		out = append(out, fmt.Sprintf("%s: missing --agent %s in hook commands", f.label, agent))
 	}
-	return text, out
+	return parsed, out
 }
 
 func checkAntigravityConfigs(root string) []string {

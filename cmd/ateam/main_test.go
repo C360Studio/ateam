@@ -18,6 +18,15 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
+// TestMain clears ATEAM_HOOK_SCOPE so a developer's exported knob does not change the doctor runs here, which
+// inherit this environment, or let them read the developer's home directory.
+func TestMain(m *testing.M) {
+	if err := os.Unsetenv("ATEAM_HOOK_SCOPE"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
+
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
