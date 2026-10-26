@@ -264,7 +264,7 @@ func resolve(root, ref string) error {
 		return err
 	}
 	count := 0
-	eachUnfencedLine(data, func(line string) {
+	EachUnfencedLine(data, func(line string) {
 		if line == "### "+heading {
 			count++
 		}
@@ -295,8 +295,9 @@ func readSpec(root, path string) (string, error) {
 	return string(data), nil
 }
 
-// eachUnfencedLine calls fn for every line of data outside Markdown code fences.
-func eachUnfencedLine(data string, fn func(line string)) {
+// EachUnfencedLine calls fn for every line of data outside Markdown code fences. A fence closes
+// only on the opener's character, at least its length, with nothing after it.
+func EachUnfencedLine(data string, fn func(line string)) {
 	var fence byte
 	fenceLength := 0
 	for _, line := range strings.Split(data, "\n") {
@@ -352,7 +353,7 @@ func scenarioIndex(root string) ([]string, []string) {
 			problems = append(problems, rel+": "+err.Error())
 			continue
 		}
-		eachUnfencedLine(data, func(line string) {
+		EachUnfencedLine(data, func(line string) {
 			if rest, ok := strings.CutPrefix(line, header); ok {
 				headers = append(headers, rest)
 			}

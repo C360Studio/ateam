@@ -82,6 +82,17 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **WHEN** a change directory remains under `openspec/changes/<id>` with all tasks completed (`N/N`, `N > 0`) and zero caveats
 - **THEN** `ateam state spec-queue` prints `done, not archived — move openspec/changes/<id> to openspec/changes/archive/<date>-<id>` instead of `ok`, `BuildPickupSummary` lists it separately under `OpenSpec completed changes (done, not archived)` rather than `OpenSpec in-flight changes`, and `ateam doctor` emits a warning naming the unarchived change
 
+#### Scenario: Proposal awaiting owner approval
+
+- **WHEN** a change's `proposal.md` has an empty `Approved-by:` line and its first open task carries `Hold: OPEN-Q proposal awaits owner approval`, every other task being done
+- **THEN** `ateam state spec-queue` reports the change with an empty `approved_by` and flags the hold rather than printing `done, not archived`
+- **AND** once the owner fills `Approved-by: <name> (<YYYY-MM-DD>)` and removes the hold, `approved_by` carries that value; an `Approved-by:` line inside a code fence is not the header
+
+#### Scenario: Proposal over one page
+
+- **WHEN** a change's `proposal.md` has 61 or more lines
+- **THEN** `ateam state spec-check` prints `warning: openspec/changes/<id>/proposal.md has <n> lines, over the one-page limit of 60` and still exits 0; at 60 lines it prints no warning
+
 ### Requirement: Dual-forge GitHub and Gitea state sync
 
 `ateam` SHALL support both GitHub (`gh` CLI and REST API) and Gitea (`tea` CLI and `/api/v1` REST API) for listing issues, pull requests, and bootstrapping standard workflow labels (`type:epic`, `status:needs-decision`, `status:blocked`, `class:flake`).

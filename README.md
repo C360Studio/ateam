@@ -8,13 +8,13 @@ The questions are practical: does a change to shared instructions, skills, hooks
 
 Today, the benchmark workflow supports versioned instruction comparisons with shared runner/model settings, independent grading, retained failures and offline replay. Native skill/hook activation evidence and same-model cross-runtime comparisons remain roadmap work. Existing fixtures and small API calibrations do **not** establish that ATeam improves agent performance. See the [benchmark roadmap](https://github.com/C360Studio/ateam/issues/16) for delivered capabilities, open work and evidence limits.
 
-For the event-by-event lifecycle, state changes, and design rationale, read [how the harness runs](docs/hook-flow.md). For optional stronger-model review, setup, and scoped owner exceptions, read [model routing and independent review](docs/model-review.md). For paired benchmark runs, native API adapters, and versioned instruction bundles, read [benchmark experiments](benchmarks/README.md).
+To bring `ateam` into a repository that already has its own instructions, hooks, and Taskfile, follow [the brownfield guide](docs/brownfield.md). For the event-by-event lifecycle, state changes, and design rationale, read [how the harness runs](docs/hook-flow.md). For optional stronger-model review, setup, and scoped owner exceptions, read [model routing and independent review](docs/model-review.md). For paired benchmark runs, native API adapters, and versioned instruction bundles, read [benchmark experiments](benchmarks/README.md).
 
 ## Opinions and Boundaries
 
 ATeam adapts Ponytail’s decision ladder and supporting mechanisms into Go: question whether code needs to exist, reuse what is already available, prefer the standard library and installed dependencies, and finish the smallest complete change. Its workflow also favors isolated worktrees, issue-linked draft PRs, OpenSpec task lists, explicit handoffs, and tests demonstrated to catch wrong behavior. These are deliberate choices that adopters should review.
 
-Ponytail modes (`lite`, `full`, `ultra`, `off`) change injected guidance. They do not guarantee agent compliance or tune model/provider settings; `off` does not remove written repository instructions or disable all harness bookkeeping.
+Ponytail modes (`lite`, `full`, `ultra`, `off`) change injected guidance. They do not guarantee agent compliance or tune model/provider settings; `off` does not remove written repository instructions or disable all harness bookkeeping. `ultra` is a Ponytail mode set with `ateam state mode`; it is unrelated to Claude's multi-agent mode of the same name.
 
 **Go is the primary development target, not merely the implementation language.** Mutation checks only accept Go source. Coordination features are largely language-independent, but initialization does not detect or adapt to a project’s language, shortcut scanning covers a fixed set of extensions, and each adopting project must supply its own verification tasks. Other languages are not validated as complete supported workflows.
 
@@ -37,7 +37,7 @@ Every part of `ateam` is designed to solve one of those four problems directly:
 - **Preconfigured ~500k auto-compaction defaults where supported:** To reduce long-context attention drift on 1M-token models and fire pre-compaction checkpoints before quality degrades, `ateam init` scaffolds ~500k token context/auto-compaction settings in `.claude/settings.json` (`"autoCompactWindow": 500000`), `.codex/config.toml` (`model_context_window = 500000` and `model_auto_compact_token_limit = 450000`), and `.gemini/settings.json` (`"model": {"chatCompression": {"contextPercentageThreshold": 0.5}}`). Antigravity (`agy`) does not expose a configurable compaction threshold key in `settings.json` and relies on built-in checkpointing plus manual `/compact`, `/context`, `/btw`, and subagents.
 - **Shared truth in Git, OpenSpec, and GitHub/Gitea—cached locally for speed:** Issues and pull requests live on **GitHub** or **Gitea**. Specs and task checklists live in `openspec/`. Active work lives in git worktrees. `ateam` caches a local snapshot in `.ateam/state.json` (gitignored) so lifecycle hooks can read repository state without making network calls on every prompt. Sub-10ms hooks are a design target, not a guarantee for every repository size.
 - **One static Go binary (`ateam`):** Lifecycle hooks (`ateam hook`), the MCP server (`ateam mcp`), state inspection and optional `herdr` integration (`ateam state`), model review checks (`ateam review`), test-to-spec attribution (`ateam test-spec`), mutation checks (`ateam mutate`), offline self-tests and paired experiments (`ateam bench`), and the web board (`ateam serve`) share one compiled binary. Hooks avoid external subprocesses, while other commands require tools such as Git, Go, or Task; see the [dependency table](docs/adoption.md#command-dependencies).
-- **Two MCP tools under 300 tokens:** Instead of one MCP tool per action, `ateam mcp` exposes only `ateam_state` (pickup, handoff, debt, mode, OpenSpec checks, cached board) and `ateam_task` (list and run `Taskfile.yml` targets). Tool definitions are approximately 177 tokens by the bytes/4 estimate. See the [MCP setup and tool guide](docs/mcp.md) for registration, prompts/resources, side effects, and connection checks.
+- **Two MCP tools under 300 tokens:** Instead of one MCP tool per action, `ateam mcp` exposes only `ateam_state` (pickup, handoff, debt, mode, OpenSpec checks, cached board) and `ateam_task` (list and run `Taskfile.yml` targets). Tool definitions are approximately 190 tokens by the bytes/4 estimate. See the [MCP setup and tool guide](docs/mcp.md) for registration, prompts/resources, side effects, and connection checks.
 - **Source-code comments instead of separate debt files:** Intentional shortcuts are marked right where they happen (`// shortcut: <what is limited>, <when to upgrade>`) and scanned from source by `ateam state debt`. Task blockers are marked inline in `openspec/changes/<id>/tasks.md` with `Hold: <reason>`.
 - **Non-destructive mutation testing (`ateam mutate`):** To verify that a unit test actually catches a bug, `ateam mutate` runs `go test -overlay` against a temporary modified file outside your repository—never touching your working tree or running destructive `git checkout` / `git restore` commands.
 
@@ -69,11 +69,11 @@ rm -rf internal/web/dist && cp -R ui/build internal/web/dist
 go build -o bin/ateam ./cmd/ateam
 ```
 
-Expose `./bin/ateam` on your `PATH`—for example, symlink it into `~/.local/bin/ateam` (`ln -sf "$PWD/bin/ateam" ~/.local/bin/ateam`) so `brew doctor` is unaffected and desktop hosts (such as Enjoy) pick up rebuilds in place—so Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy`) can invoke `ateam` from their hook and MCP configurations.
+Expose `./bin/ateam` on your `PATH`—for example, symlink it into `~/.local/bin/ateam` (`ln -sf "$PWD/bin/ateam" ~/.local/bin/ateam`) so `brew doctor` is unaffected and desktop hosts (such as Enjoy) pick up rebuilds in place—so Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy`) can invoke `ateam` from their hook and MCP configurations. Check which build you are running with `ateam version`, which prints the release and the commit it was built from (for example `ateam v0.3.1 (aed74b7)`; a build from a dirty tree appends `-dirty`). GitHub releases carry no prebuilt binaries yet.
 
 ---
 
-## Getting Started in 5 Steps
+## Getting Started in 8 Steps
 
 ### 1. Initialize a repository (`ateam init`)
 
@@ -83,10 +83,10 @@ Run `ateam init` inside your project repository (or pass `--dir /path/to/repo`):
 ateam init
 ```
 
-This creates missing harness files. Existing client configuration is always preserved; `--force` can replace other generated files such as documents and adapters. `.gitignore` entries are appended separately. It installs the same opinionated templates for every language and does **not** create a `Taskfile.yml` or install project tools. Review the generated instructions and supply your own verification tasks before asking an agent to follow them:
+This creates missing harness files. Existing client configuration is always preserved; `--force` replaces generated documents and adapters, first copying a hand-written `AGENTS.md`, `CLAUDE.md`, `.agents/protocol.md` or `.agents/rules-index.md` to `<name>.ateam-backup-<timestamp>` and listing it under `backed_up`. `.gitignore` entries are appended separately. In a repository that already has its own instructions, run `init` without `--force` and follow [the brownfield guide](docs/brownfield.md). It installs the same opinionated templates for every language and does **not** create a `Taskfile.yml` or install project tools. Review the generated instructions and supply your own verification tasks before asking an agent to follow them:
 
 - `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`)
-- `.agents/protocol.md`, `.agents/rules-index.md`, `.agents/README.md`, and `.agents/skills/{pickup,handoff,preflight,ponytail}/SKILL.md`
+- `.agents/protocol.md`, `.agents/rules-index.md`, `.agents/README.md`, and `.agents/skills/{pickup,handoff,preflight,ponytail,review-pr}/SKILL.md`
 - `.agents/contracts/developer.md` and `.agents/contracts/reviewer.md`
 - `.agents/hooks.json` and `.agents/plugins/ateam/{plugin.json,mcp_config.json}` (Antigravity lifecycle hooks and workspace MCP plugin)
 - `.claude/settings.json` (hooks + `"autoCompactWindow": 500000`), `.claude/skills/*/SKILL.md`, and `.mcp.json` (MCP registration)
@@ -105,23 +105,29 @@ ateam init --gitea
 
 ### 2. Check your setup (`ateam doctor`)
 
-Check local instruction/configuration parity, estimated MCP schema size, and measured hook latency. This does not prove that each installed agent CLI consumes the configuration correctly or that your project verification tasks exist:
+Check local instruction/configuration parity, estimated MCP schema size, and measured hook latency (best of three warm runs; the 10ms target only warns, the 25ms ceiling fails `--check`). This does not prove that each installed agent CLI consumes the configuration correctly or that your project verification tasks exist:
 
 ```bash
 ateam doctor --check
 ```
 
-Example output:
+Example output (abridged):
 
 ```json
 {
-  "hook_latency_us": 2761,
-  "mcp_schema_bytes": 706,
-  "mcp_schema_tokens": 177,
+  "hook_latency_budget_us": 10000,
+  "hook_latency_us": 4371,
+  "mcp_schema_bytes": 759,
+  "mcp_schema_tokens": 190,
   "passed": true,
-  "violations": null
+  "violations": null,
+  "warnings": [
+    "forge reads and writes share one token; set ATEAM_TOKEN_READ and ATEAM_TOKEN_WRITE to separate tokens scoped to each role"
+  ]
 }
 ```
+
+That token warning is intended for solo setups and never fails the check.
 
 Model review is opt-in: `init` installs the role contracts but does not choose models or install a policy. Follow the [adoption steps](docs/adoption.md#optional-model-review) to approve model relationships, configure routes, and establish a trusted baseline before checking review evidence.
 
@@ -133,26 +139,31 @@ When starting a session—or picking up work from an earlier session or another 
 ateam state pickup
 ```
 
-Or use the `/pickup` skill inside Claude Code, Codex CLI, Gemini CLI, or Antigravity (`agy`). `pickup` reconciles your live git branch, `HEAD` SHA, uncommitted changes, active git worktrees, open `Hold:` items, `// shortcut:` comments, and any commits made since the last recorded handoff.
+Or use the `/pickup` skill inside Claude Code, Codex CLI, Gemini CLI, or Antigravity (`agy`). `pickup` reconciles your live git branch, `HEAD` SHA, uncommitted changes, active git worktrees, open `Hold:` items, `// shortcut:` comments, and any commits made since the last recorded handoff. Each worktree is listed with its PR status (`open PR #185`, `merged via #57`, `no PR`, and so on) and, indented beneath it, the handoffs recorded inside that worktree (`handoff: <goal> (<agent>@<branch>, <age>[, stale])`), so a session in `main` sees work parked in other worktrees.
 
 ### 4. Write code, track blockers, and verify tests
 
 While working on a change:
 
 - **Track multi-step specs and blockers in `openspec/`:** Put change proposals and task checklists in `openspec/changes/<change-id>/tasks.md`. If a task is blocked, add `Hold: <reason>` indented under that task item:
+
   ```markdown
   ## Tasks
 
   - [ ] 1.1 Wire webhook signature verification
     Hold: waiting on secret rotation in staging
   ```
+
   Inspect all in-flight changes and holds with `ateam state spec-queue` (or `task spec:queue`), and validate spec formatting with `ateam state spec-check` (or `task spec:check`).
 - **Mark temporary code limits inline:** If you intentionally defer an edge case, add a comment in the code:
+
   ```go
   // shortcut: only first page of comments is fetched, paginate when issue comments exceed 30
   ```
+
   Run `ateam state debt` at any time to list matching comments in supported source files, with file and line number. The [scanner limits](docs/adoption.md#feature-and-language-boundaries) matter for other languages.
 - **Prove a test fails when the code is broken (`ateam mutate`):** Copy the file you want to test to `/tmp`, introduce a bug in the copy, and run `ateam mutate` (or `task mutate:check`):
+
   ```bash
   ateam mutate \
     -pkg ./internal/state \
@@ -161,6 +172,7 @@ While working on a change:
     -mutant /tmp/forge_bad.go \
     -expect-text "VerifyWebhookHMAC"
   ```
+
   `ateam mutate` runs `go test -overlay` so your working tree is never modified, and reports one of four outcomes:
   - `detection`: baseline passed, mutant failed with the expected message, and post-check passed.
   - `survivor`: the mutated line was executed by the test, but the test still passed.
@@ -168,9 +180,11 @@ While working on a change:
   - `inconclusive`: the baseline test failed, timed out, or failed with an unrelated error.
 - **Attribute tests to requirements:** Attach `// spec: openspec/specs/<capability>/spec.md#Requirement: Exact heading` to each Go test/fuzz/executable example and each Vitest test. Run `task test:spec` to catch missing or stale references. This checks attribution syntax and existing targets; reviewers still assess whether assertions prove the cited behavior. See [the attribution protocol](.agents/protocol.md#test-to-spec-attribution).
 - **Run the full verification suite (`task verify`):**
+
   ```bash
   task verify
   ```
+
   This checks Go formatting, OpenSpec validity, `go mod tidy`, `go vet`, `revive` linting, Go unit tests with the race detector, offline benchmark self-tests, and UI type/unit tests.
 
 ### 5. Hand off work at the end of a session (`ateam state handoff`)
@@ -187,6 +201,41 @@ ateam state handoff \
 ```
 
 This updates `.ateam/state.json`, releases the active session's writer lease (`.ateam/writer.json`), posts the 5-field handoff comment to the open PR on GitHub or Gitea (pass `--no-post` to stay local-only), and prints the 5-field pickup prompt for the next session.
+
+### 6. Claim the work (`Claim` gate)
+
+Work in its own worktree on an agent-prefixed branch, backed by a draft PR that says what it closes, and for non-trivial work an OpenSpec change. In practice you do this before step 4:
+
+```bash
+git worktree add .worktrees/claude-my-topic -b claude/my-topic
+cd .worktrees/claude-my-topic
+gh pr create --draft --title "docs: my topic" --body "Closes #12"
+```
+
+Use `codex/<topic>` or `gemini/<topic>` for the other agents; on Gitea open the draft PR through its web UI, `tea`, or API. `ateam state pickup` then labels the worktree with its PR, and it is yours to remove once the PR lands.
+
+### 7. Prove it and get it reviewed (`Merge` gate)
+
+In this repository the gates are `task verify`, `ateam doctor --check`, and `ateam bench --selftest`; an adopting project supplies its own verification entry point. A non-draft code PR (any file outside `.md` and `openspec/**/*.{md,yml,yaml,json}`) must carry `implemented-by:` and `reviewed-by:` lines in its description, each naming an agent with its model and effort, for example `claude (opus, high)`. The strength gate then runs `ateam review compare`: the reviewer may not be weaker than any implementer by model tier, then effort band, as ranked in `.agents/review-policy.json`; with `"cross_provider": true` (set in this repository, optional for adopters) it must also be a different agent. The reviewer, in a fresh context, posts a PR comment in the [reviewer contract](.agents/contracts/reviewer.md#record) grammar (`reviewed-by: <agent> (<model>, <effort>)` and `Reviewed at <sha>`); the `review-pr` skill (`/review-pr`) does this. A later commit that is not a clean merge of `main` or docs-only needs a new record. Check it all before arming auto-merge:
+
+```bash
+task merge:check -- 185
+```
+
+A PR that touches a gate file (`.agents/review-policy.json`, the merge-check scripts, the workflows, `internal/review/`) also fails the `Gate files` check until the owner applies the `gate-change-approved` label; an agent blocked by it hands off. Details: [model review](docs/model-review.md) and [the merge gate on GitHub and Gitea](docs/adoption.md#the-merge-gate-on-github-and-gitea).
+
+### 8. Archive, merge, and clean up (`Close` gate)
+
+Archive first: move the completed change in a commit on the branch, so the merged head has no completed unarchived change (`ateam doctor` warns about one). Then mark the PR ready and arm auto-merge, which fires when the required check is green on an up-to-date branch:
+
+```bash
+git mv openspec/changes/my-change openspec/changes/archive/$(date +%F)-my-change
+git commit -m "chore(openspec): archive my-change"
+gh pr ready
+gh pr merge --squash --auto
+```
+
+On Gitea, arm it with `POST /repos/{owner}/{repo}/pulls/{n}/merge` and `{"do":"squash","merge_when_checks_succeed":true}`. After the merge lands, the agent that claimed the branch removes its worktree (`git worktree remove <path>`) and deletes the remote branch; never one that is dirty, unpushed, or not yours.
 
 ---
 
@@ -218,20 +267,23 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 
 | Command | What it does |
 | --- | --- |
-| `ateam init [--force] [--github\|--gitea]` | Create multi-agent instruction files, skills, hooks, MCP configs, ~500k context defaults, and optional GitHub/Gitea labels |
-| `ateam doctor [--check]` | Verify multi-agent file parity, `<300` token MCP schema budget, and measured hook latency (25ms failure threshold; <10ms target) |
+| `ateam version` | Print the release and build commit (`ateam v0.3.2 (<commit>)`) |
+| `ateam init [--force] [--github\|--gitea]` | Create missing multi-agent instruction files, skills, hooks, MCP configs, ~500k context defaults, and optional GitHub/Gitea labels; `--force` backs up replaced documents first |
+| `ateam doctor [--check]` | Verify multi-agent file parity, `<300` token MCP schema budget, and measured hook latency (25ms `--check` ceiling; 10ms target) |
 | `ateam review setup --policy FILE` | Install approved model policy and role cards/pointers, refusing existing conflicts |
 | `ateam review route [--developer-models IDS]` | Check the configured reviewer against every supplied implementation model; launch no agents |
 | `ateam review check --pr N --record-comment ID [--exception-comment ID]` | Validate current review evidence and optional scoped owner exception against trusted baseline policy |
+| `ateam review compare --implementer A:M:E... (--reviewer A:M:E \| --reviewer-record FILE)` | Exit 0 when the reviewer is not weaker than every implementer by model tier then effort band, 1 on a finding, 2 when undecidable; `--reviewer-record` reads an AIP review record (`review_record: "aip"`) |
+| `ateam review gate [PR]` | The merge check: up-to-date rule, `implemented-by:`/`reviewed-by:` lines and record, and open `class:flake` issues; exit 0 pass, 1 fail, 2 unavailable. `task merge:check` and CI call it |
 | `ateam state status` | Print the full `.ateam/state.json` snapshot (git, worktrees, holds, shortcuts, cards, handoff) |
-| `ateam state pickup` | Reconcile live git/worktree state with the last handoff and report drift or active holds |
+| `ateam state pickup` | Reconcile live git/worktree state with the last handoff (including handoffs recorded inside other worktrees) and report drift or active holds |
 | `ateam state handoff --goal "..." [...]` | Record a 5-field checkpoint, clear the session writer lease, and optionally comment on the open PR |
 | `ateam state holds` | Scan `openspec/` and markdown files for `Hold:` items |
 | `ateam state debt` | Scan source files for `// shortcut: <limit>, <when to upgrade>` comments |
 | `ateam state spec-queue` | List in-flight `openspec/changes/*` with task counts and caveats (`HALT`, `RED`, `BLOCKED`, `WONTDO`, `OPEN-Q`) |
 | `ateam state spec-check` | Validate `openspec/` specs and changes and ensure `Hold:` lines live inside task items |
 | `ateam state sync [--forge github\|gitea]` | Sync open issues and PRs from GitHub or Gitea into `.ateam/state.json` |
-| `ateam state mode [lite\|full\|ultra\|off]` | Get or set the active discipline level |
+| `ateam state mode [lite\|full\|ultra\|off]` | Get or set the Ponytail discipline level (not Claude's multi-agent mode) |
 | `ateam state herdr <open-pane\|on-event>` | Open `pickup`/`spec-queue` herdr popups or emit caveat/Hold toasts when running inside `herdr` (`HERDR_ENV=1`) |
 | `ateam task [list\|<target>]` | List or run targets defined in `Taskfile.yml` |
 | `ateam test-spec` | Check test attribution comments against exact OpenSpec requirement headings |
@@ -246,6 +298,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 
 | Target | What it does |
 | --- | --- |
+| `task merge:check -- <pr>` | Run the merge gate (`ateam review gate`) against a PR |
 | `task review:route -- ...` | Check configured model routing, forwarding optional CLI arguments |
 | `task review:check -- --pr N --record-comment ID [...]` | Validate current PR review evidence and an optional owner exception |
 | `task fmt` / `task fmt:check` | Format Go files / fail if any Go file is unformatted |
@@ -276,13 +329,13 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 │   ├── plugins/ateam/         # Antigravity (agy) workspace MCP plugin
 │   ├── contracts/             # Canonical developer and reviewer role contracts
 │   ├── herdr/                 # Optional herdr plugin manifest (herdr-plugin.toml)
-│   └── skills/                # Canonical skills (pickup, handoff, preflight, ponytail)
+│   └── skills/                # Canonical skills (pickup, handoff, preflight, ponytail, review-pr)
 ├── .mcp.json                  # Claude Code project MCP registration
 ├── .claude/                   # Claude Code hook/compaction settings and thin skill adapters
 ├── .codex/                    # Codex CLI hook, MCP, and context window settings
 ├── .gemini/                   # Gemini CLI hook, MCP, compression settings, and command adapters
 ├── benchmarks/                # Benchmark experiment configs, bundles, and calibration reports
-├── docs/                      # Adoption, hook-flow, MCP, and model-review guides
+├── docs/                      # Adoption, brownfield, hook-flow, MCP, and model-review guides
 ├── openspec/                  # Spec-driven requirements (specs/) and active/archived changes
 ├── cmd/ateam/                 # CLI entrypoint
 ├── internal/
