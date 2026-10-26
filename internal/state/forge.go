@@ -259,10 +259,7 @@ func syncGiteaBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardC
 
 func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, error) {
 	client := &http.Client{Timeout: 3 * time.Second}
-	token := strings.TrimSpace(os.Getenv("GITEA_TOKEN"))
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("ATEAM_GITEA_TOKEN"))
-	}
+	token := giteaToken(ReadToken())
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 
 	repoAPI := fmt.Sprintf("%s/api/v1/repos/%s/%s", baseURL, cfg.Owner, cfg.Repo)
@@ -499,7 +496,7 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 	ghList := func(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
 		cctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		cmd := exec.CommandContext(cctx, "gh", append(args, repoArgs...)...)
+		cmd := ghCommand(cctx, ReadToken(), append(args, repoArgs...)...)
 		cmd.Dir = root
 		cmd.WaitDelay = 100 * time.Millisecond
 		return cmd.Output()
@@ -707,7 +704,7 @@ func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, bra
 		}
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(cctx, "gh", "pr", "comment", branch, "--body", body)
+		cmd := ghCommand(cctx, WriteToken(), "pr", "comment", branch, "--body", body)
 		cmd.Dir = root
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return false, fmt.Errorf("gh pr comment %s: %w (%s)", branch, err, strings.TrimSpace(string(out)))
@@ -719,10 +716,7 @@ func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, bra
 			return false, fmt.Errorf("gitea PR comment requires BaseURL, Owner, and Repo")
 		}
 		client := &http.Client{Timeout: 5 * time.Second}
-		token := strings.TrimSpace(os.Getenv("GITEA_TOKEN"))
-		if token == "" {
-			token = strings.TrimSpace(os.Getenv("ATEAM_GITEA_TOKEN"))
-		}
+		token := giteaToken(WriteToken())
 		pullsURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls?state=open", strings.TrimRight(cfg.BaseURL, "/"), cfg.Owner, cfg.Repo)
 		prs, err := fetchGiteaPages(ctx, client, token, pullsURL)
 		if err != nil {
@@ -773,10 +767,7 @@ func BootstrapForgeLabels(ctx context.Context, root string, cfg ForgeConfig) ([]
 	switch cfg.Provider {
 	case ForgeGitea:
 		client := &http.Client{Timeout: 5 * time.Second}
-		token := strings.TrimSpace(os.Getenv("GITEA_TOKEN"))
-		if token == "" {
-			token = strings.TrimSpace(os.Getenv("ATEAM_GITEA_TOKEN"))
-		}
+		token := giteaToken(WriteToken())
 		if cfg.BaseURL == "" || cfg.Owner == "" || cfg.Repo == "" {
 			return nil, fmt.Errorf("gitea label bootstrap requires BaseURL, Owner, and Repo")
 		}
@@ -810,7 +801,7 @@ func BootstrapForgeLabels(ctx context.Context, root string, cfg ForgeConfig) ([]
 	case ForgeGitHub:
 		for _, lbl := range StandardLabels {
 			cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			cmd := exec.CommandContext(cctx, "gh", "label", "create", lbl.Name, "--color", lbl.Color, "--description", lbl.Description, "--force")
+			cmd := ghCommand(cctx, WriteToken(), "label", "create", lbl.Name, "--color", lbl.Color, "--description", lbl.Description, "--force")
 			cmd.Dir = root
 			err := cmd.Run()
 			cancel()
