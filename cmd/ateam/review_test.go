@@ -387,9 +387,12 @@ func TestReviewCompareReviewerRecord(t *testing.T) {
 	approvalPath := filepath.Join(dir, "approval.md")
 	// write puts a synthetic REVIEW-002 record in place and, when approved, an
 	// approval.md row holding the record's SHA-256 (PolicyDigest is plain SHA-256 hex).
-	write := func(verdict, reviewer string, approved bool) {
+	write := func(verdict, reviewer string, approved bool, edit func(string) string) {
 		t.Helper()
 		record := "## Verdict\n\n- **Stage**: implementation\n- **Verdict**: " + verdict + "\n- **Reviewer**: " + reviewer + "\n- **Date**: 2026-10-26\n- **Round**: 1\n\n## Manifest\n\n```text\ndeleted  example.go\n```\n\n## Findings\n\n| ID | Severity | Location | Rule | Finding | Status |\n|----|----------|----------|------|---------|--------|\n"
+		if edit != nil {
+			record = edit(record)
+		}
 		if err := os.WriteFile(recordPath, []byte(record), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -405,7 +408,7 @@ func TestReviewCompareReviewerRecord(t *testing.T) {
 	}
 	args := []string{"compare", "--implementer", "claude:sonnet:high", "--reviewer-record", recordPath}
 
-	write("FAIL", "claude (opus, high)", true)
+	write("FAIL", "claude (opus, high)", true, nil)
 	if code := runReview(root, args); code != 1 {
 		t.Errorf("no policy, FAIL verdict: exit %d, want 1", code)
 	}
@@ -416,23 +419,42 @@ func TestReviewCompareReviewerRecord(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".agents", "review-policy.json"), []byte(policy), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
+	type testCase struct {
 		name     string
 		verdict  string
 		reviewer string
 		approved bool
 		args     []string
 		want     int
-	}{
-		{"approved pass, stronger reviewer", "PASS", "claude (opus, high)", true, args, 0},
-		{"approved pass, weaker reviewer", "PASS", "claude (sonnet, medium)", true, args, 1},
-		{"fail verdict", "FAIL", "claude (opus, high)", true, args, 1},
-		{"no approval.md", "PASS", "claude (opus, high)", false, args, 1},
-		{"reviewer names no agent", "PASS", "example-reviewer (claude-opus-5-5)", true, args, 1},
-		{"record and reviewer both", "PASS", "claude (opus, high)", true, append(slices.Clone(args), "--reviewer", "claude:opus:high"), 2},
-		{"record missing", "PASS", "claude (opus, high)", true, []string{"compare", "--implementer", "claude:sonnet:high", "--reviewer-record", filepath.Join(dir, "missing.md")}, 2},
-	} {
-		write(tc.verdict, tc.reviewer, tc.approved)
+		edit     func(string) string
+	}
+	cases := []testCase{
+		{"approved pass, stronger reviewer", "PASS", "claude (opus, high)", true, args, 0, nil},
+		{"approved pass, weaker reviewer", "PASS", "claude (sonnet, medium)", true, args, 1, nil},
+		{"fail verdict", "FAIL", "claude (opus, high)", true, args, 1, nil},
+		{"no approval.md", "PASS", "claude (opus, high)", false, args, 1, nil},
+		{"reviewer names no agent", "PASS", "example-reviewer (claude-opus-5-5)", true, args, 1, nil},
+		{"record and reviewer both", "PASS", "claude (opus, high)", true, append(slices.Clone(args), "--reviewer", "claude:opus:high"), 2, nil},
+		{"record missing", "PASS", "claude (opus, high)", true, []string{"compare", "--implementer", "claude:sonnet:high", "--reviewer-record", filepath.Join(dir, "missing.md")}, 2, nil},
+		{"fenced verdict only", "PASS", "claude (opus, high)", true, args, 1, func(r string) string { return "~~~\n" + r + "~~~\n" }},
+		{"fenced example in findings", "PASS", "claude (opus, high)", true, args, 0, func(r string) string {
+			return r + "\n```text\n## Verdict\n- **Verdict**: FAIL\n```\n"
+		}},
+	}
+	// A blank duplicate of Stage, Verdict or Reviewer, before or after the populated one, is a finding.
+	for _, field := range []string{"Stage", "Verdict", "Reviewer"} {
+		populated, blank := "- **"+field+"**: ", "- **"+field+"**:\n"
+		cases = append(cases,
+			testCase{"blank " + field + " before", "PASS", "claude (opus, high)", true, args, 1, func(r string) string { return strings.Replace(r, populated, blank+populated, 1) }},
+			testCase{"blank " + field + " after", "PASS", "claude (opus, high)", true, args, 1, func(r string) string {
+				i := strings.Index(r, populated)
+				eol := i + strings.Index(r[i:], "\n") + 1
+				return r[:eol] + blank + r[eol:]
+			}},
+		)
+	}
+	for _, tc := range cases {
+		write(tc.verdict, tc.reviewer, tc.approved, tc.edit)
 		if code := runReview(root, tc.args); code != tc.want {
 			t.Errorf("%s: exit %d, want %d", tc.name, code, tc.want)
 		}

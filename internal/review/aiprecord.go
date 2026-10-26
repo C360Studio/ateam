@@ -8,7 +8,8 @@ import (
 )
 
 // recordField is one REVIEW-002 Verdict-section item: "- **<Name>**: <value>".
-var recordField = regexp.MustCompile(`^- \*\*([A-Za-z]+)\*\*: (\S.*)$`)
+// The value may be empty, so a blank duplicate still counts as a second field.
+var recordField = regexp.MustCompile(`^- \*\*([A-Za-z]+)\*\*:(.*)$`)
 
 // CheckImplementationRecord reads the reviewer run from a REVIEW-002
 // review-implementation.md and checks it is an approved pass (owner ruling on
@@ -22,7 +23,7 @@ var recordField = regexp.MustCompile(`^- \*\*([A-Za-z]+)\*\*: (\S.*)$`)
 func CheckImplementationRecord(record, approval []byte) (reviewer Run, ok bool, findings []string) {
 	fields, sections := map[string][]string{}, 0
 	in := false
-	for _, line := range strings.Split(strings.ReplaceAll(string(record), "\r\n", "\n"), "\n") {
+	for _, line := range unfencedLines(string(record)) {
 		if strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ") {
 			in = line == "## Verdict"
 			if in {
@@ -31,7 +32,7 @@ func CheckImplementationRecord(record, approval []byte) (reviewer Run, ok bool, 
 			continue
 		}
 		if m := recordField.FindStringSubmatch(line); in && m != nil {
-			fields[m[1]] = append(fields[m[1]], m[2])
+			fields[m[1]] = append(fields[m[1]], strings.TrimSpace(m[2]))
 		}
 	}
 	if sections != 1 {
@@ -45,6 +46,8 @@ func CheckImplementationRecord(record, approval []byte) (reviewer Run, ok bool, 
 			return ""
 		case want != "" && values[0] != want:
 			findings = append(findings, fmt.Sprintf("%s is %q, want %q", name, values[0], want))
+		case values[0] == "":
+			findings = append(findings, fmt.Sprintf("%s is empty", name))
 		}
 		return values[0]
 	}
@@ -77,7 +80,7 @@ func mustRun(spec string) (Run, bool) {
 
 // approvedDigest reports an approval.md table row "| implementation | <approver> | <date> | <digest> |".
 func approvedDigest(approval []byte, digest string) bool {
-	for _, line := range strings.Split(string(approval), "\n") {
+	for _, line := range unfencedLines(string(approval)) {
 		cells := strings.Split(strings.TrimSpace(line), "|")
 		if len(cells) != 6 || cells[0] != "" || cells[5] != "" {
 			continue
@@ -87,4 +90,35 @@ func approvedDigest(approval []byte, digest string) bool {
 		}
 	}
 	return false
+}
+
+// unfencedLines returns the lines of a Markdown text outside ``` and ~~~ code
+// fences, so an example inside a fence never counts as a verdict or an approval.
+// It follows ateam test-spec's fence rule (internal/testspec eachUnfencedLine).
+func unfencedLines(text string) []string {
+	var out []string
+	var fence byte
+	fenceLength := 0
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		trimmed := strings.TrimLeft(line, " ")
+		if len(line)-len(trimmed) <= 3 && len(trimmed) >= 3 && (trimmed[0] == '`' || trimmed[0] == '~') {
+			n := 0
+			for n < len(trimmed) && trimmed[n] == trimmed[0] {
+				n++
+			}
+			if n >= 3 && fence == 0 {
+				fence, fenceLength = trimmed[0], n
+				continue
+			}
+			if n >= 3 && trimmed[0] == fence && n >= fenceLength && strings.TrimSpace(trimmed[n:]) == "" {
+				fence, fenceLength = 0, 0
+				continue
+			}
+		}
+		if fence == 0 {
+			out = append(out, line)
+		}
+	}
+	return out
 }

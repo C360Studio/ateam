@@ -12,7 +12,7 @@
 #### Scenario: AIP record mode
 
 - **WHEN** the policy sets `review_record: aip` and `ateam init` or `ateam review setup` runs
-- **THEN** the protocol, both rule rows and the reviewer contract name the archived `review-implementation.md` with `Verdict: PASS` and a matching `approval.md`, say ateam agents never post a `reviewed-by:` PR comment and that `task merge:check` does not apply, no longer mention `Reviewed at`, every other generated file is unchanged, and `ateam doctor --check` passes
+- **THEN** the protocol, both rule rows and the reviewer contract name the archived `review-implementation.md` with `Verdict: PASS` and a matching `approval.md`, say ateam agents never post a `reviewed-by:` PR comment and that `task merge:check` does not apply, no longer mention `Reviewed at`, the protocol's Claim and Close and the Close rule rows name no draft PR, `gh pr` command or squash merge but the project's own `--ff-only` merge, the `review-pr` skill checks a record with `ateam review compare --reviewer-record` instead of posting a comment, every other generated file is unchanged, and `ateam doctor --check` passes
 
 #### Scenario: Unknown record mode
 
@@ -27,8 +27,9 @@
 
 - **WHEN** `ateam review compare --implementer <run>... --reviewer-record <path>` names a record with `Verdict: PASS`, a Reviewer starting `<agent> (<model>, <effort>)`, and a sibling `approval.md` whose `implementation` row holds the record's SHA-256
 - **THEN** compare applies the tier-and-band comparison to that reviewer run and exits 0 when it is not weaker, 1 when it is weaker
+- **AND** a `## Verdict` example inside a ``` or ~~~ code fence elsewhere in the record does not count as a second Verdict section
 
 #### Scenario: Rejected record
 
-- **WHEN** the record's verdict is not `PASS`, `approval.md` is missing or holds no `implementation` row with the record's digest, the Reviewer value names no `claude`, `codex` or `gemini` run, or the Verdict section or one of its fields is missing or repeated
+- **WHEN** the record's verdict is not `PASS`, `approval.md` is missing or holds no `implementation` row with the record's digest, the Reviewer value names no `claude`, `codex` or `gemini` run, or the Verdict section or one of its fields is missing or repeated (a blank duplicate counts), or the only Verdict section or approval row is inside a ``` or ~~~ code fence
 - **THEN** compare prints each finding and exits 1; an unreadable record exits 2, and giving both `--reviewer` and `--reviewer-record` exits 2

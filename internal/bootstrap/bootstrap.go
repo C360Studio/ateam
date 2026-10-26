@@ -436,6 +436,21 @@ var requiredSkillMarkers = map[string][]string{
 	"review-pr": {"## 1.", "reviewed-by:", "Reviewed at"},
 }
 
+// aipSkillMarkers are the markers of a skill's review_record: aip variant (#130),
+// accepted in place of requiredSkillMarkers when all of them are present.
+var aipSkillMarkers = map[string][]string{
+	"review-pr": {"## 1.", "review-implementation.md", "--reviewer-record"},
+}
+
+func containsAll(text string, markers []string) bool {
+	for _, m := range markers {
+		if !strings.Contains(text, m) {
+			return false
+		}
+	}
+	return true
+}
+
 // skillLinkRe matches a link into .agents/skills/: group 1 is a leading ./ or ../ chain, group 2 the skill
 // (never ending in "."), group 3 an optional path inside it.
 var skillLinkRe = regexp.MustCompile(`((?:\.\.?/)*)\.agents/skills/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)(/[A-Za-z0-9._/-]*)?`)
@@ -638,7 +653,11 @@ func inspectSkills(root string) (out, adopter, aliases []string) {
 			if !strings.Contains(canonText, "## 1.") {
 				out = append(out, fmt.Sprintf("%s: missing numbered workflow steps (placeholder skill not allowed)", canonRel))
 			}
-			for _, marker := range requiredSkillMarkers[name] {
+			markers := requiredSkillMarkers[name]
+			if alt, ok := aipSkillMarkers[name]; ok && containsAll(canonText, alt) {
+				markers = alt
+			}
+			for _, marker := range markers {
 				if !strings.Contains(canonText, marker) {
 					out = append(out, fmt.Sprintf("%s: missing required workflow procedure marker %q", canonRel, marker))
 				}
