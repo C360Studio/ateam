@@ -2,7 +2,7 @@
 
 `ateam mcp` is a local **stdio** server: the agent client launches the executable and exchanges newline-delimited JSON-RPC over stdin/stdout. It is separate from lifecycle hooks and from the HTTP web board (`ateam serve`). There is no MCP HTTP endpoint or standalone daemon to start first.
 
-It offers two tools, four prompts, and four resources. The two-tool design keeps discovery small by grouping related state operations under an `action` argument. The reported schema budget is a bytes/4 estimate for tool definitions, not a measured tokenizer count or the cost of returned content.
+It offers two tools, four prompts, and four resources. The two-tool design keeps discovery small by grouping related state operations under an `action` argument. The reported schema budget is a bytes/4 estimate for tool definitions (currently 759 bytes, 190 tokens, against a limit of 300), not a measured tokenizer count or the cost of returned content.
 
 ## Install and register
 
@@ -94,7 +94,7 @@ Expect initialization followed by exactly two tool definitions. EOF stops this t
 
 | Action | Arguments and result | Additional effects |
 | --- | --- | --- |
-| `pickup` | `{"action":"pickup"}` returns a human-readable reconciliation summary including `build` and `synced` timestamps. | Refreshes local state and attempts a bounded remote sync when stale. |
+| `pickup` | `{"action":"pickup"}` returns a human-readable reconciliation summary including `build` and `synced` timestamps, the worktree list with PR status, and the handoffs recorded inside other worktrees. | Refreshes local state and attempts a bounded remote sync when stale. |
 | `debt` | Returns scanned shortcuts as JSON text. | Limited to [supported extensions](adoption.md#feature-and-language-boundaries). |
 | `mode` | Without `mode`, reads current mode; with `"mode":"lite"`, `"full"`, `"ultra"`, or `"off"`, changes it and returns mode/ladder text. | Saves mode when supplied; does not change provider/model settings. |
 | `spec_queue` | Returns in-flight OpenSpec task/caveat summary. | Local refresh only. |
@@ -141,6 +141,7 @@ Resource reads also refresh and save local state. Client support for prompts/res
 
 ## Troubleshooting
 
+- **Stale server after a rebuild:** an `ateam mcp` process keeps the binary it started from. The `session-start` hook (in the ateam checkout) prints `MCP server PID <n> (build <commit>) is older than HEAD; restart the client`, and `ateam doctor` warns `running ateam mcp process (PID <n>, build <commit>) is older than <commit>; restart the MCP client` for processes serving this repository (compared with `HEAD` in the ateam checkout, otherwise with the on-disk `bin/ateam`). Processes serving other repositories are listed in `running_mcp_processes` with `"repo": "other"` and not warned about. Restart or reconnect the client; `ateam version` shows the build you would get.
 - **Executable not found:** check the environment inherited by the agent, or use an absolute command path. Reconnect after changing it.
 - **Registration absent:** check the client-specific file, correct nesting, project trust, and global/managed overrides. An entry in a hooks file is insufficient for Codex/Claude MCP registration.
 - **Pending/disabled:** complete the client's normal trust/approval process; doctor does not grant it.
