@@ -84,6 +84,11 @@ func TestAdopterRulesParityDisagreement(t *testing.T) {
 		{"zero-row section", "### 1. Safety\n\n- a rule written as a list\n",
 			"## 1. Safety\n\n- a rule written as a list\n",
 			[]string{"AGENTS.md: rule section \"1. Safety\" has no table rows", ".agents/rules-index.md: rule section \"1. Safety\" has no table rows"}},
+		// Picking the larger ## prose level would discard the ### rules and certify the 1-versus-2 mismatch.
+		{"## and ### both own rows, rules disagree", "# Project\n\n## 1. Commands\n\n| Command | Purpose |\n| --- | --- |\n| build | compile |\n| test | verify |\n| fmt | format |\n\n### 1. Safety\n\n| Gate | Rule |\n| --- | --- |\n| review | validate |\n", "# Project\n\n## 1. Commands\n\n| Command | Purpose |\n| --- | --- |\n| build | compile |\n| test | verify |\n| fmt | format |\n\n### 1. Safety\n\n| Gate | Rule |\n| --- | --- |\n| review | validate |\n| verify | preserve data |\n",
+			[]string{"AGENTS.md: both ## N. and ### N. headings own table rows", ".agents/rules-index.md: both ## N. and ### N. headings own table rows"}},
+		{"## and ### both own rows, rules agree", "# Project\n\n## 1. Commands\n\n| Command | Purpose |\n| --- | --- |\n| build | compile |\n| test | verify |\n| fmt | format |\n\n### 1. Safety\n\n| Gate | Rule |\n| --- | --- |\n| review | validate |\n", "# Project\n\n## 1. Commands\n\n| Command | Purpose |\n| --- | --- |\n| build | compile |\n| test | verify |\n| fmt | format |\n\n### 1. Safety\n\n| Gate | Rule |\n| --- | --- |\n| review | validate |\n",
+			[]string{"AGENTS.md: both ## N. and ### N. headings own table rows", "number only the rule section headings"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -114,41 +119,48 @@ func TestAdopterRulesParityAcceptsAdopterLayouts(t *testing.T) {
 // spec: openspec/specs/harness/spec.md#Requirement: Adopter rules parity
 func TestParseRuleSectionCounts(t *testing.T) {
 	cases := []struct {
-		name string
-		text string
-		want []sectionCount
+		name  string
+		text  string
+		want  []sectionCount
+		mixed bool
 	}{
 		{"custom header and aligned separator",
 			"## 1. Safety\n\n| Rule | Enforced by |\n| :--- | ---: |\n| a | b |\n| c | d |\n",
-			[]sectionCount{{"1. Safety", 2}}},
+			[]sectionCount{{"1. Safety", 2}}, false},
 		{"compact and indented rows",
 			"### 1. Safety\n\n |Gate|Rule|\n |---|---|\n |a|b|\n|c|d|\n|e|f|\n",
-			[]sectionCount{{"1. Safety", 3}}},
+			[]sectionCount{{"1. Safety", 3}}, false},
 		{"rows without a separator all count",
 			"## 1. Safety\n\n| a | b |\n| c | d |\n",
-			[]sectionCount{{"1. Safety", 2}}},
+			[]sectionCount{{"1. Safety", 2}}, false},
 		{"non-numbered heading ends a section",
 			"### 1. Safety\n\n| a | b |\n\n## Appendix\n\n| x | y |\n| z | w |\n\n### Notes\n\n| q | r |\n",
-			[]sectionCount{{"1. Safety", 1}}},
+			[]sectionCount{{"1. Safety", 1}}, false},
 		{"numbered ## headings without rows are ignored",
 			"## 1. Purpose\n\nWhy.\n\n## 2. Rules\n\n### 1. Safety\n\n| a | b |\n| c | d |\n\n### 2. Data\n\n| e | f |\n",
-			[]sectionCount{{"1. Safety", 2}, {"2. Data", 1}}},
-		{"a tie between levels keeps ###",
-			"## 1. Purpose\n\n| a | b |\n| c | d |\n\n## 2. Rules\n\n### 1. Safety\n\n| e | f |\n\n### 2. Data\n\n| g | h |\n",
-			[]sectionCount{{"1. Safety", 1}, {"2. Data", 1}}},
+			[]sectionCount{{"1. Safety", 2}, {"2. Data", 1}}, false},
+		{"## and ### both owning rows is mixed",
+			"## 1. Purpose\n\n| a | b |\n| c | d |\n\n## 2. Rules\n\n### 1. Safety\n\n| e | f |\n",
+			nil, true},
+		{"only ## owns rows keeps ##",
+			"## 1. Safety\n\n| a | b |\n\n### 1. Note\n\nprose\n",
+			[]sectionCount{{"1. Safety", 1}}, false},
 		{"no rows anywhere names the ### sections",
 			"## 1. Purpose\n\n## 2. Rules\n\n### 1. Safety\n",
-			[]sectionCount{{"1. Safety", 0}}},
+			[]sectionCount{{"1. Safety", 0}}, false},
 		{"an all-blank row is a row, not a separator",
 			"## 1. Safety\n\n| G | R |\n|---|---|\n| a | b |\n| | |\n| c | d |\n",
-			[]sectionCount{{"1. Safety", 3}}},
+			[]sectionCount{{"1. Safety", 3}}, false},
 		{"zero-row sections are kept",
 			"## 1. Safety\n\n- a list\n\n## 2. Data\n",
-			[]sectionCount{{"1. Safety", 0}, {"2. Data", 0}}},
+			[]sectionCount{{"1. Safety", 0}, {"2. Data", 0}}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := parseRuleSectionCounts(c.text)
+			got, mixed := parseRuleSectionCounts(c.text)
+			if mixed != c.mixed {
+				t.Fatalf("mixed = %v, want %v", mixed, c.mixed)
+			}
 			if len(got) != len(c.want) {
 				t.Fatalf("got %v, want %v", got, c.want)
 			}

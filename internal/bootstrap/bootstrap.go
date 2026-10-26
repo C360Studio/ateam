@@ -300,8 +300,19 @@ func checkRulesAndSizeParity(root string) []string {
 	if len(agentsData) >= maxAgentsMDBytes {
 		out = append(out, fmt.Sprintf("AGENTS.md: %d bytes is not strictly under %d bytes", len(agentsData), maxAgentsMDBytes))
 	}
-	agents := parseRuleSectionCounts(string(agentsData))
-	index := parseRuleSectionCounts(string(indexData))
+	agents, agentsMixed := parseRuleSectionCounts(string(agentsData))
+	index, indexMixed := parseRuleSectionCounts(string(indexData))
+	if agentsMixed || indexMixed {
+		for _, f := range []struct {
+			name  string
+			mixed bool
+		}{{"AGENTS.md", agentsMixed}, {".agents/rules-index.md", indexMixed}} {
+			if f.mixed {
+				out = append(out, f.name+": both ## N. and ### N. headings own table rows, so the rule sections are ambiguous; number only the rule section headings")
+			}
+		}
+		return out
+	}
 	if len(agents) == 0 && len(index) == 0 {
 		return append(out, "AGENTS.md and .agents/rules-index.md have no numbered rule sections (## N. or ### N. headings)")
 	}
@@ -333,13 +344,15 @@ func checkRulesAndSizeParity(root string) []string {
 
 // parseRuleSectionCounts lists the numbered "## N. title" or "### N. title" sections and their table rows.
 // Any other level-2 or level-3 heading ends the current section. Only one heading level is returned:
-// the one whose numbered sections own the most table rows (### on a tie), so numbered non-rule headings are ignored.
-func parseRuleSectionCounts(text string) []sectionCount {
+// the one whose numbered sections own table rows (### when neither does), so numbered non-rule headings are
+// ignored. When numbered sections at both levels own rows, mixed is true: picking one level could discard
+// the real rules and certify a mismatch.
+func parseRuleSectionCounts(text string) (sections []sectionCount, mixed bool) {
 	type section struct {
 		sectionCount
 		level int
 	}
-	var sections []section
+	var found []section
 	cur := -1
 	lastRow := false
 	for _, line := range strings.Split(text, "\n") {
@@ -353,8 +366,8 @@ func parseRuleSectionCounts(text string) []sectionCount {
 		if ok {
 			lastRow = false
 			if isNumberedTitle(title) {
-				sections = append(sections, section{sectionCount{title: strings.TrimSpace(title)}, level})
-				cur = len(sections) - 1
+				found = append(found, section{sectionCount{title: strings.TrimSpace(title)}, level})
+				cur = len(found) - 1
 			} else {
 				cur = -1
 			}
@@ -367,32 +380,33 @@ func parseRuleSectionCounts(text string) []sectionCount {
 		}
 		if isTableSeparator(row) {
 			if lastRow {
-				sections[cur].rows-- // the row above a separator is the header
+				found[cur].rows-- // the row above a separator is the header
 			}
 			lastRow = false
 			continue
 		}
-		sections[cur].rows++
+		found[cur].rows++
 		lastRow = true
 	}
 	rows := map[int]int{}
 	has := map[int]bool{}
-	for _, s := range sections {
+	for _, s := range found {
 		rows[s.level] += s.rows
 		has[s.level] = true
 	}
-	// On a tie, ### wins: rule sections nest under numbered ## prose headings, not the reverse.
-	best := 2
-	if has[3] && (!has[2] || rows[3] >= rows[2]) {
-		best = 3
+	if rows[2] > 0 && rows[3] > 0 {
+		return nil, true
 	}
-	var out []sectionCount
-	for _, s := range sections {
+	best := 3
+	if rows[2] > 0 || !has[3] {
+		best = 2
+	}
+	for _, s := range found {
 		if s.level == best {
-			out = append(out, s.sectionCount)
+			sections = append(sections, s.sectionCount)
 		}
 	}
-	return out
+	return sections, false
 }
 
 // isTableSeparator matches a trimmed Markdown table separator row: ^\|[\s:|-]+\|$ with at least one -,
