@@ -20,7 +20,7 @@ import (
 
 func runReview(root string, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... --reviewer AGENT:MODEL:EFFORT | gate [PR]")
+		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... (--reviewer AGENT:MODEL:EFFORT | --reviewer-record FILE) | gate [PR]")
 		return 2
 	}
 	var err error
@@ -59,22 +59,48 @@ func (r *runSpecs) Set(s string) error {
 }
 
 // reviewCompare exits 0 when the reviewer is not weaker than every implementer,
-// 1 on a finding, and 2 when it cannot decide (ADR 0002 rule 2).
+// 1 on a finding, and 2 when it cannot decide (ADR 0002 rule 2). With
+// --reviewer-record the reviewer run comes from a REVIEW-002
+// review-implementation.md, which must also be an approved PASS (#130).
 func reviewCompare(root string, args []string) int {
 	fs := flag.NewFlagSet("review compare", flag.ContinueOnError)
 	var implementers, reviewers runSpecs
 	fs.Var(&implementers, "implementer", "implementing run as agent:model:effort; repeat for several")
 	fs.Var(&reviewers, "reviewer", "reviewing run as agent:model:effort")
+	recordPath := fs.String("reviewer-record", "", "REVIEW-002 review-implementation.md naming the reviewing run, with approval.md beside it")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() != 0 || len(implementers) == 0 || len(reviewers) != 1 {
-		fmt.Fprintln(os.Stderr, "ateam review: compare requires one or more --implementer and exactly one --reviewer")
+	sources := len(reviewers)
+	if *recordPath != "" {
+		sources++
+	}
+	if fs.NArg() != 0 || len(implementers) == 0 || sources != 1 {
+		fmt.Fprintln(os.Stderr, "ateam review: compare requires one or more --implementer and exactly one of --reviewer or --reviewer-record")
 		return 2
+	}
+	var recordFindings []string
+	if *recordPath != "" {
+		run, ok, findings, err := readImplementationRecord(*recordPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ateam review: %v\n", err)
+			return 2
+		}
+		recordFindings = findings
+		for _, f := range findings {
+			fmt.Println("compare: finding: " + f)
+		}
+		if !ok {
+			return 1
+		}
+		reviewers = runSpecs{run}
 	}
 	data, err := readReviewFile(filepath.Join(root, ".agents", "review-policy.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		fmt.Println("compare: skipped: no policy")
+		if len(recordFindings) > 0 {
+			return 1
+		}
 		return 0
 	}
 	if err != nil {
@@ -93,11 +119,29 @@ func reviewCompare(root string, args []string) int {
 	for _, f := range findings {
 		fmt.Println("compare: finding: " + f)
 	}
-	if len(findings) > 0 {
+	if len(findings)+len(recordFindings) > 0 {
 		return 1
 	}
 	fmt.Println("compare: pass: the reviewer is not weaker than any implementer")
 	return 0
+}
+
+// readImplementationRecord reads a REVIEW-002 record and the approval.md beside
+// it; an approval.md that does not exist is a finding, any other read error is not.
+func readImplementationRecord(path string) (review.Run, bool, []string, error) {
+	record, err := readReviewFile(path)
+	if err != nil {
+		return review.Run{}, false, nil, fmt.Errorf("reviewer record: %w", err)
+	}
+	approval, err := readReviewFile(filepath.Join(filepath.Dir(path), "approval.md"))
+	if errors.Is(err, os.ErrNotExist) {
+		approval, err = nil, nil
+	}
+	if err != nil {
+		return review.Run{}, false, nil, fmt.Errorf("approval record: %w", err)
+	}
+	run, ok, findings := review.CheckImplementationRecord(record, approval)
+	return run, ok, findings, nil
 }
 
 // reviewGate is the merge check (scripts/merge-check.sh runs it): exit 0 pass,
