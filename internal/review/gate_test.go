@@ -85,7 +85,7 @@ func healthyWorld() gateWorld {
 		body:     implRevCodex,
 		files:    []string{"docs/a.md", "scripts/x.sh"},
 		commits:  []worldCommit{{sha: shaA, message: "feat: add script", parents: []string{shaBase}, files: []string{"docs/a.md", "scripts/x.sh"}}},
-		comments: []string{"reviewed-by: codex\nReviewed at " + shaA[:7]},
+		comments: []string{"reviewed-by: codex\nReviewed at " + shaA[:7] + "\nVerdict: APPROVE"},
 		labels:   []string{"bug", "class:flake"},
 		required: true,
 		strict:   true,
@@ -425,7 +425,7 @@ func TestGateGitea(t *testing.T) {
 		}, both: &forgeWant{1, []string{"no review record comment names reviewed-by: codex"}}},
 		{name: "re-review at the new head", world: func(w *gateWorld) {
 			w.commits = append(w.commits, contentCommit)
-			w.comments = append(w.comments, "reviewed-by: codex\nRe-reviewed at "+shaContent[:7])
+			w.comments = append(w.comments, "reviewed-by: codex\nRe-reviewed at "+shaContent[:7]+"\nVerdict: APPROVE")
 		}, both: &forgeWant{0, []string{"reviewing agent: codex (record at " + shaContent + ")"}}},
 		{name: "draft", world: func(w *gateWorld) { w.draft, w.body = true, "implemented-by: claude (opus)\n" },
 			both: &forgeWant{0, []string{"no line starts reviewed-by:", "is a draft: a review finding does not fail a draft (1 above)"}}},
@@ -541,6 +541,87 @@ func TestGateGitea(t *testing.T) {
 	}
 }
 
+// spec: openspec/changes/merge-check-verdict-201/specs/harness/spec.md#Requirement: Merge check requires an approving review verdict
+func TestGateVerdict(t *testing.T) {
+	// #201: the latest record (the last record designating one commit) must
+	// carry exactly one unfenced Verdict: APPROVE line.
+	contentCommit := worldCommit{sha: shaContent, message: "fix: adjust script", parents: []string{shaA}, files: []string{"scripts/x.sh"}}
+	record := func(sha, rest string) string {
+		return "reviewed-by: codex (gpt-6, high)\nReviewed at " + sha[:7] + "\n" + rest
+	}
+	const fix = "the line to write: post a new review record from codex with Verdict: APPROVE naming the current head commit"
+	finding := func(what string) []string {
+		return []string{"review finding: the latest review record (at " + shaA + ") " + what, fix, "merge-check: FAILED"}
+	}
+	passAt := func(sha string) []string {
+		return []string{"reviewing agent: codex (record at " + sha + ")", "merge-check: ok"}
+	}
+	for _, tc := range []struct {
+		name    string
+		world   func(w *gateWorld)
+		code    int
+		want    []string
+		without []string
+	}{
+		{name: "approving record", world: func(w *gateWorld) { w.comments = []string{record(shaA, "Verdict: APPROVE\nno findings")} },
+			code: 0, want: passAt(shaA)},
+		{name: "approval in lower case with spaces", world: func(w *gateWorld) { w.comments = []string{record(shaA, "  verdict:   approve  ")} },
+			code: 0, want: passAt(shaA)},
+		{name: "rejecting record", world: func(w *gateWorld) { w.comments = []string{record(shaA, "Verdict: REQUEST CHANGES\nF1 high")} },
+			code: 1, want: finding("says Verdict: REQUEST CHANGES")},
+		{name: "rejection then a later approval at the new head", world: func(w *gateWorld) {
+			w.commits = append(w.commits, contentCommit)
+			w.comments = []string{record(shaA, "Verdict: REQUEST CHANGES"), record(shaContent, "Verdict: APPROVE")}
+		}, code: 0, want: passAt(shaContent)},
+		{name: "approval then a later rejection", world: func(w *gateWorld) {
+			w.comments = []string{record(shaA, "Verdict: APPROVE"), record(shaA, "Verdict: REQUEST CHANGES")}
+		}, code: 1, want: finding("says Verdict: REQUEST CHANGES")},
+		{name: "missing verdict", world: func(w *gateWorld) { w.comments = []string{record(shaA, "looks fine")} },
+			code: 1, want: finding("has no Verdict: line")},
+		{name: "two verdict lines", world: func(w *gateWorld) { w.comments = []string{record(shaA, "Verdict: APPROVE\nVerdict: APPROVE")} },
+			code: 1, want: finding("has 2 Verdict: lines")},
+		{name: "approval only inside a fence", world: func(w *gateWorld) {
+			w.comments = []string{record(shaA, "```text\nVerdict: APPROVE\n```")}
+		}, code: 1, want: finding("has no Verdict: line")},
+		{name: "fenced verdict beside an approval", world: func(w *gateWorld) {
+			w.comments = []string{record(shaA, "Verdict: APPROVE\n~~~\nVerdict: REQUEST CHANGES\n~~~")}
+		}, code: 0, want: passAt(shaA)},
+		{name: "fenced record does not supersede a rejection", world: func(w *gateWorld) {
+			w.comments = []string{record(shaA, "Verdict: REQUEST CHANGES"), "```\n" + record(shaA, "Verdict: APPROVE") + "\n```"}
+		}, code: 1, want: finding("says Verdict: REQUEST CHANGES")},
+		{name: "record only inside a fence", world: func(w *gateWorld) { w.comments = []string{"```\n" + record(shaA, "Verdict: APPROVE") + "\n```"} },
+			code: 1, want: []string{"no review record comment names reviewed-by: codex"}, without: []string{"latest review record"}},
+		{name: "fenced reviewed-by of another agent", world: func(w *gateWorld) {
+			w.comments = []string{record(shaA, "Verdict: APPROVE\n```\nreviewed-by: claude (opus)\n```")}
+		}, code: 0, want: passAt(shaA)},
+		{name: "fenced Reviewed at of an older commit", world: func(w *gateWorld) {
+			w.commits = append(w.commits, contentCommit)
+			w.comments = []string{record(shaContent, "Verdict: APPROVE\n```\nReviewed at "+shaA[:7]+"\n```")}
+		}, code: 0, want: passAt(shaContent)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := healthyWorld()
+			tc.world(&w)
+			for forge, run := range map[string]func(*testing.T, gateWorld) (int, string){"github": runGitHub, "gitea": runGitea} {
+				code, out := run(t, w)
+				if code != tc.code {
+					t.Errorf("%s: exit %d, want %d\n%s", forge, code, tc.code, out)
+				}
+				for _, l := range tc.want {
+					if !strings.Contains(out, l) {
+						t.Errorf("%s: output lacks %q\n%s", forge, l, out)
+					}
+				}
+				for _, l := range tc.without {
+					if strings.Contains(out, l) {
+						t.Errorf("%s: output has %q\n%s", forge, l, out)
+					}
+				}
+			}
+		})
+	}
+}
+
 // spec: openspec/specs/harness/spec.md#Requirement: Merge check notes an unapproved OpenSpec change
 func TestGateApprovalNote(t *testing.T) {
 	const (
@@ -625,6 +706,7 @@ func TestGateApprovalNote(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
+// spec: openspec/changes/merge-check-verdict-201/specs/harness/spec.md#Requirement: Merge check requires an approving review verdict
 func TestGateRecordBoundaries(t *testing.T) {
 	// The boundary checks that replace jq's lookaheads and Unicode \b in
 	// scripts/merge-check.sh. Expectations were generated by that script's jq
@@ -675,6 +757,13 @@ func TestGateRecordBoundaries(t *testing.T) {
 		{"  ### Independent Cross-Agent Review: codex", true, nil},
 		{"### Independent Cross-Agent Review\nreviewed-by: claude", false, nil},
 		{"reviewed-by: codex\n### Independent Cross-Agent Review (claude)", true, nil},
+		// #201: lines inside ``` and ~~~ fences are not read.
+		{"```\nreviewed-by: codex\n```", false, nil},
+		{"~~~\n### Independent Cross-Agent Review\n~~~", false, nil},
+		{"reviewed-by: codex\n```\nreviewed-by: claude\n```", true, nil},
+		{"```\nReviewed at 99d19a4\n```", false, nil},
+		{"Reviewed at 7413d0c\n~~~\nReviewed at 99d19a4\n~~~", false, []int{1}},
+		{"reviewed-commit: 99d19a4\n```\nHead: 7413d0c\n```", false, []int{0}},
 	} {
 		if got := gateIsRecord(tc.body, "codex"); got != tc.record {
 			t.Errorf("gateIsRecord(%q) = %t, want %t", tc.body, got, tc.record)

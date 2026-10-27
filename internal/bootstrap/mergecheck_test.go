@@ -418,7 +418,7 @@ func reviewGH(draft bool, author, body string, files ...string) ghState {
 	st.files = filesJSON(files...)
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(line, "reviewed-by:") {
-			st.comments = listJSON(commentJSON(line + "\nImplementation reviewed at " + headCommitSHA[:7]))
+			st.comments = listJSON(commentJSON(line + "\nImplementation reviewed at " + headCommitSHA[:7] + "\nVerdict: APPROVE"))
 			break
 		}
 	}
@@ -603,9 +603,9 @@ func TestMergeCheckReview(t *testing.T) {
 
 	t.Run("record at head", func(t *testing.T) {
 		for _, comment := range []string{
-			"**Review record:** reviewed-by: codex (OpenAI). Reviewed at `99d19a4`.",
-			"### Independent Cross-Agent Review (`codex`)\n\nReviewed head commit `" + headCommitSHA + "`.",
-			"Reviewed base `" + baseCommitSHA + "` → head `" + headCommitSHA + "`.\n\nreviewed-by: codex (OpenAI)",
+			"**Review record:** reviewed-by: codex (OpenAI). Reviewed at `99d19a4`.\nVerdict: APPROVE",
+			"### Independent Cross-Agent Review (`codex`)\n\nReviewed head commit `" + headCommitSHA + "`.\nVerdict: APPROVE",
+			"Reviewed base `" + baseCommitSHA + "` → head `" + headCommitSHA + "`.\n\nreviewed-by: codex (OpenAI)\nVerdict: APPROVE",
 		} {
 			st := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
 			st.comments = listJSON(commentJSON(comment))
@@ -714,9 +714,9 @@ func TestMergeCheckReview(t *testing.T) {
 
 		// A comment mentioning the unreviewed head SHA alongside the reviewed SHA must not advance the review boundary.
 		for _, comment := range []string{
-			"reviewed-by: codex\nReviewed at " + headCommitSHA + ".\nCommit " + contentCommitSHA + " remains unreviewed; request re-review.",
-			"reviewed-by: codex\nReviewed at " + headCommitSHA + "; see https://github.com/C360Studio/ateam/blob/" + contentCommitSHA + "/scripts/x.sh",
-			"reviewed-by: codex\nReviewed at " + headCommitSHA + " while looking at " + contentCommitSHA + " as unreviewed.",
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + ".\nCommit " + contentCommitSHA + " remains unreviewed; request re-review.\nVerdict: APPROVE",
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + "; see https://github.com/C360Studio/ateam/blob/" + contentCommitSHA + "/scripts/x.sh\nVerdict: APPROVE",
+			"reviewed-by: codex\nReviewed at " + headCommitSHA + " while looking at " + contentCommitSHA + " as unreviewed.\nVerdict: APPROVE",
 		} {
 			stUnreviewed := st
 			stUnreviewed.comments = listJSON(commentJSON(comment))
@@ -738,11 +738,11 @@ func TestMergeCheckReview(t *testing.T) {
 
 		// A later review record at contentCommitSHA (including both full and short SHA of the same commit) resolves the finding.
 		for _, reReviewComment := range []string{
-			"reviewed-by: codex\nRe-reviewed at " + contentCommitSHA[:7],
-			"reviewed-by: codex\nHead: " + contentCommitSHA + "\nReviewed at " + contentCommitSHA[:7],
+			"reviewed-by: codex\nRe-reviewed at " + contentCommitSHA[:7] + "\nVerdict: APPROVE",
+			"reviewed-by: codex\nHead: " + contentCommitSHA + "\nReviewed at " + contentCommitSHA[:7] + "\nVerdict: APPROVE",
 		} {
 			st.comments = listJSON(
-				commentJSON("reviewed-by: codex\nReviewed at "+headCommitSHA[:7]),
+				commentJSON("reviewed-by: codex\nReviewed at "+headCommitSHA[:7]+"\nVerdict: APPROVE"),
 				commentJSON(reReviewComment),
 			)
 			runMergeCheck(t, st, "12").requirePass(t, "reviewing agent: codex (record at "+contentCommitSHA+")")
@@ -828,7 +828,7 @@ func TestMergeCheckReview(t *testing.T) {
 		stCapped := reviewGH(false, "User", implClaudeRevCodex, "docs/a.md", "scripts/x.sh")
 		stCapped.pull = pullCommitsJSON(false, "User", implClaudeRevCodex, 2, 251, sha251)
 		stCapped.commits = listJSON(commits250...)
-		stCapped.comments = listJSON(commentJSON("reviewed-by: codex\nReviewed at " + sha250))
+		stCapped.comments = listJSON(commentJSON("reviewed-by: codex\nReviewed at " + sha250 + "\nVerdict: APPROVE"))
 		rCapped := runMergeCheck(t, stCapped, "12")
 		if rCapped.status != 2 {
 			t.Fatalf("capped 250-commit history exit %d, want 2\n%s", rCapped.status, rCapped.out)

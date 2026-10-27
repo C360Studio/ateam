@@ -9,6 +9,11 @@ The merge check SHALL accept the latest review record only when it carries exact
 - **WHEN** the latest review record names the reviewer and one commit and says `Verdict: REQUEST CHANGES`
 - **THEN** the merge check reports a blocking finding naming that verdict and exits non-zero
 
+#### Scenario: Missing or repeated verdict blocks
+
+- **WHEN** the latest review record has no unfenced `Verdict:` line, or more than one
+- **THEN** the merge check reports a blocking finding naming what it found and exits non-zero
+
 #### Scenario: Later approval supersedes
 
 - **WHEN** a `Verdict: REQUEST CHANGES` record is followed by a record from the same reviewer with `Verdict: APPROVE` naming the head
