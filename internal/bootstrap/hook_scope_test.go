@@ -186,6 +186,33 @@ func TestHookScopeSensitivity(t *testing.T) {
 			},
 			want:   []string{"~/.claude/settings.json: missing --agent claude in hook commands"},
 			absent: "claude"},
+		{name: "user settings registering a longer event name", scope: "user",
+			setup: func(t *testing.T, _, home, claudeHooks string) {
+				writeFiles(t, home, map[string]string{".claude/settings.json": strings.ReplaceAll(claudeHooks, "--event turn-end", "--event turn-ended")})
+			},
+			want:   []string{"~/.claude/settings.json: missing hook command for event turn-end"},
+			absent: "claude"},
+		{name: "user settings carrying --agent only outside the hook commands", scope: "user",
+			setup: func(t *testing.T, _, home, claudeHooks string) {
+				settings := strings.Replace(strings.ReplaceAll(claudeHooks, "--agent claude", "--agent codex"), "{",
+					`{"permissions": {"allow": ["Bash(ateam hook --agent claude:*)"]},`, 1)
+				writeFiles(t, home, map[string]string{".claude/settings.json": settings})
+			},
+			want:   []string{"~/.claude/settings.json: missing --agent claude in hook commands"},
+			absent: "claude"},
+		{name: "user settings with a command under the wrong native event", scope: "user",
+			setup: func(t *testing.T, _, home, claudeHooks string) {
+				writeFiles(t, home, map[string]string{".claude/settings.json": strings.Replace(claudeHooks, `"Stop"`, `"SubagentStop"`, 1)})
+			},
+			want:   []string{"~/.claude/settings.json: missing hook command for event turn-end"},
+			absent: "claude"},
+		{name: "project settings with a command under the wrong native event", scope: "",
+			setup: func(t *testing.T, dir, _, _ string) {
+				gemini := readRepoFile(t, dir, ".gemini/settings.json")
+				writeFiles(t, dir, map[string]string{".gemini/settings.json": strings.Replace(gemini, `"AfterAgent"`, `"AfterModel"`, 1)})
+			},
+			want:   []string{".gemini/settings.json: missing hook command for event turn-end"},
+			absent: "gemini"},
 		{name: "no user-scope file at all", scope: "user",
 			setup:  func(*testing.T, string, string, string) {},
 			want:   []string{".claude/settings.json: missing hook command for event session-start", ".claude/settings.local.json: missing hook config file", "~/.claude/settings.json: missing hook config file"},
