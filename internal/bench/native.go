@@ -61,7 +61,22 @@ func parseNativeOutput(e Experiment, output string) (AdapterResponse, error) {
 	return parseGeminiVersionedOutput(e.Gemini, output)
 }
 
-func resolveNative(r *ResolvedExperiment, e Experiment) error {
+// versionProbeTimeout only guards against a CLI that never exits; it is not a
+// performance check. A trivial shell --version took up to 5.6s on a loaded
+// race-enabled test run (#186); the real CLIs are Node and Python programs.
+// A var so tests can shrink it.
+var versionProbeTimeout = 30 * time.Second
+
+// probeError reports why a version probe stopped: a cancelled run context or
+// the probe bound reads as such rather than as the killed child's exit status.
+func probeError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
+func resolveNative(ctx context.Context, r *ResolvedExperiment, e Experiment) error {
 	if e.Gemini != nil {
 		if err := validateNewGeminiExecution(e.Gemini); err != nil {
 			return err
@@ -70,7 +85,7 @@ func resolveNative(r *ResolvedExperiment, e Experiment) error {
 	if e.Claude != nil && e.Claude.OutputFormat != "json-schema" {
 		return fmt.Errorf("claude new execution requires output_format json-schema; legacy text format is replay-only")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, versionProbeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, e.Command[0], "--version")
 	configureBenchmarkProcess(cmd)
@@ -79,7 +94,7 @@ func resolveNative(r *ResolvedExperiment, e Experiment) error {
 	cmd.Stdout = &out
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("probe %s version: %w", e.Agent, err)
+		return fmt.Errorf("probe %s version: %w", e.Agent, probeError(ctx, err))
 	}
 	version := strings.TrimSpace(out.String())
 	want := geminiStableVersion

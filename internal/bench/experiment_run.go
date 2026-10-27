@@ -110,7 +110,7 @@ func executeAdapter(ctx context.Context, e Experiment, request AdapterRequest, d
 	return response, stdout.String(), stderr.String(), "completed", nil
 }
 
-func revalidateExperiment(resolved ResolvedExperiment) error {
+func revalidateExperiment(ctx context.Context, resolved ResolvedExperiment) error {
 	if err := validateResolvedExperiment(resolved); err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func revalidateExperiment(resolved ResolvedExperiment) error {
 	if resolved.Bundles != nil {
 		config, base = resolved.Original, resolved.Bundles.ConfigDir
 	}
-	current, err := ResolveExperiment(config, base)
+	current, err := ResolveExperimentContext(ctx, config, base)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func RunExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot 
 }
 
 func runExperiment(ctx context.Context, resolved ResolvedExperiment, outputRoot string, execute func(context.Context, Experiment, AdapterRequest, string) (AdapterResponse, string, string, string, error)) (string, error) {
-	if err := revalidateExperiment(resolved); err != nil {
+	if err := revalidateExperiment(ctx, resolved); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(outputRoot, 0700); err != nil {
@@ -575,7 +575,7 @@ func rescoreExperiment(ctx context.Context, path string, grade func(context.Cont
 	if err != nil {
 		return "", err
 	}
-	grader, err := currentGrader()
+	grader, err := currentGrader(ctx)
 	if err != nil {
 		return "", err
 	}

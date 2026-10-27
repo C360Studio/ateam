@@ -91,7 +91,7 @@ func runExperimentCLI(ctx context.Context, root string, args []string) int {
 		if err != nil {
 			return benchError(err)
 		}
-		resolved, err := bench.ResolveExperiment(config, filepath.Dir(path))
+		resolved, err := bench.ResolveExperimentContext(ctx, config, filepath.Dir(path))
 		if err != nil {
 			return benchError(err)
 		}
