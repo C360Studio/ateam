@@ -274,6 +274,12 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 - **AND** a file whose content already equals the template, and any generated file other than those four, gets no backup
 - **AND** when init fails after making backups, it still reports their paths, and `backed_up` is an empty list rather than `null` when nothing was backed up
 
+#### Scenario: Forced init replaces a symlinked file instead of writing through it
+
+- **WHEN** `ateam init --force` would replace a generated file whose path is a symbolic link, for example an `AGENTS.md` that links to a shared rules file outside the repository
+- **THEN** init removes the link and writes the template as a regular file at that path, so the link's target is never opened for writing and keeps its bytes
+- **AND** a symlinked harness document whose target differs from the template is still backed up first, and the backup holds the target's bytes
+
 ### Requirement: Board state and authenticated API access
 
 The board SHALL expose state and support card creation, movement, handoff, and mode updates through its API, with the static application served at the root. Without an API token, protected reads and writes SHALL accept only loopback clients; when a token is configured, every client SHALL supply it. Board helpers SHALL group cards into all six canonical columns, filter by text, agent, forge, and column, and format five-field pickup prompts deterministically.
