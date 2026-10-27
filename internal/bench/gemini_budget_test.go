@@ -159,7 +159,7 @@ func TestGeminiOutputAllowanceStaleSettings(t *testing.T) {
 	if !strings.Contains(resolved.BudgetPolicy, "4 model turns/attempt and 32768 output tokens/turn") {
 		t.Fatal("explicit allowance missing from budget policy")
 	}
-	if err := revalidateExperiment(resolved); err != nil {
+	if err := revalidateExperiment(context.Background(), resolved); err != nil {
 		t.Fatalf("fresh resolved allowance refused: %v", err)
 	}
 	run := ExperimentRun{Version: 1, Created: time.Now().UTC(), Resolved: resolved, StopReason: "cancelled"}

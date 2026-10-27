@@ -25,6 +25,27 @@ func TestBenchRejectsForgedRescoreAndCLIArguments(t *testing.T) {
 	}
 }
 
+// A dry run still probes agent and grader versions; a cancelled run context
+// must stop it rather than resolving under a fresh background context.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+func TestBenchRunDryRunHonorsContext(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "experiment.json")
+	config := `{"version":1,"name":"pilot","command":["/bin/cat"],"agent":"fake","agent_version":"1","model":"none","baseline":"plain","candidate":"check boundaries","tasks":["safe-path","sql-user"],"repetitions":2,"seed":42,"timeout_seconds":5}`
+	if err := os.WriteFile(file, []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"run", file, "--dry-run"}
+	if code, diagnostic := captureBenchError(t, func() int { return runExperimentCLI(context.Background(), dir, args) }); code != 0 {
+		t.Fatalf("live dry run exit=%d: %s", code, diagnostic)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code, diagnostic := captureBenchError(t, func() int { return runExperimentCLI(ctx, dir, args) }); code == 0 || !strings.Contains(diagnostic, "context canceled") {
+		t.Fatalf("cancelled dry run exit=%d diagnostic=%q; want failure naming context canceled", code, diagnostic)
+	}
+}
+
 // spec: openspec/specs/benchmark-reports/spec.md#Requirement: Deterministic non-overwriting output and read-only checks
 func TestBenchExportRejectsArgumentsBeforeReadingInput(t *testing.T) {
 	dir := t.TempDir()

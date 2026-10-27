@@ -40,7 +40,7 @@ Record base/head commits, policy revision, all implementation runs/models, your 
 // reviewerRecordPRComment is the contract's record section under the default review_record.
 const reviewerRecordPRComment = `## Record
 
-Post the record as one pull request comment. ` + "`task merge:check`" + ` accepts a comment whose ` + "`reviewed-by:`" + ` lines name only you, or, with no such line, whose ` + "`### Independent Cross-Agent Review`" + ` heading names no agent but you. The comment must designate exactly one commit of the pull request, written ` + "`Reviewed at <sha>`" + ` (7 to 40 hex characters); any other commit it designates the same way (such as a ` + "`Head: <sha>`" + ` line) makes it no record. Copy:
+Post the record as one pull request comment. ` + "`task merge:check`" + ` accepts a comment whose ` + "`reviewed-by:`" + ` lines name only you, or, with no such line, whose ` + "`### Independent Cross-Agent Review`" + ` heading names no agent but you. The comment must designate exactly one commit of the pull request, written ` + "`Reviewed at <sha>`" + ` (7 to 40 hex characters); any other commit it designates the same way (such as a ` + "`Head: <sha>`" + ` line) makes it no record. The latest record must carry exactly one ` + "`Verdict: APPROVE`" + ` line; ` + "`Verdict: REQUEST CHANGES`" + `, no ` + "`Verdict:`" + ` line, or more than one fails the check until a later approving record. Lines inside ` + "```" + ` or ~~~ code fences are ignored, so a quoted template or old record never counts. Copy:
 
 ` + "```" + `text
 reviewed-by: <agent> (<model>, <effort>)

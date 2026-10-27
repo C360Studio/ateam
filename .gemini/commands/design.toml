@@ -1,0 +1,2 @@
+description = "Draft design.md for an OpenSpec change on the design track; read-only, drafts and never rules."
+prompt = "Read .agents/skills/design/SKILL.md fully and follow the canonical design workflow."

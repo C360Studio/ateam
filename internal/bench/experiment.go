@@ -2,6 +2,7 @@ package bench
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -308,6 +309,11 @@ func evaluatorDigest(ids []string) string {
 
 // ResolveExperiment validates executable/script identity without running the adapter.
 func ResolveExperiment(e Experiment, base string) (ResolvedExperiment, error) {
+	return ResolveExperimentContext(context.Background(), e, base)
+}
+
+// ResolveExperimentContext is ResolveExperiment with the version probes bound to ctx.
+func ResolveExperimentContext(ctx context.Context, e Experiment, base string) (ResolvedExperiment, error) {
 	if e.Bundles != nil {
 		refs := *e.Bundles
 		e.Bundles = &refs
@@ -387,16 +393,16 @@ func ResolveExperiment(e Experiment, base string) (ResolvedExperiment, error) {
 		e.Command[i] = path
 	}
 	if isMercury(e) {
-		if err := resolveMercury(&r, &e, base); err != nil {
+		if err := resolveMercury(ctx, &r, &e, base); err != nil {
 			return r, err
 		}
 	}
 	if e.IsNative() {
-		if err := resolveNative(&r, e); err != nil {
+		if err := resolveNative(ctx, &r, e); err != nil {
 			return r, err
 		}
 	}
-	grader, err := currentGrader()
+	grader, err := currentGrader(ctx)
 	if err != nil {
 		return r, err
 	}

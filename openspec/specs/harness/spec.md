@@ -580,3 +580,71 @@ On a code pull request, the merge check SHALL print a note for each OpenSpec cha
 
 - **WHEN** the pull request touches `openspec/changes/archive/2026-10-26-foo/` whose `proposal.md` is missing, or the read of a touched `proposal.md` fails
 - **THEN** the merge check prints a note naming the change or the path, and a failed read does not make the check unavailable
+
+### Requirement: Merge check requires an approving review verdict
+
+The merge check SHALL accept the latest review record only when it carries exactly one `Verdict: APPROVE` line outside fenced code blocks, and SHALL ignore fenced code blocks when it identifies a review record and its designated commit.
+
+#### Scenario: Rejecting record blocks
+
+- **WHEN** the latest review record names the reviewer and one commit and says `Verdict: REQUEST CHANGES`
+- **THEN** the merge check reports a blocking finding naming that verdict and exits non-zero
+
+#### Scenario: Missing or repeated verdict blocks
+
+- **WHEN** the latest review record has no unfenced `Verdict:` line, or more than one
+- **THEN** the merge check reports a blocking finding naming what it found and exits non-zero
+
+#### Scenario: Later approval supersedes
+
+- **WHEN** a `Verdict: REQUEST CHANGES` record is followed by a record from the same reviewer with `Verdict: APPROVE` naming the head
+- **THEN** the merge check accepts the review record
+
+#### Scenario: Fenced text is not a record
+
+- **WHEN** a comment's only `reviewed-by:`, `Reviewed at`, or `Verdict:` line is inside a ``` or ~~~ fence
+- **THEN** the merge check does not count that line
+
+### Requirement: Opt-in design track
+
+A non-trivial change SHALL declare the `quick` or `design` track at Clarify. `ateam state spec-check` SHALL warn, without failing, when a change's `design.md` exceeds 120 lines. `ateam init` SHALL write the `design` canonical skill with its Claude and Gemini adapters, and `ateam doctor --check` SHALL fail when the canonical `design` skill is missing.
+
+#### Scenario: Design over the length limit
+
+- **WHEN** a change's `design.md` has 121 or more lines
+- **THEN** `ateam state spec-check` prints a warning naming `openspec/changes/<id>/design.md`, its line count, and the limit of 120, and still exits 0; at 120 lines, or with no `design.md`, it prints no such warning
+
+#### Scenario: Design skill parity
+
+- **WHEN** `ateam init` runs on an empty directory
+- **THEN** it writes `.agents/skills/design/SKILL.md`, `.claude/skills/design/SKILL.md`, and `.gemini/commands/design.toml`
+- **AND** `ateam doctor --check` fails once `.agents/skills/design/SKILL.md` is removed
+
+### Requirement: Default-branch handoff freshness follows the remote tip
+
+For any session other than its holder's, a handoff in a default-branch slot SHALL be stale when its checkpoint differs from the default branch's remote-tracking tip already on disk, unless the checkpoint is the local HEAD and the local branch is ahead of that tip. A deliberate handoff written with no resolvable session id SHALL warn, and a slot refusal SHALL name the holder's writer-lease state when it is known.
+
+#### Scenario: Checkpoint behind origin does not hold the slot
+
+- **WHEN** `claude@main` holds a handoff at checkpoint `A`, local `main` is at `A`, and `origin/main` is at a later commit `B`
+- **THEN** the handoff is stale with reason `origin/main moved from A -> B` and a new handoff from another session is written
+
+#### Scenario: Unpushed local main keeps its handoff fresh
+
+- **WHEN** the handoff's checkpoint is local `main`'s HEAD and local `main` is ahead of `origin/main`
+- **THEN** the handoff is fresh and still refuses another session's write
+
+#### Scenario: Holder's own session keeps its handoff across compaction
+
+- **WHEN** the holder's session compacts or starts again with local `main` unpulled and `origin/main` ahead of the checkpoint
+- **THEN** the handoff keeps its five fields and is shown at session start, while another session can still replace it
+
+#### Scenario: Handoff without a session id warns
+
+- **WHEN** a deliberate handoff is written and no session id resolves
+- **THEN** the writer is told the handoff will hold its slot against every session
+
+#### Scenario: Refusal names the holder's writer lease
+
+- **WHEN** a handoff is refused because another session's fresh handoff holds the slot and the writer lease belongs to that session
+- **THEN** the refusal says whether that lease is live, with its pid, or exited; it says nothing about a lease it cannot attribute

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -194,6 +195,39 @@ func TestMercuryProcessHelper(_ *testing.T) {
 	os.Exit(0)
 }
 
+// foreignProviderRequest answers requests that carry neither the provider path
+// nor any credential with 404. Loopback ports are shared with the rest of the
+// host, and unidentified clients have been seen probing fixture servers with
+// HEAD / under load (#186); such traffic is not the adapter's and must not
+// fail the test. A request with the provider path or any credential is still
+// judged by the fixture.
+func foreignProviderRequest(t *testing.T, w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path == "/v1/chat/completions" || r.Header.Get("Authorization") != "" {
+		return false
+	}
+	t.Logf("ignored foreign request %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+	http.NotFound(w, r)
+	return true
+}
+
+// requireForeignIgnored sends one uncredentialed request to the fixture root
+// and requires the 404 that proves foreign traffic is filtered.
+func requireForeignIgnored(t *testing.T, method, url string) {
+	t.Helper()
+	request, err := http.NewRequest(method, url+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("foreign %s / status %d, want 404", method, response.StatusCode)
+	}
+}
+
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestMercuryRunAndReplay(t *testing.T) {
@@ -213,8 +247,11 @@ func TestMercuryRunAndReplay(t *testing.T) {
 				t.Fatal("Mercury provenance missing")
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if foreignProviderRequest(t, w, r) {
+					return
+				}
 				if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer fixture-inception-secret" {
-					t.Error("provider endpoint or credential missing")
+					t.Errorf("provider endpoint or credential missing: method=%s path=%s", r.Method, r.URL.Path)
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
@@ -233,6 +270,7 @@ func TestMercuryRunAndReplay(t *testing.T) {
 				_, _ = io.WriteString(w, body)
 			}))
 			defer server.Close()
+			requireForeignIgnored(t, http.MethodHead, server.URL)
 			execute := func(ctx context.Context, experiment Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
 				return executeMercuryAt(ctx, experiment, request, dir, server.URL+"/v1")
 			}
@@ -275,11 +313,32 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 	for _, timeout := range []bool{false, true} {
 		t.Run(fmt.Sprint(timeout), func(t *testing.T) {
 			e := mercuryFixture(t)
-			if timeout {
-				e.TimeoutSeconds = 5
-			}
+			// The attempt clock starts before the bridge does: two race-binary
+			// re-execs plus the readiness poll, measured at up to 5.6s each on a
+			// loaded host (#186). The budget must cover that with margin, and a
+			// handshake cannot arrive after it, so it also bounds the wait.
+			e.TimeoutSeconds = 20
+			handshakeWait := time.Duration(e.TimeoutSeconds) * time.Second
 			connected, closed, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			// The adapter makes exactly one provider request on this path: the proxy
+			// and fixture CLIs never retry. Only requests carrying the proxy's path
+			// and credential count; anything else reaching the loopback port is
+			// foreign and must neither fake the handshake nor panic a second close.
+			var requests atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if foreignProviderRequest(t, w, r) {
+					return
+				}
+				if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer fixture-inception-secret" {
+					t.Errorf("provider endpoint or credential missing: method=%s path=%s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if n := requests.Add(1); n > 1 {
+					t.Errorf("provider request %d from %s: the adapter must make exactly one", n, r.RemoteAddr)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
 				_, _ = io.Copy(io.Discard, r.Body)
 				_ = r.Body.Close()
 				w.WriteHeader(200)
@@ -290,10 +349,10 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 					close(closed)
 				case <-release:
 				}
-
 			}))
 			defer server.Close()
 			defer close(release)
+			requireForeignIgnored(t, http.MethodGet, server.URL)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			type outcome struct {
@@ -307,10 +366,14 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 			}()
 			select {
 			case <-connected:
-			case <-time.After(4 * time.Second):
+			case <-time.After(handshakeWait):
 				t.Fatal("provider handshake absent")
 			}
-			if !timeout {
+			stopWait := 5 * time.Second
+			if timeout {
+				// The attempt deadline is at most TimeoutSeconds past the handshake.
+				stopWait += time.Duration(e.TimeoutSeconds) * time.Second
+			} else {
 				cancel()
 			}
 			select {
@@ -322,7 +385,7 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 				if got.err == nil || got.status != want {
 					t.Fatalf("got %s/%v want %s", got.status, got.err, want)
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(stopWait):
 				t.Fatal("attempt did not stop")
 			}
 			select {
@@ -428,6 +491,43 @@ func TestMercuryCaptureReadFailures(t *testing.T) {
 			}
 			if replay, replayErr := parseMercuryOutput(raw); replayErr == nil || replay.Usage != nil {
 				t.Fatal("capture failure became valid on replay")
+			}
+		})
+	}
+}
+
+// A slow but finishing --version must resolve with its provenance intact. The
+// production bound's floor against loaded-host startup (#186) is asserted by
+// TestVersionProbeBoundCoversMeasuredStartup, so this probe sleeps briefly.
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Controlled bounded experiments
+// spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Mercury through the existing Claude runtime
+func TestVersionProbeToleratesSlowStartup(t *testing.T) {
+	for _, role := range []string{"claude", "bridge"} {
+		t.Run(role, func(t *testing.T) {
+			e := mercuryFixture(t)
+			// Answer --version in sh so only the injected delay, not race-binary
+			// startup, sets this test's pace.
+			for name, version := range map[string]string{"claude": "2.1.292 (Claude Code)", "bridge": "LiteLLM: Current Version = 1.99.0"} {
+				path := filepath.Join(filepath.Dir(e.Command[0]), name)
+				script, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				delay := ""
+				if name == role {
+					delay = "sleep 0.3; "
+				}
+				answer := "#!/bin/sh\nif [ \"$1\" = --version ]; then " + delay + "echo '" + version + "'; exit 0; fi\n"
+				if err := os.WriteFile(path, []byte(strings.Replace(string(script), "#!/bin/sh\n", answer, 1)), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r, err := ResolveExperiment(e, ".")
+			if err != nil {
+				t.Fatalf("slow %s --version: %v", role, err)
+			}
+			if r.ClaudeVersion != "2.1.292 (Claude Code)" || r.MercuryBridgeVersion != mercuryBridgeVersion {
+				t.Fatal("slow probe lost version provenance")
 			}
 		})
 	}

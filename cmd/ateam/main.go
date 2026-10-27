@@ -283,6 +283,9 @@ func runStateHandoff(repoRoot string, args []string) int {
 		return 1
 	}
 	_ = state.ClearWriterLease(repoRoot)
+	if strings.TrimSpace(ho.SessionID) == "" {
+		fmt.Fprintf(os.Stderr, "ateam state handoff: warning: %s\n", state.HandoffNoSessionWarning(ho))
+	}
 	prompt := state.FormatFiveFieldPrompt(ho)
 	if !*noPost && st.Forge.Provider != state.ForgeLocal {
 		if _, err := state.PostPRHandoffComment(context.Background(), repoRoot, st.Forge, ho.Branch, prompt); err != nil {

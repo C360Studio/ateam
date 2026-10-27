@@ -219,6 +219,7 @@ You are a lazy senior developer. The best code is the code never written. Solve 
 | ` + "`verify+review`" + ` | Shared state syncs with GitHub (` + "`gh`" + `/API) or Gitea (` + "`tea`" + `/API v1) and git worktrees, cached in gitignored ` + "`.ateam/state.json`" + ` | ` + "`.agents/protocol.md`" + ` |
 | ` + "`verify`" + ` | OpenSpec changes/specs validate via ` + "`spec:check`" + `, and ` + "`Hold:`" + ` / caveats (` + "`HALT`" + `, ` + "`RED`" + `, ` + "`BLOCKED`" + `, ` + "`WONTDO`" + `, ` + "`OPEN-Q`" + `) are parsed by ` + "`spec:queue`" + ` | ` + "`openspec/`" + ` |
 | ` + "`review`" + ` | Non-trivial work's OpenSpec ` + "`proposal.md`" + ` stays one page (≤ 60 lines; ` + "`spec:check`" + ` warns past it) and carries ` + "`Approved-by:`" + `, empty until the owner fills ` + "`<name> (<YYYY-MM-DD>)`" + `; the change's first task holds ` + "`Hold: OPEN-Q proposal awaits owner approval`" + ` until the owner removes it in the same edit, and an agent whose Stop boundary is proposal approval stops there and hands off | ` + "`.agents/protocol.md`" + ` |
+| ` + "`" + `review` + "`" + ` | A non-trivial change declares the ` + "`" + `quick` + "`" + ` or ` + "`" + `design` + "`" + ` track at Clarify; ` + "`" + `design` + "`" + ` is required when it adds a spec Requirement, touches more than one capability under ` + "`" + `openspec/specs/` + "`" + `, adds exported surface reachable from an adopting repository, or touches a boot path, durability/ack behavior, or a gate file, and then carries a ` + "`" + `design.md` + "`" + ` (≤ 120 lines; ` + "`" + `spec:check` + "`" + ` warns past it) drafted by the read-only ` + "`" + `design` + "`" + ` skill and approved with the proposal under the one ` + "`" + `OPEN-Q` + "`" + ` hold | ` + "`" + `.agents/protocol.md` + "`" + ` § Clarify; ` + "`" + `.agents/skills/design/SKILL.md` + "`" + ` |
 | ` + "`verify`" + ` | ` + "`ateam bench --selftest`" + ` verifies good/bad reference fixtures and mutation detection before any live benchmark run | ` + "`.agents/protocol.md`" + ` |
 | ` + "`verify`" + ` | ` + "`task verify`" + ` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | ` + "`Taskfile.yml`" + ` |
 | verify+review | Review requires an independent reviewer not weaker than every implementer by model tier, then effort band, optional provider separation and current trusted-base evidence; the dormant configured path adds scoped owner ceiling exceptions | ateam review; .agents/contracts/reviewer.md |
@@ -259,6 +260,7 @@ const defaultRulesIndexMD = `# Rules Enforcement Index
 | ` + "`verify+review`" + ` | Shared state syncs with GitHub (` + "`gh`" + `/API) or Gitea (` + "`tea`" + `/API v1) and git worktrees, cached in gitignored ` + "`.ateam/state.json`" + ` | ` + "`ateam state pickup`" + ` |
 | ` + "`verify`" + ` | OpenSpec changes/specs validate via ` + "`spec:check`" + `, and ` + "`Hold:`" + ` / caveats (` + "`HALT`" + `, ` + "`RED`" + `, ` + "`BLOCKED`" + `, ` + "`WONTDO`" + `, ` + "`OPEN-Q`" + `) are parsed by ` + "`spec:queue`" + ` | ` + "`ateam state spec-check`" + ` |
 | ` + "`review`" + ` | Non-trivial work's OpenSpec ` + "`proposal.md`" + ` stays one page (≤ 60 lines; ` + "`spec:check`" + ` warns past it) and carries ` + "`Approved-by:`" + `, empty until the owner fills ` + "`<name> (<YYYY-MM-DD>)`" + `; the change's first task holds ` + "`Hold: OPEN-Q proposal awaits owner approval`" + ` until the owner removes it in the same edit, and an agent whose Stop boundary is proposal approval stops there and hands off | ` + "`ateam state spec-check`" + `; review |
+| ` + "`" + `review` + "`" + ` | A non-trivial change declares the ` + "`" + `quick` + "`" + ` or ` + "`" + `design` + "`" + ` track at Clarify; ` + "`" + `design` + "`" + ` is required when it adds a spec Requirement, touches more than one capability under ` + "`" + `openspec/specs/` + "`" + `, adds exported surface reachable from an adopting repository, or touches a boot path, durability/ack behavior, or a gate file, and then carries a ` + "`" + `design.md` + "`" + ` (≤ 120 lines; ` + "`" + `spec:check` + "`" + ` warns past it) drafted by the read-only ` + "`" + `design` + "`" + ` skill and approved with the proposal under the one ` + "`" + `OPEN-Q` + "`" + ` hold | ` + "`" + `ateam state spec-check` + "`" + `; review |
 | ` + "`verify`" + ` | ` + "`ateam bench --selftest`" + ` verifies good/bad reference fixtures and mutation detection before any live benchmark run | ` + "`ateam bench --selftest`" + ` |
 | ` + "`verify`" + ` | ` + "`task verify`" + ` runs formatting, OpenSpec check, test-to-spec attribution, lint, unit/parity tests, benchmark self-test, and UI checks on a clean tree | ` + "`task verify`" + ` |
 | verify+review | Review requires an independent reviewer not weaker than every implementer by model tier, then effort band, optional provider separation and current trusted-base evidence; the dormant configured path adds scoped owner ceiling exceptions | ateam review; .agents/contracts/reviewer.md |
@@ -285,7 +287,7 @@ Shared truth lives in the repository's versioned code, ` + "`openspec/`" + ` spe
 
 ## 2. Work Lifecycle & Definition of Done
 
-1. **Clarify:** Before mutating state on an underspecified request, inspect the tree first, then confirm Deliverable, Scope/non-goals, Definition of Done, and Stop boundary. For non-trivial work the default Stop boundary is proposal approval: a one-page ` + "`proposal.md`" + ` (≤ 60 lines; detail goes in ` + "`tasks.md`" + ` or ` + "`design.md`" + `) with an empty ` + "`Approved-by:`" + ` line, and a first task carrying ` + "`Hold: OPEN-Q proposal awaits owner approval`" + ` until the owner fills ` + "`Approved-by: <name> (<YYYY-MM-DD>)`" + ` and removes the hold in the same edit; the agent stops at the hold and hands off.
+1. **Clarify:** Before mutating state on an underspecified request, inspect the tree first, then confirm Deliverable, Scope/non-goals, Definition of Done, and Stop boundary. For non-trivial work the default Stop boundary is proposal approval: a one-page ` + "`proposal.md`" + ` (≤ 60 lines; detail goes in ` + "`tasks.md`" + ` or ` + "`design.md`" + `) with an empty ` + "`Approved-by:`" + ` line, and a first task carrying ` + "`Hold: OPEN-Q proposal awaits owner approval`" + ` until the owner fills ` + "`Approved-by: <name> (<YYYY-MM-DD>)`" + ` and removes the hold in the same edit; the agent stops at the hold and hands off. A non-trivial change also declares its track: ` + "`" + `design` + "`" + ` when it adds a spec Requirement, touches more than one capability under ` + "`" + `openspec/specs/` + "`" + `, adds exported surface reachable from an adopting repository, or touches a boot path, durability/ack behavior, or a gate file, otherwise ` + "`" + `quick` + "`" + ` with no ` + "`" + `design.md` + "`" + `. On ` + "`" + `design` + "`" + `, the ` + "`" + `design` + "`" + ` skill (` + "`" + `.agents/skills/design/SKILL.md` + "`" + `) drafts ` + "`" + `design.md` + "`" + ` in OpenSpec's ` + "`" + `spec-driven` + "`" + ` sections (≤ 120 lines; ` + "`" + `task spec:check` + "`" + ` warns past it), and the one approval hold covers ` + "`" + `proposal.md` + "`" + ` and ` + "`" + `design.md` + "`" + `.
 ` + protocolClaimStep + `
 3. **Execute (Ponytail Decision Ladder):** Take the smallest complete change that solves the task, reuse stdlib/existing code, add a focused test using an independent oracle for every non-trivial branch/parser, and tag deliberate limits with ` + "`// shortcut: <the limit>, <when to upgrade>`" + `.
 ` + protocolVerifyStep + `
@@ -325,7 +327,46 @@ Use ateam review check --pr N --record-comment ID with optional --exception-comm
 
 `
 
+// architectContract is .agents/contracts/architect.md: the design-track role drafts, never implements or rules.
+const architectContract = `# Architect contract
+
+Read AGENTS.md and .agents/protocol.md fully. Work only on a change the Clarify gate put on the ` + "`" + `design` + "`" + ` track. Keep the repository read-only except the change's ` + "`" + `design.md` + "`" + ` and the premises in its ` + "`" + `tasks.md` + "`" + `; draft them with .agents/skills/design/SKILL.md. Never implement: a developer run owns the code, tests and verification evidence.
+
+Never rule. Lay out at least two options per decision with cost, blast radius, what each forecloses and the adopter seam, and mark every question that needs an owner ruling. The owner approves the proposal and design together by filling ` + "`" + `Approved-by:` + "`" + ` and removing the change's ` + "`" + `Hold: OPEN-Q proposal awaits owner approval` + "`" + ` in one edit; until then, stop and hand off.
+
+Ground every claim in a ` + "`" + `file:line` + "`" + ` you opened in this run, and run ` + "`" + `git log -S` + "`" + ` before calling anything dead. Record your provider, exact model and reasoning effort. Model routing for this role is not configured yet: ` + "`" + `.agents/review-policy.json` + "`" + ` routes only the developer and reviewer (ateam #179, pending ADR 0003).
+`
+
 var canonicalSkillBodies = map[string]string{
+	"design": `---
+name: design
+description: >-
+  Draft design.md for an OpenSpec change on the design track: file:line context, options with trade-offs,
+  the adopter seam, and owner questions. Read-only on code; drafts and never rules or implements.
+---
+
+# Draft a Design
+
+Read [the shared protocol](../../protocol.md) and [the architect contract](../../contracts/architect.md) first. Use this skill only on the ` + "`" + `design` + "`" + ` track (protocol § 2 Clarify); a ` + "`" + `quick` + "`" + ` change has no ` + "`" + `design.md` + "`" + `. You draft text; the owner rules and a developer implements.
+
+## 1. Inventory What Exists
+
+Open every file the change touches and record each claim as ` + "`" + `file:line` + "`" + `, opened in this session, never remembered. Run ` + "`" + `git log -S '<symbol>'` + "`" + ` before calling anything dead.
+
+## 2. Write design.md in OpenSpec's Sections
+
+Write ` + "`" + `openspec/changes/<id>/design.md` + "`" + ` with the ` + "`" + `spec-driven` + "`" + ` sections (Context, Goals / Non-Goals, Decisions, Risks / Trade-offs, Migration Plan, Open Questions) and follow the ` + "`" + `design` + "`" + ` rules in ` + "`" + `openspec/config.yaml` + "`" + ` when present:
+
+- **Context:** the ` + "`" + `file:line` + "`" + ` inventory from step 1.
+- **Decisions:** each names at least two options with cost, blast radius, and what each forecloses, plus the adopter seam: what a developer who never opened this file must know, and what happens if they do nothing.
+- **Open Questions:** mark each one that needs an owner ruling. A question that would change specs, approach, or tasks is resolved before tasks.
+
+Stay under 120 lines; ` + "`" + `task spec:check` + "`" + ` warns past the limit.
+
+## 3. Tie Tasks to Premises
+
+Give each task in ` + "`" + `tasks.md` + "`" + ` its ` + "`" + `file:line` + "`" + ` premise and its acceptance check. Leave the first task's ` + "`" + `Hold: OPEN-Q proposal awaits owner approval` + "`" + ` in place: one owner edit approves ` + "`" + `proposal.md` + "`" + ` and ` + "`" + `design.md` + "`" + ` together. Stop there and hand off.
+`,
 	"handoff": `---
 name: handoff
 description: >-
@@ -464,7 +505,7 @@ Name your provider, exact model, and reasoning effort. Remove the review checkou
 
 ## 5. Clear the Merge Check
 
-The PR's ` + "`Merge check`" + ` job ran when the PR was marked ready, before your record existed, so it has failed. After ` + "`Verdict: REQUEST CHANGES`" + `, stop here and leave it red: the gate does not read the verdict, so a rerun would pass a rejected PR and release an armed auto-merge. After ` + "`Verdict: APPROVE`" + `, the gate also needs your ` + "`reviewed-by: <agent> (<model>, <effort>)`" + ` line in the PR description: add it if it is missing (` + "`gh pr view <n> --json body -q .body`" + `, then ` + "`gh pr edit <n> --body-file <file>`" + `). Then rerun the check once the run has finished: ` + "`run=$(gh run list --branch <head-branch> --workflow ci.yml --limit 1 --json databaseId -q '.[0].databaseId')`" + `, ` + "`gh run watch \"$run\" --exit-status || true`" + `, then ` + "`gh run rerun \"$run\" --failed`" + `. Only the failed jobs rerun, and ` + "`Merge check`" + ` now finds the record at the head it names; ` + "`gh run rerun`" + ` is refused while the run is still in progress, so wait first. On Gitea, edit the description and rerun the failed job from the Actions page, and say so in your reply. Do not update the branch to clear it.
+The PR's ` + "`Merge check`" + ` job ran when the PR was marked ready, before your record existed, so it has failed. After ` + "`Verdict: REQUEST CHANGES`" + `, stop here and leave it red: the gate passes only a latest record with exactly one ` + "`Verdict: APPROVE`" + ` line, so a rerun stays red until a new approving record names the head. After ` + "`Verdict: APPROVE`" + `, the gate also needs your ` + "`reviewed-by: <agent> (<model>, <effort>)`" + ` line in the PR description: add it if it is missing (` + "`gh pr view <n> --json body -q .body`" + `, then ` + "`gh pr edit <n> --body-file <file>`" + `). Then rerun the check once the run has finished: ` + "`run=$(gh run list --branch <head-branch> --workflow ci.yml --limit 1 --json databaseId -q '.[0].databaseId')`" + `, ` + "`gh run watch \"$run\" --exit-status || true`" + `, then ` + "`gh run rerun \"$run\" --failed`" + `. Only the failed jobs rerun, and ` + "`Merge check`" + ` now finds the record at the head it names; ` + "`gh run rerun`" + ` is refused while the run is still in progress, so wait first. On Gitea, edit the description and rerun the failed job from the Actions page, and say so in your reply. Do not update the branch to clear it.
 `,
 }
 
@@ -527,6 +568,7 @@ Existing client configuration is preserved even with --force; merge missing MCP 
 
 func defaultTemplateFiles() map[string]string {
 	m := map[string]string{
+		".agents/contracts/architect.md":        architectContract,
 		".agents/contracts/developer.md":        developerContract,
 		".agents/contracts/reviewer.md":         reviewerContract,
 		"AGENTS.md":                             defaultAgentsMD,

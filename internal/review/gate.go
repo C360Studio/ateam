@@ -514,13 +514,13 @@ func (g *gateRun) record(ctx context.Context, pull gatePull, files []gateFile, r
 	if err != nil {
 		return "", err
 	}
-	idx := -1
+	idx, recBody := -1, ""
 	for _, b := range bodies {
 		if !gateIsRecord(b, reviewer) {
 			continue
 		}
 		if idxs := gateDesignated(b, commits); len(idxs) == 1 {
-			idx = idxs[0]
+			idx, recBody = idxs[0], b
 		}
 	}
 	if idx < 0 {
@@ -529,6 +529,12 @@ func (g *gateRun) record(ctx context.Context, pull gatePull, files []gateFile, r
 		return "", nil
 	}
 	recSHA := commits[idx].SHA
+	// A rejecting record is a finding, not "no record" (#201); the freshness
+	// check below still runs so every reason to re-review is named at once.
+	if what := gateVerdict(recBody); what != "" {
+		g.finding(fmt.Sprintf("the latest review record (at %s) %s; it approves only with exactly one Verdict: APPROVE line outside code fences", recSHA, what),
+			"post a new review record from "+reviewer+" with Verdict: APPROVE naming the current head commit")
+	}
 	for _, later := range commits[idx+1:] {
 		detail, err := g.src.commit(ctx, g.pr, later.SHA)
 		if errors.Is(err, errCommitFilesUnproven) {
@@ -731,10 +737,12 @@ func gateRuns(rest string) []string {
 	return runs
 }
 
-// gateIsRecord reports a review record by reviewer: its reviewed-by: names only
-// reviewer, or it names no reviewed-by: agent and has an Independent
-// Cross-Agent Review heading naming no agent or only reviewer.
+// gateIsRecord reports a review record by reviewer, reading only lines outside
+// code fences: its reviewed-by: names only reviewer, or it names no
+// reviewed-by: agent and has an Independent Cross-Agent Review heading naming
+// no agent or only reviewer.
 func gateIsRecord(body, reviewer string) bool {
+	body = strings.Join(unfencedLines(body), "\n")
 	var by []string
 	for _, m := range gateByRe.FindAllStringSubmatchIndex(body, -1) {
 		if !gateRuneAt(body, m[3], gateLetterOrDigit) {
@@ -763,8 +771,10 @@ func gateIsRecord(body, reviewer string) bool {
 }
 
 // gateDesignated returns the indices of the commits body designates as
-// reviewed, or none when any designated SHA does not name exactly one commit.
+// reviewed outside code fences, or none when any designated SHA does not name
+// exactly one commit.
 func gateDesignated(body string, commits []gateCommit) []int {
+	body = strings.Join(unfencedLines(body), "\n")
 	var toks []string
 	for i, re := range gateDesignators {
 		s := body
@@ -808,4 +818,25 @@ func gateDesignated(body string, commits []gateCommit) []int {
 	}
 	slices.Sort(idxs)
 	return slices.Compact(idxs)
+}
+
+// gateVerdict describes why a record body does not approve, or returns "" when
+// it carries exactly one unfenced Verdict: line and that line says APPROVE.
+func gateVerdict(body string) string {
+	var verdicts []string
+	for _, l := range unfencedLines(body) {
+		t := strings.TrimSpace(l)
+		if len(t) >= len("Verdict:") && strings.EqualFold(t[:len("Verdict:")], "Verdict:") {
+			verdicts = append(verdicts, strings.TrimSpace(t[len("Verdict:"):]))
+		}
+	}
+	switch {
+	case len(verdicts) == 0:
+		return "has no Verdict: line"
+	case len(verdicts) > 1:
+		return fmt.Sprintf("has %d Verdict: lines", len(verdicts))
+	case !strings.EqualFold(verdicts[0], "APPROVE"):
+		return "says Verdict: " + verdicts[0]
+	}
+	return ""
 }

@@ -48,7 +48,7 @@ func mercuryEnvironment(home string) []string {
 		"PYTHON_DOTENV_DISABLED=1", "LITELLM_LOCAL_MODEL_COST_MAP=True", "DO_NOT_TRACK=1", "LITELLM_LOG=ERROR"}
 }
 
-func resolveMercury(r *ResolvedExperiment, e *Experiment, base string) error {
+func resolveMercury(ctx context.Context, r *ResolvedExperiment, e *Experiment, base string) error {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return fmt.Errorf("Mercury bridge execution requires macOS or Linux process groups")
 	}
@@ -75,7 +75,7 @@ func resolveMercury(r *ResolvedExperiment, e *Experiment, base string) error {
 		return err
 	}
 	defer os.RemoveAll(home)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, versionProbeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--version")
 	configureBenchmarkProcess(cmd)
@@ -86,7 +86,7 @@ func resolveMercury(r *ResolvedExperiment, e *Experiment, base string) error {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("probe Mercury bridge version: %w", err)
+		return fmt.Errorf("probe Mercury bridge version: %w", probeError(ctx, err))
 	}
 	if out.overflow || strings.TrimSpace(out.String()) != mercuryBridgeVersion {
 		return fmt.Errorf("Mercury requires %s", mercuryBridgeVersion)

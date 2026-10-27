@@ -31,6 +31,9 @@ func TestMercuryPinnedOffline(t *testing.T) {
 		}
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if foreignProviderRequest(t, w, r) {
+			return
+		}
 		mutex.Lock()
 		defer mutex.Unlock()
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer offline-provider-fixture" {
@@ -72,6 +75,7 @@ func TestMercuryPinnedOffline(t *testing.T) {
 		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	defer server.Close()
+	requireForeignIgnored(t, http.MethodHead, server.URL)
 	e := testExperiment()
 	e.Command = []string{cli}
 	e.Agent = "claude"

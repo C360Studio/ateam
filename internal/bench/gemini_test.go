@@ -406,7 +406,7 @@ func TestGeminiLegacyExecutionRefused(t *testing.T) {
 		t.Fatal("legacy execution reached workspace preparation")
 	}
 	e.Command = []string{"/does-not-exist/no-version-probe"}
-	if err := resolveNative(&ResolvedExperiment{}, e); err == nil || !strings.Contains(err.Error(), "output_format json-schema") {
+	if err := resolveNative(context.Background(), &ResolvedExperiment{}, e); err == nil || !strings.Contains(err.Error(), "output_format json-schema") {
 		t.Fatalf("legacy resolution reached CLI probe: %v", err)
 	}
 }

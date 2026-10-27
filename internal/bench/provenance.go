@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 //go:embed bench.go decision.go process_unix.go process_other.go
@@ -21,7 +20,7 @@ type GraderIdentity struct {
 	Version string `json:"version"`
 }
 
-func currentGrader() (GraderIdentity, error) {
+func currentGrader(ctx context.Context) (GraderIdentity, error) {
 	var identity GraderIdentity
 	path, err := exec.LookPath("go")
 	if err != nil {
@@ -35,7 +34,7 @@ func currentGrader() (GraderIdentity, error) {
 	if err != nil {
 		return identity, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, versionProbeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "version")
 	configureBenchmarkProcess(cmd)
@@ -43,7 +42,7 @@ func currentGrader() (GraderIdentity, error) {
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GOENV=off", "GOTOOLCHAIN=local"}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return identity, fmt.Errorf("identify grader: %w", err)
+		return identity, fmt.Errorf("identify grader: %w", probeError(ctx, err))
 	}
 	return GraderIdentity{Path: path, SHA: digest(data), Version: strings.TrimSpace(string(output))}, nil
 }
