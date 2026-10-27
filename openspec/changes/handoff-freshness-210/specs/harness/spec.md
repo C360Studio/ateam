@@ -18,3 +18,8 @@ A handoff in a default-branch slot SHALL be stale when its checkpoint differs fr
 
 - **WHEN** a deliberate handoff is written and no session id resolves
 - **THEN** the writer is told the handoff will hold its slot against every session
+
+#### Scenario: Refusal names the holder's writer lease
+
+- **WHEN** a handoff is refused because another session's fresh handoff holds the slot and the writer lease belongs to that session
+- **THEN** the refusal says whether that lease is live, with its pid, or exited; it says nothing about a lease it cannot attribute

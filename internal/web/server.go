@@ -595,6 +595,9 @@ func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if strings.TrimSpace(saved.SessionID) == "" {
+		w.Header().Set("X-Ateam-Warning", state.HandoffNoSessionWarning(saved))
+	}
 	writeJSON(w, http.StatusOK, saved)
 }
 

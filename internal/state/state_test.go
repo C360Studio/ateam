@@ -1714,3 +1714,95 @@ func TestPickupDetachedWorktreeHandoffStaleness(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/changes/handoff-freshness-210/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+func TestHandoffGuardJudgesDefaultBranchAgainstRemoteTip(t *testing.T) {
+	// #210: a main-slot handoff behind origin/main must not refuse the next session's write.
+	for _, tc := range []struct {
+		name                     string
+		branch, head, checkpoint string
+		remoteRef, remoteHead    string
+		ahead                    int
+		wantRefusal              bool
+		wantReason               string
+	}{
+		{"behind origin/main", "main", "1111111", "1111111", "origin/main", "2222222", 0, false, "origin/main moved from 1111111 -> 2222222"},
+		{"behind origin/master", "master", "1111111", "1111111", "origin/master", "2222222", 0, false, "origin/master moved from 1111111 -> 2222222"},
+		{"at the remote tip", "main", "1111111", "1111111", "origin/main", "1111111abc", 0, true, ""},
+		{"local main ahead of origin", "main", "1111111", "1111111", "origin/main", "0000000", 1, true, ""},
+		{"no remote ref on disk", "main", "1111111", "1111111", "", "", 0, true, ""},
+		{"remote ref names another branch", "main", "1111111", "1111111", "origin/master", "2222222", 0, true, ""},
+		{"feature branch slot", "claude/x", "1111111", "1111111", "origin/main", "2222222", 0, true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := defaultState()
+			st.Git = GitStatus{Branch: tc.branch, HeadSHA: tc.head, DefaultRemoteRef: tc.remoteRef, DefaultRemoteHead: tc.remoteHead, DefaultAheadOfRemote: tc.ahead}
+			held := Handoff{Goal: "A goal", Agent: "claude", Branch: tc.branch, SessionID: "A", CheckpointSHA: tc.checkpoint, UpdatedAt: time.Now().UTC()}
+			st.SetHandoff(held)
+			key := HandoffSlotKey("claude", tc.branch)
+			reasons := st.HandoffStaleReasonsFor(key, st.Handoffs[key])
+			if got := strings.Join(reasons, "; "); got != tc.wantReason {
+				t.Fatalf("stale reasons = %q, want %q", got, tc.wantReason)
+			}
+			err := st.SetHandoffGuarded(Handoff{Goal: "B goal", Agent: "claude", SessionID: "B", CheckpointSHA: tc.head, UpdatedAt: time.Now().UTC()}, false)
+			var refusal *HandoffSlotHeldError
+			if gotRefusal := errors.As(err, &refusal); gotRefusal != tc.wantRefusal || (err != nil && !gotRefusal) {
+				t.Fatalf("SetHandoffGuarded err = %v, want refusal=%v", err, tc.wantRefusal)
+			}
+		})
+	}
+}
+
+// spec: openspec/changes/handoff-freshness-210/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+func TestRefreshKeepsSameSessionHandoffBehindRemoteTip(t *testing.T) {
+	// #50 pre-compact recovery: remote-tip drift is HEAD drift for the holder's own session.
+	st := defaultState()
+	st.Git = GitStatus{Branch: "main", HeadSHA: "1111111", DefaultRemoteRef: "origin/main", DefaultRemoteHead: "2222222"}
+	st.CurrentSessionID = "A"
+	st.SetHandoff(Handoff{Goal: "A goal", Agent: "claude", Branch: "main", SessionID: "A", CheckpointSHA: "1111111", UpdatedAt: time.Now().UTC()})
+	st.RefreshHandoffStaleness()
+	if h := st.Handoffs["claude@main"]; h == nil || !h.Stale {
+		t.Fatalf("same-session handoff behind origin/main = %+v, want kept and stale", h)
+	}
+	st.CurrentSessionID = "B"
+	st.RefreshHandoffStaleness()
+	if h := st.Handoffs["claude@main"]; h != nil {
+		t.Fatalf("another session's refresh kept a handoff behind origin/main: %+v", h)
+	}
+}
+
+// spec: openspec/changes/handoff-freshness-210/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+func TestHandoffSlotRefusalNamesHolderLease(t *testing.T) {
+	exited := exec.Command("true")
+	if err := exited.Run(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		lease *WriterLease
+		want  string // "" = no lease clause
+	}{
+		{"live holder lease", &WriterLease{Agent: "claude", SessionID: "A", PID: os.Getpid()}, fmt.Sprintf("; holder's writer lease: live (pid %d))", os.Getpid())},
+		{"exited holder lease", &WriterLease{Agent: "claude", SessionID: "A", PID: exited.Process.Pid}, "; holder's writer lease: exited)"},
+		{"another session's lease", &WriterLease{Agent: "claude", SessionID: "Z", PID: os.Getpid()}, ""},
+		{"no lease", nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := defaultState()
+			st.Git = GitStatus{Branch: "main", HeadSHA: "1111111"}
+			st.Writer = tc.lease
+			st.SetHandoff(Handoff{Goal: "A goal", Agent: "claude", Branch: "main", SessionID: "A", CheckpointSHA: "1111111", UpdatedAt: time.Now().UTC()})
+			err := st.SetHandoffGuarded(Handoff{Goal: "B goal", Agent: "claude", SessionID: "B", CheckpointSHA: "1111111", UpdatedAt: time.Now().UTC()}, false)
+			if err == nil {
+				t.Fatal("SetHandoffGuarded did not refuse")
+			}
+			if tc.want == "" {
+				if strings.Contains(err.Error(), "writer lease") {
+					t.Fatalf("refusal names a lease it cannot attribute: %v", err)
+				}
+			} else if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("refusal = %v, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}

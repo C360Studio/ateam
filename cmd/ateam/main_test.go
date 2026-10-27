@@ -298,3 +298,62 @@ func TestHookLatencyFindings(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/changes/handoff-freshness-210/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+func TestStateHandoffBehindOriginMainDoesNotHoldSlot(t *testing.T) {
+	// #210: session A hands off from an unpulled main; origin/main then moves. Session B's handoff goes through.
+	dir := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q", "-b", "main")
+	git("commit", "-q", "--allow-empty", "-m", "A")
+	a := git("rev-parse", "HEAD")
+	git("update-ref", "refs/remotes/origin/main", a)
+	t.Setenv("ATEAM_SESSION_ID", "cli-A")
+	if code := runStateHandoff(dir, []string{"--agent", "claude", "--goal", "goal A", "--no-post"}); code != 0 {
+		t.Fatalf("session A handoff = %d, want 0", code)
+	}
+	t.Setenv("ATEAM_SESSION_ID", "cli-B")
+	if code := runStateHandoff(dir, []string{"--agent", "claude", "--goal", "goal B", "--no-post"}); code != 2 {
+		t.Fatalf("session B handoff while A is at origin/main = %d, want 2", code)
+	}
+	// A commit lands on origin/main (a PR merged on the forge); the local checkout is not pulled.
+	b := git("commit-tree", "-p", a, "-m", "B", git("rev-parse", "HEAD^{tree}"))
+	git("update-ref", "refs/remotes/origin/main", b)
+	if code := runStateHandoff(dir, []string{"--agent", "claude", "--goal", "goal B", "--no-post"}); code != 0 {
+		t.Fatalf("session B handoff after origin/main moved = %d, want 0", code)
+	}
+	if st, _ := state.Load(dir); st.Handoffs["claude@main"] == nil || st.Handoffs["claude@main"].Goal != "goal B" {
+		t.Fatalf("slot after origin/main moved = %+v, want goal B", st.Handoffs["claude@main"])
+	}
+}
+
+// spec: openspec/changes/handoff-freshness-210/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+func TestStateHandoffWarnsWithoutSessionID(t *testing.T) {
+	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
+		t.Setenv(k, "")
+	}
+	const warning = "warning: handoff written without a session id; it will hold slot claude@main against every session"
+	dir := t.TempDir()
+	code, stderr := captureBenchError(t, func() int {
+		return runStateHandoff(dir, []string{"--agent", "claude", "--goal", "goal", "--no-post"})
+	})
+	if code != 0 || !strings.Contains(stderr, warning) {
+		t.Fatalf("id-less handoff = %d, stderr %q; want 0 and %q", code, stderr, warning)
+	}
+	code, stderr = captureBenchError(t, func() int {
+		return runStateHandoff(dir, []string{"--agent", "claude", "--session", "S", "--goal", "goal", "--no-post", "--force"})
+	})
+	if code != 0 || strings.Contains(stderr, "without a session id") {
+		t.Fatalf("handoff with a session id = %d, stderr %q; want 0 and no warning", code, stderr)
+	}
+}
