@@ -195,6 +195,39 @@ func TestMercuryProcessHelper(_ *testing.T) {
 	os.Exit(0)
 }
 
+// foreignProviderRequest answers requests that carry neither the provider path
+// nor any credential with 404. Loopback ports are shared with the rest of the
+// host, and unidentified clients have been seen probing fixture servers with
+// HEAD / under load (#186); such traffic is not the adapter's and must not
+// fail the test. A request with the provider path or any credential is still
+// judged by the fixture.
+func foreignProviderRequest(t *testing.T, w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path == "/v1/chat/completions" || r.Header.Get("Authorization") != "" {
+		return false
+	}
+	t.Logf("ignored foreign request %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+	http.NotFound(w, r)
+	return true
+}
+
+// requireForeignIgnored sends one uncredentialed request to the fixture root
+// and requires the 404 that proves foreign traffic is filtered.
+func requireForeignIgnored(t *testing.T, method, url string) {
+	t.Helper()
+	request, err := http.NewRequest(method, url+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("foreign %s / status %d, want 404", method, response.StatusCode)
+	}
+}
+
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Bounded native pilots
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Retained independently graded artifacts
 func TestMercuryRunAndReplay(t *testing.T) {
@@ -214,8 +247,11 @@ func TestMercuryRunAndReplay(t *testing.T) {
 				t.Fatal("Mercury provenance missing")
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if foreignProviderRequest(t, w, r) {
+					return
+				}
 				if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer fixture-inception-secret" {
-					t.Error("provider endpoint or credential missing")
+					t.Errorf("provider endpoint or credential missing: method=%s path=%s", r.Method, r.URL.Path)
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
@@ -234,6 +270,7 @@ func TestMercuryRunAndReplay(t *testing.T) {
 				_, _ = io.WriteString(w, body)
 			}))
 			defer server.Close()
+			requireForeignIgnored(t, http.MethodHead, server.URL)
 			execute := func(ctx context.Context, experiment Experiment, request AdapterRequest, dir string) (AdapterResponse, string, string, string, error) {
 				return executeMercuryAt(ctx, experiment, request, dir, server.URL+"/v1")
 			}
@@ -289,9 +326,12 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 			// foreign and must neither fake the handshake nor panic a second close.
 			var requests atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if foreignProviderRequest(t, w, r) {
+					return
+				}
 				if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer fixture-inception-secret" {
-					t.Logf("ignored foreign request %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
-					http.NotFound(w, r)
+					t.Errorf("provider endpoint or credential missing: method=%s path=%s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
 				if n := requests.Add(1); n > 1 {
@@ -312,14 +352,7 @@ func TestMercuryCancellationClosesProviderSocket(t *testing.T) {
 			}))
 			defer server.Close()
 			defer close(release)
-			foreign, err := http.Get(server.URL + "/")
-			if err != nil {
-				t.Fatal(err)
-			}
-			_ = foreign.Body.Close()
-			if foreign.StatusCode != http.StatusNotFound {
-				t.Fatalf("foreign request status %d, want 404", foreign.StatusCode)
-			}
+			requireForeignIgnored(t, http.MethodGet, server.URL)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			type outcome struct {
