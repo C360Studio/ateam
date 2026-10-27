@@ -29,7 +29,7 @@ func TestAgentSetupParity(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
-// spec: openspec/changes/design-track-178/specs/harness/spec.md#Requirement: Opt-in design track
+// spec: openspec/specs/harness/spec.md#Requirement: Opt-in design track
 func TestInitRepoAndParitySensitivity(t *testing.T) {
 	dir := t.TempDir()
 	res, err := InitRepo(context.Background(), dir, Options{})

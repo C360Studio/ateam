@@ -333,7 +333,7 @@ func TestProposalLengthWarning(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/design-track-178/specs/harness/spec.md#Requirement: Opt-in design track
+// spec: openspec/specs/harness/spec.md#Requirement: Opt-in design track
 func TestDesignLengthWarning(t *testing.T) {
 	const absent = "\x00absent"
 	for _, tc := range []struct {
