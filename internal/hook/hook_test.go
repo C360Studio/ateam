@@ -889,3 +889,78 @@ func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
 		}
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+func TestPreCompactPreservesOwnHandoffBehindRemoteTip(t *testing.T) {
+	// #210 review: local main unpulled, origin/main ahead. The holder's pre-compact keeps its five
+	// fields and its next session-start shows them; another session's write still replaces it.
+	for _, k := range []string{"ATEAM_AGENT", "ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "CLAUDECODE"} {
+		t.Setenv(k, "")
+	}
+	dir := t.TempDir()
+	headsDir := filepath.Join(dir, ".git", "refs", "heads")
+	if err := os.MkdirAll(headsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("1111111000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fields := state.Handoff{
+		Goal:        "preserve my deliberate goal",
+		Addresses:   "issue #210",
+		Constraints: "keep across compaction",
+		DoneWhen:    "fields survive",
+		ChecksToRun: "go test ./internal/hook",
+	}
+	st := &state.State{
+		Mode: state.ModeFull,
+		Git:  state.GitStatus{Branch: "main", HeadSHA: "1111111", DefaultRemoteRef: "origin/main", DefaultRemoteHead: "2222222"},
+	}
+	h := fields
+	h.Agent, h.SessionID, h.Branch, h.CheckpointSHA, h.UpdatedAt = "claude", "A", "main", "1111111", time.Now().UTC()
+	st.SetHandoff(h)
+	if err := state.Save(dir, st); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{fields.Goal, fields.Addresses, fields.Constraints, fields.DoneWhen, fields.ChecksToRun}
+	out, err := HandleWithAgent(dir, "pre-compact", "claude", strings.NewReader(`{"session_id":"A"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := state.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := persisted.Handoffs["claude@main"]
+	if got == nil {
+		t.Fatal("pre-compact dropped the slot")
+	}
+	for i, v := range []string{got.Goal, got.Addresses, got.Constraints, got.DoneWhen, got.ChecksToRun} {
+		if v != want[i] {
+			t.Errorf("persisted field %d = %q, want %q", i, v, want[i])
+		}
+		if !strings.Contains(out.AdditionalContext, want[i]) {
+			t.Errorf("pre-compact output lost %q:\n%s", want[i], out.AdditionalContext)
+		}
+	}
+
+	out, err = HandleWithAgent(dir, "session-start", "claude", strings.NewReader(`{"session_id":"A"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.AdditionalContext, fields.Goal) {
+		t.Errorf("holder's session-start omitted its handoff:\n%s", out.AdditionalContext)
+	}
+
+	persisted, err = state.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persisted.SetHandoffGuarded(state.Handoff{Goal: "B goal", Agent: "claude", SessionID: "B", Branch: "main", CheckpointSHA: "1111111", UpdatedAt: time.Now().UTC()}, false); err != nil {
+		t.Fatalf("another session's write over a handoff behind origin/main: %v", err)
+	}
+}
