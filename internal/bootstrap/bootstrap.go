@@ -102,6 +102,14 @@ func InitRepo(ctx context.Context, root string, opts Options) (InitResult, error
 		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 		if preserve {
 			flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
+		} else if fi, err := os.Lstat(abs); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			// O_TRUNC follows links: replace the link itself so a target outside
+			// the repo is never rewritten (#168). Any backup already holds its bytes.
+			if err := os.Remove(abs); err != nil {
+				return res, fmt.Errorf("replace symlink %s: %w", rel, err)
+			}
+		} else if err != nil && !os.IsNotExist(err) {
+			return res, fmt.Errorf("inspect %s: %w", rel, err)
 		}
 		f, err := os.OpenFile(abs, flags, 0o644)
 		if err != nil {
