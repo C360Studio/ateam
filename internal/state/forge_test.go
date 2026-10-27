@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -191,8 +193,9 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 	}
 
 	// Probe 4c (Review Finding #2): a comments attempt that never answers is cut off at its sub-timeout, and the
-	// comment-free fallback and PR lists still succeed. Any parent deadline selects the 750ms sub-timeout; 30s keeps a
-	// slow start under load far inside the margin, while an unbounded attempt hangs until the deadline and fails (#164).
+	// comment-free fallback and PR lists still succeed. The attempt gets at most ghCommentTimeout under the 30s parent
+	// deadline, which keeps a slow start under load far inside the margin, while an unbounded attempt hangs until the
+	// deadline and fails (#164).
 	scriptSlowComments := "#!/bin/sh\ncase \"$*\" in\n  *comments*)\n    exec sleep 60\n    ;;\nesac\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n"
 	if err := os.WriteFile(fakeGH, []byte(scriptSlowComments), 0o755); err != nil {
 		t.Fatal(err)
@@ -482,5 +485,115 @@ func TestGiteaSyncStopsWhenServerIgnoresPage(t *testing.T) {
 	}
 	if len(synced) == 0 {
 		t.Fatal("got no cards, want page 1 of each list")
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestGitHubCommentBudgetIsHalfTheParentDeadline(t *testing.T) {
+	if got := ghCommentBudget(context.Background()); got != ghCommentTimeout {
+		t.Fatalf("budget with no deadline = %v, want ghCommentTimeout %v", got, ghCommentTimeout)
+	}
+	// The 3s pickup budget must leave the comments call about 1.5s: it takes about 0.8s on a real repository (#162).
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if got := ghCommentBudget(ctx); got < 1400*time.Millisecond || got > 1500*time.Millisecond {
+		t.Fatalf("budget under a 3s deadline = %v, want about 1.5s", got)
+	}
+	// A long deadline must not stretch a hung call: the UI syncs under 10s.
+	long, cancelLong := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelLong()
+	if got := ghCommentBudget(long); got != ghCommentTimeout {
+		t.Fatalf("budget under a 10s deadline = %v, want the ghCommentTimeout cap %v", got, ghCommentTimeout)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestGitHubSyncGivesSlowCommentsTheDeadlineBudget(t *testing.T) {
+	// A comments call slower than the old fixed 750ms cap (a real repository takes about 0.8s) must land rather than
+	// fall back without comment bodies (#162). The call takes 1s against a 10s budget, so load cannot flip the result;
+	// TestGitHubCommentBudgetIsHalfTheParentDeadline owns the budget arithmetic.
+	saved := ghCommentTimeout
+	ghCommentTimeout = 10 * time.Second
+	t.Cleanup(func() { ghCommentTimeout = saved })
+	installForgeCLI(t, "gh", "case \"$*\" in *comments*) sleep 1; printf '[{\"number\":7,\"title\":\"Pick a store\",\"state\":\"OPEN\",\"comments\":[{\"body\":\"Decision: X\"}]}]'; exit 0;; esac\nprintf '[]'\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cards, err := SyncForgeBoard(ctx, t.TempDir(), ForgeConfig{Provider: ForgeGitHub, Owner: "chosen", Repo: "target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 || cards[0].Decision != "Decision: X" {
+		t.Fatalf("cards = %+v, want issue #7 with Decision from its slow comments call", cards)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestGiteaSyncFetchesCommentsConcurrentlyWithinLimit(t *testing.T) {
+	const issues = 20
+	var (
+		mu       sync.Mutex
+		inFlight int
+		peak     int
+		released = make(chan struct{})
+		release  sync.Once
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		var items []map[string]any
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/comments"):
+			// Hold every fetch until the limit is in flight, then give an unbounded caller a moment to exceed it before
+			// letting every fetch through. Fetches made one at a time never reach the limit and are let through by the
+			// 1s timer instead, inside fetchGiteaIssueComments' 1.5s timeout.
+			mu.Lock()
+			inFlight++
+			peak = max(peak, inFlight)
+			switch {
+			case inFlight > giteaCommentFetchLimit:
+				release.Do(func() { close(released) })
+			case inFlight == giteaCommentFetchLimit:
+				time.AfterFunc(250*time.Millisecond, func() { release.Do(func() { close(released) }) })
+			}
+			mu.Unlock()
+			select {
+			case <-released:
+			case <-time.After(time.Second):
+				release.Do(func() { close(released) })
+			}
+			mu.Lock()
+			inFlight--
+			mu.Unlock()
+			n := path.Base(path.Dir(r.URL.Path))
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"body": "Decision: issue " + n}})
+			return
+		case q.Get("type") == "issues" && q.Get("state") == "open" && q.Get("page") == "1":
+			for n := issues; n >= 1; n-- {
+				items = append(items, map[string]any{"number": n, "title": fmt.Sprintf("issue %d", n), "state": "open", "comments": 1})
+			}
+		}
+		if items == nil {
+			items = []map[string]any{}
+		}
+		_ = json.NewEncoder(w).Encode(items)
+	}))
+	t.Cleanup(srv.Close)
+
+	cards, err := SyncForgeBoard(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "c360", Repo: "ateam"})
+	if err != nil {
+		t.Fatalf("SyncForgeBoard: %v", err)
+	}
+	mu.Lock()
+	gotPeak := peak
+	mu.Unlock()
+	if gotPeak != giteaCommentFetchLimit {
+		t.Fatalf("peak concurrent comment fetches = %d, want exactly the limit %d", gotPeak, giteaCommentFetchLimit)
+	}
+	if len(cards) != issues {
+		t.Fatalf("got %d cards, want %d", len(cards), issues)
+	}
+	for _, c := range cards {
+		if want := fmt.Sprintf("Decision: issue %d", c.Number); c.Decision != want {
+			t.Errorf("card #%d Decision = %q, want %q", c.Number, c.Decision, want)
+		}
 	}
 }
