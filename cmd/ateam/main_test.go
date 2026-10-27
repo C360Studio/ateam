@@ -299,7 +299,7 @@ func TestHookLatencyFindings(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/handoff-freshness-210/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+// spec: openspec/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
 func TestStateHandoffBehindOriginMainDoesNotHoldSlot(t *testing.T) {
 	// #210: session A hands off from an unpulled main; origin/main then moves. Session B's handoff goes through.
 	dir := t.TempDir()
@@ -337,7 +337,7 @@ func TestStateHandoffBehindOriginMainDoesNotHoldSlot(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/handoff-freshness-210/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+// spec: openspec/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
 func TestStateHandoffWarnsWithoutSessionID(t *testing.T) {
 	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
 		t.Setenv(k, "")

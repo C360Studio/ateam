@@ -1715,7 +1715,7 @@ func TestPickupDetachedWorktreeHandoffStaleness(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/handoff-freshness-210/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+// spec: openspec/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
 func TestHandoffGuardJudgesDefaultBranchAgainstRemoteTip(t *testing.T) {
 	// #210: a main-slot handoff behind origin/main must not refuse the next session's write.
 	for _, tc := range []struct {
@@ -1753,7 +1753,7 @@ func TestHandoffGuardJudgesDefaultBranchAgainstRemoteTip(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/handoff-freshness-210/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+// spec: openspec/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
 func TestRefreshKeepsSameSessionHandoffBehindRemoteTip(t *testing.T) {
 	// #50 pre-compact recovery: remote-tip drift is HEAD drift for the holder's own session.
 	st := defaultState()
@@ -1771,7 +1771,7 @@ func TestRefreshKeepsSameSessionHandoffBehindRemoteTip(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/handoff-freshness-210/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
+// spec: openspec/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
 func TestHandoffSlotRefusalNamesHolderLease(t *testing.T) {
 	exited := exec.Command("true")
 	if err := exited.Run(); err != nil {
