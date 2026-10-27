@@ -245,3 +245,20 @@ func TestMCPHandoffRefusesAnotherSessionsFreshHandoff(t *testing.T) {
 		t.Fatalf("slot after force = %+v, want goal C", st.Handoffs["claude@main"])
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+func TestMCPInitializeReportsReleaseVersion(t *testing.T) {
+	orig := state.Version
+	t.Cleanup(func() { state.Version = orig })
+	state.Version = "v9.9.9"
+
+	resp := handleRPC(context.Background(), t.TempDir(), rpcRequest{JSONRPC: "2.0", ID: 1, Method: "initialize"}, nil, "abc1234")
+	result, ok := resp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("initialize result = %#v", resp.Result)
+	}
+	info, _ := result["serverInfo"].(map[string]any)
+	if got, want := info["version"], "v9.9.9 (abc1234)"; got != want {
+		t.Fatalf("serverInfo.version = %v, want %q", got, want)
+	}
+}

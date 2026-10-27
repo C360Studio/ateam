@@ -1,7 +1,7 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, and rules on the open question (#193).
-  Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, and rules on the open question (#193).
+  Evidence: the owner approved in Enjoy on 2026-10-27 and chose Go's VCS stamping. Claude wrote the header at their request.
 
 ## 2. Implementation
 

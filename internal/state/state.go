@@ -60,13 +60,34 @@ func BuildLabel() string {
 	return shortRev
 }
 
-// Version is the release this tree builds. A release PR bumps it before the
-// matching tag is cut, so a tagged build reports its own tag.
-const Version = "v0.3.2"
+// Version overrides the release version when stamped at link time via
+// -ldflags "-X github.com/c360studio/ateam/internal/state.Version=<v>". Left
+// empty, ReleaseVersion reads the module version the Go toolchain embeds from
+// VCS, so a build of a release tag reports that tag without a source edit (#193).
+var Version string
+
+// ReleaseVersion returns the stamped Version, else the embedded main module
+// version (a tag, or a pseudo-version between tags), else "dev".
+func ReleaseVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	return releaseVersion(Version, info, ok)
+}
+
+func releaseVersion(stamped string, info *debug.BuildInfo, ok bool) string {
+	if v := strings.TrimSpace(stamped); v != "" {
+		return v
+	}
+	if ok && info != nil {
+		if v := strings.TrimSpace(info.Main.Version); v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return "dev"
+}
 
 // VersionString formats the human-readable CLI version including build provenance.
 func VersionString() string {
-	return fmt.Sprintf("ateam %s (%s)", Version, BuildLabel())
+	return fmt.Sprintf("ateam %s (%s)", ReleaseVersion(), BuildLabel())
 }
 
 // ReadDiskBinaryBuild inspects ./bin/ateam in root (if present) and returns its short build revision and label.

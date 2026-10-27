@@ -1,6 +1,6 @@
 # Change Proposal: `version-from-tag-193`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-27)
 
 ## Why
 
@@ -26,9 +26,9 @@ Approved-by:
 
 `quick`. The change modifies one requirement, "Two-tool MCP context budget", and adds none. It touches `internal/state`, `internal/mcpserver`, and docs. It touches no gate file, boot path, durability or ack behavior, and no surface that adopters import (both packages are `internal/`).
 
-## Open question for the owner
+## Open question for the owner (resolved)
 
-Issue #193 proposes stamping `git describe --tags` through `-ldflags` in the Taskfile. I recommend relying on Go's VCS stamping instead. It is one code path that covers `task build`, plain `go build`, and `go install @tag`, and it needs no Taskfile or CI change. The cost is the version format between tags: a Go pseudo-version (`v0.3.3-0.<time>-<sha12>`, plus `+dirty` on a dirty tree) instead of `v0.3.2-19-gfd9d205`. The `-ldflags` override still works for anyone who wants the `git describe` format. I will implement the `git describe` stamp instead if you prefer it.
+Issue #193 proposes stamping `git describe --tags` through `-ldflags` in the Taskfile. I recommend relying on Go's VCS stamping instead. It is one code path that covers `task build`, plain `go build`, and `go install @tag`, and it needs no Taskfile or CI change. The cost is the version format between tags: a Go pseudo-version (`v0.3.3-0.<time>-<sha12>`, plus `+dirty` on a dirty tree) instead of `v0.3.2-19-gfd9d205`. The `-ldflags` override still works for anyone who wants the `git describe` format. Owner ruling (Enjoy, 2026-10-27): use Go's VCS stamping.
 
 ## Non-goals
 
