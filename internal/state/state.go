@@ -2933,9 +2933,9 @@ func ReadHandoff(root, slot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Judge staleness at live heads and as the caller's session; both stay in memory.
+	// Judge staleness at live heads, in memory only. The caller's session falls back to env and lease in
+	// effectiveSessionID, so a reader shares the same-session exemption only with its own slots.
 	st.reconcileLiveBranchHeads(root)
-	st.CurrentSessionID = ResolveActiveSessionID(root, "")
 
 	slots := make(map[string]*Handoff, len(st.Handoffs))
 	for k, h := range st.Handoffs {

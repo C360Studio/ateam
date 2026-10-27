@@ -1,6 +1,8 @@
 package state
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -75,7 +77,9 @@ func TestReadHandoffSlots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	root, feat, stale, dup := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	root, feat, stale, dup, det := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	// A detached worktree records its slot on "HEAD", so only its own head can judge it.
+	save(det, "HEAD", "fffffff", slot("claude", "HEAD", "fffffff", "detached goal"))
 	save(feat, "claude/feat", "aaaaaaa", slot("claude", "claude/feat", "aaaaaaa", "worktree goal"))
 	save(stale, "claude/stale", "bbbbbbb", slot("claude", "claude/stale", "bbbbbbb", "stale goal"))
 	save(dup, "codex/dup", "ddddddd", slot("codex", "codex/dup", "ddddddd", "worktree copy"))
@@ -86,6 +90,7 @@ func TestReadHandoffSlots(t *testing.T) {
 		{Path: feat, Branch: "claude/feat", Head: "aaaaaaa"},
 		{Path: stale, Branch: "claude/stale", Head: "ccccccc"}, // moved past its checkpoint
 		{Path: dup, Branch: "codex/dup", Head: "ddddddd"},
+		{Path: det, Branch: "", Head: "eeeeeee"},
 	}
 	rootSt.SetHandoff(slot("claude", "main", "1111111", "current checkout goal"))
 	rootSt.SetHandoff(slot("codex", "codex/dup", "ddddddd", "current copy"))
@@ -103,7 +108,8 @@ func TestReadHandoffSlots(t *testing.T) {
 		{"worktree only", "claude@claude/feat", "Handoff claude@claude/feat (5m ago):\n" + fields("worktree goal"), ""},
 		{"duplicate, current wins", "codex@codex/dup", "Handoff codex@codex/dup (5m ago):\n" + fields("current copy"), ""},
 		{"stale under banner", "claude@claude/stale", "STALE — HEAD drifted from bbbbbbb -> ccccccc\nHandoff claude@claude/stale (5m ago):\n" + fields("stale goal"), ""},
-		{"missing lists slots", "codex@main", "", "no handoff for codex@main (pickup prunes stale slots); existing slots: claude@claude/feat, claude@claude/stale, claude@main, codex@codex/dup"},
+		{"detached worktree judged at its own head", "claude@HEAD", "STALE — HEAD drifted from fffffff -> eeeeeee\nHandoff claude@HEAD (5m ago):\n" + fields("detached goal"), ""},
+		{"missing lists slots", "codex@main", "", "no handoff for codex@main (pickup prunes stale slots); existing slots: claude@HEAD, claude@claude/feat, claude@claude/stale, claude@main, codex@codex/dup"},
 		{"malformed slot", "claude", "", `slot "claude": want <agent>@<branch>`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,5 +124,34 @@ func TestReadHandoffSlots(t *testing.T) {
 				t.Fatalf("ReadHandoff(%q) mismatch (err %v):\ngot:\n%s\nwant:\n%s", tc.slot, err, got, tc.want)
 			}
 		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Read another agent's handoff without changing ownership
+func TestReadHandoffJudgesLiveHead(t *testing.T) {
+	// The cache says main is at its checkpoint, but the live ref has moved on: the read must use the live head.
+	clearAgentSessionEnv(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git", "refs", "heads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "refs", "heads", "main"), []byte(strings.Repeat("2", 40)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := defaultState()
+	st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
+	st.SetHandoff(Handoff{Goal: "cached goal", Agent: "claude", Branch: "main", CheckpointSHA: "1111111", UpdatedAt: time.Now().UTC().Add(-5 * time.Minute)})
+	if err := Save(root, st); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadHandoff(root, "claude@main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "STALE — HEAD drifted from 1111111 -> 2222222\n"; !strings.HasPrefix(got, want) {
+		t.Fatalf("ReadHandoff at a moved live head:\n%s\nwant prefix %q", got, want)
 	}
 }
