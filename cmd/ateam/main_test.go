@@ -360,7 +360,7 @@ func TestStateHandoffWarnsWithoutSessionID(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 func TestStateHelpIsReadOnly(t *testing.T) {
-	subcommands := []string{"status", "board", "pickup", "handoff", "holds", "debt", "spec-queue", "spec-check", "sync", "mode", "herdr"}
+	subcommands := []string{"status", "board", "pickup", "handoff", "read-handoff", "holds", "debt", "spec-queue", "spec-check", "sync", "mode", "herdr"}
 	for _, arg := range []string{"--help", "-h", "help"} {
 		t.Run(arg, func(t *testing.T) {
 			root := t.TempDir()

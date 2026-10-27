@@ -57,9 +57,10 @@ func Tools() []ToolDef {
 				"properties": map[string]any{
 					"action": map[string]any{
 						"type": "string",
-						"enum": []string{"pickup", "handoff", "debt", "mode", "spec_queue", "spec_check", "board"},
+						"enum": []string{"pickup", "handoff", "read_handoff", "debt", "mode", "spec_queue", "spec_check", "board"},
 					},
 					"mode":          map[string]any{"type": "string"},
+					"slot":          map[string]any{"type": "string"},
 					"agent":         map[string]any{"type": "string"},
 					"goal":          map[string]any{"type": "string"},
 					"addresses":     map[string]any{"type": "string"},
@@ -267,8 +268,19 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		Force          bool   `json:"force"`
 		SessionID      string `json:"session_id"`
 		ConversationID string `json:"conversationId"`
+		Slot           string `json:"slot"`
 	}
 	_ = json.Unmarshal(rawArgs, &args)
+
+	// read_handoff returns before the refresh and identity resolution below: reading
+	// another slot must not write the cache or change who this session is (#196).
+	if args.Action == "read_handoff" {
+		text, err := state.ReadHandoff(root, args.Slot)
+		if err != nil {
+			return err.Error(), true
+		}
+		return text, false
+	}
 
 	var (
 		st  *state.State

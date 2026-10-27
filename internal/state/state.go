@@ -2818,12 +2818,23 @@ func (st *State) handoffPRLabel(h *Handoff) string {
 	return ""
 }
 
-func (st *State) formatOtherHandoffLine(key string, h *Handoff) string {
+// handoffAttribution names a slot as "<key> (<age>[, PR #n])".
+func (st *State) handoffAttribution(key string, h *Handoff) string {
 	age := formatHandoffRelativeAge(h.UpdatedAt)
 	if pr := st.handoffPRLabel(h); pr != "" {
-		return fmt.Sprintf("other handoffs: %s (%s, %s)", key, age, pr)
+		return fmt.Sprintf("%s (%s, %s)", key, age, pr)
 	}
-	return fmt.Sprintf("other handoffs: %s (%s)", key, age)
+	return fmt.Sprintf("%s (%s)", key, age)
+}
+
+// formatOtherHandoffLine previews another slot's goal after its attribution, so the
+// goal is never read as the caller's own (#196).
+func (st *State) formatOtherHandoffLine(key string, h *Handoff) string {
+	line := "other handoffs: " + st.handoffAttribution(key, h)
+	if goal := cleanTaskText(h.Goal); goal != "" {
+		line += ": " + goal
+	}
+	return line
 }
 
 func writePickupWorktrees(b *strings.Builder, st *State) {
@@ -2868,6 +2879,30 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 // Slots already in st are skipped, so the current checkout is not listed twice.
 // A missing or unreadable worktree state is silent.
 func worktreeHandoffLines(st *State, wt Worktree) []string {
+	slots := worktreeHandoffSlots(st, wt)
+	keys := make([]string, 0, len(slots))
+	for key := range slots {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		h := slots[key]
+		// Judge staleness with this state's PR cards and session at this worktree's own branch
+		// and head, not the worktree's saved flag alone: its cache may predate its PR closing.
+		// A detached worktree's head is not findable by branch name, so pass it directly.
+		suffix := ""
+		if len(st.handoffStaleReasonsAt(h, strings.TrimSpace(h.Branch), strings.TrimSpace(wt.Head))) > 0 {
+			suffix = ", stale"
+		}
+		lines = append(lines, fmt.Sprintf("%s (%s, %s%s)", cleanTaskText(h.Goal), key, formatHandoffRelativeAge(h.UpdatedAt), suffix))
+	}
+	return lines
+}
+
+// worktreeHandoffSlots returns the slots a linked worktree recorded for its own branch
+// that st does not already hold. A missing or unreadable worktree state yields none.
+func worktreeHandoffSlots(st *State, wt Worktree) map[string]*Handoff {
 	path := strings.TrimSpace(wt.Path)
 	// A branch is checked out in at most one worktree, so this one is the current checkout.
 	if path == "" || (wt.Branch != "" && wt.Branch == st.Git.Branch) {
@@ -2891,7 +2926,7 @@ func worktreeHandoffLines(st *State, wt Worktree) []string {
 	// A detached worktree is listed with branch "" but its handoffs are recorded on "HEAD".
 	wtBranch := strings.TrimSpace(wt.Branch)
 	detached := wtBranch == "" || wtBranch == "HEAD"
-	keys := make([]string, 0, len(slots))
+	own := make(map[string]*Handoff, len(slots))
 	for key, h := range slots {
 		if h == nil || st.Handoffs[key] != nil {
 			continue
@@ -2900,20 +2935,76 @@ func worktreeHandoffLines(st *State, wt Worktree) []string {
 		if (detached && hBranch != "" && hBranch != "HEAD") || (!detached && hBranch != wtBranch) {
 			continue
 		}
-		keys = append(keys, key)
+		own[key] = h
 	}
-	sort.Strings(keys)
-	lines := make([]string, 0, len(keys))
-	for _, key := range keys {
-		h := slots[key]
-		// Judge staleness with this state's PR cards and session at this worktree's own branch
-		// and head, not the worktree's saved flag alone: its cache may predate its PR closing.
-		// A detached worktree's head is not findable by branch name, so pass it directly.
-		suffix := ""
-		if len(st.handoffStaleReasonsAt(h, strings.TrimSpace(h.Branch), strings.TrimSpace(wt.Head))) > 0 {
-			suffix = ", stale"
+	return own
+}
+
+// ReadHandoff returns one slot's five fields without writing the state cache, touching the writer
+// lease, changing the persisted agent or session, or calling a forge (#196). It reads this
+// checkout's cache, then each linked worktree's cache; this checkout wins a duplicate slot.
+// A stale slot prints under a STALE banner; a missing slot is an error listing the slots that exist.
+func ReadHandoff(root, slot string) (string, error) {
+	agent, branch := splitHandoffSlotKey(slot)
+	if agent == "" || branch == "" {
+		return "", fmt.Errorf("slot %q: want <agent>@<branch>", slot)
+	}
+	key := agent + "@" + branch
+	st, err := Load(root)
+	if err != nil {
+		return "", err
+	}
+	// Find linked worktrees with git rather than the cached list, which misses any worktree created since this
+	// checkout's last refresh, or all of them when it has no cache (#196). `git worktree list` only reads.
+	if live := parseWorktrees(runGitOutput(context.Background(), root, "worktree", "list", "--porcelain")); len(live) > 0 {
+		st.Git.Worktrees = live
+	}
+	// Judge staleness at live heads, in memory only. The caller's session falls back to env and lease in
+	// effectiveSessionID, so a reader shares the same-session exemption only with its own slots.
+	st.reconcileLiveBranchHeads(root)
+
+	slots := make(map[string]*Handoff, len(st.Handoffs))
+	for k, h := range st.Handoffs {
+		if h != nil {
+			slots[k] = h
 		}
-		lines = append(lines, fmt.Sprintf("%s (%s, %s%s)", cleanTaskText(h.Goal), key, formatHandoffRelativeAge(h.UpdatedAt), suffix))
 	}
-	return lines
+	if len(slots) == 0 && st.LastHandoff != nil {
+		slots[HandoffSlotKey(st.LastHandoff.Agent, st.LastHandoff.Branch)] = st.LastHandoff
+	}
+	wtHeads := make(map[string]string)
+	for _, wt := range st.Git.Worktrees {
+		for k, h := range worktreeHandoffSlots(st, wt) {
+			if slots[k] == nil {
+				slots[k] = h
+				wtHeads[k] = strings.TrimSpace(wt.Head)
+			}
+		}
+	}
+
+	h := slots[key]
+	if h == nil {
+		keys := make([]string, 0, len(slots))
+		for k := range slots {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		existing := "none"
+		if len(keys) > 0 {
+			existing = strings.Join(keys, ", ")
+		}
+		return "", fmt.Errorf("no handoff for %s (pickup prunes stale slots); existing slots: %s", key, existing)
+	}
+	var reasons []string
+	if head, ok := wtHeads[key]; ok {
+		reasons = st.handoffStaleReasonsAt(h, strings.TrimSpace(h.Branch), head)
+	} else {
+		reasons = st.HandoffStaleReasonsFor(key, h)
+	}
+	var b strings.Builder
+	if len(reasons) > 0 {
+		fmt.Fprintf(&b, "STALE — %s\n", strings.Join(reasons, "; "))
+	}
+	fmt.Fprintf(&b, "Handoff %s:\n%s", st.handoffAttribution(key, h), FormatFiveFieldPrompt(*h))
+	return b.String(), nil
 }
