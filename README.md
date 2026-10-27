@@ -69,7 +69,7 @@ rm -rf internal/web/dist && cp -R ui/build internal/web/dist
 go build -o bin/ateam ./cmd/ateam
 ```
 
-Expose `./bin/ateam` on your `PATH`—for example, symlink it into `~/.local/bin/ateam` (`ln -sf "$PWD/bin/ateam" ~/.local/bin/ateam`) so `brew doctor` is unaffected and desktop hosts (such as Enjoy) pick up rebuilds in place—so Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy`) can invoke `ateam` from their hook and MCP configurations. Check which build you are running with `ateam version`, which prints the release and the commit it was built from (for example `ateam v0.3.1 (aed74b7)`; a build from a dirty tree appends `-dirty`). GitHub releases carry no prebuilt binaries yet.
+Expose `./bin/ateam` on your `PATH`—for example, symlink it into `~/.local/bin/ateam` (`ln -sf "$PWD/bin/ateam" ~/.local/bin/ateam`) so `brew doctor` is unaffected and desktop hosts (such as Enjoy) pick up rebuilds in place—so Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy`) can invoke `ateam` from their hook and MCP configurations. Check which build you are running with `ateam version`, which prints the release and the commit it was built from. `task build` takes the release from `git describe`: a tag checkout prints `ateam v0.3.3 (<commit>)`, a commit after a tag prints `ateam v0.3.2-19-gfd9d205 (fd9d205)`, and a dirty tree appends `-dirty`. `go install github.com/c360studio/ateam/cmd/ateam@<tag>` prints that tag, and `go run` prints `dev`. GitHub releases carry no prebuilt binaries yet.
 
 ---
 
@@ -267,7 +267,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 
 | Command | What it does |
 | --- | --- |
-| `ateam version` | Print the release and build commit (`ateam v0.3.2 (<commit>)`) |
+| `ateam version` | Print the release and build commit (`ateam <git describe> (<commit>)`) |
 | `ateam init [--force] [--github\|--gitea]` | Create missing multi-agent instruction files, skills, hooks, MCP configs, ~500k context defaults, and optional GitHub/Gitea labels; `--force` backs up replaced documents first |
 | `ateam doctor [--check]` | Verify multi-agent file parity, `<300` token MCP schema budget, and measured hook latency (25ms `--check` ceiling; 10ms target) |
 | `ateam review setup --policy FILE` | Install approved model policy and role cards/pointers, refusing existing conflicts |

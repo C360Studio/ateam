@@ -63,6 +63,12 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **WHEN** `ateam mcp` handles a `pickup` tool call or resource read
 - **THEN** it captures `state.BuildRevision()` at server startup, reports `build=<disk-sha> mcp=<server-sha>` in the `[ateam]` pickup header line (`build=absent` when there is no `./bin/ateam`, `build=unreadable` when its `--version` fails or names no build, in which case staleness is judged against checkout `HEAD`; `ateam doctor` reports the same label as `disk_build` and warns on `unreadable`), and appends `WARNING: MCP server binary is stale; restart the client to pick up <sha>` when the running server's build commit differs from the `./bin/ateam` binary on disk or from checkout `HEAD`
 
+#### Scenario: CLI and MCP report the release version from the build
+
+- **WHEN** `ateam version` runs or `ateam mcp` answers `initialize`
+- **THEN** both report the same release version, which is the `-ldflags` value of `state.Version` when one is stamped, else the main module version embedded by the Go toolchain when it is neither empty nor `(devel)`, else `dev`, so a build of a release tag reports that tag without a source edit; `task build` stamps `state.Version` from `git describe --tags --always --dirty`, so a build in a linked worktree reports its own checkout rather than the parent checkout Go's VCS stamping would read
+- **AND** MCP `serverInfo.version` reads `<version> (<build>)`, with the same build label as `ateam version`
+
 ### Requirement: OpenSpec queue and stray Hold detection
 
 `ateam state spec-queue` SHALL scan `openspec/changes/*/tasks.md` and report open-task holds (`Hold:`) and caveats (`WONTDO`, `HALT`, `RED`, `BLOCKED`, `OPEN-Q`). `ateam state spec-check` SHALL fail with exit code 1 when any `Hold:` appears below a file's first `## ` heading outside every task block, or exit code 2 when a `tasks.md` is unreadable or invalid UTF-8. Truncated caveat display text SHALL remain valid UTF-8.

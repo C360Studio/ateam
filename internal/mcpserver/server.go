@@ -194,7 +194,7 @@ func handleRPC(ctx context.Context, root string, req rpcRequest, sessionID *stri
 			ID:      req.ID,
 			Result: map[string]any{
 				"protocolVersion": "2024-11-05",
-				"serverInfo":      map[string]any{"name": "ateam", "version": "0.1.0 (" + serverBuildLabel + ")"},
+				"serverInfo":      map[string]any{"name": "ateam", "version": state.ReleaseVersion() + " (" + serverBuildLabel + ")"},
 				"capabilities": map[string]any{
 					"tools":     map[string]any{},
 					"prompts":   map[string]any{},
