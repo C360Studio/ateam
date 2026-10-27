@@ -1011,12 +1011,6 @@ func BuildProvenanceStatus(ctx context.Context, root, buildRev, headSHA string) 
 	return "checked", checkBuildProvenance(ctx, root, buildRev, headSHA)
 }
 
-// CheckBuildProvenance returns the build warnings of BuildProvenanceStatus.
-func CheckBuildProvenance(ctx context.Context, root, buildRev, headSHA string) []string {
-	_, warnings := BuildProvenanceStatus(ctx, root, buildRev, headSHA)
-	return warnings
-}
-
 // checkBuildProvenance checks whether the running binary's commit is an ancestor of checkout HEAD.
 func checkBuildProvenance(ctx context.Context, root, buildRev, headSHA string) []string {
 	buildRev = strings.TrimSpace(buildRev)

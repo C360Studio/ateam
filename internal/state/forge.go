@@ -272,7 +272,9 @@ func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, err
 		{path: repoAPI + "/issues?type=issues"},
 		{path: repoAPI + "/pulls", closedSort: "&sort=recentupdate", isPR: true},
 	}
-	// Open work is paged to exhaustion in creation order, so an item updated mid-paging cannot jump to a page already read; closed work is capped at closedItemCap.
+	// Open work is paged to exhaustion in creation order, so an item updated mid-paging cannot jump to a page already
+	// read. An item that closes mid-paging still shifts later items up a page, so one of them can be missed until the
+	// next sync (#162). Closed work is capped at closedItemCap.
 	opens := make([][]forgeIssuePayload, len(endpoints))
 	closeds := make([][]forgeIssuePayload, len(endpoints))
 	var fetches []func(context.Context) error
@@ -293,20 +295,41 @@ func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, err
 		return nil, err
 	}
 
+	merged := make([][]forgeIssuePayload, len(endpoints))
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, giteaCommentFetchLimit)
+	for i, endpoint := range endpoints {
+		merged[i] = mergeOpenClosed(opens[i], closeds[i])
+		if endpoint.isPR {
+			continue
+		}
+		for j := range merged[i] {
+			item := &merged[i][j]
+			if _, count := parseIssueComments(item.Comments); count == 0 {
+				continue
+			}
+			commentsURL := fmt.Sprintf("%s/issues/%d/comments", repoAPI, item.Number)
+			wg.Go(func() {
+				slots <- struct{}{}
+				defer func() { <-slots }()
+				item.CommentBodies = fetchGiteaIssueComments(ctx, client, token, commentsURL)
+			})
+		}
+	}
+	wg.Wait()
+
 	var all []BoardCard
 	for i, endpoint := range endpoints {
-		for _, item := range mergeOpenClosed(opens[i], closeds[i]) {
-			if !endpoint.isPR {
-				if _, count := parseIssueComments(item.Comments); count > 0 {
-					commentsURL := fmt.Sprintf("%s/issues/%d/comments", repoAPI, item.Number)
-					item.CommentBodies = fetchGiteaIssueComments(ctx, client, token, commentsURL)
-				}
-			}
+		for _, item := range merged[i] {
 			all = append(all, mapForgeItemToCard(item, endpoint.isPR, "gitea"))
 		}
 	}
 	return all, nil
 }
+
+// giteaCommentFetchLimit caps concurrent per-issue comment fetches: one at a time could spend the 3s pickup budget on a
+// repository with many discussed issues, and one request per issue at once could flood a small Gitea server (#162).
+const giteaCommentFetchLimit = 8
 
 // closedItemCap is how many of the most recently updated closed issues and pull requests a forge sync keeps; open items are never capped.
 const closedItemCap = 50
@@ -470,6 +493,17 @@ func fetchTeaCLICards(ctx context.Context, root string) ([]BoardCard, error) {
 // can prove comment expansion without racing the bound on a loaded machine (#188).
 var ghCommentTimeout = 2500 * time.Millisecond
 
+// ghCommentBudget is the sub-timeout for the open-issues-with-comments call: half of any parent deadline, so the
+// comment-free fallback keeps the other half, or ghCommentTimeout with no deadline. On this repository the call takes
+// about 0.8s, which a fixed 750ms cap under the 3s pickup budget cut off on most syncs (#162).
+func ghCommentBudget(ctx context.Context) time.Duration {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return ghCommentTimeout
+	}
+	return time.Until(deadline) / 2
+}
+
 func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
 	var repoArgs []string
 	if cfg.Owner != "" || cfg.Repo != "" || cfg.BaseURL != "" {
@@ -484,18 +518,13 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 	}
 	var cards []BoardCard
 
-	// G-06: Attempt issue fetch with comments under a bounded sub-timeout that leaves at least 2/3 of any parent deadline for the comment-free fallback (the other lists run alongside it).
-	issueTimeout := ghCommentTimeout
-	if deadline, ok := ctx.Deadline(); ok {
-		issueTimeout = 750 * time.Millisecond
-		if sub := time.Until(deadline) / 3; sub > 0 && sub < issueTimeout {
-			issueTimeout = sub
-		}
-	}
+	// G-06: Attempt issue fetch with comments under a bounded sub-timeout, leaving the rest for the comment-free fallback.
+	issueTimeout := ghCommentBudget(ctx)
 	// shortcut: open lists stop at 1000 items with no caveat; page them or record a sync caveat when a repo nears 1000 open issues or PRs.
 	const openLimit = "1000"
 	closedLimit := strconv.Itoa(closedItemCap)
-	// Closed lists are ordered by last update, so an old item that just closed or merged stays inside the cap.
+	// Closed lists are ordered by last update, so an old item that just closed or merged stays inside the cap. They come
+	// from GitHub search, whose index lags: a just-merged PR can be missing for a sync, labelling its worktree `no PR`.
 	const closedSort = "sort:updated-desc"
 	ghList := func(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
 		cctx, cancel := context.WithTimeout(ctx, timeout)

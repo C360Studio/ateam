@@ -1,6 +1,6 @@
 # Change Proposal: `forge-sync-followups-162`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-27)
 
 ## Why
 
