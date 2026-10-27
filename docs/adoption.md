@@ -32,7 +32,7 @@ A project that pins its client settings file (for example a review manifest that
 | Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` |
 | Antigravity | `.agents/hooks.json` | none; doctor reports that `agy` has no user-scope hooks doctor reads |
 
-The file must be valid JSON and carry every required `ateam hook --event <event>` command and the client's `--agent`, the same checks as the project file. Hooks split across files fail: each file is checked on its own, so a partial or malformed file never passes. Doctor's JSON names the file that satisfied each client under `hook_sources`. Unset, doctor reads only the project files, as before; any other value is a violation. `~` is the home directory from `os.UserHomeDir` (`$HOME` on Unix), and Codex's `$CODEX_HOME` is not read. Gemini's context file (the nested `context.fileName`, else the top-level `contextFileName`) must be `AGENTS.md`: the project file's value wins when it sets one, as Gemini gives project settings precedence; only when it sets none and the knob is set does `~/.gemini/settings.json` decide, and the violation names the file whose value was checked. Doctor checks files, not whether the client loads them: Codex loads project hooks only from a trusted `.codex/` layer.
+The file must be valid JSON and carry every required `ateam hook --event <event>` command and the client's `--agent`, the same checks as the project file. Hooks split across files fail: each file is checked on its own, so a partial or malformed file never passes. Doctor's JSON names the file that satisfied each client under `hook_sources`. Unset, doctor reads only the project files, as before; any other value is a violation. `~` is the home directory from `os.UserHomeDir` (`$HOME` on Unix), and Codex's `$CODEX_HOME` is not read. Gemini's context file (the nested `context.fileName`; Gemini CLI ignores the top-level `contextFileName`) must be `AGENTS.md`: the project file's value wins when it sets one, as Gemini gives project settings precedence; only when it sets none and the knob is set does `~/.gemini/settings.json` decide, and the violation names the file whose value was checked. Doctor checks files, not whether the client loads them: Codex loads project hooks only from a trusted `.codex/` layer.
 
 ## Command dependencies
 
@@ -106,6 +106,37 @@ Initialization installs canonical developer/reviewer contracts but leaves model 
 4. For subsequent work, run `ateam review route`, including every actual implementation model after escalation. Have an independent reviewer record current verification and post fresh evidence, then run `ateam review check` on the clean current PR head. See [review evidence and exceptions](model-review.md#review-and-record-evidence).
 
 The commands validate eligibility and supplied evidence; they do not automatically enforce a forge merge restriction. Adopting projects must choose where to require the check in their delivery workflow. See [upgrade and troubleshooting](model-review.md#upgrade-and-troubleshooting) for existing installations and stale provider pointers.
+
+## Plain technical prose (STE-style anti-buzzword recipe)
+
+This recipe is opt-in. `ateam` does not enable it in its own repository or its `init` templates. The prompt borrows the intent of Simplified Technical English (STE). It does not use the ASD-STE100 dictionary and does not claim ASD-STE100 conformance.
+
+```text
+STYLE [Simplified Technical English] — Write plain, concrete technical prose; zero buzzword soup:
+1. Active voice, real actor: name the package, command, file:line, or role that acts ("CheckOpenSpec rejects...", not "validation is performed to ensure...").
+2. Short units: one action or idea per sentence (<=20 words for steps, <=25 for explanations); <=6 sentences per paragraph, topic sentence first.
+3. Unstack noun piles (<=3 modifiers): write "timeout for comment fetches in forge.go", not "forge comment fetch timeout orchestration configuration".
+4. Condition before command: "When X fails, return exit 1." Use MUST / MUST NOT for requirements, never mushy "should appropriately".
+5. Ban filler: cut leverage, utilize, robust, seamless, comprehensive, holistic, streamline, facilitate, ensure, and e.g./i.e./etc. (name the exact items). One term per concept; do not rotate synonyms.
+```
+
+Wire it in one of two ways. Neither needs Go code.
+
+- **Per-artifact OpenSpec `rules:`.** Add the prompt to the artifacts people review in your `openspec/config.yaml`. Coding turns do not load it, so it costs no tokens there. `MUST` / `MUST NOT` satisfies both the prompt and `openspec validate --strict`; you do not need `SHALL`.
+
+  ```yaml
+  rules:
+    proposal:
+      - "STYLE [Simplified Technical English] — ... (paste the five rules above)"
+    specs:
+      - "STYLE [Simplified Technical English] — ..."
+    design:
+      - "STYLE [Simplified Technical English] — ..."
+  ```
+
+- **On-demand `/ste` adopter skill.** Put the prompt in `.agents/skills/ste/SKILL.md` with `name: ste` and a `description` in its front matter. `ateam doctor --check` lists it under `adopter_skills`. Optional thin adapters work like the canonical ones: `.claude/skills/ste/SKILL.md` links to `../../../.agents/skills/ste/SKILL.md`, and `.gemini/commands/ste.toml` sets `prompt = "Read .agents/skills/ste/SKILL.md fully and follow it."`. Doctor checks only that their links resolve.
+
+The prompt relies on the model to follow it. For a mechanical check, run your own prose linter, such as `vale`, from your `Taskfile.yml`. If you license a controlled-English dictionary, keep it in your own repository, not in `ateam` templates.
 
 ## Ponytail and measurement
 

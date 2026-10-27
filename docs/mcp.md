@@ -40,7 +40,7 @@ Claude Code `.mcp.json`:
 }
 ```
 
-For Gemini, merge `"ateam": {"command":"ateam","args":["mcp"]}` into the top-level `mcpServers` object in `.gemini/settings.json` (which `ateam init` also populates with `"contextFileName": "AGENTS.md"` and `"model": {"chatCompression": {"contextPercentageThreshold": 0.5}}`).
+For Gemini, merge `"ateam": {"command":"ateam","args":["mcp"]}` into the top-level `mcpServers` object in `.gemini/settings.json` (which `ateam init` also populates with `"context": {"fileName": "AGENTS.md"}` and `"model": {"chatCompression": {"contextPercentageThreshold": 0.5}}`).
 
 Antigravity workspace plugin (`.agents/plugins/ateam/plugin.json` and `.agents/plugins/ateam/mcp_config.json`):
 
