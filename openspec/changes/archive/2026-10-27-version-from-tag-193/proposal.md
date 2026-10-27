@@ -17,18 +17,19 @@ Approved-by: Coby Leuschke (2026-10-27)
   3. Otherwise `dev`.
 - `VersionString` uses `ReleaseVersion()` and keeps the `ateam <version> (<build>)` shape.
 - MCP `initialize` reports `serverInfo.version` as `<ReleaseVersion()> (<build>)`.
-- `Taskfile.yml` does not change. Since Go 1.24, `go build` in a git checkout writes the module version into the binary from VCS (see the open question). A `task build` of the `v0.3.3` tag prints `v0.3.3`. A build of main between tags prints a pseudo-version, as `bin/ateam` does today (`v0.3.3-0.20261027190805-fd9d205be754`). `go install …@v0.3.3` prints `v0.3.3`. `go run` and builds without VCS data print `dev`.
+- `task build` stamps `state.Version` from `git describe --tags --always --dirty` beside the commit it already stamps. A build of the `v0.3.3` tag prints `v0.3.3`, and a build of main between tags prints `v0.3.2-19-gfd9d205`. `go install …@v0.3.3` has no stamp and prints the tag Go embeds. `go run` and builds without VCS data print `dev`.
 - `docs/brownfield.md` § 1 and the README install text explain the printed version for source builds.
 - After this change, a release is a tag and `gh release create`, with no PR.
 - The harness spec gains one scenario for the version that the CLI and MCP report.
 
 ## Track
 
-`quick`. The change modifies one requirement, "Two-tool MCP context budget", and adds none. It touches `internal/state`, `internal/mcpserver`, and docs. It touches no gate file, boot path, durability or ack behavior, and no surface that adopters import (both packages are `internal/`).
+`quick`. The change modifies one requirement, "Two-tool MCP context budget", and adds none. It touches `internal/state`, `internal/mcpserver`, `Taskfile.yml`, and docs. It touches no gate file, boot path, durability or ack behavior, and no surface that adopters import (both packages are `internal/`).
 
-## Open question for the owner (resolved)
+## Owner rulings (Enjoy, 2026-10-27)
 
-Issue #193 proposes stamping `git describe --tags` through `-ldflags` in the Taskfile. I recommend relying on Go's VCS stamping instead. It is one code path that covers `task build`, plain `go build`, and `go install @tag`, and it needs no Taskfile or CI change. The cost is the version format between tags: a Go pseudo-version (`v0.3.3-0.<time>-<sha12>`, plus `+dirty` on a dirty tree) instead of `v0.3.2-19-gfd9d205`. The `-ldflags` override still works for anyone who wants the `git describe` format. Owner ruling (Enjoy, 2026-10-27): use Go's VCS stamping.
+1. Use Go's VCS stamping as the fallback instead of `-ldflags` only.
+2. Go treats only a `.git` directory as a VCS root. A build in a linked worktree (`.git` file) therefore stamps the parent checkout's version, or none. The owner chose option A: `task build` also stamps `git describe`, the same way it already stamps the commit for the same reason.
 
 ## Non-goals
 
@@ -40,4 +41,4 @@ Issue #193 proposes stamping `git describe --tags` through `-ldflags` in the Tas
 
 - `task verify` is green on a clean tree, and `ateam doctor` parity is green.
 - A table test of the `ReleaseVersion` resolution covers four inputs: a stamped value, a module tag, `(devel)` or empty, and no build info. A test shows that MCP `initialize` reports the same version as `VersionString`. `task mutate:check` shows that both tests can fail.
-- A `task build` binary at the PR head prints a pseudo-version, not `v0.3.2` and not `dev`.
+- A `task build` binary in a linked worktree prints its own `git describe` version, not the parent checkout's or `dev`.

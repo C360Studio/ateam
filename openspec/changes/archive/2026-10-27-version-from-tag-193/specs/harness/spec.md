@@ -18,5 +18,5 @@
 #### Scenario: CLI and MCP report the release version from the build
 
 - **WHEN** `ateam version` runs or `ateam mcp` answers `initialize`
-- **THEN** both report the same release version, which is the `-ldflags` value of `state.Version` when one is stamped, else the main module version embedded by the Go toolchain when it is neither empty nor `(devel)`, else `dev`, so a build of a release tag reports that tag without a source edit
+- **THEN** both report the same release version, which is the `-ldflags` value of `state.Version` when one is stamped, else the main module version embedded by the Go toolchain when it is neither empty nor `(devel)`, else `dev`, so a build of a release tag reports that tag without a source edit; `task build` stamps `state.Version` from `git describe --tags --always --dirty`, so a build in a linked worktree reports its own checkout rather than the parent checkout Go's VCS stamping would read
 - **AND** MCP `serverInfo.version` reads `<version> (<build>)`, with the same build label as `ateam version`
