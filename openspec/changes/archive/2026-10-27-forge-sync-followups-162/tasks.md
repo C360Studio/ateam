@@ -11,4 +11,4 @@
 
 ## 3. Verify
 
-- [ ] 3.1 `task verify` green on a clean tree and `ateam doctor` parity green (#162).
+- [x] 3.1 `task verify` green on a clean tree and `ateam doctor` parity green (#162). Evidence: at 28feafc, `task verify` exit 0, `ateam doctor --check` exit 0 (warnings only: a stale MCP client process and a shared forge token), and `ateam bench --selftest` exit 0 (`ui-datepicker` reports `unsupported` as on `main`).
