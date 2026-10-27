@@ -152,11 +152,31 @@ func runState(repoRoot string, args []string) int {
 		return runStateSnapshot(repoRoot, sub)
 	case "herdr":
 		return runStateHerdr(args[1:])
+	case "-h", "--help", "help":
+		fmt.Print(stateUsage)
+		return 0
 	default:
-		fmt.Fprintf(os.Stderr, "ateam state: unknown subcommand %q\n", sub)
+		fmt.Fprintf(os.Stderr, "ateam state: unknown subcommand %q; run 'ateam state --help' for subcommands\n", sub)
 		return 1
 	}
 }
+
+const stateUsage = `Usage:
+  ateam state [subcommand] [flags]
+
+Subcommands:
+  status       Refresh state and print it as JSON (default)
+  board        Refresh state with a forge sync and print the PM board as JSON
+  pickup       Refresh state and print the pickup summary (--agent, --session)
+  handoff      Record the five-field handoff checkpoint (see ateam state handoff -h)
+  holds        List unticked Hold: items as JSON
+  debt         List // shortcut: comments as JSON
+  spec-queue   Show in-flight OpenSpec changes with their holds and caveats
+  spec-check   Validate OpenSpec changes and fail on a Hold: outside every task
+  sync         Sync issues and PRs from the configured forges
+  mode [mode]  Show or set the harness mode
+  herdr        herdr integration (on-event, open-pane)
+`
 
 func runSpecQueue(repoRoot string) int {
 	changes, err := state.ScanOpenSpecQueue(repoRoot)

@@ -203,6 +203,12 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 - **THEN** pickup prints `    handoff: <goal> (<agent>@<branch>, <age>)` under that worktree's line, adding `, stale` when the current state's staleness rules (saved flag, worktree head, closed or merged PR, same-session exception) find it stale
 - **AND** a missing or unreadable worktree state prints nothing, and storage of handoffs is unchanged
 
+#### Scenario: State help is read-only
+
+- **WHEN** `ateam state --help`, `ateam state -h`, or `ateam state help` runs
+- **THEN** it prints every `state` subcommand and exits 0 without reading or writing `.ateam/state.json`, touching the writer lease, syncing a forge, or posting a comment
+- **AND** an unknown `state` subcommand still exits 1 and names `ateam state --help`
+
 ### Requirement: Fast Git identity across worktrees
 
 Git identity reads SHALL resolve loose and packed refs, detached HEADs, and linked-worktree gitdir/commondir pointers, returning the branch and seven-character commit identity.
