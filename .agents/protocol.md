@@ -24,7 +24,7 @@ Shared truth lives in the repository's versioned code, `openspec/` specs and cha
 ## 2. Work Lifecycle & Definition of Done
 
 1. **Clarify:** Before mutating state on an underspecified request, inspect the tree first, then confirm:
-   - **Deliverable** (answer/audit, issue, OpenSpec design, or code/UI change)
+   - **Deliverable** (answer/audit, issue, OpenSpec design, or code/UI change) and which role drafts it ([ADR 0003](../docs/adr/0003-roles-and-routes.md) catalog)
    - **Scope and non-goals** (in-bounds packages/files and what stays untouched)
    - **Definition of Done and verification** (`task verify` gates and observable checks)
    - **Stop boundary** (pause after design/plan vs. run through to verified completion). For non-trivial work the default is **pause for proposal approval**: the OpenSpec change's `proposal.md` stays one page (≤ 60 lines: why, what changes, scope/non-goals, Definition of Done; detail goes in `tasks.md` or `design.md`; `task spec:check` warns past 60) and carries an empty `Approved-by:` line, and its first task carries `Hold: OPEN-Q proposal awaits owner approval` from creation. The owner fills `Approved-by: <name> (<YYYY-MM-DD>)` and removes the hold in the same edit; an agent with this stop boundary stops at the hold and hands off.
