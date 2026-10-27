@@ -26,7 +26,7 @@ cd your-repo
 ateam init
 ```
 
-Init adds only what is missing: the `.agents/` tree (protocol, rules index, five skills, contracts), the
+Init adds only what is missing: the `.agents/` tree (protocol, rules index, six skills, contracts), the
 `.claude/skills` and `.gemini/commands` adapters, `openspec/`, and any of `.mcp.json`, `.codex/` and `.gemini/settings.json` you do not
 have. It appends four lines to `.gitignore` (`.ateam/`, `.worktrees/`, `.enjoy-logs/`, `benchmarks/runs/`). Your
 `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json` and `Taskfile.yml` stay byte-for-byte unchanged, and `backed_up` in
@@ -93,7 +93,7 @@ summary, and `ateam state pickup` prints it on demand.
 
 ## 4. What stays yours afterwards
 
-- **Skills.** Doctor checks the five canonical skills (`pickup`, `handoff`, `preflight`, `ponytail`, `review-pr`)
+- **Skills.** Doctor checks the six canonical skills (`pickup`, `handoff`, `preflight`, `ponytail`, `review-pr`, `design`)
   strictly: numbered steps, workflow markers, and an adapter that links to them. Any other directory under
   `.agents/skills/` is an adopter skill, listed as `adopter_skills` and checked only for links that resolve. To use
   your own `preflight`, put it at `.agents/skills/<yours>/SKILL.md` and point the Claude and Gemini adapters at it;

@@ -29,6 +29,7 @@ func TestAgentSetupParity(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+// spec: openspec/changes/design-track-178/specs/harness/spec.md#Requirement: Opt-in design track
 func TestInitRepoAndParitySensitivity(t *testing.T) {
 	dir := t.TempDir()
 	res, err := InitRepo(context.Background(), dir, Options{})
@@ -115,6 +116,31 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 			_ = os.WriteFile(p, []byte(strings.ReplaceAll(string(shipped), marker, "noted")), 0o644)
 			requireViolation(t, CheckParity(sub), ".agents/skills/review-pr/SKILL.md", marker)
 		}
+	})
+
+	t.Run("design skill and architect contract are shipped and guarded", func(t *testing.T) {
+		for _, rel := range []string{".agents/skills/design/SKILL.md", ".claude/skills/design/SKILL.md", ".gemini/commands/design.toml"} {
+			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
+				t.Fatalf("InitRepo did not write %s: %v", rel, err)
+			}
+		}
+		// The templates are the files this repository dogfoods, not paraphrases of them.
+		for _, rel := range []string{".agents/skills/design/SKILL.md", ".agents/contracts/architect.md"} {
+			shipped, _ := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+			repo, err := os.ReadFile(filepath.Join(repoRoot(t), filepath.FromSlash(rel)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(shipped) != string(repo) {
+				t.Fatalf("shipped %s differs from the repository file", rel)
+			}
+		}
+		sub := t.TempDir()
+		_, _ = InitRepo(context.Background(), sub, Options{})
+		if err := os.Remove(filepath.Join(sub, ".agents", "skills", "design", "SKILL.md")); err != nil {
+			t.Fatal(err)
+		}
+		requireViolation(t, CheckParity(sub), ".agents/skills/design/SKILL.md: missing canonical skill")
 	})
 
 	t.Run("Close rule copies match the repository text", func(t *testing.T) {

@@ -45,10 +45,15 @@ type OpenSpecChange struct {
 	ApprovedBy string `json:"approved_by,omitempty"`
 	// proposalLines is the line count of proposal.md (0 when missing), for the one-page warning.
 	proposalLines int
+	// designLines is the line count of design.md (0 when missing), for the design length warning.
+	designLines int
 }
 
 // maxProposalLines is the one-page limit for proposal.md; spec:check warns, never fails, past it.
 const maxProposalLines = 60
+
+// maxDesignLines is the design-track limit for design.md; spec:check warns, never fails, past it.
+const maxDesignLines = 120
 
 // ParseProposal returns the first `Approved-by:` header value outside code fences and the
 // physical line count (a final newline ends the last line; it does not start another).
@@ -330,6 +335,15 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 		case !os.IsNotExist(err):
 			return nil, fmt.Errorf("queue unavailable: cannot read %s", propRel)
 		}
+		designRel := filepath.ToSlash(filepath.Join("openspec", "changes", name, "design.md"))
+		design, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(designRel)))
+		switch {
+		case err == nil:
+			// ParseProposal's physical line count applies to any Markdown file; the header is ignored.
+			_, ch.designLines = ParseProposal(design)
+		case !os.IsNotExist(err):
+			return nil, fmt.Errorf("queue unavailable: cannot read %s", designRel)
+		}
 		out = append(out, ch)
 	}
 	return out, nil
@@ -483,6 +497,9 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	for _, ch := range changes {
 		if ch.proposalLines > maxProposalLines {
 			fmt.Fprintf(&out, "warning: openspec/changes/%s/proposal.md has %d lines, over the one-page limit of %d; move detail to tasks.md or design.md\n", ch.Name, ch.proposalLines, maxProposalLines)
+		}
+		if ch.designLines > maxDesignLines {
+			fmt.Fprintf(&out, "warning: openspec/changes/%s/design.md has %d lines, over the limit of %d; cut to the decisions the owner must approve\n", ch.Name, ch.designLines, maxDesignLines)
 		}
 	}
 	if strictSkipped {

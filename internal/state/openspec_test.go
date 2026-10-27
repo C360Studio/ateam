@@ -332,3 +332,46 @@ func TestProposalLengthWarning(t *testing.T) {
 		}
 	}
 }
+
+// spec: openspec/changes/design-track-178/specs/harness/spec.md#Requirement: Opt-in design track
+func TestDesignLengthWarning(t *testing.T) {
+	const absent = "\x00absent"
+	for _, tc := range []struct {
+		name   string
+		design string
+		warn   bool
+	}{
+		{"120 lines", strings.Repeat("line\n", 120), false},
+		{"121 lines", strings.Repeat("line\n", 121), true},
+		{"121 lines, no final newline", strings.Repeat("line\n", 120) + "line", true},
+		{"no design.md", absent, false},
+	} {
+		dir := t.TempDir()
+		changeDir := filepath.Join(dir, "openspec", "changes", "deep")
+		if err := os.MkdirAll(changeDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "openspec", "config.yaml"), []byte("schema: spec-driven\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(changeDir, "tasks.md"), []byte("## 1. Tasks\n\n- [ ] 1.1 Do it\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if tc.design != absent {
+			if err := os.WriteFile(filepath.Join(changeDir, "design.md"), []byte(tc.design), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out, code, err := CheckOpenSpec(context.Background(), dir)
+		if code != 0 || err != nil {
+			t.Fatalf("%s: CheckOpenSpec code=%d err=%v; a long design must warn, not fail", tc.name, code, err)
+		}
+		wantLine := "warning: openspec/changes/deep/design.md has 121 lines, over the limit of 120"
+		if got := strings.Contains(out, wantLine); got != tc.warn {
+			t.Fatalf("%s: warning present = %v, want %v; output:\n%s", tc.name, got, tc.warn, out)
+		}
+		if !tc.warn && strings.Contains(out, "warning:") {
+			t.Fatalf("%s: unexpected warning:\n%s", tc.name, out)
+		}
+	}
+}

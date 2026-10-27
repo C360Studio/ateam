@@ -27,7 +27,7 @@ const (
 )
 
 var (
-	canonicalSkills = []string{"pickup", "handoff", "preflight", "ponytail", "review-pr"}
+	canonicalSkills = []string{"pickup", "handoff", "preflight", "ponytail", "review-pr", "design"}
 	requiredHooks   = []string{"session-start", "before-prompt", "pre-compact", "turn-end"}
 )
 
@@ -429,6 +429,7 @@ func isNumberedTitle(title string) bool {
 }
 
 var requiredSkillMarkers = map[string][]string{
+	"design":    {"## 1.", "file:line", "adopter seam"},
 	"handoff":   {"## 1.", "ateam state handoff", "Goal:"},
 	"pickup":    {"## 1.", "ateam state pickup", "Verify Write Ownership"},
 	"ponytail":  {"## 1.", "6-Step Decision Ladder", "// shortcut:"},
