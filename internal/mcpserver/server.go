@@ -335,6 +335,9 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 				}
 			}
 		}
+		if strings.TrimSpace(h.SessionID) == "" {
+			statusLine += "\nwarning: " + state.HandoffNoSessionWarning(h)
+		}
 		return prompt + statusLine + "\n", false
 	case "debt":
 		data, _ := json.MarshalIndent(st.Shortcuts, "", "  ")

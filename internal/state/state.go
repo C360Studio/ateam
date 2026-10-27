@@ -487,6 +487,12 @@ type GitStatus struct {
 	UserName   string     `json:"user_name,omitempty"`
 	UserEmail  string     `json:"user_email,omitempty"`
 	Worktrees  []Worktree `json:"worktrees,omitempty"`
+	// DefaultRemoteRef ("origin/main" or "origin/master") and DefaultRemoteHead are the
+	// default branch's remote-tracking ref and tip already on disk; DefaultAheadOfRemote
+	// counts local commits on that branch not on the remote (#210).
+	DefaultRemoteRef     string `json:"default_remote_ref,omitempty"`
+	DefaultRemoteHead    string `json:"default_remote_head,omitempty"`
+	DefaultAheadOfRemote int    `json:"default_ahead_of_remote,omitempty"`
 }
 
 // BoardCard represents an issue, PR claim, or OpenSpec item on the PM board.
@@ -794,6 +800,8 @@ func (h *Handoff) HoldsSlotAgainst(sessionID string) bool {
 type HandoffSlotHeldError struct {
 	Slot   string
 	Holder Handoff
+	// HolderLease is the holder's writer-lease state ("live (pid N)" or "exited"), or "" when unknown (#210).
+	HolderLease string
 }
 
 func (e *HandoffSlotHeldError) Error() string {
@@ -801,8 +809,30 @@ func (e *HandoffSlotHeldError) Error() string {
 	if e.Holder.SessionID != "" {
 		holder = "session " + e.Holder.SessionID
 	}
-	return fmt.Sprintf("handoff slot %s is held by %s (goal: %q, %s); force replaces it, or hand off from a dedicated worktree",
-		e.Slot, holder, e.Holder.Goal, formatHandoffRelativeAge(e.Holder.UpdatedAt))
+	lease := ""
+	if e.HolderLease != "" {
+		lease = "; holder's writer lease: " + e.HolderLease
+	}
+	return fmt.Sprintf("handoff slot %s is held by %s (goal: %q, %s%s); force replaces it, or hand off from a dedicated worktree",
+		e.Slot, holder, e.Holder.Goal, formatHandoffRelativeAge(e.Holder.UpdatedAt), lease)
+}
+
+// holderLeaseState reports the writer lease's state for a handoff from sessionID, or "" when
+// the lease belongs to another or unknown session.
+func (st *State) holderLeaseState(sessionID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	if st.Writer == nil || sessionID == "" || strings.TrimSpace(st.Writer.SessionID) != sessionID || st.Writer.PID <= 0 {
+		return ""
+	}
+	if !IsProcessAlive(st.Writer.PID) {
+		return "exited"
+	}
+	return fmt.Sprintf("live (pid %d)", st.Writer.PID)
+}
+
+// HandoffNoSessionWarning is the warning for a deliberate handoff written with no session id (#210).
+func HandoffNoSessionWarning(h Handoff) string {
+	return fmt.Sprintf("handoff written without a session id; it will hold slot %s against every session", HandoffSlotKey(h.Agent, h.Branch))
 }
 
 // SetHandoffGuarded records a deliberate handoff like SetHandoff, but unless force it
@@ -815,11 +845,17 @@ func (st *State) SetHandoffGuarded(h Handoff, force bool) error {
 		if st.Handoffs == nil && st.LastHandoff != nil {
 			st.migrateLegacyLastHandoff()
 		}
+		// Judge staleness as the writer sees it: the remote-tip rule exempts only the holder's own session (#210).
+		prevSession := st.CurrentSessionID
+		if s := strings.TrimSpace(h.SessionID); s != "" {
+			st.CurrentSessionID = s
+		}
 		st.RefreshHandoffStaleness()
+		st.CurrentSessionID = prevSession
 		probe := h
 		key := st.normalizeHandoffSlot(&probe)
 		if cur := st.Handoffs[key]; cur.HoldsSlotAgainst(h.SessionID) {
-			return &HandoffSlotHeldError{Slot: key, Holder: *cur}
+			return &HandoffSlotHeldError{Slot: key, Holder: *cur, HolderLease: st.holderLeaseState(cur.SessionID)}
 		}
 	}
 	st.SetHandoff(h)
@@ -890,6 +926,17 @@ func (st *State) handoffStaleReasonsAt(h *Handoff, expectedBranch, headSHA strin
 		reasons = append(reasons, fmt.Sprintf("branch changed from %s -> %s", h.Branch, expectedBranch))
 	}
 	curSession := st.effectiveSessionID()
+	// #210: agents rarely pull the shared default-branch checkout, so another session judges its
+	// handoff against the remote tip too; unpushed local commits keep a checkpoint at the local HEAD
+	// fresh. The holder's own session is exempt: it cannot carry its checkpoint forward to a tip it
+	// has not pulled, and pre-compact recovery would otherwise discard its five fields.
+	remote, remoteHead := st.Git.DefaultRemoteRef, st.Git.DefaultRemoteHead
+	ownSession := curSession != "" && strings.TrimSpace(h.SessionID) == curSession
+	if remoteBranch, ok := strings.CutPrefix(remote, "origin/"); ok && remoteBranch == expectedBranch && remoteHead != "" && h.CheckpointSHA != "" && !ownSession &&
+		!SameCommitSHA(h.CheckpointSHA, remoteHead) &&
+		!(st.Git.DefaultAheadOfRemote > 0 && headSHA != "" && SameCommitSHA(h.CheckpointSHA, headSHA)) {
+		reasons = append(reasons, fmt.Sprintf("%s moved from %s -> %s", remote, h.CheckpointSHA, remoteHead))
+	}
 	sameSessionAtHead := !headDrifted && !branchChanged && h.CheckpointSHA != "" && headSHA != "" && h.Branch != "" && expectedBranch != "" && curSession != "" && strings.TrimSpace(h.SessionID) == curSession
 	if !sameSessionAtHead {
 		subjectPRs := make(map[int]bool)
@@ -2327,6 +2374,13 @@ func SnapshotGit(ctx context.Context, root string) GitStatus {
 			if strings.TrimSpace(line) != "" {
 				gs.DirtyFiles = append(gs.DirtyFiles, strings.TrimSpace(line))
 			}
+		}
+	}
+	for _, b := range []string{"main", "master"} {
+		if sha := runGitLine(ctx, root, "rev-parse", "--short", "--verify", "--quiet", "refs/remotes/origin/"+b); sha != "" {
+			gs.DefaultRemoteRef, gs.DefaultRemoteHead = "origin/"+b, sha
+			gs.DefaultAheadOfRemote, _ = strconv.Atoi(runGitLine(ctx, root, "rev-list", "--count", "refs/remotes/origin/"+b+"..refs/heads/"+b))
+			break
 		}
 	}
 	gs.Worktrees = parseWorktrees(runGitOutput(ctx, root, "worktree", "list", "--porcelain"))
