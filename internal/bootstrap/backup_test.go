@@ -201,3 +201,45 @@ func TestForceInitBackupLeavesClientConfigPreserved(t *testing.T) {
 		t.Fatal("client config reported as written")
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+func TestForceInitReplacesSymlinkInsteadOfWritingThrough(t *testing.T) {
+	root := t.TempDir()
+	shared := filepath.Join(t.TempDir(), "shared-rules.md")
+	hand := "# Shared rules\n\nUsed by several repos.\n"
+	if err := os.WriteFile(shared, []byte(hand), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(shared, filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := InitRepo(context.Background(), root, Options{Force: true, now: fixedClock()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != hand {
+		t.Fatalf("symlink target was rewritten: %q", got)
+	}
+	fi, err := os.Lstat(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fi.Mode().IsRegular() {
+		t.Fatalf("AGENTS.md mode = %v, want a regular file", fi.Mode())
+	}
+	if got := readRel(t, root, "AGENTS.md"); got != defaultTemplateFiles()["AGENTS.md"] {
+		t.Fatal("AGENTS.md was not replaced by the template")
+	}
+	backup := "AGENTS.md.ateam-backup-20261024-130509"
+	if !slices.Equal(res.BackedUp, []string{backup}) {
+		t.Fatalf("BackedUp = %v, want [%s]", res.BackedUp, backup)
+	}
+	if got := readRel(t, root, backup); got != hand {
+		t.Fatalf("backup bytes = %q, want the target's %q", got, hand)
+	}
+}
