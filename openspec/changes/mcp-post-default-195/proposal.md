@@ -1,6 +1,6 @@
 # Change Proposal: `mcp-post-default-195`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-27)
 
 ## Why
 

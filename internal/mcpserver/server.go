@@ -66,7 +66,7 @@ func Tools() []ToolDef {
 					"constraints":   map[string]any{"type": "string"},
 					"done_when":     map[string]any{"type": "string"},
 					"checks_to_run": map[string]any{"type": "string"},
-					"post":          map[string]any{"type": "boolean"},
+					"post":          map[string]any{"type": "boolean", "description": "handoff: omitted or true posts a PR comment; false saves locally only"},
 					"force":         map[string]any{"type": "boolean"},
 				},
 				"required": []string{"action"},

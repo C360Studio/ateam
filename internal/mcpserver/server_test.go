@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -26,6 +27,43 @@ func TestMCPTokenBudget(t *testing.T) {
 		t.Fatalf("MCP tool schema uses %d tokens (%d bytes), exceeds %d token budget", tokens, bytesLen, MaxSchemaTokens)
 	}
 	t.Logf("MCP 2-tool schema footprint: %d tokens (%d bytes) < %d budget", tokens, bytesLen, MaxSchemaTokens)
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Accurate MCP integration documentation
+func TestMCPToolsListDescribesPostDefault(t *testing.T) {
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n"
+	var out bytes.Buffer
+	if err := Serve(context.Background(), t.TempDir(), strings.NewReader(input), &out); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	var resp struct {
+		Result struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				InputSchema struct {
+					Properties map[string]struct {
+						Description string `json:"description"`
+					} `json:"properties"`
+				} `json:"inputSchema"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("decode tools/list: %v\n%s", err, out.String())
+	}
+	for _, tool := range resp.Result.Tools {
+		if tool.Name != "ateam_state" {
+			continue
+		}
+		desc := tool.InputSchema.Properties["post"].Description
+		for _, want := range []string{"omitted or true", "PR comment", "false", "locally only"} {
+			if !strings.Contains(desc, want) {
+				t.Errorf("post description %q missing %q", desc, want)
+			}
+		}
+		return
+	}
+	t.Fatalf("ateam_state missing from tools/list: %s", out.String())
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
