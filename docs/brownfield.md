@@ -96,7 +96,8 @@ summary, and `ateam state pickup` prints it on demand.
 
 - **Skills.** Doctor checks the six canonical skills (`pickup`, `handoff`, `preflight`, `ponytail`, `review-pr`, `design`)
   strictly: numbered steps, workflow markers, and an adapter that links to them. Any other directory under
-  `.agents/skills/` is an adopter skill, listed as `adopter_skills` and checked only for links that resolve. To use
+  `.agents/skills/` is an adopter skill, listed as `adopter_skills` and checked only for links that resolve (for
+  example, the opt-in [plain technical prose recipe](adoption.md#plain-technical-prose-ste-style-anti-buzzword-recipe)). To use
   your own `preflight`, put it at `.agents/skills/<yours>/SKILL.md` and point the Claude and Gemini adapters at it;
   doctor reports `skill_aliases` such as `alias: .claude/skills/preflight -> .agents/skills/acme-preflight`. An aliased
   target inherits the canonical skill's obligations: it is not an ordinary adopter skill, and doctor requires `## 1.`
