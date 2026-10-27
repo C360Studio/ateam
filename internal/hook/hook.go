@@ -427,7 +427,7 @@ func LadderPrompt(mode state.DisciplineMode) string {
 	}
 	return fmt.Sprintf("PONYTAIL MODE [%s] — %s\n"+
 		"Ladder: 1) Need to exist? 2) Already in codebase? 3) Stdlib/platform? 4) Existing dep? 5) Clear 1-liner? 6) Minimum complete change.\n"+
-		"Guardrails: Never cut trust-boundary validation, error handling, security, or tests on branches/parsers. Tag limits with `// shortcut: <limit>, <when to upgrade>`. End reply with 1-2 lines: skipped/unchecked + residual risk.",
+		"Guardrails: Never cut trust-boundary validation, error handling, security, or tests on branches/parsers. Tag limits with `// shortcut: <limit>, <when to upgrade>`. End conclusions and handoffs with 1-2 lines: skipped/unchecked + residual risk.",
 		mode, levelLine)
 }
 

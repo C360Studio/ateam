@@ -92,7 +92,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 ## What to expect day to day
 
 - **Fast hooks and small schemas:** `ateam hook` runs in under 10ms (25ms `--check` limit), and `ateam mcp` uses about 190 schema tokens ([MCP guide](mcp.md)).
-- **Explicit blind-spot lines:** At the end of every reply, the agent states what it skipped and what risk remains in one or two lines.
+- **Explicit blind-spot lines:** At the end of each task conclusion and each handoff, the agent states what it skipped and what risk remains in one or two lines. Acknowledgements and progress updates skip this, but still name blockers, failed or unavailable checks, and changed risks.
 - **Advisory hooks versus hard CI gates:** `ateam hook` and Ponytail modes inject prompt guidance; they do not block edits, enforce obedience, or run tests automatically.
 - **Local checks versus optional CI gates:** `task verify` and `ateam doctor --check` run locally; add `ateam review gate` in CI to block unreviewed code PRs.
 - **Commit-bound reviews:** Pushing a code commit after review invalidates `Reviewed at <sha>` and requires a fresh review comment.
