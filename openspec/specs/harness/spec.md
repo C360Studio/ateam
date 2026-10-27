@@ -622,7 +622,7 @@ A non-trivial change SHALL declare the `quick` or `design` track at Clarify. `at
 
 ### Requirement: Default-branch handoff freshness follows the remote tip
 
-A handoff in a default-branch slot SHALL be stale when its checkpoint differs from the default branch's remote-tracking tip already on disk, unless the checkpoint is the local HEAD and the local branch is ahead of that tip. A deliberate handoff written with no resolvable session id SHALL warn, and a slot refusal SHALL name the holder's writer-lease state when it is known.
+For any session other than its holder's, a handoff in a default-branch slot SHALL be stale when its checkpoint differs from the default branch's remote-tracking tip already on disk, unless the checkpoint is the local HEAD and the local branch is ahead of that tip. A deliberate handoff written with no resolvable session id SHALL warn, and a slot refusal SHALL name the holder's writer-lease state when it is known.
 
 #### Scenario: Checkpoint behind origin does not hold the slot
 
@@ -633,6 +633,11 @@ A handoff in a default-branch slot SHALL be stale when its checkpoint differs fr
 
 - **WHEN** the handoff's checkpoint is local `main`'s HEAD and local `main` is ahead of `origin/main`
 - **THEN** the handoff is fresh and still refuses another session's write
+
+#### Scenario: Holder's own session keeps its handoff across compaction
+
+- **WHEN** the holder's session compacts or starts again with local `main` unpulled and `origin/main` ahead of the checkpoint
+- **THEN** the handoff keeps its five fields and is shown at session start, while another session can still replace it
 
 #### Scenario: Handoff without a session id warns
 

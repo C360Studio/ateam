@@ -845,7 +845,13 @@ func (st *State) SetHandoffGuarded(h Handoff, force bool) error {
 		if st.Handoffs == nil && st.LastHandoff != nil {
 			st.migrateLegacyLastHandoff()
 		}
+		// Judge staleness as the writer sees it: the remote-tip rule exempts only the holder's own session (#210).
+		prevSession := st.CurrentSessionID
+		if s := strings.TrimSpace(h.SessionID); s != "" {
+			st.CurrentSessionID = s
+		}
 		st.RefreshHandoffStaleness()
+		st.CurrentSessionID = prevSession
 		probe := h
 		key := st.normalizeHandoffSlot(&probe)
 		if cur := st.Handoffs[key]; cur.HoldsSlotAgainst(h.SessionID) {
@@ -919,15 +925,18 @@ func (st *State) handoffStaleReasonsAt(h *Handoff, expectedBranch, headSHA strin
 	if branchChanged {
 		reasons = append(reasons, fmt.Sprintf("branch changed from %s -> %s", h.Branch, expectedBranch))
 	}
-	// #210: agents rarely pull the shared default-branch checkout, so its handoff is also judged
-	// against the remote tip; unpushed local commits keep a checkpoint at the local HEAD fresh.
+	curSession := st.effectiveSessionID()
+	// #210: agents rarely pull the shared default-branch checkout, so another session judges its
+	// handoff against the remote tip too; unpushed local commits keep a checkpoint at the local HEAD
+	// fresh. The holder's own session is exempt: it cannot carry its checkpoint forward to a tip it
+	// has not pulled, and pre-compact recovery would otherwise discard its five fields.
 	remote, remoteHead := st.Git.DefaultRemoteRef, st.Git.DefaultRemoteHead
-	if remoteBranch, ok := strings.CutPrefix(remote, "origin/"); ok && remoteBranch == expectedBranch && remoteHead != "" && h.CheckpointSHA != "" &&
+	ownSession := curSession != "" && strings.TrimSpace(h.SessionID) == curSession
+	if remoteBranch, ok := strings.CutPrefix(remote, "origin/"); ok && remoteBranch == expectedBranch && remoteHead != "" && h.CheckpointSHA != "" && !ownSession &&
 		!SameCommitSHA(h.CheckpointSHA, remoteHead) &&
 		!(st.Git.DefaultAheadOfRemote > 0 && headSHA != "" && SameCommitSHA(h.CheckpointSHA, headSHA)) {
 		reasons = append(reasons, fmt.Sprintf("%s moved from %s -> %s", remote, h.CheckpointSHA, remoteHead))
 	}
-	curSession := st.effectiveSessionID()
 	sameSessionAtHead := !headDrifted && !branchChanged && h.CheckpointSHA != "" && headSHA != "" && h.Branch != "" && expectedBranch != "" && curSession != "" && strings.TrimSpace(h.SessionID) == curSession
 	if !sameSessionAtHead {
 		subjectPRs := make(map[int]bool)
@@ -985,7 +994,7 @@ func (st *State) IsHandoffStale() bool {
 	return len(st.HandoffStaleReasons()) > 0
 }
 
-// HasNonHeadDriftHandoffStalenessFor reports whether h in slotKey is stale for any reason other than HEAD SHA or remote-tip drift.
+// HasNonHeadDriftHandoffStalenessFor reports whether h in slotKey is stale for any reason other than HEAD SHA drift.
 func (st *State) HasNonHeadDriftHandoffStalenessFor(slotKey string, h *Handoff) bool {
 	if st == nil || h == nil {
 		return false
@@ -996,7 +1005,7 @@ func (st *State) HasNonHeadDriftHandoffStalenessFor(slotKey string, h *Handoff) 
 		}
 		for _, part := range strings.Split(h.StaleReason, ";") {
 			r := strings.TrimSpace(part)
-			if r != "" && !isHeadDriftReason(r) {
+			if r != "" && !strings.HasPrefix(r, "HEAD drifted from ") {
 				return true
 			}
 		}
@@ -1009,16 +1018,11 @@ func (st *State) HasNonHeadDriftHandoffStalenessFor(slotKey string, h *Handoff) 
 	reasons := st.HandoffStaleReasonsFor(slotKey, h)
 	h.Stale, h.StaleReason = savedStale, savedReason
 	for _, r := range reasons {
-		if !isHeadDriftReason(strings.TrimSpace(r)) {
+		if !strings.HasPrefix(strings.TrimSpace(r), "HEAD drifted from ") {
 			return true
 		}
 	}
 	return false
-}
-
-// isHeadDriftReason reports whether a staleness reason is local HEAD drift or remote-tip drift (#210).
-func isHeadDriftReason(r string) bool {
-	return strings.HasPrefix(r, "HEAD drifted from ") || strings.HasPrefix(r, "origin/main moved from ") || strings.HasPrefix(r, "origin/master moved from ")
 }
 
 // HasNonHeadDriftHandoffStaleness reports whether st.LastHandoff is stale for any reason other than HEAD SHA drift.

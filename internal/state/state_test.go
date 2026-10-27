@@ -1754,20 +1754,32 @@ func TestHandoffGuardJudgesDefaultBranchAgainstRemoteTip(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
-func TestRefreshKeepsSameSessionHandoffBehindRemoteTip(t *testing.T) {
-	// #50 pre-compact recovery: remote-tip drift is HEAD drift for the holder's own session.
+func TestRemoteTipRuleExemptsHoldersOwnSession(t *testing.T) {
+	// #210 review: the holder cannot carry its checkpoint to a tip it has not pulled, so only
+	// another session sees remote-tip drift; that session's refresh drops the handoff.
+	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
+		t.Setenv(k, "")
+	}
 	st := defaultState()
 	st.Git = GitStatus{Branch: "main", HeadSHA: "1111111", DefaultRemoteRef: "origin/main", DefaultRemoteHead: "2222222"}
 	st.CurrentSessionID = "A"
 	st.SetHandoff(Handoff{Goal: "A goal", Agent: "claude", Branch: "main", SessionID: "A", CheckpointSHA: "1111111", UpdatedAt: time.Now().UTC()})
-	st.RefreshHandoffStaleness()
-	if h := st.Handoffs["claude@main"]; h == nil || !h.Stale {
-		t.Fatalf("same-session handoff behind origin/main = %+v, want kept and stale", h)
+	st.PruneStaleHandoffs()
+	if h := st.Handoffs["claude@main"]; h == nil || h.Stale {
+		t.Fatalf("holder's own pickup = %+v, want kept and fresh", h)
 	}
+	// The cached session is still the holder's; the guard judges as writer B, not as A.
+	if err := st.SetHandoffGuarded(Handoff{Goal: "B goal", Agent: "claude", Branch: "main", SessionID: "B", CheckpointSHA: "1111111", UpdatedAt: time.Now().UTC()}, false); err != nil {
+		t.Fatalf("writer B refused while the cached session is the holder's: %v", err)
+	}
+	if st.CurrentSessionID != "A" {
+		t.Fatalf("guard left CurrentSessionID = %q, want the caller's A restored", st.CurrentSessionID)
+	}
+	st.SetHandoff(Handoff{Goal: "A goal", Agent: "claude", Branch: "main", SessionID: "A", CheckpointSHA: "1111111", UpdatedAt: time.Now().UTC()})
 	st.CurrentSessionID = "B"
-	st.RefreshHandoffStaleness()
+	st.PruneStaleHandoffs()
 	if h := st.Handoffs["claude@main"]; h != nil {
-		t.Fatalf("another session's refresh kept a handoff behind origin/main: %+v", h)
+		t.Fatalf("another session's pickup kept a handoff behind origin/main: %+v", h)
 	}
 }
 
