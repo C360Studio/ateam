@@ -2,6 +2,7 @@ package review
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/c360studio/ateam/internal/state"
 )
 
 // The merge check (openspec spec harness, "Merge gate and CI workflow
@@ -114,6 +117,8 @@ type gateSource interface {
 	// closingRefs returns the URLs of the issues the pull request closes; only
 	// those among open are needed.
 	closingRefs(ctx context.Context, pr int, open []gateIssue) ([]string, error)
+	// fileAt returns path's content at ref, or nil when the forge answers 404.
+	fileAt(ctx context.Context, path, ref string) ([]byte, error)
 }
 
 // Gate runs the merge check against cfg's forge and returns the exit status:
@@ -263,6 +268,7 @@ func (g *gateRun) review(ctx context.Context) (bool, error) {
 	for _, name := range code[:min(10, len(code))] {
 		g.say("code file: %s", name)
 	}
+	g.approvalNotes(ctx, pull.Head, files)
 	lines, err := g.reviewLines(pull)
 	if err != nil {
 		return false, err
@@ -284,6 +290,60 @@ func (g *gateRun) review(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// approvalNotes prints a note for each OpenSpec change the pull request touches
+// whose proposal.md at head has no filled Approved-by: (#182). The proposal is
+// documentation read from the pull request's tree, and a note never changes
+// the verdict, so a failed read is a note too, never unavailable.
+func (g *gateRun) approvalNotes(ctx context.Context, head string, files []gateFile) {
+	for _, dir := range gateChangeDirs(files) {
+		path := dir + "/proposal.md"
+		data, err := g.src.fileAt(ctx, path, head)
+		if err != nil {
+			g.say("note: %s was not read, so its Approved-by is unchecked: %v", path, err)
+			continue
+		}
+		if approved, _ := state.ParseProposal(data); approved == "" {
+			g.say("note: OpenSpec change %s has no Approved-by; the spec was not human-reviewed", dir[strings.LastIndex(dir, "/")+1:])
+		}
+	}
+}
+
+// gateChangeDirs lists, sorted and once each, the OpenSpec change directories
+// (openspec/changes/<id> or openspec/changes/archive/<dated-id>) holding a
+// changed file's current name.
+func gateChangeDirs(files []gateFile) []string {
+	var dirs []string
+	for _, f := range files {
+		rest, ok := strings.CutPrefix(f.Name, "openspec/changes/")
+		if !ok {
+			continue
+		}
+		prefix := "openspec/changes/"
+		if r, ok := strings.CutPrefix(rest, "archive/"); ok {
+			rest, prefix = r, prefix+"archive/"
+		}
+		id, _, ok := strings.Cut(rest, "/")
+		if !ok {
+			continue
+		}
+		if dir := prefix + id; !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+	slices.Sort(dirs)
+	return dirs
+}
+
+// gateContent decodes a contents-API answer, which GitHub and Gitea both give
+// as base64 (GitHub wrapping it in newlines).
+func gateContent(content, encoding *string) ([]byte, bool) {
+	if content == nil || encoding == nil || *encoding != "base64" {
+		return nil, false
+	}
+	b, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(*content, "\n", ""))
+	return b, err == nil
 }
 
 type gateLines struct {

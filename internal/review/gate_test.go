@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -42,6 +43,10 @@ type gateWorld struct {
 	giteaTotalSkew map[string]int
 	// ghNull answers these gh argv with the JSON literal null.
 	ghNull []string
+	// proposals serves file content at head; proposalsMissing answers 404.
+	// GitHub fails a read of any other path; Gitea answers it 404.
+	proposals        map[string]string
+	proposalsMissing []string
 }
 
 type worldCommit struct {
@@ -106,7 +111,10 @@ func worldCommitJSON(c worldCommit) map[string]any {
 // fakeGH answers each argv from a file pair written by the test.
 const fakeGHScript = `#!/bin/sh
 for f in "$FAKE_GH_DIR"/*.argv; do
-  if [ "$(cat "$f")" = "$*" ]; then cat "${f%.argv}.out"; exit 0; fi
+  if [ "$(cat "$f")" = "$*" ]; then
+    if [ -f "${f%.argv}.err" ]; then cat "${f%.argv}.err" >&2; exit 1; fi
+    cat "${f%.argv}.out"; exit 0
+  fi
 done
 echo "fake gh: unexpected call: $*" >&2
 exit 3
@@ -167,6 +175,15 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 	}
 	answers["issue list --label class:flake --state open --json number,url,title --limit 100"] = mustJSON(t, issues)
 	answers[fmt.Sprintf("pr view %d --json closingIssuesReferences", gatePR)] = mustJSON(t, map[string]any{"closingIssuesReferences": refs})
+	contents := func(path string) string { return "api repos/{owner}/{repo}/contents/" + path + "?ref=" + head }
+	for path, body := range w.proposals {
+		answers[contents(path)] = mustJSON(t, map[string]any{"type": "file", "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(body))})
+	}
+	errs := map[string]string{}
+	for _, path := range w.proposalsMissing {
+		answers[contents(path)] = nil
+		errs[contents(path)] = "gh: Not Found (HTTP 404)"
+	}
 	for _, argv := range w.ghNull {
 		if _, ok := answers[argv]; !ok {
 			t.Fatalf("ghNull names no read: %s", argv)
@@ -182,6 +199,11 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 		}
 		if err := os.WriteFile(base+".out", out, 0o644); err != nil {
 			t.Fatal(err)
+		}
+		if e, ok := errs[argv]; ok {
+			if err := os.WriteFile(base+".err", []byte(e), 0o644); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	var out bytes.Buffer
@@ -274,6 +296,9 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 			"head": map[string]any{"sha": w.commits[len(w.commits)-1].sha}, "user": map[string]any{"type": userType}},
 		fmt.Sprintf("/issues/%d/comments", gatePR): comments,
 	}
+	for path, body := range w.proposals {
+		objects["/contents/"+path] = map[string]any{"type": "file", "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(body))}
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "token "+gateToken {
 			http.Error(rw, "unauthorized", http.StatusUnauthorized)
@@ -286,6 +311,10 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 		}
 		if status := w.giteaStatus[path]; status != 0 {
 			http.Error(rw, "forbidden", status)
+			return
+		}
+		if strings.HasPrefix(path, "/contents/") && r.URL.Query().Get("ref") != w.commits[len(w.commits)-1].sha {
+			http.Error(rw, "contents read not at head", http.StatusBadRequest)
 			return
 		}
 		if obj, ok := objects[path]; ok {
@@ -506,6 +535,89 @@ func TestGateGitea(t *testing.T) {
 				}
 				if strings.Contains(out, "strict=unverified") != strings.Contains(out, "\n::warning::the up-to-date rule is unverified") {
 					t.Errorf("%s: strict=unverified and its ::warning:: line must appear together\n%s", run.forge, out)
+				}
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge check notes an unapproved OpenSpec change
+func TestGateApprovalNote(t *testing.T) {
+	const (
+		fooTasks  = "openspec/changes/foo/tasks.md"
+		fooProp   = "openspec/changes/foo/proposal.md"
+		note      = "merge-check: note: OpenSpec change foo has no Approved-by; the spec was not human-reviewed"
+		anyNote   = "merge-check: note: OpenSpec change"
+		archived  = "openspec/changes/archive/2026-10-26-bar/proposal.md"
+		unchecked = "merge-check: note: " + fooProp + " was not read, so its Approved-by is unchecked"
+	)
+	for _, tc := range []struct {
+		name    string
+		world   func(w *gateWorld)
+		forges  []string
+		want    []string
+		without []string
+	}{
+		{name: "unapproved change on a code pull request", world: func(w *gateWorld) {
+			w.files = []string{fooTasks, fooProp, "scripts/x.sh"}
+			w.proposals = map[string]string{fooProp: "# p\n\nApproved-by:\n"}
+		}, want: []string{note, "merge-check: ok"}},
+		{name: "approved change", world: func(w *gateWorld) {
+			w.files = []string{fooTasks, "scripts/x.sh"}
+			w.proposals = map[string]string{fooProp: "# p\n\nApproved-by: Owner (2026-10-26)\n"}
+		}, want: []string{"merge-check: ok"}, without: []string{anyNote, "merge-check: note:"}},
+		{name: "header only inside a fence", world: func(w *gateWorld) {
+			w.files = []string{fooTasks, "scripts/x.sh"}
+			w.proposals = map[string]string{fooProp: "```\nApproved-by: Owner (2026-10-26)\n```\n"}
+		}, want: []string{note}},
+		{name: "archived change with no proposal", world: func(w *gateWorld) {
+			w.files = []string{"openspec/changes/archive/2026-10-26-bar/tasks.md", "scripts/x.sh"}
+			w.proposalsMissing = []string{archived}
+		}, want: []string{"merge-check: note: OpenSpec change 2026-10-26-bar has no Approved-by", "merge-check: ok"}},
+		{name: "two changes, each noted once", world: func(w *gateWorld) {
+			w.files = []string{fooTasks, fooProp, "openspec/changes/zed/tasks.md", "scripts/x.sh"}
+			w.proposals = map[string]string{fooProp: "Approved-by:\n", "openspec/changes/zed/proposal.md": "Approved-by:\n"}
+		}, want: []string{note, "OpenSpec change zed has no Approved-by"}},
+		{name: "files outside a change directory", world: func(w *gateWorld) {
+			w.files = []string{"openspec/changes/README.md", "openspec/changes/archive/notes.md", "openspec/specs/harness/spec.md", "scripts/x.sh"}
+		}, want: []string{"merge-check: ok"}, without: []string{"merge-check: note:"}},
+		{name: "documents-only pull request", world: func(w *gateWorld) {
+			w.body, w.files, w.comments = "", []string{fooProp}, nil
+			w.proposals = map[string]string{fooProp: "Approved-by:\n"}
+		}, want: []string{"is documents only"}, without: []string{anyNote}},
+		{name: "read failure on GitHub", forges: []string{"github"}, world: func(w *gateWorld) {
+			w.files = []string{fooTasks, "scripts/x.sh"}
+		}, want: []string{unchecked, "merge-check: ok"}, without: []string{anyNote}},
+		{name: "read failure on Gitea", forges: []string{"gitea"}, world: func(w *gateWorld) {
+			w.files = []string{fooTasks, "scripts/x.sh"}
+			w.giteaStatus = map[string]int{"/contents/" + fooProp: http.StatusBadGateway}
+		}, want: []string{unchecked, "HTTP 502", "merge-check: ok"}, without: []string{anyNote}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := healthyWorld()
+			tc.world(&w)
+			runs := map[string]func(*testing.T, gateWorld) (int, string){"github": runGitHub, "gitea": runGitea}
+			forges := tc.forges
+			if forges == nil {
+				forges = []string{"github", "gitea"}
+			}
+			for _, forge := range forges {
+				code, out := runs[forge](t, w)
+				if code != 0 {
+					t.Errorf("%s: exit %d, want 0: a note never changes the verdict\n%s", forge, code, out)
+				}
+				for _, l := range tc.want {
+					if !strings.Contains(out, l) {
+						t.Errorf("%s: output lacks %q\n%s", forge, l, out)
+					}
+				}
+				for _, l := range tc.without {
+					if strings.Contains(out, l) {
+						t.Errorf("%s: output has %q\n%s", forge, l, out)
+					}
+				}
+				if strings.Count(out, note) > 1 {
+					t.Errorf("%s: the note for foo appears more than once\n%s", forge, out)
 				}
 			}
 		})
