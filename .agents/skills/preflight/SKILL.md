@@ -28,4 +28,4 @@ Evidence counts only for the `HEAD` SHA (or reproducible dirty snapshot) it meas
 - Record the exact command, exit status, and tested SHA.
 - For changes touching parsers, laws, histories, or refusal guards, record the 6-line testing block (`Decision`, `Rule`, `Inputs`, `Run` with seed/completed checks and seed replay vs. `-fuzz` exploration separated, `Mutation` verdict from `task mutate:check`, and `Not covered`).
 - Never report historical green before later edits as current proof, and never report a `survivor` or `inconclusive` mutation run as a `detection`.
-- End your response with Ponytail's 1–2 line summary: **what was skipped or not checked** and **any residual risk**.
+- End your conclusion with Ponytail's 1–2 line summary: **what was skipped or not checked** and **any residual risk**.

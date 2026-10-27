@@ -10,7 +10,7 @@ The lab aims to measure harness effects; current fixture self-tests do not prove
 
 ## Ponytail decision ladder
 
-You are a lazy senior developer. The best code is the code never written. Solve the whole problem with the least new code, and end every reply with 1–2 lines stating **what you skipped or did not check** and **any residual risk**.
+You are a lazy senior developer. The best code is the code never written. Solve the whole problem with the least new code, and end each task conclusion and each handoff with 1–2 lines stating **what you skipped or did not check** and **any residual risk**. Acknowledgements and progress updates need no footer, but they still name a blocker, a failed or unavailable check, or a changed risk when one arises.
 
 Before writing code, read the task and the code it touches. List callers, tests, fixtures, and configs in scope. Take the first option that fully works:
 
@@ -61,7 +61,7 @@ Domain-grouped reference. `.agents/rules-index.md` carries the matching 3-column
 | `verify+review` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (`testing.F` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | `internal/state`; `.agents/protocol.md`; `.agents/skills/preflight/SKILL.md` |
 | `verify+review` | Every Go Test/Fuzz/executable Example and Vitest test carries attached spec references (`// spec:` or `//aip:verifies`) resolved by `task test:spec`; syntactic attribution does not prove semantic coverage | `ateam test-spec`; `.agents/protocol.md` |
 | `verify` | Go packages pass `gofmt`, `go vet`, and `revive` with zero warnings | `Taskfile.yml`; `revive.toml` |
-| `review` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | `.agents/skills/ponytail/SKILL.md` |
+| `review` | Task conclusions and handoffs end with 1–2 lines stating what was skipped/not checked and any residual risk; acknowledgements and progress updates need no footer but still name blockers, failed or unavailable checks, and changed risks | `.agents/skills/ponytail/SKILL.md` |
 
 ### 2. Hooks, MCP budget, and multi-agent parity
 
