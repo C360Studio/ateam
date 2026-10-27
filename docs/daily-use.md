@@ -1,50 +1,52 @@
 # Daily developer guide
 
-This guide covers day-to-day work in an initialized repository that uses the default `pr-comment` review mode and passes `ateam doctor --check`. If `.agents/review-policy.json` sets `"review_record": "aip"` (no PR comments or squash merges), follow your generated [`.agents/protocol.md`](../.agents/protocol.md) and [review record mode](model-review.md#review-record-mode-review_record) instead. In this workflow, you set scope, approve proposals, trigger reviews, and approve gate changes; the agent writes code, runs checks, and records state. If you have not initialized the repository yet, read [the adoption guide](adoption.md) or [the brownfield guide](brownfield.md) first.
+This guide covers day-to-day work in a repository that uses default `ateam` settings. Before you begin, run `ateam init`, add a `Taskfile.yml` with a `verify` target, and pass `ateam doctor --check`. `ateam init` writes Go-first instruction templates; adapt `AGENTS.md` to your stack or map the `ateam` commands below in `Taskfile.yml`. In this workflow, you set scope, approve proposals, trigger independent reviews, and merge pull requests. The agent writes code, runs checks, and records state. If you have not initialized your repository yet, read [the adoption guide](adoption.md) or [the brownfield guide](brownfield.md) first.
 
 ## Roles at a glance
 
 | Phase | What you do | What `ateam` or the agent does |
 | --- | --- | --- |
-| Orient | Start your agent CLI or open `ateam serve`. | `ateam hook` injects branch, worktree, `Hold:`, shortcut, and mode state. |
-| Clarify | Confirm scope and sign `Approved-by:` in `proposal.md`. | The agent inspects the tree, drafts `proposal.md`, and pauses on Task 1. |
-| Claim and build | Steer `/ponytail` mode; run parallel tasks in separate worktrees. | The agent works in `.worktrees/<agent>-<topic>`, tracks holds/shortcuts, and mutates Go tests. |
-| Pause or switch | Run `/handoff` (or `ateam state handoff --goal "..."`) before stopping. | `ateam state handoff --goal` saves `.ateam/state.json`, clears the writer lease, and comments on the PR. |
-| Ready and review | Open a fresh session and run `/review-pr <pr>`. | The implementer archives specs and marks ready; the reviewer verifies and posts `reviewed-by:`. |
-| Merge and clean up | Apply `gate-change-approved` only when a PR edits gate files. | Auto-merge lands the green PR, and the claiming agent deletes its worktree and branch. |
+| Orient | Start your agent CLI or open `ateam serve`. | `ateam hook` injects branch, `HEAD`, `Hold:`, shortcut, and `full` mode state. |
+| Clarify | Confirm scope and sign `Approved-by:` in `proposal.md`. | The agent inspects the tree, drafts `proposal.md` (and `design.md` when needed), and pauses on Task 1. |
+| Claim and build | Steer `/ponytail` mode; run parallel tasks in separate worktrees. | The agent claims `.worktrees/<agent>-<topic>`, opens a draft PR, writes code and tests, and tracks holds/shortcuts. |
+| Pause or switch | Run `/handoff` (or `ateam state handoff --goal "..."`) before stopping. | `ateam` saves `.ateam/state.json`, clears the writer lease, and comments on the open PR. |
+| Ready and review | Open a fresh session and run `/review-pr <pr>`. | The implementer runs `/preflight`, archives specs, and marks ready; the reviewer verifies and posts `reviewed-by:`. |
+| Merge and clean up | Squash-merge the approved PR (or arm auto-merge). | After merge, the claiming agent deletes its worktree and remote branch. |
 
 ## 1. Start or resume a session
 
-1. Start Claude Code, Codex CLI, Gemini CLI, or Antigravity (`agy`) in the repository.
-2. On startup, `ateam hook` reads `.ateam/state.json` and injects your branch, `HEAD`, worktrees, `Hold:` count, shortcuts, and Ponytail mode ([hook flow](hook-flow.md)).
-3. When you want a browser view of issues, holds, and shortcuts, run `ateam serve` and open `http://127.0.0.1:8420`.
-4. When you want to refresh cached GitHub or Gitea issues and PRs manually, run `ateam state sync`.
-5. When you resume earlier work or switch agent CLIs, run `/pickup` ([pickup skill](../.agents/skills/pickup/SKILL.md)) or `ateam state pickup`.
-6. `ateam state pickup` compares live Git and forge state against the last checkpoint before the agent edits files.
+1. Start Claude Code, Codex CLI, Gemini CLI, or Antigravity (`agy`) in your repository.
+2. On startup, `ateam hook` injects your branch, `HEAD`, `Hold:` count, shortcuts, and Ponytail `full` mode ([hook flow](hook-flow.md)).
+3. When you resume earlier work or switch agent CLIs, run `/pickup` ([pickup skill](../.agents/skills/pickup/SKILL.md)) or `ateam state pickup`.
+4. `ateam state pickup` reconciles live Git worktrees and GitHub or Gitea state against the last checkpoint.
+5. When you want a browser board for issues, holds, and shortcuts, run `ateam serve` and open `http://127.0.0.1:8420`.
+6. When you want to refresh cached GitHub or Gitea issues and PRs manually, run `ateam state sync`.
 
 ## 2. Clarify scope and approve the proposal
 
 1. Give the agent an issue number or a task description.
-2. When a request leaves choices open, the agent MUST stop before editing and confirm four items with you:
+2. When a request leaves choices open, the agent MUST stop before editing and confirm four items:
    - **Deliverable:** What output the agent produces (an answer, an issue, an OpenSpec proposal, or a code change).
    - **Scope and non-goals:** Which packages or files change, and which files stay untouched.
-   - **Definition of Done:** Which `Taskfile.yml` commands prove the change works.
+   - **Definition of Done:** Which `Taskfile.yml` or `ateam` commands prove the change works.
    - **Stop boundary:** Whether the agent pauses after the proposal or runs through verification.
 3. For non-trivial work, the agent creates `openspec/changes/<id>/proposal.md` (at most 60 lines) and `openspec/changes/<id>/tasks.md`.
-4. The agent adds `Hold: OPEN-Q proposal awaits owner approval` under Task 1 and hands off to you.
-5. Before implementation begins, read `proposal.md`, fill in `Approved-by: <name> (<YYYY-MM-DD>)`, and delete that `Hold:` line in `tasks.md`.
+4. When a change adds spec requirements or spans capabilities, `/design` ([design skill](../.agents/skills/design/SKILL.md)) drafts `design.md` (at most 120 lines).
+5. The agent adds `Hold: OPEN-Q proposal awaits owner approval` under Task 1 and hands off to you.
+6. Before implementation begins, fill in `Approved-by: <name> (<YYYY-MM-DD>)` in `proposal.md` and delete that `Hold:` line in `tasks.md`.
+7. When you want to validate OpenSpec files and task holds directly, run `ateam state spec-check`.
 
 ## 3. Claim a worktree and build
 
-For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>/<topic>` (`claude/…`, `codex/…`, or `gemini/…`) and opens a draft PR. In Enjoy desktop, the agent calls `move_to_worktree` instead of `git worktree add`. Because `.ateam/writer.json` tracks one worktree at a time, you can run separate agents in parallel across separate worktrees.
+For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>/<topic>` (`claude/…`, `codex/…`, or `gemini/…`) and opens a draft PR. Because `.ateam/writer.json` tracks one worktree at a time, you can run separate agents in parallel across separate worktrees.
 
 - If a second live session enters the same worktree, `ateam` prints a competing-writer warning; move to a separate worktree.
 - When you want lighter or stricter scope pushback, run `/ponytail lite`, `/ponytail full`, `/ponytail ultra`, or `/ponytail off` ([ponytail skill](../.agents/skills/ponytail/SKILL.md)).
 - In Antigravity (`agy`), switch modes with `ateam state mode <level>` or `/ponytail` because `PreInvocation` stdin omits prompt text.
-- When an external blocker stops a task, the agent adds `Hold: <reason>` under that task in `tasks.md` (`task spec:queue`).
+- When an external blocker stops a task, the agent adds `Hold: <reason>` under that task in `tasks.md` (`ateam state spec-queue`).
 - When the agent defers an edge case in code, it adds `// shortcut: <limit>, <when to upgrade>` (`ateam state debt`).
-- The agent attaches `// spec:` or `//aip:verifies` comments to Go and Vitest tests (`task test:spec`).
-- For new Go branches or parsers, `task mutate:check` tests a mutant copy in `/tmp` without modifying your worktree.
+- When you maintain `openspec/specs/`, the agent links Go and Vitest tests with `// spec:` comments (`ateam test-spec`).
+- For new Go branches or parsers, `ateam mutate` tests a mutant copy in `/tmp` without modifying your worktree.
 
 ## 4. Pause, compact, or switch agents
 
@@ -61,38 +63,40 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 
 2. The CLI requires `--goal` and accepts `--addresses` (defaults to branch and SHA), `--constraints`, `--done-when`, and `--checks` (defaults to `task verify`).
 3. `ateam state handoff` writes those five fields to `.ateam/state.json`, clears `.ateam/writer.json`, and posts the checkpoint to the open PR.
-4. When you want a local checkpoint without a PR comment, add `--no-post` to that `ateam state handoff --goal "..."` command.
-5. In Claude Code, Codex CLI, and Gemini CLI, `ateam init` sets auto-compaction near 500k tokens so `pre-compact` saves local state early.
+4. When you have no open PR or want a local checkpoint only, add `--no-post` to `ateam state handoff`.
+5. In Claude Code, Codex CLI, and Gemini CLI, `ateam init` sets ~500k auto-compaction so `pre-compact` saves local state.
 6. Antigravity (`agy`) has no compaction threshold setting; run `/compact` or `/handoff` manually during long sessions.
 
 ## 5. Prepare the PR and run an independent review
 
 1. Before marking a PR ready, the agent MUST pass `/preflight` ([preflight skill](../.agents/skills/preflight/SKILL.md)).
-2. In `ateam`, preflight runs `task verify`, `ateam doctor --check`, and `ateam bench --selftest`; adopting repositories supply their own `task verify` target.
-3. Before marking the PR ready, the agent MUST move any completed `openspec/changes/<id>/` directory to `openspec/changes/archive/<YYYY-MM-DD>-<id>/` in a branch commit.
-4. On any code PR, the agent adds `implemented-by: <agent> (<model>, <effort>)` to the PR description and marks the PR ready (`gh pr ready`).
-5. Open a fresh agent session whose model and effort meet or exceed every implementer in `.agents/review-policy.json` ([model review](model-review.md)).
-6. When `cross_provider` is `true` in `.agents/review-policy.json`, you MUST choose a different agent provider for the review.
-7. Run `/review-pr <pr-number>` ([review-pr skill](../.agents/skills/review-pr/SKILL.md)) in that fresh session.
-8. The reviewer checks a detached worktree, runs `task verify`, posts `reviewed-by:` with `Reviewed at <sha>` ([reviewer contract](../.agents/contracts/reviewer.md)), and deletes its review worktree.
-9. When the verdict is `APPROVE`, the reviewer adds `reviewed-by:` to the PR description and reruns the failed `Merge check` job.
-10. When the verdict is `REQUEST CHANGES`, the reviewer stops so `Merge check` stays red while the author fixes findings.
+2. Preflight runs your `task verify` target, plus `ateam test-spec` or `ateam mutate` when those checks apply.
+3. When a PR edits `AGENTS.md`, `CLAUDE.md`, or `.agents/`, run `ateam doctor --check` to verify setup parity.
+4. Before marking the PR ready, the agent MUST commit moving completed `openspec/changes/<id>/` work to `openspec/changes/archive/<YYYY-MM-DD>-<id>/`.
+5. On any code PR, the agent adds `implemented-by: <agent> (<model>, <effort>)` to the PR description and runs `gh pr ready`.
+6. Open a fresh agent session with an equal or stronger model that wrote none of the PR.
+7. By default, any provider may review; add `.agents/review-policy.json` only when you want tier or cross-provider rules ([model review](model-review.md)).
+8. Run `/review-pr <pr-number>` ([review-pr skill](../.agents/skills/review-pr/SKILL.md)) in that fresh session.
+9. The reviewer checks a detached worktree, runs `task verify`, posts `reviewed-by:` with `Reviewed at <sha>` ([reviewer contract](../.agents/contracts/reviewer.md)), and cleans up.
+10. When the verdict is `APPROVE`, the reviewer adds `reviewed-by: <agent> (<model>, <effort>)` to the PR description.
+11. When the verdict is `REQUEST CHANGES`, the author fixes the findings and requests a fresh review on the new commit.
 
 ## 6. Merge and clean up
 
-1. Once `task merge:check -- <pr-number>` passes, arm squash auto-merge (`gh pr merge --squash --auto`), or post `merge_when_checks_succeed` on Gitea.
-2. When required checks pass on an up-to-date branch, GitHub or Gitea squashes and merges the PR.
-3. After the PR merges, the claiming agent removes `.worktrees/<agent>-<topic>` and deletes the remote branch.
-4. An agent MUST NOT delete a worktree that belongs to another agent or contains uncommitted or unpushed work.
+1. Once your checks pass and the review approves, squash-merge the PR (`gh pr merge --squash`) or merge on Gitea.
+2. When your repository enables branch protection and auto-merge, arm `gh pr merge --squash --auto` (or Gitea `merge_when_checks_succeed`) instead.
+3. To enforce review records, `main` rulesets, and `class:flake` blocks in CI, wire in `ateam review gate <pr-number>` ([merge gate setup](adoption.md#the-merge-gate-on-github-and-gitea)).
+4. After the PR merges, the claiming agent removes `.worktrees/<agent>-<topic>` and deletes the remote branch.
+5. An agent MUST NOT delete a worktree that belongs to another agent or contains uncommitted or unpushed work.
 
 ## What to expect day to day
 
 - **Fast hooks and small schemas:** `ateam hook` runs in under 10ms (25ms `--check` limit), and `ateam mcp` uses about 190 schema tokens ([MCP guide](mcp.md)).
 - **Explicit blind-spot lines:** At the end of every reply, the agent states what it skipped and what risk remains in one or two lines.
 - **Advisory hooks versus hard CI gates:** `ateam hook` and Ponytail modes inject prompt guidance; they do not block edits, enforce obedience, or run tests automatically.
-- **Hard merge checks:** `task verify`, `ateam doctor --check`, and `ateam review gate` (`task merge:check -- <pr>`) reject broken builds, parity drift, or unreviewed code PRs.
-- **Owner label for gate files:** If a PR edits CI workflows, `.agents/review-policy.json`, merge scripts, or `internal/review/`, the agent hands off until you add `gate-change-approved`.
-- **One expected red `Merge check`:** Marking a code PR ready triggers CI before `/review-pr` posts its comment; the reviewer reruns that failed job after approving.
-- **Commit-bound reviews and flake blocks:** Pushing a code commit after review invalidates `Reviewed at <sha>`, and any open `class:flake` issue fails `task merge:check`.
-- **Stale binary reminders:** In the `ateam` repository, `session-start` warns when `HEAD` passes your local build; run `task build` and restart `ateam mcp`.
+- **Local checks versus optional CI gates:** `task verify` and `ateam doctor --check` run locally; add `ateam review gate` in CI to block unreviewed code PRs.
+- **Commit-bound reviews:** Pushing a code commit after review invalidates `Reviewed at <sha>` and requires a fresh review comment.
+- **One red `Merge check` (when wired in CI):** Marking a PR ready runs CI before `/review-pr` comments; the reviewer reruns that failed job.
+- **Shared token warning in `ateam doctor`:** Solo setups see a non-failing warning until `ATEAM_TOKEN_READ` and `ATEAM_TOKEN_WRITE` use separate tokens ([forge tokens](adoption.md#forge-tokens)).
+- **MCP reload reminder after upgrades:** After you upgrade the `ateam` binary, `session-start` warns if a running `ateam mcp` process is older; restart your agent CLI.
 - **Go-first tool limits:** Coordination works in any language, while `ateam mutate` accepts only non-test `.go` files and `debt`/`test-spec` scan fixed file extensions ([adoption limits](adoption.md#feature-and-language-boundaries)).
