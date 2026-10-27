@@ -51,7 +51,8 @@ token (see [forge tokens](adoption.md#forge-tokens)); it does not fail the check
 | `rule section "N. ..." is in .agents/rules-index.md but missing from AGENTS.md` (or a title or row-count disagreement) | Both files need the same numbered `## N.` or `### N.` sections, with the same titles and table rows. Write your own rules and replace the shipped `.agents/rules-index.md` with their mirror. Keep `AGENTS.md` under 24,000 bytes. |
 | `.agents/protocol.md: missing "<phrase>"` | You edited the protocol. Keep these phrases: `Deliverable`, `non-goals`, `Definition of Done`, `Stop boundary`, `ateam state handoff`, `openspec/changes/archive/`. Headings are yours. |
 | `<file>: missing hook command for event <event>` and `missing --agent <client>` | Merge ateam's hook commands into the file next to your own (below). Doctor looks for the exact text `ateam hook --event <event> --agent <client>`. |
-| `.gemini/settings.json: missing contextFileName AGENTS.md` | Add the line `"contextFileName": "AGENTS.md"`, with the space after the colon. |
+| `.gemini/settings.json: missing context.fileName AGENTS.md` | Add `"context": {"fileName": "AGENTS.md"}` at the top level. If the file has a `context` object, add `"fileName": "AGENTS.md"` inside it. |
+| `... (Gemini CLI ignores the top-level contextFileName)` | Replace the top-level `"contextFileName": "AGENTS.md"` with `"context": {"fileName": "AGENTS.md"}`. Gemini CLI reads only the nested key, so the old line had it loading `GEMINI.md`. |
 | `<file>: expected enabled ateam stdio registration ...` | Add the `ateam` server to the file's existing servers, from the [MCP guide](mcp.md#migrating-existing-configurations). |
 
 The scratch repository's `AGENTS.md` kept its three sentences of product rules and gained one numbered table of two

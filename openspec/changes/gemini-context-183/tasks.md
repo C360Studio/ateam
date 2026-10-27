@@ -1,10 +1,12 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit (#183). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit (#183). Evidence: the owner approved in Enjoy on 2026-10-27 (doctor rejects the flat key alone), and Claude wrote the header at their request.
 
 ## 2. Implementation
 
-- [ ] 2.1 `ateam init` and this repository's `.gemini/settings.json` write `"context": {"fileName": "AGENTS.md"}` and no flat `contextFileName` (#183).
-- [ ] 2.2 Doctor reads only `context.fileName`; a flat-only file fails with a violation naming the nested key. User-scope fallback and project precedence are unchanged (#183).
-- [ ] 2.3 Tests cover nested pass, flat-only fail, nested `GEMINI.md` fail, and user-scope fallback on the nested key, with a mutation check on the flat-key rejection (#183).
-- [ ] 2.4 Docs and the generated README table name the nested key; `docs/brownfield.md` gains a migration row; the harness spec gains one scenario cited by the tests (#183).
+- [x] 2.1 `ateam init` and this repository's `.gemini/settings.json` write `"context": {"fileName": "AGENTS.md"}` and no flat `contextFileName` (#183). Evidence: `geminiSettingsJSON` in `internal/bootstrap/templates.go` and `.gemini/settings.json` carry the nested object. A fresh `ateam init` in a temp repo has no `contextFileName` and passes `ateam doctor --check`.
+- [x] 2.2 Doctor reads only `context.fileName`; a flat-only file fails with a violation naming the nested key. User-scope fallback and project precedence are unchanged (#183). Evidence: `geminiContextFileName` reads only `context.fileName`. `geminiContextViolations` reports `missing context.fileName AGENTS.md` and appends `(Gemini CLI ignores the top-level contextFileName)` when the flat key is present.
+- [x] 2.3 Tests cover nested pass, flat-only fail, nested `GEMINI.md` fail, and user-scope fallback on the nested key, with a mutation check on the flat-key rejection (#183). Evidence: `TestInitRepoAndParitySensitivity` gains "Gemini hook config with only the top-level contextFileName" (and asserts init writes no flat key); `TestHookScopeSensitivity` gains "user settings naming AGENTS.md only in the top-level contextFileName"; existing cases now use the nested key. Two mutants under `/tmp/mut183` (restore the flat-key fallback; drop the flat-key hint) each gave `detection` against both tests. The SHA-256 of `internal/bootstrap/bootstrap.go` was the same before and after.
+
+Generated checks: not used. The input is one JSON key in two possible places, and the table covers nested, flat-only, neither, and wrong-value cases at both project and user scope.
+- [x] 2.4 Docs and the generated README table name the nested key; `docs/brownfield.md` gains a migration row; the harness spec gains one scenario cited by the tests (#183). Evidence: `.agents/README.md`, `templates.go`, `README.md`, `docs/adoption.md`, `docs/mcp.md`, and `docs/brownfield.md` updated. The harness spec gains "Gemini context file uses the nested key" under "Agent initialization and configuration parity" (cited by `TestInitRepoAndParitySensitivity`), and the user-scope scenario is renamed "Gemini context.fileName".

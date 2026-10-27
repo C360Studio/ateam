@@ -280,6 +280,12 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 - **THEN** init removes the link and writes the template as a regular file at that path, so the link's target is never opened for writing and keeps its bytes
 - **AND** a symlinked harness document whose target differs from the template is still backed up first, and the backup holds the target's bytes
 
+#### Scenario: Gemini context file uses the nested key
+
+- **WHEN** `ateam init` writes `.gemini/settings.json`, or doctor checks a Gemini settings file
+- **THEN** init writes `"context": {"fileName": "AGENTS.md"}` and no top-level `contextFileName`, because Gemini CLI reads only the nested key
+- **AND** doctor accepts only a `context.fileName` of `AGENTS.md`; a file that names `AGENTS.md` only in the top-level `contextFileName` fails with `missing context.fileName AGENTS.md (Gemini CLI ignores the top-level contextFileName)`
+
 ### Requirement: Board state and authenticated API access
 
 The board SHALL expose state and support card creation, movement, handoff, and mode updates through its API, with the static application served at the root. Without an API token, protected reads and writes SHALL accept only loopback clients; when a token is configured, every client SHALL supply it. Board helpers SHALL group cards into all six canonical columns, filter by text, agent, forge, and column, and format five-field pickup prompts deterministically.
@@ -559,10 +565,10 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 - **WHEN** `ATEAM_HOOK_SCOPE` is unset and `.claude/settings.json` has no ateam hooks
 - **THEN** doctor reports `missing hook command for event <event>` for `.claude/settings.json`, as before, whatever the local and user-scope files contain
 
-#### Scenario: Gemini contextFileName
+#### Scenario: Gemini context.fileName
 
-- **WHEN** `.gemini/settings.json` sets its context file (the nested `context.fileName`, else the top-level `contextFileName`) to anything other than `AGENTS.md`, or sets none while either the knob is unset or `~/.gemini/settings.json` is missing, invalid or lacks `contextFileName: "AGENTS.md"`
-- **THEN** doctor reports `<file>: missing contextFileName AGENTS.md` naming the file whose value was checked (the project file when it sets a value, as Gemini gives project settings precedence; `~/.gemini/settings.json` when the knob is set, the project file sets none, and that file parses), whichever file carried the hooks
+- **WHEN** `.gemini/settings.json` sets its context file (the nested `context.fileName`; the top-level `contextFileName` is not read) to anything other than `AGENTS.md`, or sets none while either the knob is unset or `~/.gemini/settings.json` is missing, invalid or lacks `context.fileName: "AGENTS.md"`
+- **THEN** doctor reports `<file>: missing context.fileName AGENTS.md` naming the file whose value was checked (the project file when it sets a value, as Gemini gives project settings precedence; `~/.gemini/settings.json` when the knob is set, the project file sets none, and that file parses), whichever file carried the hooks
 
 #### Scenario: Unknown knob value
 

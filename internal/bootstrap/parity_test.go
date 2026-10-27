@@ -76,14 +76,30 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 		requireViolation(t, CheckParity(sub), ".claude/skills/pickup/SKILL.md", "checkbox")
 	})
 
-	t.Run("Gemini hook config missing contextFileName", func(t *testing.T) {
+	t.Run("Gemini hook config missing context.fileName", func(t *testing.T) {
 		sub := t.TempDir()
 		_, _ = InitRepo(context.Background(), sub, Options{})
 		p := filepath.Join(sub, ".gemini", "settings.json")
 		data, _ := os.ReadFile(p)
-		edited := strings.Replace(string(data), `"contextFileName": "AGENTS.md",`, "", 1)
+		edited := strings.Replace(string(data), `"fileName": "AGENTS.md"`, `"fileName": "GEMINI.md"`, 1)
 		_ = os.WriteFile(p, []byte(edited), 0o644)
-		requireViolation(t, CheckParity(sub), ".gemini/settings.json", "contextFileName")
+		requireViolation(t, CheckParity(sub), ".gemini/settings.json: missing context.fileName AGENTS.md")
+	})
+
+	t.Run("Gemini hook config with only the top-level contextFileName", func(t *testing.T) {
+		sub := t.TempDir()
+		_, _ = InitRepo(context.Background(), sub, Options{})
+		p := filepath.Join(sub, ".gemini", "settings.json")
+		data, _ := os.ReadFile(p)
+		if strings.Contains(string(data), "contextFileName") {
+			t.Fatal("init wrote the top-level contextFileName that Gemini CLI ignores")
+		}
+		edited := strings.Replace(string(data), "\"context\": {\n    \"fileName\": \"AGENTS.md\"\n  },", `"contextFileName": "AGENTS.md",`, 1)
+		if edited == string(data) {
+			t.Fatal("init no longer writes the nested context.fileName this test rewrites")
+		}
+		_ = os.WriteFile(p, []byte(edited), 0o644)
+		requireViolation(t, CheckParity(sub), ".gemini/settings.json: missing context.fileName AGENTS.md (Gemini CLI ignores the top-level contextFileName)")
 	})
 
 	t.Run("Placeholder protocol or canonical skill rejected", func(t *testing.T) {

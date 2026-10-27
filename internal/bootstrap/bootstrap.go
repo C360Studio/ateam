@@ -811,23 +811,18 @@ func inspectHookConfigs(root string) (out []string, sources map[string]string) {
 	return out, sources
 }
 
-// geminiContextFileName returns the context file a Gemini settings object names and whether it names one:
-// the nested context.fileName that current Gemini CLI reads, else the legacy top-level contextFileName.
+// geminiContextFileName returns the context file a Gemini settings object names in context.fileName and
+// whether it names one. Gemini CLI reads only the nested key; the top-level contextFileName is ignored (#183).
 func geminiContextFileName(settings map[string]any) (string, bool) {
-	if ctx, ok := settings["context"].(map[string]any); ok {
-		if v, set := ctx["fileName"]; set {
-			s, _ := v.(string)
-			return s, true
-		}
-	}
-	v, set := settings["contextFileName"]
+	ctx, _ := settings["context"].(map[string]any)
+	v, set := ctx["fileName"]
 	s, _ := v.(string)
 	return s, set
 }
 
-// geminiContextViolations requires Gemini's effective contextFileName to be AGENTS.md. Gemini's project
+// geminiContextViolations requires Gemini's effective context.fileName to be AGENTS.md. Gemini's project
 // settings take precedence over its user settings, so the user file decides only when the project file sets
-// no contextFileName and ATEAM_HOOK_SCOPE=user; the violation names the file whose value was checked.
+// no context.fileName and ATEAM_HOOK_SCOPE=user; the violation names the file whose value was checked.
 func geminiContextViolations(projectLabel string, project map[string]any, user hookFile, userScope bool) []string {
 	label, settings := projectLabel, project
 	if _, set := geminiContextFileName(project); !set && userScope {
@@ -838,9 +833,13 @@ func geminiContextViolations(projectLabel string, project map[string]any, user h
 	if settings == nil {
 		return nil // the project file is missing or invalid, already reported, and no user file decides
 	}
-	// shortcut: contextFileName must be the string "AGENTS.md" (Gemini also takes a list), accept a list containing it when an adopter needs one
+	// shortcut: context.fileName must be the string "AGENTS.md" (Gemini also takes a list), accept a list containing it when an adopter needs one
 	if v, _ := geminiContextFileName(settings); v != "AGENTS.md" {
-		return []string{fmt.Sprintf("%s: missing contextFileName AGENTS.md", label)}
+		msg := fmt.Sprintf("%s: missing context.fileName AGENTS.md", label)
+		if _, flat := settings["contextFileName"]; flat {
+			msg += " (Gemini CLI ignores the top-level contextFileName)"
+		}
+		return []string{msg}
 	}
 	return nil
 }

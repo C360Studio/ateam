@@ -91,7 +91,7 @@ This creates missing harness files. Existing client configuration is always pres
 - `.agents/hooks.json` and `.agents/plugins/ateam/{plugin.json,mcp_config.json}` (Antigravity lifecycle hooks and workspace MCP plugin)
 - `.claude/settings.json` (hooks + `"autoCompactWindow": 500000`), `.claude/skills/*/SKILL.md`, and `.mcp.json` (MCP registration)
 - `.codex/hooks.json` and `.codex/config.toml` (MCP registration + `model_context_window = 500000` / `model_auto_compact_token_limit = 450000`)
-- `.gemini/settings.json` (hooks, MCP registration, `contextFileName: "AGENTS.md"`, and `contextPercentageThreshold: 0.5`) and `.gemini/commands/*.toml`
+- `.gemini/settings.json` (hooks, MCP registration, `context.fileName: "AGENTS.md"`, and `contextPercentageThreshold: 0.5`) and `.gemini/commands/*.toml`
 - `openspec/config.yaml`, `openspec/specs/`, and `openspec/changes/`
 - `.gitignore` entries for `.ateam/`, `.worktrees/`, `.enjoy-logs/`, and `benchmarks/runs/`
 
