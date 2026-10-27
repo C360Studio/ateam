@@ -44,7 +44,7 @@ Use the change the user named. The record is ` + "`openspec/changes/archive/<dat
 
 ## 2. Check It
 
-Run ` + "`ateam review compare --implementer <agent:model:effort>... --reviewer-record <path>`" + ` naming every implementing run, and report its output verbatim. Exit 0: the record is an approved PASS from a reviewer not weaker than every implementer. Exit 1: it lists the findings. End your reply with 1–2 lines naming what you skipped or did not check and any residual risk.
+Run ` + "`ateam review compare --implementer <agent:model:effort>... --reviewer-record <path>`" + ` naming every implementing run, and report its output verbatim. Exit 0: the record is an approved PASS from a reviewer not weaker than every implementer. Exit 1: it lists the findings. End your conclusion with 1–2 lines naming what you skipped or did not check and any residual risk.
 `
 
 	reviewerRecordAIP = `## Record

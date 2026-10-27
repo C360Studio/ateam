@@ -180,7 +180,7 @@ Guidance for coding agents. Codex and Gemini load this file as ` + "`AGENTS.md`"
 
 ## Ponytail decision ladder
 
-You are a lazy senior developer. The best code is the code never written. Solve the whole problem with the least new code, and end every reply with 1–2 lines stating **what you skipped or did not check** and **any residual risk**.
+You are a lazy senior developer. The best code is the code never written. Solve the whole problem with the least new code, and end each task conclusion and each handoff with 1–2 lines stating **what you skipped or did not check** and **any residual risk**. Acknowledgements and progress updates need no footer, but they still name a blocker, a failed or unavailable check, or a changed risk when one arises.
 
 1. **Does it need to exist?** Skip unrequested features, options, and abstractions.
 2. **Already in this codebase?** Reuse existing helpers, components, and conventions.
@@ -201,7 +201,7 @@ You are a lazy senior developer. The best code is the code never written. Solve 
 | ` + "`verify+review`" + ` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (` + "`testing.F`" + ` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | ` + "`.agents/protocol.md`" + ` |
 | ` + "`" + `verify+review` + "`" + ` | Every Go Test/Fuzz/executable Example and Vitest test carries attached spec references (` + "`" + `// spec:` + "`" + ` or ` + "`" + `//aip:verifies` + "`" + `) resolved by ` + "`" + `task test:spec` + "`" + `; syntactic attribution does not prove semantic coverage | ` + "`" + `ateam test-spec` + "`" + `; ` + "`" + `.agents/protocol.md` + "`" + ` |
 | ` + "`verify`" + ` | Go packages pass ` + "`gofmt`" + `, ` + "`go vet`" + `, and ` + "`revive`" + ` with zero warnings | ` + "`Taskfile.yml`" + ` |
-| ` + "`review`" + ` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | ` + "`.agents/skills/ponytail/SKILL.md`" + ` |
+| ` + "`review`" + ` | Task conclusions and handoffs end with 1–2 lines stating what was skipped/not checked and any residual risk; acknowledgements and progress updates need no footer but still name blockers, failed or unavailable checks, and changed risks | ` + "`.agents/skills/ponytail/SKILL.md`" + ` |
 
 ### 2. Hooks, MCP budget, and multi-agent parity
 
@@ -242,7 +242,7 @@ const defaultRulesIndexMD = `# Rules Enforcement Index
 | ` + "`verify+review`" + ` | Changes with interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories record whether generated checks (` + "`testing.F`" + ` / PBT) are used or why examples suffice, prove boundary reach and assertion activation, and check histories against a reference model | ` + "`task test:unit`" + `; review |
 | ` + "`" + `verify+review` + "`" + ` | Every Go Test/Fuzz/executable Example and Vitest test carries attached spec references (` + "`" + `// spec:` + "`" + ` or ` + "`" + `//aip:verifies` + "`" + `) resolved by ` + "`" + `task test:spec` + "`" + `; syntactic attribution does not prove semantic coverage | ` + "`" + `ateam test-spec` + "`" + `; ` + "`" + `.agents/protocol.md` + "`" + ` |
 | ` + "`verify`" + ` | Go packages pass ` + "`gofmt`" + `, ` + "`go vet`" + `, and ` + "`revive`" + ` with zero warnings | ` + "`Taskfile.yml`" + ` |
-| ` + "`review`" + ` | Agent replies end with 1–2 lines stating what was skipped/not checked and any residual risk | review |
+| ` + "`review`" + ` | Task conclusions and handoffs end with 1–2 lines stating what was skipped/not checked and any residual risk; acknowledgements and progress updates need no footer but still name blockers, failed or unavailable checks, and changed risks | review |
 
 ## 2. Hooks, MCP budget, and multi-agent parity
 
@@ -433,13 +433,13 @@ Report verified worktree/branch/HEAD SHA, active holds/drift, write ownership st
 name: ponytail
 description: >-
   Lazy senior dev discipline: take the smallest complete change that solves the task, protect trust
-  boundaries and tests, track // shortcut: debt, and end with skipped/risk lines. Levels: lite, full, ultra, off.
+  boundaries and tests, track // shortcut: debt, and end conclusions and handoffs with skipped/risk lines. Levels: lite, full, ultra, off.
 argument-hint: "[lite|full|ultra|off|review|audit|debt]"
 ---
 
 # Ponytail Discipline Ladder
 
-You are a lazy senior developer. The best code is the code never written. Solve the whole problem with the least new code, and end every reply with 1–2 lines: **what you skipped or did not check**, and **any risk the user must know**.
+You are a lazy senior developer. The best code is the code never written. Solve the whole problem with the least new code, and end each task conclusion and each handoff with 1–2 lines: **what you skipped or did not check**, and **any risk the user must know**. Acknowledgements and progress updates need no footer, but they still name a blocker, a failed or unavailable check, or a changed risk when one arises.
 
 ## 1. Before You Write
 
@@ -507,7 +507,7 @@ Verdict: APPROVE | REQUEST CHANGES
 <findings, checks run, unavailable evidence, limitations>
 ` + "`" + `` + "`" + `` + "`" + `
 
-Name your provider, exact model, and reasoning effort. Remove the review checkout (` + "`git worktree remove .worktrees/<agent>-review-pr-<n>`" + `) once the comment is posted. End your reply with 1–2 lines naming what you skipped or did not check and any residual risk.
+Name your provider, exact model, and reasoning effort. Remove the review checkout (` + "`git worktree remove .worktrees/<agent>-review-pr-<n>`" + `) once the comment is posted. End your conclusion with 1–2 lines naming what you skipped or did not check and any residual risk.
 
 ## 5. Clear the Merge Check
 

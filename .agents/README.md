@@ -32,7 +32,7 @@ Canonical skills live in `.agents/skills/<name>/SKILL.md`:
 - [pickup](skills/pickup/SKILL.md): check live git branch, `HEAD` SHA, worktrees, GitHub/Gitea issues and PRs, open `Hold:` items, and any commits since the last handoff.
 - [handoff](skills/handoff/SKILL.md): save a 5-field checkpoint (`Goal`, `Addresses`, `Constraints`, `Done when`, `Checks to run`), release the session writer lease, and print the pickup block for the next session.
 - [preflight](skills/preflight/SKILL.md): run the matching `Taskfile.yml` verification checks and record test/mutation output before pushing or finishing.
-- [ponytail](skills/ponytail/SKILL.md): write the smallest complete change that solves the task, track intentional limits with `// shortcut: <limit>, <when to upgrade>`, and end replies with 1–2 lines naming what was skipped and any remaining risk.
+- [ponytail](skills/ponytail/SKILL.md): write the smallest complete change that solves the task, track intentional limits with `// shortcut: <limit>, <when to upgrade>`, and end task conclusions and handoffs with 1–2 lines naming what was skipped and any remaining risk.
 - [review-pr](skills/review-pr/SKILL.md): review one pull request as an independent, read-only reviewer on a detached `<agent>-review-pr-<n>` checkout, compare it with your own approach, and post the `reviewed-by:` / `Reviewed at <sha>` record comment that `task merge:check` reads. The manual trigger for a cross-agent review.
 - [design](skills/design/SKILL.md): on the `design` track (protocol § 2 Clarify), draft `design.md` read-only: `file:line` context, at least two options per decision with the adopter seam, and owner-ruling questions marked. It drafts and never rules; the owner approves it with the proposal.
 
