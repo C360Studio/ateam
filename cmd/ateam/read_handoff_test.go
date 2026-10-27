@@ -13,7 +13,7 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
-// spec: openspec/changes/handoff-read-196/specs/harness/spec.md#Requirement: Read another agent's handoff without changing ownership
+// spec: openspec/specs/harness/spec.md#Requirement: Read another agent's handoff without changing ownership
 func TestStateReadHandoffIsReadOnly(t *testing.T) {
 	// #196: Codex reads Claude's slot; nothing Claude owns, and no forge, may be touched.
 	dir := t.TempDir()

@@ -15,7 +15,7 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
-// spec: openspec/changes/handoff-read-196/specs/harness/spec.md#Requirement: Read another agent's handoff without changing ownership
+// spec: openspec/specs/harness/spec.md#Requirement: Read another agent's handoff without changing ownership
 func TestMCPReadHandoffIsReadOnly(t *testing.T) {
 	// #196: a Codex MCP session reads Claude's slot without refreshing, syncing, or claiming anything.
 	dir := t.TempDir()

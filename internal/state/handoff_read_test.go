@@ -13,7 +13,7 @@ func clearAgentSessionEnv(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/handoff-read-196/specs/harness/spec.md#Requirement: Read another agent's handoff without changing ownership
+// spec: openspec/specs/harness/spec.md#Requirement: Read another agent's handoff without changing ownership
 func TestPickupPreviewsOtherHandoffGoal(t *testing.T) {
 	// #196: a Codex pickup must show what the Claude slot is about, attributed to Claude.
 	clearAgentSessionEnv(t)
@@ -58,7 +58,7 @@ func TestPickupPreviewsOtherHandoffGoal(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/handoff-read-196/specs/harness/spec.md#Requirement: Read another agent's handoff without changing ownership
+// spec: openspec/specs/harness/spec.md#Requirement: Read another agent's handoff without changing ownership
 func TestReadHandoffSlots(t *testing.T) {
 	clearAgentSessionEnv(t)
 	ago := time.Now().UTC().Add(-5 * time.Minute)
