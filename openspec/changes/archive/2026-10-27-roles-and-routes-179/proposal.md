@@ -1,6 +1,6 @@
 # Change Proposal: `roles-and-routes-179`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-27)
 
 ## Why
 
@@ -8,7 +8,7 @@ The repository documents developer and reviewer contracts and ranks runs by tier
 
 ## What Changes
 
-- New `docs/adr/0003-roles-and-routes.md` (Status: Proposed until the owner accepts it with this proposal): catalog (architect, developer, reviewer, judge: contract, may write, never), default tier and band per role, the four conditions for a `workhorse` developer, escalation and below-default recording.
+- New `docs/adr/0003-roles-and-routes.md` (accepted by the owner with this proposal): catalog (architect, developer, reviewer, judge: contract, may write, never), default tier and band per role, the four conditions for a `workhorse` developer, escalation and below-default recording.
 - Pointers: `docs/model-review.md` status block, `.agents/README.md` § Configured model review, the protocol's Clarify Deliverable line ("and which role drafts it").
 - `.agents/contracts/architect.md` and its `ateam init` source in `internal/bootstrap/templates.go`: replace "pending ADR 0003" with the default the ADR sets.
 

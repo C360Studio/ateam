@@ -1,6 +1,6 @@
 # ADR 0003: Role catalog and default routes
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-10-27)
 - **Date:** 2026-10-27
 - **Deciders:** repository owner
 - **Builds on:** [ADR 0001](0001-review-gate-scope.md) (routes are attestations), [ADR 0002](0002-model-tiers-and-effort-bands.md) (tiers, bands, the not-weaker rule)
