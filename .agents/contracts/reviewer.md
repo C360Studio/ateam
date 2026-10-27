@@ -19,4 +19,4 @@ Verdict: APPROVE | REQUEST CHANGES
 <findings, checks run, unavailable evidence, limitations>
 ```
 
-A later commit that is neither a clean merge of `main` nor docs-only needs a new record naming the new commit.
+On GitHub, a later commit that is neither a clean merge of `main` nor docs-only needs a new record naming the new commit. On Gitea, every later commit needs one, since the gate cannot yet prove a Gitea commit's file list complete.

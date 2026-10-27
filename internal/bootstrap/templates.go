@@ -319,7 +319,7 @@ Attribution validates syntax and reference existence, not whether assertions pro
 
 ## 4. Configured model review
 
-The merge gate needs a separate read-only reviewer run not weaker than every implementer by model tier, then effort band, as .agents/review-policy.json declares; an equal tier and band passes, so it has no ceiling and no exception. Cross-provider review is required only when the policy sets cross_provider; reasoning effort is not model strength. A later commit that is neither a clean merge of main nor docs-only needs a new review record. A policy declaring only tiers and bands configures no routes: ateam review route then exits non-zero by design, and the rest of this section does not apply.
+The merge gate needs a separate read-only reviewer run not weaker than every implementer by model tier, then effort band, as .agents/review-policy.json declares; an equal tier and band passes, so it has no ceiling and no exception. Cross-provider review is required only when the policy sets cross_provider; reasoning effort is not model strength. A later commit needs a new review record unless the reviewer contract's Record section exempts it. A policy declaring only tiers and bands configures no routes: ateam review route then exits non-zero by design, and the rest of this section does not apply.
 
 Optional route path. Install owner-approved models, routes and forge author/owner logins with ateam review setup --policy FILE. No universal model ranking is supplied. With routes configured, run ateam review route before implementation and revalidate all actual model escalations. Native clients must be launched with the selected model/effort; role cards do not pin or attest runtime identity.
 
