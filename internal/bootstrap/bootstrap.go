@@ -717,10 +717,15 @@ type hookFile struct {
 	path  string // empty when the home directory cannot be resolved
 }
 
+// hookEvent pairs an ateam hook event with the client's native event key its command must sit under.
+type hookEvent struct{ event, native string }
+
 type hookClient struct {
 	agent   string
-	project string   // repo-relative project hook file
-	events  []string // ateam hook events the file must register
+	project string      // repo-relative project hook file
+	root    string      // top-level key holding the native event keys
+	nested  bool        // entries hold their commands in hooks[] rather than directly
+	events  []hookEvent // ateam hook events the file must register
 	// user lists the client's local and user-scope hook files in the order doctor reads them, "~/" meaning the
 	// home directory; nil means doctor reads none for this client.
 	user []string
@@ -729,16 +734,22 @@ type hookClient struct {
 // hookClients lists each client's project hook file and its documented local and user-scope hook files (sources in
 // openspec/changes/archive/2026-10-26-hook-scope-128/tasks.md).
 var hookClients = []hookClient{
-	{agent: "claude", project: ".claude/settings.json", events: requiredHooks,
+	{agent: "claude", project: ".claude/settings.json", root: "hooks", nested: true, events: claudeHookEvents,
 		user: []string{".claude/settings.local.json", "~/.claude/settings.json"}},
-	{agent: "codex", project: ".codex/hooks.json", events: requiredHooks,
+	{agent: "codex", project: ".codex/hooks.json", root: "hooks", nested: true, events: claudeHookEvents,
 		user: []string{"~/.codex/hooks.json"}},
-	{agent: "gemini", project: ".gemini/settings.json", events: requiredHooks,
+	{agent: "gemini", project: ".gemini/settings.json", root: "hooks", nested: true, events: []hookEvent{
+		{"session-start", "SessionStart"}, {"before-prompt", "BeforeAgent"}, {"pre-compact", "PreCompress"}, {"turn-end", "AfterAgent"}},
 		user: []string{"~/.gemini/settings.json"}},
 	// shortcut: Antigravity hooks.json omits pre-compact, add pre-compact hook when Antigravity exposes a compaction event
 	// shortcut: doctor reads no user-scope hooks for agy, read ~/.gemini/config/hooks.json when an adopter needs it
-	{agent: "agy", project: ".agents/hooks.json", events: []string{"session-start", "before-prompt", "turn-end"}},
+	{agent: "agy", project: ".agents/hooks.json", root: "ateam", events: []hookEvent{
+		{"session-start", "SessionStart"}, {"before-prompt", "PreInvocation"}, {"turn-end", "Stop"}}},
 }
+
+// claudeHookEvents maps requiredHooks to the native events Claude Code and Codex share.
+var claudeHookEvents = []hookEvent{
+	{"session-start", "SessionStart"}, {"before-prompt", "UserPromptSubmit"}, {"pre-compact", "PreCompact"}, {"turn-end", "Stop"}}
 
 // HookSources reports, per client agent, the file that satisfied doctor's hook check, for doctor's report.
 func HookSources(root string) map[string]string {
@@ -773,7 +784,7 @@ func inspectHookConfigs(root string) (out []string, sources map[string]string) {
 		return hookFile{label: label, path: filepath.Join(home, filepath.FromSlash(rest))}
 	}
 	for _, c := range hookClients {
-		project, violations := hookFileViolations(resolve(c.project), c.agent, c.events)
+		project, violations := hookFileViolations(resolve(c.project), c)
 		source := c.project
 		if len(violations) > 0 && userScope {
 			source = ""
@@ -781,7 +792,7 @@ func inspectHookConfigs(root string) (out []string, sources map[string]string) {
 				violations = append(violations, fmt.Sprintf("%s: %s=user, but %s has no user-scope hooks doctor reads", c.project, hookScopeEnv, c.agent))
 			}
 			for _, label := range c.user {
-				_, userViolations := hookFileViolations(resolve(label), c.agent, c.events)
+				_, userViolations := hookFileViolations(resolve(label), c)
 				if len(userViolations) == 0 {
 					source, violations = label, nil
 					break
@@ -851,7 +862,7 @@ func readJSONObject(path string) map[string]any {
 
 // hookFileViolations reads one hook file and reports what it lacks; parsed is the file's JSON object when
 // it parses.
-func hookFileViolations(f hookFile, agent string, events []string) (parsed map[string]any, out []string) {
+func hookFileViolations(f hookFile, c hookClient) (parsed map[string]any, out []string) {
 	if f.path == "" {
 		return nil, []string{fmt.Sprintf("%s: cannot resolve the home directory", f.label)}
 	}
@@ -862,17 +873,64 @@ func hookFileViolations(f hookFile, agent string, events []string) (parsed map[s
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return nil, []string{fmt.Sprintf("%s: invalid JSON: %v", f.label, err)}
 	}
-	text := string(data)
-	// shortcut: hook commands match as substrings anywhere in the file so turn-ended satisfies turn-end and --agent may sit outside the hooks, parse hooks.<event>[].hooks[].command and match tokens exactly (#177)
-	for _, ev := range events {
-		if !strings.Contains(text, "ateam hook --event "+ev) {
-			out = append(out, fmt.Sprintf("%s: missing hook command for event %s", f.label, ev))
+	byNative, _ := parsed[c.root].(map[string]any)
+	missingAgent := false
+	for _, ev := range c.events {
+		found, withAgent := false, false
+		for _, cmd := range hookCommands(byNative[ev.native], c.nested) {
+			tokens := strings.Fields(cmd)
+			if !isAteamHook(tokens) || !hasFlag(tokens, "--event", ev.event) {
+				continue
+			}
+			found = true
+			withAgent = withAgent || hasFlag(tokens, "--agent", c.agent)
+		}
+		if !found {
+			out = append(out, fmt.Sprintf("%s: missing hook command for event %s", f.label, ev.event))
+		} else if !withAgent {
+			missingAgent = true
 		}
 	}
-	if !strings.Contains(text, "--agent "+agent) {
-		out = append(out, fmt.Sprintf("%s: missing --agent %s in hook commands", f.label, agent))
+	if missingAgent {
+		out = append(out, fmt.Sprintf("%s: missing --agent %s in hook commands", f.label, c.agent))
 	}
 	return parsed, out
+}
+
+// hookCommands returns the command strings registered under one native event: entries[].hooks[].command when
+// nested, else entries[].command. Entries of any other shape are skipped.
+func hookCommands(entries any, nested bool) []string {
+	list, _ := entries.([]any)
+	var out []string
+	for _, e := range list {
+		entry, _ := e.(map[string]any)
+		hooks := []any{entry}
+		if nested {
+			hooks, _ = entry["hooks"].([]any)
+		}
+		for _, h := range hooks {
+			hook, _ := h.(map[string]any)
+			if cmd, ok := hook["command"].(string); ok {
+				out = append(out, cmd)
+			}
+		}
+	}
+	return out
+}
+
+// isAteamHook reports whether a command's tokens start with ateam (bare or as a path) followed by hook.
+func isAteamHook(tokens []string) bool {
+	return len(tokens) >= 2 && (tokens[0] == "ateam" || strings.HasSuffix(tokens[0], "/ateam")) && tokens[1] == "hook"
+}
+
+// hasFlag reports whether tokens carry flag immediately followed by exactly value.
+func hasFlag(tokens []string, flag, value string) bool {
+	for i := 0; i+1 < len(tokens); i++ {
+		if tokens[i] == flag && tokens[i+1] == value {
+			return true
+		}
+	}
+	return false
 }
 
 func checkAntigravityConfigs(root string) []string {

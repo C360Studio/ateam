@@ -579,6 +579,11 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 - **WHEN** `ATEAM_HOOK_SCOPE=user` is set and a client's project hook file lacks the ateam hooks and doctor reads no user-scope hook file for that client (Antigravity's `.agents/hooks.json`)
 - **THEN** doctor reports that the client has no user-scope hooks doctor reads (`.agents/hooks.json: ATEAM_HOOK_SCOPE=user, but agy has no user-scope hooks doctor reads`), rather than passing
 
+#### Scenario: Hook commands match exactly under their native event
+
+- **WHEN** a hook file's only command for a required event names a different event (`--event turn-ended` for `turn-end`), sits under a native event key other than the one that maps to that event (a `turn-end` command under `SessionStart`), or carries the client's `--agent` only outside a hook command (a permissions entry `Bash(ateam hook --agent claude:*)` while the hooks say `--agent codex`)
+- **THEN** doctor reports `missing hook command for event <event>` or `missing --agent <client> in hook commands` for that file and does not name it under `hook_sources`, with or without `ATEAM_HOOK_SCOPE=user`
+
 ### Requirement: Merge check notes an unapproved OpenSpec change
 
 On a code pull request, the merge check SHALL print a note for each OpenSpec change directory the pull request touches whose `proposal.md` at the head lacks a filled `Approved-by:` header, and the note SHALL NOT change the exit status.

@@ -1,0 +1,41 @@
+## MODIFIED Requirements
+
+### Requirement: Hooks registered outside the project settings
+
+`ateam doctor` SHALL accept ateam's hooks registered outside the project's client settings files only when `ATEAM_HOOK_SCOPE=user` is set, and SHALL report which file satisfied each client's hook check under `hook_sources` in its JSON output (an object keyed by client agent, `{}` when none passed).
+
+#### Scenario: Claude hooks at user scope
+
+- **WHEN** `ATEAM_HOOK_SCOPE=user` is set and `.claude/settings.json` has no ateam hooks, but `.claude/settings.local.json` or `~/.claude/settings.json` (read in that order) carries every required `ateam hook --event <event>` command and `--agent claude`
+- **THEN** doctor reports no Claude hook violation and names the file that carried the hooks; Codex reads `~/.codex/hooks.json` and Gemini `~/.gemini/settings.json` the same way
+
+#### Scenario: Partial, malformed or split local or user-scope hooks
+
+- **WHEN** `ATEAM_HOOK_SCOPE=user` is set, the project file lacks the hooks, and no single local or user-scope file is valid JSON carrying every required event and the client's `--agent` (hooks split across files count as missing)
+- **THEN** doctor reports the project file's violations and each local or user-scope file's, for example `~/.claude/settings.json: invalid JSON` or `~/.claude/settings.json: missing hook command for event <event>`
+
+#### Scenario: Knob unset
+
+- **WHEN** `ATEAM_HOOK_SCOPE` is unset and `.claude/settings.json` has no ateam hooks
+- **THEN** doctor reports `missing hook command for event <event>` for `.claude/settings.json`, as before, whatever the local and user-scope files contain
+
+#### Scenario: Gemini contextFileName
+
+- **WHEN** `.gemini/settings.json` sets its context file (the nested `context.fileName`, else the top-level `contextFileName`) to anything other than `AGENTS.md`, or sets none while either the knob is unset or `~/.gemini/settings.json` is missing, invalid or lacks `contextFileName: "AGENTS.md"`
+- **THEN** doctor reports `<file>: missing contextFileName AGENTS.md` naming the file whose value was checked (the project file when it sets a value, as Gemini gives project settings precedence; `~/.gemini/settings.json` when the knob is set, the project file sets none, and that file parses), whichever file carried the hooks
+
+#### Scenario: Unknown knob value
+
+- **WHEN** `ATEAM_HOOK_SCOPE` is set to anything other than `user` (compared case-insensitively, surrounding space ignored)
+- **THEN** doctor reports `ATEAM_HOOK_SCOPE=<value>: unknown value; set it to user or unset it` and reads only the project files
+
+#### Scenario: Client without user-scope hooks
+
+- **WHEN** `ATEAM_HOOK_SCOPE=user` is set and a client's project hook file lacks the ateam hooks and doctor reads no user-scope hook file for that client (Antigravity's `.agents/hooks.json`)
+- **THEN** doctor reports that the client has no user-scope hooks doctor reads (`.agents/hooks.json: ATEAM_HOOK_SCOPE=user, but agy has no user-scope hooks doctor reads`), rather than passing
+
+#### Scenario: Hook commands match exactly under their native event
+
+- **WHEN** a hook file's only command for a required event names a different event (`--event turn-ended` for `turn-end`), sits under a native event key other than the one that maps to that event (a `turn-end` command under `SessionStart`), or carries the client's `--agent` only outside a hook command (a permissions entry `Bash(ateam hook --agent claude:*)` while the hooks say `--agent codex`)
+- **THEN** doctor reports `missing hook command for event <event>` or `missing --agent <client> in hook commands` for that file and does not name it under `hook_sources`, with or without `ATEAM_HOOK_SCOPE=user`
+
