@@ -1,6 +1,6 @@
 # Daily developer guide
 
-This guide shows how you work day to day in a repository where `ateam doctor --check` passes. You set scope, approve proposals, trigger reviews, and approve gate changes; the agent writes code, runs checks, and records state. If you have not initialized the repository yet, read [the adoption guide](adoption.md) or [the brownfield guide](brownfield.md) first.
+This guide covers day-to-day work in an initialized repository that uses the default `pr-comment` review mode and passes `ateam doctor --check`. If `.agents/review-policy.json` sets `"review_record": "aip"` (no PR comments or squash merges), follow your generated [`.agents/protocol.md`](../.agents/protocol.md) and [review record mode](model-review.md#review-record-mode-review_record) instead. In this workflow, you set scope, approve proposals, trigger reviews, and approve gate changes; the agent writes code, runs checks, and records state. If you have not initialized the repository yet, read [the adoption guide](adoption.md) or [the brownfield guide](brownfield.md) first.
 
 ## Roles at a glance
 
@@ -9,7 +9,7 @@ This guide shows how you work day to day in a repository where `ateam doctor --c
 | Orient | Start your agent CLI or open `ateam serve`. | `ateam hook` injects branch, worktree, `Hold:`, shortcut, and mode state. |
 | Clarify | Confirm scope and sign `Approved-by:` in `proposal.md`. | The agent inspects the tree, drafts `proposal.md`, and pauses on Task 1. |
 | Claim and build | Steer `/ponytail` mode; run parallel tasks in separate worktrees. | The agent works in `.worktrees/<agent>-<topic>`, tracks holds/shortcuts, and mutates Go tests. |
-| Pause or switch | Run `/handoff` before stopping or changing agent CLIs. | `ateam state handoff` saves `.ateam/state.json`, clears the writer lease, and comments on the PR. |
+| Pause or switch | Run `/handoff` (or `ateam state handoff --goal "..."`) before stopping. | `ateam state handoff --goal` saves `.ateam/state.json`, clears the writer lease, and comments on the PR. |
 | Ready and review | Open a fresh session and run `/review-pr <pr>`. | The implementer archives specs and marks ready; the reviewer verifies and posts `reviewed-by:`. |
 | Merge and clean up | Apply `gate-change-approved` only when a PR edits gate files. | Auto-merge lands the green PR, and the claiming agent deletes its worktree and branch. |
 
@@ -48,11 +48,22 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 
 ## 4. Pause, compact, or switch agents
 
-1. Before you stop for the day or switch to another agent CLI, run `/handoff` ([handoff skill](../.agents/skills/handoff/SKILL.md)) or `ateam state handoff`.
-2. `ateam state handoff` writes a five-field checkpoint to `.ateam/state.json`, clears `.ateam/writer.json`, and posts the checkpoint to the draft PR.
-3. When you want a local checkpoint without a PR comment, pass `--no-post`.
-4. In Claude Code, Codex CLI, and Gemini CLI, `ateam init` sets auto-compaction near 500k tokens so `pre-compact` saves local state early.
-5. Antigravity (`agy`) has no compaction threshold setting; run `/compact` or `/handoff` manually during long sessions.
+1. Before you stop or switch agent CLIs, run `/handoff` ([handoff skill](../.agents/skills/handoff/SKILL.md)) or pass `--goal` to `ateam state handoff`:
+
+   ```sh
+   ateam state handoff \
+     --goal "Add Gitea webhook check (#12)" \
+     --addresses "PR #15, branch claude/gitea-hmac" \
+     --constraints "None" \
+     --done-when "task verify passes and PR #15 merges" \
+     --checks "task verify"
+   ```
+
+2. The CLI requires `--goal` and accepts `--addresses` (defaults to branch and SHA), `--constraints`, `--done-when`, and `--checks` (defaults to `task verify`).
+3. `ateam state handoff` writes those five fields to `.ateam/state.json`, clears `.ateam/writer.json`, and posts the checkpoint to the open PR.
+4. When you want a local checkpoint without a PR comment, add `--no-post` to that `ateam state handoff --goal "..."` command.
+5. In Claude Code, Codex CLI, and Gemini CLI, `ateam init` sets auto-compaction near 500k tokens so `pre-compact` saves local state early.
+6. Antigravity (`agy`) has no compaction threshold setting; run `/compact` or `/handoff` manually during long sessions.
 
 ## 5. Prepare the PR and run an independent review
 
