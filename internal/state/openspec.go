@@ -50,9 +50,9 @@ type OpenSpecChange struct {
 // maxProposalLines is the one-page limit for proposal.md; spec:check warns, never fails, past it.
 const maxProposalLines = 60
 
-// parseProposal returns the first `Approved-by:` header value outside code fences and the
+// ParseProposal returns the first `Approved-by:` header value outside code fences and the
 // physical line count (a final newline ends the last line; it does not start another).
-func parseProposal(data []byte) (approvedBy string, lines int) {
+func ParseProposal(data []byte) (approvedBy string, lines int) {
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	if text == "" {
 		return "", 0
@@ -326,7 +326,7 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 		prop, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(propRel)))
 		switch {
 		case err == nil:
-			ch.ApprovedBy, ch.proposalLines = parseProposal(prop)
+			ch.ApprovedBy, ch.proposalLines = ParseProposal(prop)
 		case !os.IsNotExist(err):
 			return nil, fmt.Errorf("queue unavailable: cannot read %s", propRel)
 		}
