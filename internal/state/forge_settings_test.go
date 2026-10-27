@@ -31,7 +31,7 @@ func installForgeCLI(t *testing.T, name, body string) string {
 const ghEmptyLists = "case \"$*\" in *comments*) exit 1;; esac\nprintf '[]'\n"
 
 // readListCalls returns the logged comment-free list calls, in log order, and every logged call. The attempt with
-// comments runs under a sub-timeout as short as 750ms, and on a loaded machine its fake can be killed before the shell
+// comments runs under half of any parent deadline, and on a loaded machine its fake can be killed before the shell
 // logs anything, so it is left out of counts; its line, when present, is still in all (#164).
 func readListCalls(t *testing.T, log string) (lists, all []string) {
 	t.Helper()
