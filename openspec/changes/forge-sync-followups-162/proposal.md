@@ -17,7 +17,7 @@ The timing-based budget test the issue names is already gone: `TestGitHubSyncRun
 ## What Changes
 
 - Gitea comment fetches run concurrently with at most 8 in flight, under the parent context. A failed fetch still leaves that issue without comment bodies, as today.
-- Under a parent deadline, the GitHub comments call gets `deadline/2` (no fixed 750ms cap), and the comment-free fallback gets the rest. With no deadline, `ghCommentTimeout` stays 2.5s.
+- Under a parent deadline, the GitHub comments call gets `deadline/2` capped at `ghCommentTimeout` (2.5s) instead of the fixed 750ms cap, and the comment-free fallback gets the rest. With no deadline, `ghCommentTimeout` stays 2.5s.
 - The Gitea paging comment names the close-mid-paging miss, and a code comment at the GitHub closed lists names the search-index lag.
 - `CheckBuildProvenance` is deleted. Its tests call `BuildProvenanceStatus`.
 

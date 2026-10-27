@@ -193,8 +193,9 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 	}
 
 	// Probe 4c (Review Finding #2): a comments attempt that never answers is cut off at its sub-timeout, and the
-	// comment-free fallback and PR lists still succeed. The attempt gets half of the 30s parent deadline, which keeps a
-	// slow start under load far inside the margin, while an unbounded attempt hangs until the deadline and fails (#164).
+	// comment-free fallback and PR lists still succeed. The attempt gets at most ghCommentTimeout under the 30s parent
+	// deadline, which keeps a slow start under load far inside the margin, while an unbounded attempt hangs until the
+	// deadline and fails (#164).
 	scriptSlowComments := "#!/bin/sh\ncase \"$*\" in\n  *comments*)\n    exec sleep 60\n    ;;\nesac\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n"
 	if err := os.WriteFile(fakeGH, []byte(scriptSlowComments), 0o755); err != nil {
 		t.Fatal(err)
@@ -498,6 +499,32 @@ func TestGitHubCommentBudgetIsHalfTheParentDeadline(t *testing.T) {
 	if got := ghCommentBudget(ctx); got < 1400*time.Millisecond || got > 1500*time.Millisecond {
 		t.Fatalf("budget under a 3s deadline = %v, want about 1.5s", got)
 	}
+	// A long deadline must not stretch a hung call: the UI syncs under 10s.
+	long, cancelLong := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelLong()
+	if got := ghCommentBudget(long); got != ghCommentTimeout {
+		t.Fatalf("budget under a 10s deadline = %v, want the ghCommentTimeout cap %v", got, ghCommentTimeout)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestGitHubSyncGivesSlowCommentsTheDeadlineBudget(t *testing.T) {
+	// A comments call slower than the old fixed 750ms cap (a real repository takes about 0.8s) must land rather than
+	// fall back without comment bodies (#162). The call takes 1s against a 10s budget, so load cannot flip the result;
+	// TestGitHubCommentBudgetIsHalfTheParentDeadline owns the budget arithmetic.
+	saved := ghCommentTimeout
+	ghCommentTimeout = 10 * time.Second
+	t.Cleanup(func() { ghCommentTimeout = saved })
+	installForgeCLI(t, "gh", "case \"$*\" in *comments*) sleep 1; printf '[{\"number\":7,\"title\":\"Pick a store\",\"state\":\"OPEN\",\"comments\":[{\"body\":\"Decision: X\"}]}]'; exit 0;; esac\nprintf '[]'\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cards, err := SyncForgeBoard(ctx, t.TempDir(), ForgeConfig{Provider: ForgeGitHub, Owner: "chosen", Repo: "target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 || cards[0].Decision != "Decision: X" {
+		t.Fatalf("cards = %+v, want issue #7 with Decision from its slow comments call", cards)
+	}
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
@@ -555,8 +582,11 @@ func TestGiteaSyncFetchesCommentsConcurrentlyWithinLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SyncForgeBoard: %v", err)
 	}
-	if peak != giteaCommentFetchLimit {
-		t.Fatalf("peak concurrent comment fetches = %d, want exactly the limit %d", peak, giteaCommentFetchLimit)
+	mu.Lock()
+	gotPeak := peak
+	mu.Unlock()
+	if gotPeak != giteaCommentFetchLimit {
+		t.Fatalf("peak concurrent comment fetches = %d, want exactly the limit %d", gotPeak, giteaCommentFetchLimit)
 	}
 	if len(cards) != issues {
 		t.Fatalf("got %d cards, want %d", len(cards), issues)

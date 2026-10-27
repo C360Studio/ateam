@@ -494,14 +494,15 @@ func fetchTeaCLICards(ctx context.Context, root string) ([]BoardCard, error) {
 var ghCommentTimeout = 2500 * time.Millisecond
 
 // ghCommentBudget is the sub-timeout for the open-issues-with-comments call: half of any parent deadline, so the
-// comment-free fallback keeps the other half, or ghCommentTimeout with no deadline. On this repository the call takes
-// about 0.8s, which a fixed 750ms cap under the 3s pickup budget cut off on most syncs (#162).
+// comment-free fallback keeps the other half, and never more than ghCommentTimeout, so a hung call under a long
+// deadline (the UI's 10s sync) still falls back quickly. On this repository the call takes about 0.8s, which the old
+// fixed 750ms cap under the 3s pickup budget cut off on most syncs (#162).
 func ghCommentBudget(ctx context.Context) time.Duration {
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		return ghCommentTimeout
 	}
-	return time.Until(deadline) / 2
+	return min(time.Until(deadline)/2, ghCommentTimeout)
 }
 
 func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
