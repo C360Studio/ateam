@@ -1,7 +1,9 @@
 package state
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -153,5 +155,61 @@ func TestReadHandoffJudgesLiveHead(t *testing.T) {
 	}
 	if want := "STALE — HEAD drifted from 1111111 -> 2222222\n"; !strings.HasPrefix(got, want) {
 		t.Fatalf("ReadHandoff at a moved live head:\n%s\nwant prefix %q", got, want)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Read another agent's handoff without changing ownership
+func TestReadHandoffFindsWorktreesTheCacheMissed(t *testing.T) {
+	// A worktree created after the reader's last refresh, or a reader with no cache at all, is still found:
+	// the read lists worktrees with git, not from the cached topology (#196 review).
+	clearAgentSessionEnv(t)
+	root, wt := t.TempDir(), filepath.Join(t.TempDir(), "new")
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git(root, "init", "-q", "-b", "main")
+	git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+	git(root, "worktree", "add", "-q", "-b", "claude/new", wt)
+	wtState := defaultState()
+	wtState.Git.Branch, wtState.Git.HeadSHA = "claude/new", git(wt, "rev-parse", "--short=7", "HEAD")
+	wtState.SetHandoff(Handoff{Goal: "new worktree goal", Agent: "claude", Branch: "claude/new", CheckpointSHA: wtState.Git.HeadSHA, UpdatedAt: time.Now().UTC().Add(-5 * time.Minute)})
+	if err := Save(wt, wtState); err != nil {
+		t.Fatal(err)
+	}
+	want := "Handoff claude@claude/new (5m ago):\nGoal: new worktree goal\n"
+	read := func(label string) {
+		t.Helper()
+		got, err := ReadHandoff(root, "claude@claude/new")
+		if err != nil || !strings.HasPrefix(got, want) {
+			t.Fatalf("%s: ReadHandoff = %q, %v; want prefix %q", label, got, err, want)
+		}
+	}
+
+	read("reader with no cache")
+	if _, err := os.Stat(CacheFilePath(root)); !os.IsNotExist(err) {
+		t.Fatalf("read created the reader's cache: %v", err)
+	}
+
+	// The reader's cache predates the worktree: its topology lists only the main checkout.
+	rootState := defaultState()
+	rootState.Git.Branch, rootState.Git.HeadSHA = "main", wtState.Git.HeadSHA
+	rootState.Git.Worktrees = []Worktree{{Path: root, Branch: "main", Head: wtState.Git.HeadSHA}}
+	if err := Save(root, rootState); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(CacheFilePath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	read("reader cache older than the worktree")
+	if after, _ := os.ReadFile(CacheFilePath(root)); !bytes.Equal(before, after) {
+		t.Fatal("read rewrote the reader's cache")
 	}
 }

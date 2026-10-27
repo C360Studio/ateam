@@ -2933,6 +2933,11 @@ func ReadHandoff(root, slot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Find linked worktrees with git rather than the cached list, which misses any worktree created since this
+	// checkout's last refresh, or all of them when it has no cache (#196). `git worktree list` only reads.
+	if live := parseWorktrees(runGitOutput(context.Background(), root, "worktree", "list", "--porcelain")); len(live) > 0 {
+		st.Git.Worktrees = live
+	}
 	// Judge staleness at live heads, in memory only. The caller's session falls back to env and lease in
 	// effectiveSessionID, so a reader shares the same-session exemption only with its own slots.
 	st.reconcileLiveBranchHeads(root)
