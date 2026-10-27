@@ -1,6 +1,6 @@
 # Change Proposal: `design-track-178`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-26)
 
 ## Why
 
