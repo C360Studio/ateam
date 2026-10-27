@@ -1,6 +1,6 @@
 # Change Proposal: `merge-check-verdict-201`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-26)
 
 ## Why
 
@@ -20,9 +20,9 @@ Approved-by:
 - Changing which comment is the latest record, the strength rule, or the commit-freshness rule.
 - External AIP records (`aiprecord.go`, #130): they already check their own `Verdict` field.
 
-## Open question for the owner
+## Owner ruling
 
-A record with no `Verdict:` line: this proposal blocks it (every record on PRs #184–#203 carries one, and the contract's template requires it). The alternative is to block only an explicit non-APPROVE verdict.
+A record with no `Verdict:` line is blocked (owner, 2026-10-26): every record on PRs #184–#203 carries one, and the contract's template requires it.
 
 ## Definition of Done
 
