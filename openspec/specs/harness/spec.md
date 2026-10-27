@@ -402,6 +402,11 @@ The MCP guide SHALL document the implemented tools and actions, prompts, resourc
 - **WHEN** a user follows the setup and smoke-check instructions
 - **THEN** examples match the exposed schema, do not advertise an unsupported sync action, and explain local-only handoff using post=false
 
+#### Scenario: Posting side effect at the tool boundary
+
+- **WHEN** an MCP client lists tools
+- **THEN** the `ateam_state` `post` property states that an omitted or `true` value attempts a PR comment and `false` saves the handoff locally only, and the canonical handoff skill tells agents to pass `post` explicitly
+
 ### Requirement: Default client context compaction limits
 
 ATeam initialization SHALL scaffold the context and compaction defaults specified below into newly created client configurations while preserving pre-existing client files unchanged. Parity checks SHALL validate configured fields, reject out-of-range or non-numeric values, and permit valid custom or omitted fields in preserved configurations.
