@@ -319,9 +319,11 @@ Attribution validates syntax and reference existence, not whether assertions pro
 
 ## 4. Configured model review
 
-Install owner-approved comparisons and forge author/owner logins with ateam review setup --policy FILE. No universal model ranking is supplied. Run ateam review route before implementation and revalidate all actual model escalations. Native clients must be launched with the selected model/effort; role cards do not pin or attest runtime identity.
+The merge gate needs a separate read-only reviewer run not weaker than every implementer by model tier, then effort band, as .agents/review-policy.json declares; an equal tier and band passes, so it has no ceiling and no exception. Cross-provider review is required only when the policy sets cross_provider; reasoning effort is not model strength. A later commit that is neither a clean merge of main nor docs-only needs a new review record. A policy declaring only tiers and bands configures no routes: ateam review route then exits non-zero by design, and the rest of this section does not apply.
 
-A separate read-only reviewer must outrank every actual implementer. Cross-provider review is optional and additional; reasoning effort is not model strength. If no stronger model exists, approval blocks without an explicit owner exception scoped to head/reviewer/policy. Independence, current evidence, configured checks and verdict remain required.
+Optional route path. Install owner-approved models, routes and forge author/owner logins with ateam review setup --policy FILE. No universal model ranking is supplied. With routes configured, run ateam review route before implementation and revalidate all actual model escalations. Native clients must be launched with the selected model/effort; role cards do not pin or attest runtime identity.
+
+On that path the reviewer must outrank every actual implementer, and any new head or policy revision invalidates evidence. If no stronger model exists, approval blocks without an explicit owner exception scoped to head/reviewer/policy. Independence, current evidence, configured checks and verdict remain required.
 
 Use ateam review check --pr N --record-comment ID with optional --exception-comment ID. The gate reads policy only from the forge-verified current repository default branch, accepts only configured review/owner accounts, and refuses stale or known edited evidence. All paths require review. Shared logins, model/session claims and same-timestamp comment edits remain attestation limits; do not claim runtime or body authorship is proven.
 

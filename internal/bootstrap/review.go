@@ -16,9 +16,9 @@ const reviewPolicyPath = ".agents/review-policy.json"
 
 const developerContract = `# Developer contract
 
-Read AGENTS.md and .agents/protocol.md fully. Confirm the configured developer route before implementation. Record every implementing run's identity, provider, exact model and reasoning effort, including escalations. Unknown models and unresolved inheritance are not eligible. Do not silently lower the developer model to make review possible.
+Read AGENTS.md and .agents/protocol.md fully. When the review policy configures routes, confirm the developer route with ` + "`ateam review route`" + ` before implementation; a policy declaring only tiers and bands has no route to confirm. Record every implementing run's identity, provider, exact model and reasoning effort, including escalations. The merge gate ranks an unmapped model or effort only against another unmapped run; on a configured route, unknown models and unresolved inheritance are not eligible. Do not silently lower the developer model to make review possible.
 
-Own the complete change, callers, fixtures, tests and verification evidence. An independent reviewer must write none of the deliverable. Supply the complete base-to-head diff, actual implementers and checks; fix findings yourself and request fresh review after any commit or policy change.
+Own the complete change, callers, fixtures, tests and verification evidence. An independent reviewer must write none of the deliverable. Supply the complete base-to-head diff, actual implementers and checks; fix findings yourself and request a fresh review after any commit that is neither a clean merge of ` + "`main`" + ` nor docs-only, or, on the configured ` + "`ateam review check`" + ` path, after any commit or policy change.
 
 Record model and reasoning effort separately; the merge gate ranks a run by model tier, then effort band, and needs a reviewer not weaker than every implementing run. A configured route is intent, not proof of the runtime model. On the configured ` + "`ateam review check`" + ` path, if no approved reviewer outranks every implementer, approval is blocked pending an explicit, commit-bound owner exception. Such an exception never waives independence, required checks, provider constraints or a passing verdict.
 `
@@ -33,7 +33,7 @@ Confirm the actual reviewer provider, exact model and reasoning effort. The merg
 
 Inspect the complete base-to-head diff and affected callers, tests, fixtures and configuration. Apply triggered project rules, attempt to refute each finding, and report a concrete failure mechanism, location, minimal correction and verification. Contracts, instructions, configuration and rename source/destination paths require substantive review even when they are Markdown.
 
-Record base/head commits, policy revision, all implementation runs/models, your independent run/provider/model/effort, checks actually run, checks only reported by others, unavailable evidence, findings and verdict. Approval requires no blocking/high findings and all required verification. Changed commits or policy invalidate previous evidence. Eligibility alone is not approval. Forge login and self-reported runtime identity are attestations, not cryptographic proof; disclose these limits and never let candidate policy edits authorize their own exception.
+Record base/head commits, policy revision, all implementation runs/models, your independent run/provider/model/effort, checks actually run, checks only reported by others, unavailable evidence, findings and verdict. Approval requires no blocking/high findings and all required verification. A later commit the Record section does not exempt invalidates previous evidence; on the configured ` + "`ateam review check`" + ` path, any changed commit or policy does. Eligibility alone is not approval. Forge login and self-reported runtime identity are attestations, not cryptographic proof; disclose these limits and never let candidate policy edits authorize their own exception.
 
 `
 

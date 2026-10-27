@@ -1,0 +1,12 @@
+## 1. Approval
+
+- [ ] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit (#179).
+  Hold: OPEN-Q proposal awaits owner approval
+
+## 2. Implementation
+
+- [x] 2.1 Protocol § 4: live gate first, configured route path conditional (#179). Evidence: `.agents/protocol.md` § 4 "The live gate" paragraph (tier then band, `cross_provider` only when set, record freshness as Gate 3, no ceiling or exception, tier-only `review route` exit is by design); evidence-binding sentence now the live freshness rule; "Configured route path (optional; dormant here)" carries `review route`, escalation revalidation, `review check` superiority, exact-head/policy-digest binding and the ceiling exception unchanged.
+- [x] 2.2 Developer and reviewer contracts and their bootstrap sources: route confirmation conditional, evidence refresh aligned with the live gate (#179). Evidence: `.agents/contracts/developer.md` ¶ 1–2, `.agents/contracts/reviewer.md` ¶ 4, byte-identical `developerContract` / `reviewerContractBody` in `internal/bootstrap/review.go`; the AIP record variant inherits the reviewer sentence through "the Record section". `go test ./internal/bootstrap/` and `ateam doctor --check` (no violations) pass.
+- [x] 2.3 Adopter protocol § 4 template: live gate first, route setup optional (#179). Evidence: `internal/bootstrap/templates.go` "## 4. Configured model review".
+- [x] 2.4 `.agents/README.md` § Configured model review: tier-only policy sentence (#179).
+- [x] 2.5 Trace both workflows (#179). Tier-only (this repository): Clarify → Claim → developer contract ¶ 1 (no route to confirm) → Gate 3 `task merge:check` → § 4 live gate (equal tier and band passes; no exception) → reviewer contract Record (a clean `main` merge or docs-only commit keeps the record). No instruction now sends a tier-only run to `review route` or a ceiling exception. Configured route: § 4 configured path and the contracts' "configured `ateam review check` path" clauses still require `review route` before implementation and after escalation, strict superiority, exact-head and policy-digest binding, and the owner exception at the ceiling. No gate file, policy, ranking or required check changed.
