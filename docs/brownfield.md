@@ -19,6 +19,8 @@ build `v0.3.1`: it predates the adopter checks this guide describes), put `bin/a
 ateam version   # ateam v0.3.2 (<commit>)
 ```
 
+The release part comes from the build, not from the source. `task build` stamps `git describe`, so a tag checkout prints the tag and a later commit prints `<tag>-<n>-g<commit>`. A plain `go build` prints the version Go embeds from git, which can be the parent checkout's inside a linked worktree, or `dev` without git data. Use `task build`.
+
 ## 2. Run init without `--force`
 
 ```bash

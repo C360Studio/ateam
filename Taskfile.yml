@@ -128,7 +128,8 @@ tasks:
     cmds:
       - task: ui:build
       - mkdir -p bin
-      - go build -ldflags "-X github.com/c360studio/ateam/internal/state.BuildCommit=$(git rev-parse HEAD)" -o bin/ateam ./cmd/ateam
+      # Go's own VCS stamping reads the parent checkout from a linked worktree, so stamp both here (#193).
+      - go build -ldflags "-X github.com/c360studio/ateam/internal/state.BuildCommit=$(git rev-parse HEAD) -X github.com/c360studio/ateam/internal/state.Version=$(git describe --tags --always --dirty 2>/dev/null)" -o bin/ateam ./cmd/ateam
 
   serve:
     desc: Start ateam PM board and API server
