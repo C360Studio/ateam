@@ -357,3 +357,54 @@ func TestStateHandoffWarnsWithoutSessionID(t *testing.T) {
 		t.Fatalf("handoff with a session id = %d, stderr %q; want 0 and no warning", code, stderr)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestStateHelpIsReadOnly(t *testing.T) {
+	subcommands := []string{"status", "board", "pickup", "handoff", "holds", "debt", "spec-queue", "spec-check", "sync", "mode", "herdr"}
+	for _, arg := range []string{"--help", "-h", "help"} {
+		t.Run(arg, func(t *testing.T) {
+			root := t.TempDir()
+			code, out := captureStdout(t, func() int { return runState(root, []string{arg}) })
+			if code != 0 {
+				t.Fatalf("runState(%q) = %d, want 0", arg, code)
+			}
+			for _, sub := range subcommands {
+				if !strings.Contains(out, "\n  "+sub+" ") {
+					t.Errorf("runState(%q) usage does not list %q:\n%s", arg, sub, out)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(root, ".ateam")); !os.IsNotExist(err) {
+				t.Fatalf("runState(%q) touched .ateam (stat err %v), want no state written", arg, err)
+			}
+		})
+	}
+
+	root := t.TempDir()
+	code, stderr := captureBenchError(t, func() int { return runState(root, []string{"nope"}) })
+	if code != 1 {
+		t.Fatalf("runState(nope) = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, `unknown subcommand "nope"`) || !strings.Contains(stderr, "ateam state --help") {
+		t.Fatalf("runState(nope) stderr = %q, want the unknown subcommand and the help path", stderr)
+	}
+}
+
+func captureStdout(t *testing.T, run func() int) (int, string) {
+	t.Helper()
+	file, err := os.CreateTemp(t.TempDir(), "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Stdout
+	os.Stdout = file
+	defer func() { os.Stdout = previous }()
+	code := run()
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(file.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return code, string(data)
+}
