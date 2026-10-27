@@ -986,8 +986,8 @@ func TestPerAgentBranchHandoffSlots(t *testing.T) {
 	geminiPickup := BuildPickupSummary(loaded)
 	wantGeminiSection := strings.Join([]string{
 		"Last Handoff: none for gemini@main",
-		"other handoffs: claude@main (5m ago)",
-		"other handoffs: codex@codex/mercury-usage-provenance (2h ago, PR #71)",
+		"other handoffs: claude@main (5m ago): Coordinate epic #76 on main",
+		"other handoffs: codex@codex/mercury-usage-provenance (2h ago, PR #71): PR #71: finish mercury usage provenance",
 	}, "\n")
 	if !strings.Contains(geminiPickup, wantGeminiSection) {
 		t.Fatalf("gemini@main pickup mismatch:\ngot:\n%s\nwant substring:\n%s", geminiPickup, wantGeminiSection)
@@ -1218,7 +1218,7 @@ func TestReview79HandoffPRLabelAndRefreshPreservation(t *testing.T) {
 
 	st.CurrentAgent = "claude"
 	summary := BuildPickupSummary(st)
-	if !strings.HasSuffix(summary, "other handoffs: gemini@main (5m ago)") {
+	if !strings.HasSuffix(summary, "other handoffs: gemini@main (5m ago): Post-merge cleanup after PR #45 landed on main") {
 		t.Fatalf("expected gemini@main without false PR #140 or closed PR #45 label, got:\n%s", summary)
 	}
 	if !strings.Contains(summary, "other handoffs: codex@codex/feat-open (2h ago, PR #71)") {

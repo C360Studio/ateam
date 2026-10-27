@@ -148,6 +148,8 @@ func runState(repoRoot string, args []string) int {
 		return runStateSync(repoRoot, args[1:])
 	case "pickup":
 		return runStatePickup(repoRoot, args[1:])
+	case "read-handoff":
+		return runStateReadHandoff(repoRoot, args[1:])
 	case "status", "board":
 		return runStateSnapshot(repoRoot, sub)
 	case "herdr":
@@ -169,6 +171,8 @@ Subcommands:
   board        Refresh state with a forge sync and print the PM board as JSON
   pickup       Refresh state and print the pickup summary (--agent, --session)
   handoff      Record the five-field handoff checkpoint (see ateam state handoff -h)
+  read-handoff <agent>@<branch>
+               Print another slot's handoff without changing state
   holds        List unticked Hold: items as JSON
   debt         List // shortcut: comments as JSON
   spec-queue   Show in-flight OpenSpec changes with their holds and caveats
@@ -243,6 +247,21 @@ func runStatePickup(repoRoot string, args []string) int {
 	st.CurrentAgent = state.ResolveActiveAgentForSession(repoRoot, *agent, st.CurrentSessionID, st.Git.Branch, st.Writer)
 	state.ReconcilePickup(repoRoot, st, *agent, st.CurrentSessionID)
 	fmt.Println(state.BuildPickupSummary(st))
+	return 0
+}
+
+// runStateReadHandoff prints one slot's five fields; it never refreshes, syncs, or writes state (#196).
+func runStateReadHandoff(repoRoot string, args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: ateam state read-handoff <agent>@<branch>")
+		return 2
+	}
+	out, err := state.ReadHandoff(repoRoot, args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state read-handoff: %v\n", err)
+		return 1
+	}
+	fmt.Print(out)
 	return 0
 }
 

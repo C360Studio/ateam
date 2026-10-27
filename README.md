@@ -277,6 +277,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 | `ateam review gate [PR]` | The merge check: up-to-date rule, `implemented-by:`/`reviewed-by:` lines and record, and open `class:flake` issues; exit 0 pass, 1 fail, 2 unavailable. `task merge:check` and CI call it |
 | `ateam state status` | Print the full `.ateam/state.json` snapshot (git, worktrees, holds, shortcuts, cards, handoff) |
 | `ateam state pickup` | Reconcile live git/worktree state with the last handoff (including handoffs recorded inside other worktrees) and report drift or active holds |
+| `ateam state read-handoff <agent>@<branch>` | Print one slot's five fields from this checkout's or a linked worktree's cache, under a `STALE — <reasons>` banner when stale; writes nothing, leaves the writer lease alone, and calls no forge. A missing slot exits 1 and lists the slots that exist |
 | `ateam state handoff --goal "..." [...]` | Record a 5-field checkpoint, clear the session writer lease, and optionally comment on the open PR |
 | `ateam state holds` | Scan `openspec/` and markdown files for `Hold:` items |
 | `ateam state debt` | Scan source files for `// shortcut: <limit>, <when to upgrade>` comments |

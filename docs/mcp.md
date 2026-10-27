@@ -90,11 +90,12 @@ Expect initialization followed by exactly two tool definitions. EOF stops this t
 
 ## Tool reference
 
-`ateam_state` requires `action`. Every action first refreshes local repository state and saves `.ateam/state.json`; `pickup` and `board` also attempt a bounded remote forge sync when a remote forge is configured (falling back to cached cards on failure), and `ateam state sync` performs an explicit CLI sync.
+`ateam_state` requires `action`. Every action except `read_handoff` first refreshes local repository state and saves `.ateam/state.json`; `pickup` and `board` also attempt a bounded remote forge sync when a remote forge is configured (falling back to cached cards on failure), and `ateam state sync` performs an explicit CLI sync.
 
 | Action | Arguments and result | Additional effects |
 | --- | --- | --- |
 | `pickup` | `{"action":"pickup"}` returns a human-readable reconciliation summary including `build` and `synced` timestamps, the worktree list with PR status, and the handoffs recorded inside other worktrees. | Refreshes local state and attempts a bounded remote sync when stale. |
+| `read_handoff` | `{"action":"read_handoff","slot":"claude@main"}` returns that slot's five fields from this checkout's cache, then linked worktrees' caches (this checkout wins a duplicate), under a `STALE — <reasons>` banner when stale. A missing slot is a tool error listing the slots that exist. | None: no refresh, cache write, writer-lease change, identity resolution, or forge call. |
 | `debt` | Returns scanned shortcuts as JSON text. | Limited to [supported extensions](adoption.md#feature-and-language-boundaries). |
 | `mode` | Without `mode`, reads current mode; with `"mode":"lite"`, `"full"`, `"ultra"`, or `"off"`, changes it and returns mode/ladder text. | Saves mode when supplied; does not change provider/model settings. |
 | `spec_queue` | Returns in-flight OpenSpec task/caveat summary. | Local refresh only. |
