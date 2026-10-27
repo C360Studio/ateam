@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1 and 2 (#196). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1 and 2 (#196). Evidence: the owner approved in Enjoy on 2026-10-27 (stale slots print under a banner; `read-handoff` / `read_handoff` with `slot` accepted), and Claude wrote the header at their request.
 
 ## 2. Preview
 

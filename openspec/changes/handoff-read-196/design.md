@@ -59,6 +59,6 @@ None. Additive output and a new action; no state schema change.
 
 ## Open Questions
 
-1. **Owner ruling:** D4: print stale fields under a banner (A), or refuse (B)?
-2. **Owner ruling:** D2 naming: `read-handoff` / `read_handoff` with `slot`, or another name?
+1. **Ruled (owner, 2026-10-27):** D4 A, stale fields print under a banner.
+2. **Ruled (owner, 2026-10-27):** D2 naming accepted: `read-handoff` / `read_handoff` with `slot`.
 3. Not blocking: should the HTTP API (`internal/web`) get the same read? Proposed out of scope until asked.

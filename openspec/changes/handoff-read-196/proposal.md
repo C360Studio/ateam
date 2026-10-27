@@ -1,6 +1,6 @@
 # Change Proposal: `handoff-read-196`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-27)
 
 ## Why
 
