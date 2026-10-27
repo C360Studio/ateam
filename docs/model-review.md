@@ -6,6 +6,8 @@
 > - **Policy:** `.agents/review-policy.json` declares model tiers and effort bands only (ADR 0002, [`docs/adr/0002-model-tiers-and-effort-bands.md`](adr/0002-model-tiers-and-effort-bands.md), #81). It configures no routes, so `ateam review route` and `review check` fail closed, setup installs no route cards, and the dashboard reports `unconfigured`.
 > - **JSON review records, reviewer-executed required checks and owner exceptions** are off. `ateam review check` is invoked by neither CI nor merge-check. ADR 0001 lists the triggers for enabling them.
 >
+> Roles (architect, developer, reviewer, judge) and their default tier and band per task class are in ADR 0003, [`docs/adr/0003-roles-and-routes.md`](adr/0003-roles-and-routes.md). They are intent, not enforced; only the reviewer row is checked, by the merge gate above.
+>
 > Where this document says "approval blocks", it means `ateam review check`, not the merge gate.
 >
 > A repository whose AIP workflow forbids a second review record sets `"review_record": "aip"`; see [Review record mode](#review-record-mode-review_record).
