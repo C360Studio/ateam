@@ -39,16 +39,17 @@ func readRepoFile(t *testing.T, dir, rel string) string {
 	return string(data)
 }
 
-// withContextFileName returns settings JSON with contextFileName set to value, or removed when value is nil.
+// withContextFileName returns settings JSON with context.fileName set to value, or the context object
+// removed when value is nil.
 func withContextFileName(t *testing.T, settings string, value any) string {
 	t.Helper()
 	var m map[string]any
 	if err := json.Unmarshal([]byte(settings), &m); err != nil {
 		t.Fatal(err)
 	}
-	delete(m, "contextFileName")
+	delete(m, "context")
 	if value != nil {
-		m["contextFileName"] = value
+		m["context"] = map[string]any{"fileName": value}
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -101,23 +102,22 @@ func TestHookScopeUserPasses(t *testing.T) {
 			setup: func(t *testing.T, dir, home, claudeHooks string) {
 				gemini := readRepoFile(t, dir, ".gemini/settings.json")
 				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": gemini})
-				// The project file keeps contextFileName and the MCP registration, and loses the hooks.
+				// The project file keeps context.fileName and the MCP registration, and loses the hooks.
 				writeFiles(t, dir, map[string]string{".gemini/settings.json": strings.ReplaceAll(gemini, "ateam hook --event", "ateam hook --evnt")})
 			},
 			want: map[string]string{"claude": "~/.claude/settings.json", "gemini": "~/.gemini/settings.json"}},
-		{name: "project Gemini hooks pass and only the user settings set contextFileName",
+		{name: "project Gemini hooks pass and only the user settings set context.fileName",
 			setup: func(t *testing.T, dir, home, claudeHooks string) {
 				gemini := readRepoFile(t, dir, ".gemini/settings.json")
-				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": `{"contextFileName": "AGENTS.md"}`})
+				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": `{"context": {"fileName": "AGENTS.md"}}`})
 				writeFiles(t, dir, map[string]string{".gemini/settings.json": withContextFileName(t, gemini, nil)})
 			},
 			want: map[string]string{"claude": "~/.claude/settings.json"}},
 		{name: "project context.fileName AGENTS.md",
 			setup: func(t *testing.T, dir, home, claudeHooks string) {
 				gemini := readRepoFile(t, dir, ".gemini/settings.json")
-				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": `{"contextFileName": "GEMINI.md"}`})
-				project := strings.Replace(withContextFileName(t, gemini, nil), "{", `{"context": {"fileName": "AGENTS.md"},`, 1)
-				writeFiles(t, dir, map[string]string{".gemini/settings.json": project})
+				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": `{"context": {"fileName": "GEMINI.md"}}`})
+				writeFiles(t, dir, map[string]string{".gemini/settings.json": withContextFileName(t, gemini, "AGENTS.md")})
 			},
 			want: map[string]string{"claude": "~/.claude/settings.json"}},
 	}
@@ -234,38 +234,37 @@ func TestHookScopeSensitivity(t *testing.T) {
 			},
 			want:   []string{".agents/hooks.json: missing hook command for event session-start", ".agents/hooks.json: ATEAM_HOOK_SCOPE=user, but agy has no user-scope hooks doctor reads"},
 			absent: "agy"},
-		{name: "Gemini user hooks without contextFileName and no project file", scope: "user",
+		{name: "Gemini user hooks without context.fileName and no project file", scope: "user",
 			setup: func(t *testing.T, dir, home, claudeHooks string) {
-				gemini := strings.ReplaceAll(readRepoFile(t, dir, ".gemini/settings.json"), `"contextFileName"`, `"contextFile"`)
+				gemini := withContextFileName(t, readRepoFile(t, dir, ".gemini/settings.json"), nil)
 				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": gemini})
 				if err := os.Remove(filepath.Join(dir, ".gemini", "settings.json")); err != nil {
 					t.Fatal(err)
 				}
 			},
-			want: []string{"~/.gemini/settings.json: missing contextFileName AGENTS.md"}},
-		{name: "project contextFileName GEMINI.md wins over the user settings", scope: "user",
+			want: []string{"~/.gemini/settings.json: missing context.fileName AGENTS.md"}},
+		{name: "project context.fileName GEMINI.md wins over the user settings", scope: "user",
 			setup: func(t *testing.T, dir, home, claudeHooks string) {
 				gemini := readRepoFile(t, dir, ".gemini/settings.json")
 				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": gemini})
 				project := withContextFileName(t, strings.ReplaceAll(gemini, "ateam hook --event", "ateam hook --evnt"), "GEMINI.md")
 				writeFiles(t, dir, map[string]string{".gemini/settings.json": project})
 			},
-			want: []string{".gemini/settings.json: missing contextFileName AGENTS.md"}},
-		{name: "project context.fileName GEMINI.md wins over the user settings", scope: "user",
+			want: []string{".gemini/settings.json: missing context.fileName AGENTS.md"}},
+		{name: "project without context.fileName and the knob unset ignores the user settings", scope: "",
+			setup: func(t *testing.T, dir, home, _ string) {
+				gemini := readRepoFile(t, dir, ".gemini/settings.json")
+				writeFiles(t, home, map[string]string{".gemini/settings.json": `{"context": {"fileName": "AGENTS.md"}}`})
+				writeFiles(t, dir, map[string]string{".gemini/settings.json": withContextFileName(t, gemini, nil)})
+			},
+			want: []string{".gemini/settings.json: missing context.fileName AGENTS.md"}},
+		{name: "user settings naming AGENTS.md only in the top-level contextFileName", scope: "user",
 			setup: func(t *testing.T, dir, home, claudeHooks string) {
 				gemini := readRepoFile(t, dir, ".gemini/settings.json")
 				writeFiles(t, home, map[string]string{".claude/settings.json": claudeHooks, ".gemini/settings.json": `{"contextFileName": "AGENTS.md"}`})
-				project := strings.Replace(withContextFileName(t, gemini, nil), "{", `{"context": {"fileName": "GEMINI.md"},`, 1)
-				writeFiles(t, dir, map[string]string{".gemini/settings.json": project})
-			},
-			want: []string{".gemini/settings.json: missing contextFileName AGENTS.md"}},
-		{name: "project without contextFileName and the knob unset ignores the user settings", scope: "",
-			setup: func(t *testing.T, dir, home, _ string) {
-				gemini := readRepoFile(t, dir, ".gemini/settings.json")
-				writeFiles(t, home, map[string]string{".gemini/settings.json": `{"contextFileName": "AGENTS.md"}`})
 				writeFiles(t, dir, map[string]string{".gemini/settings.json": withContextFileName(t, gemini, nil)})
 			},
-			want: []string{".gemini/settings.json: missing contextFileName AGENTS.md"}},
+			want: []string{"~/.gemini/settings.json: missing context.fileName AGENTS.md (Gemini CLI ignores the top-level contextFileName)"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

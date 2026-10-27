@@ -14,7 +14,7 @@ Read [how the harness runs](../docs/hook-flow.md) for event effects, injected co
 
 | Capability | Claude Code | Codex CLI | Gemini CLI | Antigravity (`agy`) |
 | --- | --- | --- | --- | --- |
-| Instructions | `CLAUDE.md` (`@AGENTS.md`) | `AGENTS.md` | `.gemini/settings.json` (`contextFileName: "AGENTS.md"`) | `AGENTS.md` |
+| Instructions | `CLAUDE.md` (`@AGENTS.md`) | `AGENTS.md` | `.gemini/settings.json` (`context.fileName: "AGENTS.md"`) | `AGENTS.md` |
 | Canonical Skills | `.agents/skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` |
 | Skill Adapters | `.claude/skills/<name>/SKILL.md` | Reads `.agents/skills/` directly | `.gemini/commands/<name>.toml` | Reads `.agents/skills/` directly |
 | Hook Config | `.claude/settings.json` | `.codex/hooks.json` | `.gemini/settings.json` | `.agents/hooks.json` |
