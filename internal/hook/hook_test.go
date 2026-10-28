@@ -984,6 +984,7 @@ func TestProbeIgnoresEnvSessionAndWritesNoLease(t *testing.T) {
 	origInspect := inspectClientMCP
 	inspectClientMCP = func(context.Context, string, string, int) ([]state.MCPProcess, []string) { return nil, nil }
 	t.Cleanup(func() { inspectClientMCP = origInspect })
+	t.Setenv("ATEAM_SESSION_ID", "") // it outranks CLAUDE_SESSION_ID, so a host value would repoint the MCP oracle
 	t.Setenv("CLAUDE_SESSION_ID", "reviewer-session")
 
 	if _, err := Probe(dir, "session-start"); err != nil {
