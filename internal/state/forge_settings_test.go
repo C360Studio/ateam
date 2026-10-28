@@ -19,9 +19,8 @@ func installForgeCLI(t *testing.T, name, body string) string {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls")
 	t.Setenv("FORGE_CALL_LOG", log)
-	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$FORGE_CALL_LOG\"\n"+body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// writeFake prewarms the fake outside the sync deadline, and its prewarm exits before the log line (#248).
+	writeFake(t, filepath.Join(dir, name), "printf '%s\\n' \"$*\" >> \"$FORGE_CALL_LOG\"\n"+body)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return log
 }
