@@ -33,9 +33,15 @@ A skipped job still creates a check run under the job's name, and GitHub counts 
 
 Same guard and rename, except that `unlabeled` still runs on a draft: `if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}`, and the name keeps `Gate files` for that action. Otherwise, take a PR that passed `Gate files` at head H, convert it to draft, and remove `gate-change-approved`. The removal would be skipped under another name, and the earlier pass at H would remain until the ready run's `Gate files` appears (Codex review, PR #252). A draft that touches gate files therefore turns red when the label is removed, which is a real revocation. Labels still re-run it on a ready PR, and the base-branch checkout (#140) is unchanged.
 
-### D4. Gitea **(ruled: same bytes, plus `edited` on the Gitea trigger lines)**
+### D4. Gitea **(amended after Codex review: no draft deferral on Gitea)**
 
-The guard and rename work unchanged on Gitea 1.22+ (Context). Below 1.22 `draft` is absent, the expression is falsy, and CI keeps running on WIP PRs as today: inert, not a regression. Because leaving WIP is a title edit, `.gitea/workflows/ci.yml` and `.gitea/workflows/gate-files.yml` add `edited` to their `types:` so the ready transition starts the run; GitHub does not take `edited` (it would rerun `Verify` on every body edit, including the `reviewed-by:` line). `TestGiteaWorkflowsTwinGitHub` gains one documented exception for the `types:` line of each file. **Amended after review:** the Gitea twins keep plain job names, because Gitea 1.22 does not evaluate `name:` (Context correction). Gitea does not need the rename either: a new run posts pending statuses for every job when it is created, so no skipped `success` survives the WIP → ready edit. The twin test lists the three `ci.yml` names, the `Gate files` name, and their comments as Gitea exceptions, and `ciWorkflowViolations` checks the plain names on Gitea.
+The first ruling said the same bytes would work on Gitea 1.22+, with `edited` added to its triggers. Two reviews on PR #252 found four v1.22.6 behaviours, from source and pinned-parser replay, that make each variant unsafe:
+- `name:` is not evaluated, so the required context would never match.
+- Only an exact `if: always()` overrides a failed dependency. A compound `always() && (...)` leaves `Required` skipped, and Gitea reports skipped as `success` (`commit_status.go:140-151`), so it would pass over a failed `Verify`.
+- Label changes arrive as `label_updated`/`label_cleared`, not `unlabeled`.
+- `edited` does not cancel an older run, so a WIP run's skipped `Required` can post `success` after the ready run's `pending`.
+
+The Gitea twins therefore stay byte-identical to `main`, and Gitea CI runs on WIP PRs as before. `TestGiteaWorkflowsTwinGitHub` maps each GitHub draft line back to the Gitea form, and `ciWorkflowViolations(…, false)` requires plain names, no guard, and exactly `if: always()` there. Gitea draft deferral needs a live Gitea instance to prove it; it is left for a follow-up issue.
 
 ### D5. Merge-check split **(ruled: parked, not in this change)**
 

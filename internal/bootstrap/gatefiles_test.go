@@ -141,18 +141,17 @@ func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
 			t.Fatal(err)
 		}
 		wf := string(data)
-		for _, want := range []string{"pull_request_target:", "labeled, unlabeled", "runs-on: ubuntu-24.04", "persist-credentials: false", "run: scripts/gate-files.sh \"$PR_NUMBER\"", "  contents: read\n  pull-requests: read\n",
-			// #250: skipped on a draft except when a label is removed, so revoking
-			// gate-change-approved replaces an earlier pass at the same head;
-			// pull_request_target is never the event name pull_request, so the
-			// guard tests the draft flag. The GitHub twin also renames the skip.
-			"    if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}\n"} {
+		for _, want := range []string{"pull_request_target:", "labeled, unlabeled", "runs-on: ubuntu-24.04", "persist-credentials: false", "run: scripts/gate-files.sh \"$PR_NUMBER\"", "  contents: read\n  pull-requests: read\n"} {
 			if !strings.Contains(wf, want) {
 				t.Fatalf("%s gate-files.yml lacks %q", forge, want)
 			}
 		}
-		if forge == ".github" && !strings.Contains(wf, "    name: ${{ github.event.pull_request.draft && github.event.action != 'unlabeled' && 'Gate files (draft, skipped)' || 'Gate files' }}\n") {
-			t.Fatalf("%s gate-files.yml: the job must take a non-required name when skipped on a draft (#250)", forge)
+		// #250: on GitHub, skipped and renamed on a draft except when a label is
+		// removed, so revoking gate-change-approved replaces an earlier pass at the
+		// same head; pull_request_target is never the event name pull_request, so
+		// the guard tests the draft flag. The Gitea twin is checked against it.
+		if forge == ".github" && !strings.Contains(wf, "    name: ${{ github.event.pull_request.draft && github.event.action != 'unlabeled' && 'Gate files (draft, skipped)' || 'Gate files' }}\n    if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}\n") {
+			t.Fatalf("%s gate-files.yml: the job must skip a draft under a non-required name, except on unlabeled (#250)", forge)
 		}
 		for _, banned := range []string{"pull_request.head", "head_ref", "ref:", "write", "\n  pull_request:\n"} {
 			if strings.Contains(wf, banned) {
@@ -180,10 +179,11 @@ func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
 func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 	// #143: each Gitea workflow is the GitHub one except the merge-check step's
 	// credentials (Gitea's CI) or the forge and token (Gitea's gate files), so a
-	// change to one that misses the other fails here. #250: the Gitea trigger
-	// also lists edited, because leaving Gitea's WIP: title prefix is an edit
-	// (GitHub does not take it, or every body edit would rerun Verify), and
-	// Gitea keeps plain job names, because Gitea 1.22 does not evaluate name:.
+	// change to one that misses the other fails here. #250: GitHub defers draft
+	// jobs; Gitea does not, because Gitea 1.22 evaluates neither name: nor a
+	// compound always(), reports a skipped job as success, emits label_updated
+	// rather than unlabeled, and lets an older draft run finish after the ready
+	// run starts. The Gitea twin keeps the plain names and if: always().
 	type swap struct{ github, gitea string }
 	for _, tc := range []struct {
 		file  string
@@ -194,23 +194,18 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 				"          # Gitea: the job token only, no extra secret. It cannot read the branch\n" +
 					"          # protection rule, so the up-to-date setting prints strict=unverified.\n" +
 					"          GITEA_TOKEN: ${{ github.token }}\n"},
-			{"    types: [opened, synchronize, reopened, ready_for_review]\n",
-				"    types: [opened, synchronize, reopened, ready_for_review, edited]\n"},
-			{"    name: " + draftName("Verify") + "\n", "    name: Verify\n"},
-			{"    name: " + draftName("Merge check") + "\n", "    name: Merge check\n"},
-			{"    name: " + draftName("Required") + "\n", "    name: Required\n"},
-			{"  # On a draft every job is skipped and renamed, so a draft head carries no check\n  # run named Required (GitHub counts a skipped one as passing, #250). A skipped\n  # job's name is not evaluated: the draft check run shows the raw expression.\n",
-				"  # On a draft every job is skipped. Gitea counts a skipped job as success, but\n  # it posts a pending status for every job as soon as a run is created, so\n  # leaving WIP: replaces it at once; Gitea 1.22 does not evaluate job names, so\n  # the GitHub draft rename would break the required context here (#250).\n"},
+			{"    name: " + draftName("Verify") + "\n    if: " + draftGuard + "\n", "    name: Verify\n"},
+			{"    name: " + draftName("Merge check") + "\n    if: " + draftGuard + "\n", "    name: Merge check\n"},
+			{"    name: " + draftName("Required") + "\n    needs: [verify, merge-check]\n    if: always() && (" + draftGuard + ")\n",
+				"    name: Required\n    needs: [verify, merge-check]\n    if: always()\n"},
+			{"  # On a draft every job is skipped and renamed, so a draft head carries no check\n  # run named Required (GitHub counts a skipped one as passing, #250). A skipped\n  # job's name is not evaluated: the draft check run shows the raw expression.\n  # The Gitea twin keeps plain names, no draft guard, and if: always(): Gitea\n  # 1.22 evaluates neither, and maps a skipped job to a success status.\n", ""},
 		}},
 		{"gate-files.yml", []swap{
 			{"          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
 				"          ATEAM_FORGE: gitea\n          GITEA_TOKEN: ${{ github.token }}\n"},
-			{"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]\n",
-				"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]\n"},
 			{"that judges it (#140). It must never check out or run pull request code: the\n",
 				"that judges it (#140; the Gitea twin of .github/workflows/gate-files.yml, #143).\n# It must never check out or run pull request code: the\n"},
-			{"    # Skipped and renamed on a draft, so a draft head carries no Gate files check\n    # run for GitHub to count as passing (#250). Removing a label still runs it\n    # on a draft, so revoking gate-change-approved replaces an earlier pass at\n    # the same head before the PR can be marked ready again.\n    name: ${{ github.event.pull_request.draft && github.event.action != 'unlabeled' && 'Gate files (draft, skipped)' || 'Gate files' }}\n",
-				"    # Skipped on a draft (WIP:); removing a label still runs it, so revoking\n    # gate-change-approved replaces an earlier pass at the same head (#250).\n    # Gitea 1.22 does not evaluate job names, so it keeps the plain name.\n    name: Gate files\n"},
+			{"    # Skipped and renamed on a draft, so a draft head carries no Gate files check\n    # run for GitHub to count as passing (#250). Removing a label still runs it\n    # on a draft, so revoking gate-change-approved replaces an earlier pass at\n    # the same head before the PR can be marked ready again.\n    name: ${{ github.event.pull_request.draft && github.event.action != 'unlabeled' && 'Gate files (draft, skipped)' || 'Gate files' }}\n    if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}\n", "    name: Gate files\n"},
 		}},
 	} {
 		gh, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", tc.file))
@@ -220,11 +215,6 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 		gt, err := os.ReadFile(filepath.Join(repoRoot(t), ".gitea", "workflows", tc.file))
 		if err != nil {
 			t.Fatal(err)
-		}
-		for _, line := range strings.Split(string(gh), "\n") {
-			if strings.HasPrefix(strings.TrimSpace(line), "types:") && strings.Contains(line, "edited") {
-				t.Errorf(".github/workflows/%s triggers on edited; only the Gitea twin takes it (#250)", tc.file)
-			}
 		}
 		want := string(gh)
 		for _, sw := range tc.swaps {

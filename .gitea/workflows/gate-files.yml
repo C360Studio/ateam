@@ -8,7 +8,7 @@ name: Gate files
 # through the API only.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 
 concurrency:
   group: gate-files-${{ github.event.pull_request.number }}
@@ -20,11 +20,7 @@ permissions:
 
 jobs:
   gate-files:
-    # Skipped on a draft (WIP:); removing a label still runs it, so revoking
-    # gate-change-approved replaces an earlier pass at the same head (#250).
-    # Gitea 1.22 does not evaluate job names, so it keeps the plain name.
     name: Gate files
-    if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

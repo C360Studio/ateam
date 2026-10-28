@@ -11,7 +11,8 @@
 
 - [x] 2.1 Add the draft guard and draft rename to `Verify`, `Merge check`, and `Required` (`.github/workflows/ci.yml:27`, `:65`, `:96-111`; Gitea twin), with `Required` as `if: always() && (...)`. Acceptance: static test plus `detection` mutations for a dropped guard, a dropped rename, `Required` without `always()`, `Required` accepting `skipped`, and a guard that skips `push` to `main`.
 - [x] 2.2 Add the draft guard and rename to `Gate files` (`.github/workflows/gate-files.yml:20`; Gitea twin). Acceptance: `TestGateFilesWorkflowRunsFromBase` (`internal/bootstrap/gatefiles_test.go:134`) asserts both, and a mutation that drops either is detected.
-- [x] 2.3 Add `edited` to the `types:` of `.gitea/workflows/ci.yml` and `.gitea/workflows/gate-files.yml` only, and give `TestGiteaWorkflowsTwinGitHub` (`gatefiles_test.go:172`) a documented exception for those two lines. Acceptance: the twin test passes and still fails on any other drift, including `edited` appearing in a GitHub file.
+- [~] 2.3 Add `edited` to the `types:` of `.gitea/workflows/ci.yml` and `.gitea/workflows/gate-files.yml` only, and give `TestGiteaWorkflowsTwinGitHub` (`gatefiles_test.go:172`) a documented exception for those two lines. Acceptance: the twin test passes and still fails on any other drift, including `edited` appearing in a GitHub file.
+  Not done, deliberately: the D4 amendment (Codex review at `e1e5f3e`) keeps the Gitea workflows identical to `main`, so there is no `edited` trigger or twin exception for it.
 - [x] 2.4 Update the scenarios at `openspec/specs/harness/spec.md:445` and `:457` with the draft contract (guard, rename, `always()` form, Gitea `edited`), and update `TestCIWorkflowPinned`/`Sensitivity` (`internal/bootstrap/mergecheck_test.go:874-960`) to match. Acceptance: `task spec:check` and `task test:spec` are green.
 - [x] 2.5 Add to `.agents/protocol.md` § 2 Verify: CI on a draft is deferred, not passed, and local gates are unchanged. Acceptance: `ateam doctor` parity is green.
 
@@ -43,4 +44,5 @@
 
   Four new mutants all gave `detection`: the `unlabeled` exception dropped on GitHub, the same on Gitea, the GitHub rename ignoring `unlabeled`, and the Gitea `ci.yml` taking the rename. That makes 16 of 16 with SHA-256 restore. The live ready → draft → unlabel → ready history needs the base-branch `Gate files`, so it belongs to 3.1.
 - Provenance: the implementation runs were `claude (opus, medium)`.
+- Codex review at `e1e5f3e` (REQUEST CHANGES) raised three Gitea P1s: a compound `always()` that is not a dependency override, `label_updated` instead of `unlabeled`, and a stale WIP-run overwrite. Fixed by not deferring drafts on Gitea. The Gitea workflows are byte-identical to `6a844a1`, and the 2.3 `edited` trigger was dropped with them, along with the `cancel-in-progress` `edited` clause. The mutation set was rerun, and all 14 gave `detection`, including three Gitea mutants: a compound `always()`, a draft guard on `Verify`, and a draft guard on `Gate files`.
 

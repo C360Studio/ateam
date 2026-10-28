@@ -11,13 +11,12 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 # Superseded PR runs are cancelled, except the run that marking a draft ready
-# starts (or, on Gitea, an edit): it reuses the head SHA, and cancelling the run
-# already in flight would leave a failed Required on a head that was never
-# broken (#87). Pushes to main are never cancelled, so two quick merges never
-# leave one on a commit either.
+# starts: it reuses the head SHA, and cancelling the run already in flight would
+# leave a failed Required on a head that was never broken (#87). Pushes to main
+# are never cancelled, so two quick merges never leave one on a commit either.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.action != 'edited' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}
 
 permissions:
   contents: read
@@ -99,6 +98,8 @@ jobs:
   # On a draft every job is skipped and renamed, so a draft head carries no check
   # run named Required (GitHub counts a skipped one as passing, #250). A skipped
   # job's name is not evaluated: the draft check run shows the raw expression.
+  # The Gitea twin keeps plain names, no draft guard, and if: always(): Gitea
+  # 1.22 evaluates neither, and maps a skipped job to a success status.
   required:
     name: ${{ github.event.pull_request.draft && 'Required (draft, skipped)' || 'Required' }}
     needs: [verify, merge-check]

@@ -881,7 +881,7 @@ func draftName(name string) string {
 	return fmt.Sprintf("${{ github.event.pull_request.draft && '%s (draft, skipped)' || '%s' }}", name, name)
 }
 
-func draftViolations(wf ciWorkflow, renamed bool) []string {
+func draftViolations(wf ciWorkflow, deferDrafts bool) []string {
 	var out []string
 	for _, id := range slices.Sorted(maps.Keys(ciJobNames)) {
 		job, ok := wf.Jobs[id]
@@ -889,7 +889,7 @@ func draftViolations(wf ciWorkflow, renamed bool) []string {
 			continue
 		}
 		want := ciJobNames[id]
-		if renamed {
+		if deferDrafts {
 			want = draftName(want)
 		}
 		if got := strings.TrimSpace(fmt.Sprint(job.Name)); got != want {
@@ -897,6 +897,12 @@ func draftViolations(wf ciWorkflow, renamed bool) []string {
 		}
 		if id == "required" {
 			continue // requiredStepViolations checks its always() form
+		}
+		if !deferDrafts {
+			if job.If != nil {
+				out = append(out, fmt.Sprintf("ci.yml: job %s runs under if: %v; on Gitea the merge-gate spec requires no draft guard, because Gitea reports a skipped job as success", id, job.If))
+			}
+			continue
 		}
 		if got := strings.TrimSpace(fmt.Sprint(job.If)); got != draftGuard {
 			out = append(out, fmt.Sprintf("ci.yml: job %s runs under if: %v; the merge-gate spec requires if: %s so drafts skip it and push to main still runs it", id, job.If, draftGuard))
@@ -925,7 +931,7 @@ func TestCIWorkflowPinnedSensitivity(t *testing.T) {
     types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.action != 'edited' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}
 permissions:
   contents: read
 jobs:
@@ -1004,9 +1010,9 @@ jobs:
 			[]string{"job required", "does not take its results from needs.*.result"}},
 		{"ready type missing", "types: [opened, synchronize, reopened, ready_for_review]", "types: [opened, synchronize, reopened]",
 			[]string{"pull_request", "ready_for_review"}},
-		{"ready_for_review run cancels the same head", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.action != 'edited' }}\n", "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
+		{"ready_for_review run cancels the same head", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}\n", "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
 			[]string{"cancel-in-progress", "ready_for_review", "failed Required"}},
-		{"cancel-in-progress unconditionally", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.action != 'edited' }}\n", "  cancel-in-progress: true\n",
+		{"cancel-in-progress unconditionally", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}\n", "  cancel-in-progress: true\n",
 			[]string{"cancel-in-progress", "ready_for_review"}},
 		{"a fourth job on the moving label", "jobs:\n", "jobs:\n  lint: {runs-on: ubuntu-latest, steps: [{run: echo}]}\n",
 			[]string{"job lint", "ubuntu-latest", "ubuntu-24.04"}},
@@ -1056,17 +1062,18 @@ type ciStep struct {
 	Run             string
 }
 
-// ciWorkflowViolations checks ci.yml against the merge-gate spec. renamed is
-// true for GitHub, whose skipped draft jobs must not carry a required name; Gitea
-// keeps plain names, because Gitea 1.22 does not evaluate name: (#250).
-func ciWorkflowViolations(t *testing.T, data []byte, renamed bool) []string {
+// ciWorkflowViolations checks ci.yml against the merge-gate spec. deferDrafts is
+// true for GitHub, whose jobs skip drafts under a non-required name (#250). Gitea
+// keeps plain names, no draft guard, and if: always(): Gitea 1.22 evaluates
+// neither name: nor a compound always(), and maps a skipped job to success.
+func ciWorkflowViolations(t *testing.T, data []byte, deferDrafts bool) []string {
 	wf, err := parseCIWorkflowYAML(data)
 	if err != nil {
 		return []string{fmt.Sprintf("ci.yml: %v", err)}
 	}
 	violations := pullRequestTriggerViolations(wf.On)
 	violations = append(violations, concurrencyViolations(wf.Concurrency)...)
-	violations = append(violations, draftViolations(wf, renamed)...)
+	violations = append(violations, draftViolations(wf, deferDrafts)...)
 	violations = append(violations, writeGrants("workflow", wf.Permissions)...)
 	names := make([]string, 0, len(wf.Jobs))
 	for name := range wf.Jobs {
@@ -1111,7 +1118,7 @@ func ciWorkflowViolations(t *testing.T, data []byte, renamed bool) []string {
 				violations = append(violations, fmt.Sprintf("ci.yml: %s sets defaults.run.shell %q; the test runs required's step as GitHub runs bash", d.where, d.shell))
 			}
 		}
-		violations = append(violations, requiredStepViolations(t, req, needs)...)
+		violations = append(violations, requiredStepViolations(t, req, needs, deferDrafts)...)
 	}
 
 	if v, ok := wf.Jobs["verify"]; !ok {
@@ -1124,9 +1131,9 @@ func ciWorkflowViolations(t *testing.T, data []byte, renamed bool) []string {
 
 // cancelInProgressExpr is the only cancel-in-progress value the merge-gate spec
 // accepts: superseded pull-request runs are cancelled, but the ready_for_review
-// run (and Gitea's edited run, #250) reuses the head SHA, and cancelling the run
-// already in flight leaves a failed Required on a head that was never broken (#87).
-const cancelInProgressExpr = "${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.action != 'edited' }}"
+// run reuses the head SHA, and cancelling the run already in flight leaves a
+// failed Required on a head that was never broken (#87).
+const cancelInProgressExpr = "${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}"
 
 func concurrencyViolations(raw any) []string {
 	if raw == nil {
@@ -1260,9 +1267,13 @@ func evalNeedsExpression(expr string, needs []string, results map[string]string)
 	return "", false
 }
 
-func requiredStepViolations(t *testing.T, req ciJob, needs []string) []string {
+func requiredStepViolations(t *testing.T, req ciJob, needs []string, deferDrafts bool) []string {
 	var out []string
-	if want := "always() && (" + draftGuard + ")"; req.If == nil || strings.TrimSpace(fmt.Sprint(req.If)) != want {
+	want := "always()"
+	if deferDrafts {
+		want = "always() && (" + draftGuard + ")"
+	}
+	if req.If == nil || strings.TrimSpace(fmt.Sprint(req.If)) != want {
 		out = append(out, fmt.Sprintf("ci.yml: job required runs under if: %v; the merge-gate spec requires if: %s, or a failed or cancelled needed job leaves Required skipped, which GitHub reports as success", req.If, want))
 	}
 	if req.ContinueOnError != nil {
