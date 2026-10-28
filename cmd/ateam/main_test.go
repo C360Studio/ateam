@@ -286,8 +286,9 @@ func TestHookLatencyFindings(t *testing.T) {
 		{"within target", 10000, false, false},
 		{"just over target", 10001, true, false},
 		{"old 5ms target no longer warns", 6000, false, false},
-		{"at ceiling", 25000, true, false},
-		{"over ceiling", 25001, true, true},
+		{"old 25ms ceiling no longer fails", 25001, true, false},
+		{"at ceiling", 100000, true, false},
+		{"over ceiling", 100001, true, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
