@@ -52,4 +52,4 @@ No data migration. When this repository's policy changes, PRs with alias records
 ## Open Questions
 
 1. **Resolved (owner, 2026-10-28): which IDs, in which tier.** frontier `claude:claude-opus-5-5`, `claude:claude-fable-5-1`; workhorse `claude:claude-sonnet-5-5`; light `claude:claude-haiku-4-5`, `claude:claude-haiku-4-5-20251001`. The Opus 4.x and Sonnet 4.x IDs are left out and rank as unranked.
-2. **OWNER RULING — `codex:gpt-6-luna`.** Codex has run it in this repository, but it is in no tier, so a review it implemented or reviewed ranks as unranked. Which tier, or leave it out?
+2. **Resolved (owner, 2026-10-28): `codex:gpt-6-luna` belongs in the light tier.** Add that exact runtime ID to the policy and ADR 0002; the other observed Codex and Gemini IDs are already listed.
