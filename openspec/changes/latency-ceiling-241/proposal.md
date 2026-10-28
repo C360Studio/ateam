@@ -1,6 +1,6 @@
 # Change Proposal: `latency-ceiling-241`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-28)
 
 ## Why
 
