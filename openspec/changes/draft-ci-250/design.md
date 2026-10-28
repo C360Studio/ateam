@@ -17,7 +17,7 @@ Drafted by claude (opus) in the design skill; amended 2026-10-28 by the owner (F
 
 ## Goals / Non-Goals
 
-Goals: zero runner work and zero red on draft events on both forges; full gates on every ready revision; no path where a ready PR merges on a draft-era result. Non-goals are in `proposal.md`.
+Goals: zero runner work and zero red on GitHub draft events (Gitea is unchanged, D4), apart from `Gate files` on a draft label removal; full gates on every ready revision; no path where a ready PR merges on a draft-era result. Non-goals are in `proposal.md`.
 
 ## Decisions
 
@@ -52,7 +52,6 @@ The Gitea twins therefore stay byte-identical to `main`, and Gitea CI runs on WI
 - A mis-written guard such as `github.event.pull_request.draft == false` on `push` (where `pull_request` is absent) would skip `main` verification. The guard tests `event_name` first; a static test plus a mutation pins it, and another pins the `always() &&` form on `Required`.
 - The rename relies on `jobs.<job_id>.name` evaluating the `github` context (GitHub docs). Task 1.3 confirms it live before the branch lands, and records the "Waiting for status" state after ready.
 - `converted_to_draft` is not a trigger, so an in-flight ready run finishes and posts; harmless, the next ready event reruns.
-- Gitea `edited` also fires on body edits, so a ready Gitea PR reruns CI on a description edit. Accepted: Gitea is the secondary forge and the alternative is a title-only guard on an unverified `changes.title` field.
 
 ## Open Questions
 
