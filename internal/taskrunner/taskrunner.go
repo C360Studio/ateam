@@ -3,6 +3,7 @@ package taskrunner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,9 +19,37 @@ type Target struct {
 	Desc string `json:"desc"`
 }
 
-// ListTargets parses Taskfile.yml in root using stdlib and returns sorted task targets.
-// shortcut: indentation-based Taskfile.yml parser for top-level tasks: block, upgrade to full YAML AST if nested includes are added
+// ListTargets returns the sorted task targets in root. It asks the task CLI (`task --list-all --json`) so Task v3
+// includes: are resolved, and falls back to scanning the root Taskfile.yml when the CLI is absent or fails.
 func ListTargets(root string) ([]Target, error) {
+	if out, err := listWithTask(root); err == nil {
+		return out, nil
+	}
+	return scanTaskfile(root)
+}
+
+func listWithTask(root string) ([]Target, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "task", "--list-all", "--json")
+	cmd.Dir = root
+	raw, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	var listed struct {
+		Tasks []Target `json:"tasks"`
+	}
+	if err := json.Unmarshal(raw, &listed); err != nil {
+		return nil, fmt.Errorf("parse task --list-all --json: %w", err)
+	}
+	sort.Slice(listed.Tasks, func(i, j int) bool { return listed.Tasks[i].Name < listed.Tasks[j].Name })
+	return listed.Tasks, nil
+}
+
+// scanTaskfile parses Taskfile.yml in root using stdlib.
+// shortcut: indentation-based fallback sees only top-level tasks: in the root Taskfile.yml, upgrade to a YAML AST if offline listing must resolve includes:
+func scanTaskfile(root string) ([]Target, error) {
 	p := filepath.Join(root, "Taskfile.yml")
 	data, err := os.ReadFile(p)
 	if err != nil {
