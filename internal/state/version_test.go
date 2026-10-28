@@ -43,7 +43,7 @@ func TestVersionStringUsesStampedVersion(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/provenance-251/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
+// spec: openspec/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
 func TestBuildRevisionLabelsModuleInstalls(t *testing.T) {
 	withMain := func(v string, settings ...debug.BuildSetting) *debug.BuildInfo {
 		return &debug.BuildInfo{Main: debug.Module{Path: "github.com/c360studio/ateam", Version: v}, Settings: settings}

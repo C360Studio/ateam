@@ -1872,7 +1872,7 @@ func TestHandoffSlotRefusalNamesHolderLease(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/provenance-251/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
+// spec: openspec/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
 func TestPickupShowsDefaultBranchBehindOrigin(t *testing.T) {
 	git := func(dir string, args ...string) {
 		t.Helper()

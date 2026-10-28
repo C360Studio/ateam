@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// spec: openspec/changes/provenance-251/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
+// spec: openspec/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
 func TestSessionStartLabelsModuleInstallWithoutGit(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/c360studio/ateam\n"), 0o644); err != nil {

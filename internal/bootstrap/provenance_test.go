@@ -43,7 +43,7 @@ func writeClaudeHook(t *testing.T, root, argv0 string) {
 	}
 }
 
-// spec: openspec/changes/provenance-251/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
+// spec: openspec/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
 func TestHookBinaryStatusComparesPathBinaryWithDiskBuild(t *testing.T) {
 	t.Setenv(hookScopeEnv, "")
 	advice := func(p string) string {
@@ -119,7 +119,7 @@ func TestHookBinaryStatusComparesPathBinaryWithDiskBuild(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/provenance-251/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
+// spec: openspec/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
 func TestDoctorResolvesModuleTagToCommit(t *testing.T) {
 	root := t.TempDir()
 	writeGoMod(t, root, ateamGoMod)
