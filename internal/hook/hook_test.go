@@ -964,3 +964,44 @@ func TestPreCompactPreservesOwnHandoffBehindRemoteTip(t *testing.T) {
 		t.Fatalf("another session's write over a handoff behind origin/main: %v", err)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
+func TestProbeIgnoresEnvSessionAndWritesNoLease(t *testing.T) {
+	dir := t.TempDir()
+	headsDir := filepath.Join(dir, ".git", "refs", "heads")
+	if err := os.MkdirAll(headsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("990e19c000000000000000000000000000000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/c360studio/ateam\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origInspect := inspectClientMCP
+	inspectClientMCP = func(context.Context, string, string, int) ([]state.MCPProcess, []string) { return nil, nil }
+	t.Cleanup(func() { inspectClientMCP = origInspect })
+	t.Setenv("ATEAM_SESSION_ID", "") // it outranks CLAUDE_SESSION_ID, so a host value would repoint the MCP oracle
+	t.Setenv("CLAUDE_SESSION_ID", "reviewer-session")
+
+	if _, err := Probe(dir, "session-start"); err != nil {
+		t.Fatalf("Probe session-start: %v", err)
+	}
+	if _, err := os.Stat(state.WriterLeasePath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("Probe wrote the writer lease (stat err=%v); doctor must not steal a live session's lease", err)
+	}
+	if state.HasMCPCheckedSession(dir, "reviewer-session") {
+		t.Fatal("Probe recorded the env session as MCP-checked")
+	}
+
+	// The same env session through the real hook path does take the lease, so the fixture reaches the write.
+	if _, err := Handle(dir, "session-start", strings.NewReader(`{}`)); err != nil {
+		t.Fatalf("Handle session-start: %v", err)
+	}
+	if _, err := os.Stat(state.WriterLeasePath(dir)); err != nil {
+		t.Fatalf("Handle with an env session should write the writer lease: %v", err)
+	}
+}
