@@ -150,6 +150,8 @@ func runState(repoRoot string, args []string) int {
 		return runStatePickup(repoRoot, args[1:])
 	case "read-handoff":
 		return runStateReadHandoff(repoRoot, args[1:])
+	case "prune":
+		return runStatePrune(repoRoot, args[1:])
 	case "status", "board":
 		return runStateSnapshot(repoRoot, sub)
 	case "herdr":
@@ -173,6 +175,7 @@ Subcommands:
   handoff      Record the five-field handoff checkpoint (see ateam state handoff -h)
   read-handoff <agent>@<branch>
                Print another slot's handoff without changing state
+  prune        Remove your clean, merged worktrees and their branches (--dry-run, --agent)
   holds        List unticked Hold: items as JSON
   debt         List // shortcut: comments as JSON
   spec-queue   Show in-flight OpenSpec changes with their holds and caveats
@@ -247,6 +250,40 @@ func runStatePickup(repoRoot string, args []string) int {
 	st.CurrentAgent = state.ResolveActiveAgentForSession(repoRoot, *agent, st.CurrentSessionID, st.Git.Branch, st.Writer)
 	state.ReconcilePickup(repoRoot, st, *agent, st.CurrentSessionID)
 	fmt.Println(state.BuildPickupSummary(st))
+	return 0
+}
+
+// runStatePrune removes the caller's finished worktrees and their branches, listing every other worktree with the reason it was kept (#229).
+func runStatePrune(repoRoot string, args []string) int {
+	fs := flag.NewFlagSet("state prune", flag.ContinueOnError)
+	agent := fs.String("agent", "", "agent whose worktrees to prune (default: the resolved caller)")
+	dryRun := fs.Bool("dry-run", false, "print what would be removed without changing anything")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	ctx := context.Background()
+	st, err := state.RefreshWithBestEffortSync(ctx, repoRoot, 30*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state prune: %v\n", err)
+		return 1
+	}
+	st.ReconcileWorktrees()
+	who := state.ResolveActiveAgentForSession(repoRoot, *agent, state.ResolveActiveSessionID(repoRoot, ""), st.Git.Branch, st.Writer)
+	if who == "" {
+		fmt.Fprintln(os.Stderr, "ateam state prune: cannot resolve the caller's agent; pass --agent")
+		return 2
+	}
+	failed := state.Prune(ctx, repoRoot, st, who, *dryRun, os.Stdout)
+	if !*dryRun {
+		// Refresh so the cache no longer lists the removed worktrees.
+		if _, err := state.Refresh(ctx, repoRoot, false); err != nil {
+			fmt.Fprintf(os.Stderr, "ateam state prune: refresh: %v\n", err)
+			failed = true
+		}
+	}
+	if failed {
+		return 1
+	}
 	return 0
 }
 

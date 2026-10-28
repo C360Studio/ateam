@@ -2867,6 +2867,9 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 		} else if wt.Branch != "" && wt.Branch == st.Git.Branch && wt.Head != "" && SameCommitSHA(wt.Head, st.Git.HeadSHA) {
 			dirtyStr = fmt.Sprintf("%v", st.Git.Dirty)
 		}
+		if remove, _ := st.PruneVerdict(wt, st.CurrentAgent, ""); remove {
+			statuses[i] += ", prune candidate"
+		}
 		fmt.Fprintf(b, "  - %s (head=%s, dirty=%s, ahead=%d, %s)\n", branch, wt.Head, dirtyStr, wt.AheadCount, statuses[i])
 		for _, line := range worktreeHandoffLines(st, wt) {
 			fmt.Fprintf(b, "    handoff: %s\n", line)
