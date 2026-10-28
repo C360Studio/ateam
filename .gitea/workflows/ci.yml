@@ -25,7 +25,7 @@ permissions:
 # Every job is pinned to ubuntu-24.04 by the merge-gate spec.
 jobs:
   verify:
-    name: ${{ github.event.pull_request.draft && 'Verify (draft, skipped)' || 'Verify' }}
+    name: Verify
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -61,7 +61,7 @@ jobs:
 
   # Up-to-date rule, review check and known-flake check (scripts/merge-check.sh).
   merge-check:
-    name: ${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || 'Merge check' }}
+    name: Merge check
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -97,11 +97,12 @@ jobs:
 
   # Single required status check: anything other than success in a needed job
   # (failure, cancelled, skipped, or a job that never ran) fails the aggregate.
-  # On a draft every job is skipped and renamed, so a draft head carries no check
-  # run named Required (GitHub counts a skipped one as passing, #250). A skipped
-  # job's name is not evaluated: the draft check run shows the raw expression.
+  # On a draft every job is skipped. Gitea counts a skipped job as success, but
+  # it posts a pending status for every job as soon as a run is created, so
+  # leaving WIP: replaces it at once; Gitea 1.22 does not evaluate job names, so
+  # the GitHub draft rename would break the required context here (#250).
   required:
-    name: ${{ github.event.pull_request.draft && 'Required (draft, skipped)' || 'Required' }}
+    name: Required
     needs: [verify, merge-check]
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-24.04

@@ -37,4 +37,10 @@
 - Deviation from D3's text: `Gate files` runs on `pull_request_target`, so `github.event_name != 'pull_request'` would always be true there. Its guard is `${{ !github.event.pull_request.draft }}`.
 - Addition: `cancel-in-progress` also excludes `edited`, on both forges. Without that, a Gitea body edit on a ready PR would cancel the same-head run in flight, which is the #87 failure. GitHub never sees `edited` in `ci.yml`, so the clause is inert there, and the twins stay byte-identical apart from the `types:` lines.
 - Generated checks: not used. The contract is a fixed set of exact YAML expressions, and the table cases plus mutants cover each one.
+- Codex review at `f50d296` ([REQUEST CHANGES](https://github.com/C360Studio/ateam/pull/252)). Both findings were fixed:
+  - **P1, Gitea names:** Gitea 1.22 does not evaluate `name:`, so the Gitea twins keep plain names. Gitea's own v1.22.6 source shows the rename is not needed there (design Context correction).
+  - **P1, label revocation:** `Gate files` still runs on a draft `unlabeled` event under its required name.
+
+  Four new mutants all gave `detection`: the `unlabeled` exception dropped on GitHub, the same on Gitea, the GitHub rename ignoring `unlabeled`, and the Gitea `ci.yml` taking the rename. That makes 16 of 16 with SHA-256 restore. The live ready → draft → unlabel → ready history needs the base-branch `Gate files`, so it belongs to 3.1.
+- Provenance: the implementation runs were `claude (opus, medium)`.
 

@@ -142,12 +142,17 @@ func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
 		}
 		wf := string(data)
 		for _, want := range []string{"pull_request_target:", "labeled, unlabeled", "runs-on: ubuntu-24.04", "persist-credentials: false", "run: scripts/gate-files.sh \"$PR_NUMBER\"", "  contents: read\n  pull-requests: read\n",
-			// #250: skipped and renamed on a draft; pull_request_target is never the
-			// event name pull_request, so the guard tests the draft flag alone.
-			"    name: ${{ github.event.pull_request.draft && 'Gate files (draft, skipped)' || 'Gate files' }}\n    if: ${{ !github.event.pull_request.draft }}\n"} {
+			// #250: skipped on a draft except when a label is removed, so revoking
+			// gate-change-approved replaces an earlier pass at the same head;
+			// pull_request_target is never the event name pull_request, so the
+			// guard tests the draft flag. The GitHub twin also renames the skip.
+			"    if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}\n"} {
 			if !strings.Contains(wf, want) {
 				t.Fatalf("%s gate-files.yml lacks %q", forge, want)
 			}
+		}
+		if forge == ".github" && !strings.Contains(wf, "    name: ${{ github.event.pull_request.draft && github.event.action != 'unlabeled' && 'Gate files (draft, skipped)' || 'Gate files' }}\n") {
+			t.Fatalf("%s gate-files.yml: the job must take a non-required name when skipped on a draft (#250)", forge)
 		}
 		for _, banned := range []string{"pull_request.head", "head_ref", "ref:", "write", "\n  pull_request:\n"} {
 			if strings.Contains(wf, banned) {
@@ -176,19 +181,37 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 	// #143: each Gitea workflow is the GitHub one except the merge-check step's
 	// credentials (Gitea's CI) or the forge and token (Gitea's gate files), so a
 	// change to one that misses the other fails here. #250: the Gitea trigger
-	// also lists edited, because leaving Gitea's WIP: title prefix is an edit;
-	// GitHub does not take it, or every body edit would rerun Verify.
-	for _, tc := range []struct{ file, github, gitea, ghTypes, gtTypes string }{
-		{"ci.yml", "          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
-			"          # Gitea: the job token only, no extra secret. It cannot read the branch\n" +
-				"          # protection rule, so the up-to-date setting prints strict=unverified.\n" +
-				"          GITEA_TOKEN: ${{ github.token }}\n",
-			"    types: [opened, synchronize, reopened, ready_for_review]\n",
-			"    types: [opened, synchronize, reopened, ready_for_review, edited]\n"},
-		{"gate-files.yml", "          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
-			"          ATEAM_FORGE: gitea\n          GITEA_TOKEN: ${{ github.token }}\n",
-			"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]\n",
-			"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]\n"},
+	// also lists edited, because leaving Gitea's WIP: title prefix is an edit
+	// (GitHub does not take it, or every body edit would rerun Verify), and
+	// Gitea keeps plain job names, because Gitea 1.22 does not evaluate name:.
+	type swap struct{ github, gitea string }
+	for _, tc := range []struct {
+		file  string
+		swaps []swap
+	}{
+		{"ci.yml", []swap{
+			{"          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
+				"          # Gitea: the job token only, no extra secret. It cannot read the branch\n" +
+					"          # protection rule, so the up-to-date setting prints strict=unverified.\n" +
+					"          GITEA_TOKEN: ${{ github.token }}\n"},
+			{"    types: [opened, synchronize, reopened, ready_for_review]\n",
+				"    types: [opened, synchronize, reopened, ready_for_review, edited]\n"},
+			{"    name: " + draftName("Verify") + "\n", "    name: Verify\n"},
+			{"    name: " + draftName("Merge check") + "\n", "    name: Merge check\n"},
+			{"    name: " + draftName("Required") + "\n", "    name: Required\n"},
+			{"  # On a draft every job is skipped and renamed, so a draft head carries no check\n  # run named Required (GitHub counts a skipped one as passing, #250). A skipped\n  # job's name is not evaluated: the draft check run shows the raw expression.\n",
+				"  # On a draft every job is skipped. Gitea counts a skipped job as success, but\n  # it posts a pending status for every job as soon as a run is created, so\n  # leaving WIP: replaces it at once; Gitea 1.22 does not evaluate job names, so\n  # the GitHub draft rename would break the required context here (#250).\n"},
+		}},
+		{"gate-files.yml", []swap{
+			{"          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
+				"          ATEAM_FORGE: gitea\n          GITEA_TOKEN: ${{ github.token }}\n"},
+			{"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]\n",
+				"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]\n"},
+			{"that judges it (#140). It must never check out or run pull request code: the\n",
+				"that judges it (#140; the Gitea twin of .github/workflows/gate-files.yml, #143).\n# It must never check out or run pull request code: the\n"},
+			{"    # Skipped and renamed on a draft, so a draft head carries no Gate files check\n    # run for GitHub to count as passing (#250). Removing a label still runs it\n    # on a draft, so revoking gate-change-approved replaces an earlier pass at\n    # the same head before the PR can be marked ready again.\n    name: ${{ github.event.pull_request.draft && github.event.action != 'unlabeled' && 'Gate files (draft, skipped)' || 'Gate files' }}\n",
+				"    # Skipped on a draft (WIP:); removing a label still runs it, so revoking\n    # gate-change-approved replaces an earlier pass at the same head (#250).\n    # Gitea 1.22 does not evaluate job names, so it keeps the plain name.\n    name: Gate files\n"},
+		}},
 	} {
 		gh, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", tc.file))
 		if err != nil {
@@ -203,16 +226,14 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 				t.Errorf(".github/workflows/%s triggers on edited; only the Gitea twin takes it (#250)", tc.file)
 			}
 		}
-		want := strings.Replace(string(gh), tc.github, tc.gitea, 1)
-		if !strings.Contains(want, tc.ghTypes) {
-			t.Errorf(".github/workflows/%s lacks the trigger line %q", tc.file, tc.ghTypes)
+		want := string(gh)
+		for _, sw := range tc.swaps {
+			if !strings.Contains(want, sw.github) {
+				t.Errorf(".github/workflows/%s lacks %q", tc.file, sw.github)
+			}
+			want = strings.Replace(want, sw.github, sw.gitea, 1)
 		}
-		want = strings.Replace(want, tc.ghTypes, tc.gtTypes, 1)
-		if tc.file == "gate-files.yml" {
-			want = strings.Replace(want, "that judges it (#140). It must never check out or run pull request code: the\n",
-				"that judges it (#140; the Gitea twin of .github/workflows/gate-files.yml, #143).\n# It must never check out or run pull request code: the\n", 1)
-		}
-		if want == string(gh) || string(gt) != want {
+		if string(gt) != want {
 			t.Errorf(".gitea/workflows/%s is not .github/workflows/%s with only the Gitea lines changed", tc.file, tc.file)
 		}
 	}
@@ -220,7 +241,7 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := ciWorkflowViolations(t, gt); len(v) > 0 {
+	if v := ciWorkflowViolations(t, gt, false); len(v) > 0 {
 		t.Fatalf(".gitea/workflows/ci.yml violations:\n- %s", strings.Join(v, "\n- "))
 	}
 }
