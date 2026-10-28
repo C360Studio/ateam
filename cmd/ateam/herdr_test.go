@@ -122,6 +122,15 @@ func TestHerdrOnEventToastsOnlyNewCaveats(t *testing.T) {
 	if got := f.toasts(); len(got) != 2 || got[1] != "ateam: demo BLOCKED" {
 		t.Fatalf("new caveat toasts = %q, want a second toast [ateam: demo BLOCKED]", got)
 	}
+
+	writeTasks(t, repo, "# Tasks\n\n- [ ] 1.1 Build is RED on main\n- [ ] 1.2 Plain open task\n  Hold: waiting on owner ruling\n"+
+		"- [ ] 1.3 Owner approves\n  Hold: OPEN-Q proposal awaits owner approval\n- [ ] 1.4 Scope still open\n")
+	if err := herdrOnEvent(context.Background(), f.run); err != nil {
+		t.Fatalf("approval hold event: %v", err)
+	}
+	if got := f.toasts(); len(got) != 3 || got[2] != "ateam: demo OPEN-Q" {
+		t.Fatalf("approval hold toasts = %q, want only a third toast [ateam: demo OPEN-Q]", got)
+	}
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Optional herdr caveat notifications

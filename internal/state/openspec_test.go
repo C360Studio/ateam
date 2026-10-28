@@ -287,8 +287,28 @@ func TestOpenQApprovalHoldKeepsChangeOpen(t *testing.T) {
 	}
 	ch.Name = "c1"
 	out, flagged := FormatOpenSpecQueue([]OpenSpecChange{ch})
-	if !flagged || strings.Contains(out, "done, not archived") || !strings.Contains(out, "OPEN-Q proposal awaits owner approval") {
+	if !flagged || strings.Contains(out, "done, not archived") || !strings.Contains(out, "OPEN-Q   L4     Hold: OPEN-Q proposal awaits owner approval") {
 		t.Fatalf("queue output does not flag the approval hold:\n%s", out)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
+func TestHoldMarkerNamesItsLeadingCaveat(t *testing.T) {
+	for _, tc := range []struct{ hold, want string }{
+		{"Hold: OPEN-Q proposal awaits owner approval", "OPEN-Q"},
+		{"Hold: HALT until the owner rules on #12", "HALT"},
+		{"Hold: RED: main CI is failing", "RED"},
+		{"Hold: waiting on #12", "BLOCKED"},
+		{"Hold: waiting on the failing OPEN-Q from #12", "BLOCKED"},
+	} {
+		tasks := "## 1. Tasks\n\n- [ ] 1.1 Work\n  " + tc.hold + "\n"
+		ch, _, err := ParseTasksMarkdown("openspec/changes/c1/tasks.md", []byte(tasks))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ch.Caveats) != 1 || ch.Caveats[0].Marker != tc.want || ch.Caveats[0].Text != tc.hold {
+			t.Errorf("%q: caveats = %+v, want one %s caveat", tc.hold, ch.Caveats, tc.want)
+		}
 	}
 }
 
