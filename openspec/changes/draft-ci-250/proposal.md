@@ -2,19 +2,19 @@
 
 Approved-by: Coby Leuschke (2026-10-28)
 
+Amended 2026-10-28 by the owner: narrowed to the draft deferral alone. The merge-check split first ruled here as D5 is parked as #255 (see `design.md` D5).
+
 ## Why
 
-Both forges' `CI` and `Gate files` workflows run on every draft push (#250). In the latest 40-workflow-run sample (21 CI runs), all four failed CI runs had a passing `Verify`. Three of them were drafts or near-drafts failing only because flake #248 was open, and `Gate files` turned drafts red before the owner label could apply. PR #247 spent 6m04s on `Verify` as a draft and 6m06s again at the same head once it was ready. Drafts are checkpoints. Running the full gate on them uses runner time and reports "not ready to merge" as a broken build.
+Both forges' `CI` and `Gate files` workflows run on every draft push (#250). In the latest 40-workflow-run sample (21 CI runs), all four failed CI runs had a passing `Verify`. Three of them were drafts or near-drafts failing only because flake #248 was open, and `Gate files` turned drafts red before the owner label could apply. PR #247 spent 6m04s on `Verify` as a draft and 6m06s again at the same head once it was ready. A draft is local work with a remote backup. Nothing needs to run on it on either forge until it is marked ready.
 
 ## What Changes
 
-- `CI` (both forges): `Verify` and `Required` (now `needs: [verify]` only) skip when the pull request is a draft (D2 = A, grey). They run in full on non-draft `opened`/`reopened`, on `ready_for_review`, on every `synchronize` while the pull request is ready, and on push to `main`.
-- `Merge check` (both forges) moves to its own workflow and required context, `merge-check.yml`, triggered on `opened`, `synchronize`, `reopened`, `ready_for_review`, `edited`, `labeled`, `unlabeled`; it skips drafts and keeps the base-branch checkout (#140). It measures PR state, not code, so it reruns on the events that change that state: the reviewer's `reviewed-by:` body edit clears it without a manual rerun (D5).
-- `Gate files` (both forges): the job skips on draft events and adds `edited`. It runs on ready, on later pushes, on title/body edits, and on label changes to a ready pull request, still from the trusted base.
-- `Required` still rejects a skipped, failed, cancelled, or missing prerequisite whenever it runs. GitHub treats a skipped required check as passing, so a draft head marked ready at the same SHA carries a skipped `Required` until the ready run's check run exists. Task 1.2 measures that window before the workflow lands; `design.md` D2 carries the decision rule.
-- The `main` ruleset requires `Required`, `Merge check`, and `Gate files` (owner edit). `review-pr` § 5 drops the manual rerun and `.agents/protocol.md` § 4 drops the "expect one red Merge check" sentence (#192).
-- Workflow tests in `internal/bootstrap` and the "Merge gate and CI workflow enforcement" requirement state this scheduling contract. Mutation checks show that dropping the draft guard, the ready trigger, or the skipped-prerequisite rejection is caught.
-- `.agents/protocol.md` § Verify says CI on a draft is deferred, not passed, and that local gates are unchanged.
+- `CI` and `Gate files` (both forges): every job skips when the pull request is a draft, and on a draft the job is **renamed** (`name: ${{ github.event.pull_request.draft && '<job> (draft, skipped)' || '<job>' }}`) so no check run named `Required` or `Gate files` exists at a draft head. GitHub counts a skipped job as a passing required check, but a required context with no check run is "Waiting for status to be reported" and blocks the merge. The ready run is the first thing to create the required contexts, so marking a draft ready at the same SHA has no stale-pass window (task 1.2 measured 129 s with a plain skip).
+- `Required` keeps `if: always()`, written `always() && <not draft>`, and still fails on any needed result other than `success` whenever it runs.
+- Gitea: `pull_request.draft` is populated from the `WIP:` / `[WIP]` title prefix from Gitea 1.22, and Gitea interpolates job names server-side, so the same bytes work. Leaving WIP is an `edited` event there, so the Gitea workflows add `edited` to their trigger types (twin-test exception on that line only).
+- Workflow tests in `internal/bootstrap` and the "Merge gate and CI workflow enforcement" requirement state this contract; mutation checks show that dropping the guard, the rename, or the skipped-prerequisite rejection is caught.
+- `.agents/protocol.md` § 2 Verify says CI on a draft is deferred, not passed, and local gates are unchanged.
 
 ## Track
 
@@ -22,12 +22,12 @@ Both forges' `CI` and `Gate files` workflows run on every draft push (#250). In 
 
 ## Non-goals
 
-- No change to `scripts/merge-check.sh`, `scripts/gate-files.sh`, the review-record format, the `Required` and `Gate files` context names, review-after-ready sequencing, or local `task verify` obligations. The ruleset edit adding `Merge check` is the owner's.
-- No `[skip ci]` convention, no new external automation, and no rewrite of the #87 concurrency rule beyond what the draft guard needs.
+- No change to `scripts/merge-check.sh`, `scripts/gate-files.sh`, the ruleset, required-check names, the `Required` aggregate's shape, review sequencing (#192), or local `task verify` obligations.
+- No merge-check workflow split (parked as its own issue), no `[skip ci]` convention, no new external automation, and no rewrite of the #87 concurrency rule.
 
 ## Definition of Done
 
 - `task verify` is green on a clean tree, `ateam doctor` parity is green, and `ateam bench --selftest` is green.
-- Static workflow tests cover the draft guard, the ready trigger, and `Required`'s rejection of skipped jobs, and each has a `detection` mutation.
-- Recorded live GitHub evidence on a throwaway PR in this repository for: draft opened, draft synchronize, draft → ready at the same SHA, ready synchronize, ready → draft → ready, and auto-merge armed immediately after ready. The record states the check states that `Required` and `Gate files` showed at each step. Gitea parity is recorded as executed or as unavailable, with the reason.
+- Static workflow tests cover the draft guard, the draft rename, the `always()` form on `Required`, the ready trigger, and `Required`'s rejection of skipped jobs, each with a `detection` mutation.
+- Recorded live GitHub evidence on a throwaway PR in this repository: a draft head shows no `Required` or `Gate files` check run; after `gh pr ready` at the same SHA the required contexts read "Waiting for status" until the ready run reports; ready synchronize, ready → draft → ready, and auto-merge armed immediately after ready are recorded with their check states. Gitea parity is recorded as executed or as unavailable, with the reason.
 - The owner adds `gate-change-approved` before landing.

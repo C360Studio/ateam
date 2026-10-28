@@ -54,6 +54,7 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 #### Scenario: Draft pull requests defer CI and ready revisions run every gate
 
 - **WHEN** a `pull_request` or `pull_request_target` event arrives for a draft pull request
-- **THEN** `Verify`, `Merge check`, and `Gate files` do not run, and `Required` is skipped; no job reports a draft as verified
-- **AND** a non-draft `opened` or `reopened`, a `ready_for_review`, and every `synchronize` while the pull request is not a draft run `Verify`, `Merge check`, `Required`, and `Gate files` against the head revision, and `push` to `main` still runs `Verify`
-- **AND** whenever `Required` runs for a non-draft revision it fails on any needed result other than `success`, including `skipped`, so a ready pull request never merges on a skipped or stale draft-era result
+- **THEN** `Verify`, `Merge check`, `Required`, and `Gate files` do not run (`if: github.event_name != 'pull_request' || !github.event.pull_request.draft`, with `Required` as `always() && (...)`), and each is renamed on a draft (`name: ${{ github.event.pull_request.draft && '<job> (draft, skipped)' || '<job>' }}`) so no check run named `Required` or `Gate files` exists at a draft head and the required contexts stay unreported
+- **AND** a non-draft `opened` or `reopened`, a `ready_for_review`, and every `synchronize` while the pull request is not a draft run `Verify`, `Merge check`, `Required`, and `Gate files` against the head revision under their required names, and `push` to `main` still runs `Verify`
+- **AND** whenever `Required` runs for a non-draft revision it fails on any needed result other than `success`, including `skipped`
+- **AND** `.gitea/workflows/ci.yml` and `.gitea/workflows/gate-files.yml` also list `edited` in their `pull_request` types, because leaving Gitea's `WIP:` title prefix is an `edited` event, and that `types:` line is the only further difference from their GitHub twins
