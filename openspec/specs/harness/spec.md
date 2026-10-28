@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks across Claude Code, Codex CLI, and Gemini CLI, the 2-tool low-tax MCP server (`ateam_state`, `ateam_task`), OpenSpec queue and `Hold:` validation (`spec:queue` and `spec:check`), dual-forge state synchronization (**GitHub** and **Gitea**), `// shortcut:` debt scanning, and the agentic benchmark suite (`ateam bench`).
-
 ## Requirements
-
 ### Requirement: Lifecycle hook normalization under 10ms
 
 `ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 10ms using cached `.ateam/state.json`.
@@ -730,3 +728,28 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 - **WHEN** `--dry-run` is passed
 - **THEN** the same lines are printed with `would remove` in place of `removed`, and no worktree, branch, or remote ref changes
 - **AND WHEN** pickup renders a worktree the same check would remove for the current agent, its line ends with `, prune candidate)`
+
+### Requirement: Build provenance names the binary the hooks run
+
+`ateam version`, `ateam doctor`, and the session-start hook SHALL label a binary installed with `go install <module>@<tag>` by its tag, never `unknown`. Doctor SHALL report the `PATH` binary the hooks run as `hook_binary` beside `disk_build`. In the ateam checkout, every stale-binary warning SHALL name the binary's path and the commands that replace it. Pickup SHALL report how many commits local `main` trails `origin/main`.
+
+#### Scenario: Module install reads as its tag
+
+- **WHEN** the binary carries main-module version `v0.3.3` and no stamped commit or `vcs.revision`
+- **THEN** `ateam version` prints `ateam v0.3.3 (module)`, and the session-start hook in the ateam checkout names `v0.3.3` instead of saying the binary has no build provenance
+
+#### Scenario: Hook binary differs from the checkout build
+
+- **WHEN** doctor runs in the ateam checkout and the `ateam` on `PATH` reports a different build from `./bin/ateam`
+- **THEN** `hook_binary` carries the `PATH` binary's path, version, and build, and a warning names both binaries and how to replace the `PATH` one
+
+#### Scenario: Hook binary matches
+
+- **WHEN** the `PATH` `ateam` and `./bin/ateam` report the same build
+- **THEN** doctor emits no hook-binary warning
+
+#### Scenario: Local main behind origin
+
+- **WHEN** local `main` trails `origin/main` by 2 commits
+- **THEN** pickup's `main` worktree line and the `[ateam]` summary show `behind=2`, and neither shows `behind` when the two are even
+
