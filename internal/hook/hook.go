@@ -87,6 +87,16 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 
 // HandleWithAgent processes a hook event with an optional explicit agent identity (--agent claude|codex|gemini|agy).
 func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output, error) {
+	return handle(root, flagEvent, flagAgent, stdin, state.ResolveEnvSessionID())
+}
+
+// Probe runs a hook event as no session, so it writes neither the writer lease nor the MCP-checked marker;
+// ateam doctor times session-start through it without stealing a live session's lease (#204).
+func Probe(root, flagEvent string) (Output, error) {
+	return handle(root, flagEvent, "", strings.NewReader(`{}`), "")
+}
+
+func handle(root, flagEvent, flagAgent string, stdin io.Reader, envSessionID string) (Output, error) {
 	var in Input
 	if stdin != nil {
 		if data, err := io.ReadAll(io.LimitReader(stdin, 1<<20)); err == nil && len(strings.TrimSpace(string(data))) > 0 {
@@ -101,7 +111,7 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	if err != nil {
 		return Output{}, err
 	}
-	sessionID := firstNonEmpty(in.SessionID, in.ConversationID, state.ResolveEnvSessionID())
+	sessionID := firstNonEmpty(in.SessionID, in.ConversationID, envSessionID)
 	st.CurrentSessionID = sessionID
 	br, sha := state.ReadFastGitHead(root)
 	wtHeadChanged := false

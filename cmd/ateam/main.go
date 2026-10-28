@@ -506,11 +506,11 @@ func runDoctor(repoRoot string, args []string) int {
 	if tokens >= mcpserver.MaxSchemaTokens {
 		violations = append(violations, fmt.Sprintf("MCP schema budget exceeded: %d tokens >= %d", tokens, mcpserver.MaxSchemaTokens))
 	}
-	_, _ = hook.Handle(repoRoot, "session-start", strings.NewReader(`{}`))
+	_, _ = hook.Probe(repoRoot, "session-start")
 	var hookUs int64
 	for i := 0; i < 3; i++ {
 		t0 := time.Now()
-		_, _ = hook.Handle(repoRoot, "session-start", strings.NewReader(`{}`))
+		_, _ = hook.Probe(repoRoot, "session-start")
 		d := time.Since(t0).Microseconds()
 		if i == 0 || d < hookUs {
 			hookUs = d
