@@ -8,7 +8,7 @@ The reviewer contract asks for the "exact model", so a Claude reviewer records i
 
 ## What Changes
 
-- `.agents/review-policy.json`: add current resolved Claude model IDs to the same tier as their family alias (the list is an owner ruling; see design.md, Open Questions).
+- `.agents/review-policy.json`: add current resolved Claude model IDs to the same tier as their family alias (owner ruling, 2026-10-28: the current generation only, so Opus 4.x and Sonnet 4.x stay unranked; see design.md, Open Questions).
 - ADR 0002 § 1 tier table and policy example: the same entries, plus one sentence saying a tier lists every spelling a run may record.
 - `.agents/contracts/{developer,reviewer}.md` and their `ateam review setup` sources in `internal/bootstrap/review.go`: ask runs to record the model as the policy lists it, for example `opus`, instead of the "exact model".
 
