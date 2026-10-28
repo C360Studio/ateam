@@ -11,6 +11,8 @@ import (
 
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestOpenSpecQueueAndCheck(t *testing.T) {
+	// Hide any host openspec so the skip notice below does not depend on the machine (#205).
+	t.Setenv("PATH", t.TempDir())
 	dir := t.TempDir()
 	changeDir := filepath.Join(dir, "openspec", "changes", "setup-01")
 	if err := os.MkdirAll(changeDir, 0o755); err != nil {
@@ -314,6 +316,8 @@ func TestHoldMarkerNamesItsLeadingCaveat(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestProposalLengthWarning(t *testing.T) {
+	// Fixtures are not strict-valid; keep a host openspec on PATH out of a length check (#205).
+	t.Setenv("PATH", t.TempDir())
 	for _, tc := range []struct {
 		name     string
 		proposal string
@@ -355,6 +359,8 @@ func TestProposalLengthWarning(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Opt-in design track
 func TestDesignLengthWarning(t *testing.T) {
+	// Fixtures are not strict-valid; keep a host openspec on PATH out of a length check (#205).
+	t.Setenv("PATH", t.TempDir())
 	const absent = "\x00absent"
 	for _, tc := range []struct {
 		name   string
@@ -393,5 +399,74 @@ func TestDesignLengthWarning(t *testing.T) {
 		if !tc.warn && strings.Contains(out, "warning:") {
 			t.Fatalf("%s: unexpected warning:\n%s", tc.name, out)
 		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
+func TestCheckOpenSpecFindsValidatorOnPATH(t *testing.T) {
+	const pass, fail = "exit 0\n", "echo strict-failed\nexit 1\n"
+	for _, tc := range []struct {
+		name, local, onPath string // "" means that validator is absent
+		wantCode            int
+		wantSkip            bool
+	}{
+		{"neither installed", "", "", 0, true},
+		{"PATH only, passes", "", pass, 0, false},
+		{"PATH only, fails", "", fail, 1, false},
+		{"local wins over PATH", pass, fail, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, "openspec", "changes"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "openspec", "config.yaml"), []byte("schema: spec-driven\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			pathDir := t.TempDir()
+			t.Setenv("PATH", pathDir)
+			if tc.onPath != "" {
+				writeFake(t, filepath.Join(pathDir, "openspec"), tc.onPath)
+			}
+			if tc.local != "" {
+				binDir := filepath.Join(dir, "node_modules", ".bin")
+				if err := os.MkdirAll(binDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				writeFake(t, filepath.Join(binDir, "openspec"), tc.local)
+			}
+			out, code, err := CheckOpenSpec(context.Background(), dir)
+			if code != tc.wantCode || (err != nil) != (tc.wantCode != 0) {
+				t.Fatalf("code=%d err=%v, want code %d; output:\n%s", code, err, tc.wantCode, out)
+			}
+			if tc.wantCode != 0 && !strings.Contains(out, "strict-failed") {
+				t.Errorf("failing validator output not returned: %q", out)
+			}
+			if got := strings.Contains(out, "strict validation skipped"); got != tc.wantSkip {
+				t.Errorf("skip notice = %v, want %v; output:\n%s", got, tc.wantSkip, out)
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
+func TestCheckOpenSpecIgnoresValidatorInCurrentDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "openspec", "changes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "openspec", "config.yaml"), []byte("schema: spec-driven\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A planted ./openspec reached only through a "." PATH entry must not run (exec.ErrDot).
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "openspec"), []byte("#!/bin/sh\necho planted\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+	t.Setenv("PATH", ".")
+	out, code, err := CheckOpenSpec(context.Background(), dir)
+	if code != 0 || err != nil || strings.Contains(out, "planted") || !strings.Contains(out, "strict validation skipped") {
+		t.Fatalf("code=%d err=%v; a ./openspec must be skipped, not run; output:\n%s", code, err, out)
 	}
 }
