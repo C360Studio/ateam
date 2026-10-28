@@ -2,11 +2,14 @@ package taskrunner
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // spec: openspec/specs/harness/spec.md#Requirement: Task target discovery and validation
@@ -27,7 +30,7 @@ tasks:
 	if err := os.WriteFile(filepath.Join(dir, "Taskfile.yml"), []byte(tf), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	targets, err := ListTargets(dir)
+	targets, err := ListTargets(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("ListTargets: %v", err)
 	}
@@ -51,16 +54,18 @@ tasks:
 
 // spec: openspec/specs/harness/spec.md#Requirement: Task target discovery and validation
 func TestListTargetsResolvesIncludesWithTaskCLI(t *testing.T) {
-	// The fake answers --list-all --json as Task v3 does for an includes: layout, and echoes any target it is asked
-	// to run, so an included target must be both listed and accepted by Run.
+	// The fake answers --list-all --json as Task 3.51 does for an includes: layout, where a label: makes the display
+	// name differ from the task key, and echoes any target it is asked to run. Included and labeled targets must be
+	// listed by key and accepted by Run.
 	dir := writeTaskfile(t, includesTaskfile)
-	writeFakeTask(t, `if [ "$1" = "--list-all" ]; then
-  echo '{"tasks":[{"name":"test:unit","task":"test:unit","desc":"Run unit tests"},{"name":"fmt","task":"fmt","desc":"Format Go code"}]}'
+	writeFakeTask(t, `[ "$1 $2" = "--taskfile Taskfile.yml" ] || { echo "unpinned taskfile: $*" >&2; exit 2; }
+if [ "$3" = "--list-all" ]; then
+  echo '{"tasks":[{"name":"test:unit","task":"test:unit","desc":"Run unit tests"},{"name":"Format code","task":"fmt","desc":"Format Go code"}]}'
   exit 0
 fi
-echo "ran $1"
+echo "ran $3"
 `)
-	targets, err := ListTargets(dir)
+	targets, err := ListTargets(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("ListTargets: %v", err)
 	}
@@ -68,9 +73,83 @@ echo "ran $1"
 	if len(targets) != len(want) || targets[0] != want[0] || targets[1] != want[1] {
 		t.Fatalf("targets = %+v, want %+v", targets, want)
 	}
-	out, err := Run(context.Background(), dir, "test:unit", nil)
-	if err != nil || strings.TrimSpace(out) != "ran test:unit" {
-		t.Fatalf("Run(test:unit) = %q, %v", out, err)
+	for _, target := range []string{"test:unit", "fmt"} {
+		out, err := Run(context.Background(), dir, target, nil)
+		if err != nil || strings.TrimSpace(out) != "ran "+target {
+			t.Fatalf("Run(%s) = %q, %v", target, out, err)
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Task target discovery and validation
+func TestListTargetsRequiresRootTaskfile(t *testing.T) {
+	// Task would find a Taskfile in an ancestor directory; without root's own Taskfile.yml nothing may be invoked.
+	parent := writeTaskfile(t, includesTaskfile)
+	child := filepath.Join(parent, "child")
+	if err := os.Mkdir(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "invoked")
+	writeFakeTask(t, ": > "+marker+"\necho '{\"tasks\":[{\"name\":\"fmt\",\"task\":\"fmt\"}]}'\n")
+	if _, err := Run(context.Background(), child, "fmt", nil); err == nil || !strings.Contains(err.Error(), "read Taskfile.yml") {
+		t.Fatalf("Run in a child without Taskfile.yml: err = %v, want read Taskfile.yml error", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("task was invoked for a root without its own Taskfile.yml")
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Task target discovery and validation
+func TestRunSkipsDiscoveryOnCanceledContext(t *testing.T) {
+	dir := writeTaskfile(t, includesTaskfile)
+	marker := filepath.Join(t.TempDir(), "invoked")
+	writeFakeTask(t, ": > "+marker+"\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := Run(ctx, dir, "fmt", nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run on canceled ctx: err = %v, want context.Canceled", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("task was invoked despite a canceled context")
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Task target discovery and validation
+func TestListTargetsStopsOnCancelDespiteHeldPipe(t *testing.T) {
+	// The fake leaves a descendant holding stdout, signals through a FIFO that listing is in flight, then blocks.
+	// Cancellation must end listing with ctx's error (no fallback) without waiting for the descendant.
+	dir := writeTaskfile(t, includesTaskfile)
+	fifo := filepath.Join(t.TempDir(), "started")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeTask(t, "/bin/sleep 30 &\necho started > "+fifo+"\nwait\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		targets []Target
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		targets, err := ListTargets(ctx, dir)
+		done <- result{targets, err}
+	}()
+	if _, err := os.ReadFile(fifo); err != nil { // blocks until the fake has started
+		t.Fatal(err)
+	}
+	canceled := time.Now()
+	cancel()
+	select {
+	case r := <-done:
+		if !errors.Is(r.err, context.Canceled) {
+			t.Fatalf("ListTargets after cancel = %+v, %v; want context.Canceled", r.targets, r.err)
+		}
+		if waited := time.Since(canceled); waited > 10*time.Second {
+			t.Fatalf("listing returned %v after cancel; the held pipe was waited on", waited)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("listing still blocked 20s after cancel; the held pipe was waited on")
 	}
 }
 
@@ -84,7 +163,7 @@ func TestListTargetsFallsBackWhenTaskCLIFails(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := writeTaskfile(t, includesTaskfile)
 			writeFakeTask(t, body)
-			targets, err := ListTargets(dir)
+			targets, err := ListTargets(context.Background(), dir)
 			if err != nil {
 				t.Fatalf("ListTargets: %v", err)
 			}
