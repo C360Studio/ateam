@@ -1,6 +1,6 @@
 # Change Proposal: `provenance-251`
 
-Approved-by:
+Approved-by: Coby (2026-10-28)
 
 ## Why
 

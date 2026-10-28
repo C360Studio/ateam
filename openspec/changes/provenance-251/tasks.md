@@ -1,7 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)`, removing this hold in the same edit, and ruling on design Open Questions 1 (D1), 2 (D2), and 3 (pseudo-version) (#251).
-  Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md`, fills `Approved-by: Coby (2026-10-28)`, and removes the approval hold in the same edit. Rulings: Open Question 1 → D1 A (doctor-only tag resolution; the hook gains no subprocess), 2 → D2 A (`LookPath` of the Claude hook command's argv[0]), 3 → pseudo-versions in scope (#251).
 
 ## 2. Implementation
 
