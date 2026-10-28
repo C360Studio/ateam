@@ -184,6 +184,9 @@ func TestPruneRemovesOnlyOwnedFinishedWorktrees(t *testing.T) {
 		}
 	}
 	locals := git(root, "branch", "--format=%(refname:short)")
+	if strings.Contains(locals, "ateam-prune/") {
+		t.Fatalf("a detached checkout's pin branch outlived its removal:\n%s", locals)
+	}
 	remotes := remoteRefs()
 	for branch, want := range map[string]bool{"claude/merged": false, "claude/gitea": false, "claude/moved": false, "claude/dirty": true, "codex/merged": true, "claude/ahead": true} {
 		if got := strings.Contains(locals+"\n", branch+"\n"); got != want {
@@ -210,6 +213,15 @@ func TestPruneVerdictReviewPRNumberOnTwoForges(t *testing.T) {
 		if remove, reason := st.PruneVerdict(wt, "claude", ""); remove || reason != "review of open PR #1" {
 			t.Fatalf("%s: PruneVerdict = (%v, %q), want (false, %q)", name, remove, reason, "review of open PR #1")
 		}
+		// The review checked out aaaaaaa, then the still-open GitHub PR advanced past it while the Gitea PR closed at it.
+		st.Cards = []BoardCard{gitea, github}
+		st.Cards[0].HeadSHA, st.Cards[1].HeadSHA = "aaaaaaa", "ccccccc"
+		if name == "github first" {
+			st.Cards[0], st.Cards[1] = st.Cards[1], st.Cards[0]
+		}
+		if remove, reason := st.PruneVerdict(wt, "claude", ""); remove || reason != "review of open PR #1" {
+			t.Fatalf("%s, open PR advanced: PruneVerdict = (%v, %q), want (false, %q)", name, remove, reason, "review of open PR #1")
+		}
 	}
 }
 
@@ -221,7 +233,7 @@ func TestPrunePreservesWorkAddedAfterRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, scenario := range []string{"local commit after refresh", "branch moved after worktree removal", "remote push after ls-remote", "detached commit past the PR head"} {
+	for _, scenario := range []string{"local commit after refresh", "branch moved after worktree removal", "remote push after ls-remote", "detached commit past the PR head", "detached commit after the live check", "local ref lock error"} {
 		t.Run(scenario, func(t *testing.T) {
 			clearAgentSessionEnv(t)
 			for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"} {
@@ -249,6 +261,9 @@ func TestPrunePreservesWorkAddedAfterRefresh(t *testing.T) {
 			git(wt, "commit", "-q", "--allow-empty", "-m", "reviewed")
 			prHead := git(wt, "rev-parse", "HEAD")
 			git(wt, "push", "-q", "origin", "claude/topic")
+			if scenario == "detached commit after the live check" {
+				git(wt, "switch", "-q", "--detach")
+			}
 			if scenario == "detached commit past the PR head" {
 				git(wt, "switch", "-q", "--detach")
 				git(wt, "commit", "-q", "--allow-empty", "-m", "unpushed review work")
@@ -261,9 +276,12 @@ func TestPrunePreservesWorkAddedAfterRefresh(t *testing.T) {
 			st.ReconcileWorktrees()
 
 			// A git wrapper on PATH injects the concurrent step at the exact point under test.
-			wrap := func(trigger, inject string) {
+			wrap := func(trigger, inject string, before bool) {
 				bin := filepath.Join(base, "bin")
-				script := "#!/bin/sh\nif [ \"$1\" = \"" + trigger + "\" ]; then\n  \"$REAL_GIT\" \"$@\" > \"$SNAP\" 2>&1; rc=$?\n  " + inject + " >/dev/null 2>&1 || exit 99\n  cat \"$SNAP\"; exit $rc\nfi\nexec \"$REAL_GIT\" \"$@\"\n"
+				script := "#!/bin/sh\nif [ \"$1\" = \"" + trigger + "\" ]; then\n  \"$REAL_GIT\" \"$@\" > \"$SNAP\" 2>&1; rc=$?\n  { " + inject + "; } >/dev/null 2>&1 || exit 99\n  cat \"$SNAP\"; exit $rc\nfi\nexec \"$REAL_GIT\" \"$@\"\n"
+				if before {
+					script = "#!/bin/sh\nif [ \"$1\" = \"" + trigger + "\" ]; then\n  { " + inject + "; } >/dev/null 2>&1 || exit 99\nfi\nexec \"$REAL_GIT\" \"$@\"\n"
+				}
 				if err := os.MkdirAll(bin, 0o755); err != nil {
 					t.Fatal(err)
 				}
@@ -281,11 +299,18 @@ func TestPrunePreservesWorkAddedAfterRefresh(t *testing.T) {
 				git(base, "clone", "-q", "-b", "claude/topic", origin, other)
 				git(other, "commit", "-q", "--allow-empty", "-m", "later work")
 				git(root, "fetch", "-q", other, "claude/topic")
-				wrap("worktree", `"$REAL_GIT" -C "`+root+`" update-ref refs/heads/claude/topic FETCH_HEAD`)
+				wrap("worktree", `"$REAL_GIT" -C "`+root+`" update-ref refs/heads/claude/topic FETCH_HEAD`, false)
 			case "remote push after ls-remote":
 				git(base, "clone", "-q", "-b", "claude/topic", origin, other)
 				git(other, "commit", "-q", "--allow-empty", "-m", "concurrent remote work")
-				wrap("ls-remote", `"$REAL_GIT" -C "`+other+`" push -q origin claude/topic`)
+				wrap("ls-remote", `"$REAL_GIT" -C "`+other+`" push -q origin claude/topic`, false)
+			case "detached commit after the live check":
+				// Lands after every check prune makes, just before git worktree remove runs.
+				wrap("worktree", `"$REAL_GIT" -C "`+wt+`" commit -q --allow-empty -m late && "$REAL_GIT" -C "`+wt+`" rev-parse HEAD > "`+filepath.Join(base, "late")+`"`, true)
+			case "local ref lock error":
+				if err := os.WriteFile(filepath.Join(root, ".git", "refs", "heads", "claude", "topic.lock"), nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
 			}
 
 			var out bytes.Buffer
@@ -299,6 +324,18 @@ func TestPrunePreservesWorkAddedAfterRefresh(t *testing.T) {
 			case "branch moved after worktree removal":
 				if git(root, "branch", "--list", "claude/topic") == "" || !strings.Contains(got, "kept branch claude/topic, which moved since refresh") {
 					t.Fatalf("moved local branch was deleted:\n%s", got)
+				}
+			case "detached commit after the live check":
+				late, err := os.ReadFile(filepath.Join(base, "late"))
+				if err != nil {
+					t.Fatalf("injection not reached: %v\n%s", err, got)
+				}
+				if git(root, "for-each-ref", "--contains", strings.TrimSpace(string(late))) == "" {
+					t.Fatalf("commit made after the live check is no longer referenced:\n%s", got)
+				}
+			case "local ref lock error":
+				if !failed || !strings.Contains(got, "failed claude/topic: worktree removed; git update-ref -d refs/heads/claude/topic: ") {
+					t.Fatalf("a locked ref was reported as moved, not failed (failed=%v):\n%s", failed, got)
 				}
 			case "remote push after ls-remote":
 				if git(root, "ls-remote", "origin", "refs/heads/claude/topic") == "" || !strings.Contains(got, "kept origin/claude/topic, which moved to ") {

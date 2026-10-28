@@ -52,21 +52,23 @@ func (st *State) PruneVerdict(wt Worktree, agent, currentPath string) (bool, str
 		return false, "dirty"
 	}
 	if detached {
-		// Match the PR by number and head: the number alone can name PRs on two forges, and a head past
-		// the PR's head may hold unpushed review work that this checkout's reflog is the only record of.
-		var matched []BoardCard
+		// The number alone can name PRs on two forges, and a review may have checked out an older head of a
+		// PR that is still open, so any open PR with this number keeps the checkout. A head that is no closed
+		// PR's head may hold unpushed review work.
+		headMatched := false
 		for _, c := range st.Cards {
-			if isPRCard(c) && cardPRNumber(c) == reviewPR && c.HeadSHA != "" && SameCommitSHA(c.HeadSHA, wt.Head) {
-				matched = append(matched, c)
+			if !isPRCard(c) || cardPRNumber(c) != reviewPR {
+				continue
 			}
-		}
-		if len(matched) == 0 {
-			return false, fmt.Sprintf("head is not PR #%d's head in the forge cache", reviewPR)
-		}
-		for _, c := range matched {
 			if c.Column != "done" {
 				return false, fmt.Sprintf("review of open PR #%d", reviewPR)
 			}
+			if c.HeadSHA != "" && SameCommitSHA(c.HeadSHA, wt.Head) {
+				headMatched = true
+			}
+		}
+		if !headMatched {
+			return false, fmt.Sprintf("head is not PR #%d's head in the forge cache", reviewPR)
 		}
 		return true, fmt.Sprintf("review of closed PR #%d", reviewPR)
 	}
@@ -114,31 +116,44 @@ func Prune(ctx context.Context, root string, st *State, agent string, dryRun boo
 			failed = true
 			continue
 		}
-		// A commit made since the refresh leaves the tree clean, which git worktree remove would accept.
-		wantRef := ""
-		if branch != "" {
-			wantRef = "refs/heads/" + branch
+		// A detached checkout's commits are reachable only from its own HEAD, which removal discards. Pin it to
+		// a branch first: a commit landing after the checks below then advances the pin, and the pin's
+		// expected-value delete keeps it.
+		wantRef := "refs/heads/" + branch
+		if branch == "" {
+			wantRef = "refs/heads/ateam-prune/" + name
+			if out, err := gitCombined(ctx, wt.Path, "switch", "-q", "-c", strings.TrimPrefix(wantRef, "refs/heads/")); err != nil {
+				fmt.Fprintf(w, "failed %s: git switch -c: %s\n", name, out)
+				failed = true
+				continue
+			}
 		}
+		// A commit made since the refresh leaves the tree clean, which git worktree remove would accept.
 		liveHead, _ := gitCombined(ctx, wt.Path, "rev-parse", "HEAD")
 		liveRef, _ := gitCombined(ctx, wt.Path, "symbolic-ref", "-q", "HEAD")
 		if liveHead != approved || liveRef != wantRef {
 			fmt.Fprintf(w, "kept %s: moved since refresh\n", name)
 			continue
 		}
-		// shortcut: a commit landing between the live check and the removal survives on a branch (update-ref below) but not on a detached checkout, whose HEAD reflog goes with it; upgrade if git gains an expected-HEAD worktree remove.
 		// No --force: git refuses a worktree that gained changes or untracked files since the refresh.
 		if out, err := gitCombined(ctx, root, "worktree", "remove", wt.Path); err != nil {
 			fmt.Fprintf(w, "failed %s: git worktree remove: %s\n", name, out)
 			failed = true
 			continue
 		}
-		if branch == "" {
-			fmt.Fprintf(w, "removed %s: %s\n", name, reason)
+		// Delete the branch only while it still points at the approved head; squash merges rule out git branch -d.
+		if out, err := gitCombined(ctx, root, "update-ref", "-d", wantRef, approved); err != nil {
+			cur, revErr := gitCombined(ctx, root, "rev-parse", "--verify", "--quiet", wantRef)
+			if revErr != nil || cur == approved {
+				fmt.Fprintf(w, "failed %s: worktree removed; git update-ref -d %s: %s\n", name, wantRef, out)
+				failed = true
+				continue
+			}
+			fmt.Fprintf(w, "removed %s: %s; kept branch %s, which moved since refresh\n", name, reason, strings.TrimPrefix(wantRef, "refs/heads/"))
 			continue
 		}
-		// Delete the branch only while it still points at the approved head; squash merges rule out git branch -d.
-		if _, err := gitCombined(ctx, root, "update-ref", "-d", wantRef, approved); err != nil {
-			fmt.Fprintf(w, "removed %s: %s; kept branch %s, which moved since refresh\n", name, reason, branch)
+		if branch == "" {
+			fmt.Fprintf(w, "removed %s: %s\n", name, reason)
 			continue
 		}
 		remoteHead := func() (string, error) {
