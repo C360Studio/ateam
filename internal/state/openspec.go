@@ -237,7 +237,7 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 			joined := normalizeHoldPrefix(strings.Join(t.holdLines, " "))
 			cleaned := cleanTaskText(joined)
 			change.Caveats = append(change.Caveats, OpenSpecCaveat{
-				Marker: "BLOCKED",
+				Marker: holdMarker(joined),
 				Line:   t.holdLine,
 				Text:   cleaned,
 				Full:   normalizeTaskText(joined),
@@ -251,6 +251,20 @@ func ParseTasksMarkdown(relPath string, data []byte) (OpenSpecChange, []HoldItem
 		}
 	}
 	return change, holds, nil
+}
+
+// holdMarker returns the caveat a hold carries: its leading HALT, RED, or OPEN-Q token (the protocol writes the
+// approval hold as `Hold: OPEN-Q proposal awaits owner approval`), else BLOCKED. Only the leading token counts, so a
+// hold that merely mentions a failing check stays BLOCKED.
+func holdMarker(joined string) string {
+	words := strings.Fields(strings.TrimPrefix(joined, "Hold:"))
+	if len(words) > 0 {
+		switch tok := strings.ToUpper(strings.TrimRight(words[0], ":,;")); tok {
+		case "HALT", "RED", "OPEN-Q":
+			return tok
+		}
+	}
+	return "BLOCKED"
 }
 
 func normalizeHoldPrefix(s string) string {

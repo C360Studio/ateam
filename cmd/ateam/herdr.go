@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/c360studio/ateam/internal/state"
@@ -230,7 +231,9 @@ func toastNewCaveats(ctx context.Context, run herdrRunner, bin, repo string) err
 		}
 		for _, ch := range changes {
 			for _, c := range ch.Caveats {
-				if c.Marker != "HALT" && c.Marker != "RED" && c.Marker != "BLOCKED" {
+				// Every Hold toasts, including one marked OPEN-Q (#230); a first-line "still open" OPEN-Q does not.
+				hold := strings.HasPrefix(c.Text, "Hold:")
+				if c.Marker != "HALT" && c.Marker != "RED" && c.Marker != "BLOCKED" && !hold {
 					continue
 				}
 				// Identity hashes the full caveat text (not the truncated display Text, and
