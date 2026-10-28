@@ -141,7 +141,7 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 			}
 		}
 		// The templates are the files this repository dogfoods, not paraphrases of them.
-		for _, rel := range []string{".agents/skills/design/SKILL.md", ".agents/contracts/architect.md"} {
+		for _, rel := range []string{".agents/skills/design/SKILL.md", ".agents/skills/review-pr/SKILL.md", ".agents/contracts/architect.md"} {
 			shipped, _ := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
 			repo, err := os.ReadFile(filepath.Join(repoRoot(t), filepath.FromSlash(rel)))
 			if err != nil {

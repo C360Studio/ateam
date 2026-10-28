@@ -1,6 +1,6 @@
 # ADR 0002: Model tiers and effort bands for reviewer strength
 
-- **Status:** Accepted (owner, 2026-10-22); § 2 unranked rule amended (owner, #125, 2026-10-22); review record mode added (owner, #130, 2026-10-26; see the addendum)
+- **Status:** Accepted (owner, 2026-10-22); § 2 unranked rule amended (owner, #125, 2026-10-22); review record mode added (owner, #130, 2026-10-26; see the addendum); § 1 model tiers amended for resolved Claude IDs, `codex:gpt-6-luna`, and `gemini:gemini-4-argon` (owner, #209, 2026-10-28)
 - **Date:** 2026-10-22
 - **Deciders:** repository owner
 - **Amends:** [ADR 0001](0001-review-gate-scope.md), decision steps 1 and 2
@@ -27,15 +27,15 @@ Provider effort parameters (owner-supplied, 2026-10-22):
 
 ### 1. Three model tiers and three effort bands, typed once in `review-policy.json`
 
-The owner maps each provider model into one of three **tiers**, and each provider's native effort values into one of three **bands**. Both maps live in `.agents/review-policy.json`. PR lines and routes keep native names; the tool does the mapping.
+The owner maps each provider model into one of three **tiers**, and each provider's native effort values into one of three **bands**. Both maps live in `.agents/review-policy.json`. A tier lists every model spelling a run may record, including resolved runtime IDs alongside family aliases (#209). PR lines and routes keep native names; the tool does the mapping.
 
-Model tiers (owner ruling, #81, 2026-10-22):
+Model tiers (owner rulings, #81, 2026-10-22, and #209, 2026-10-28):
 
 | Tier | Models |
 | --- | --- |
-| `frontier` | `claude:opus`, `claude:fable`, `codex:gpt-6-astra` |
-| `workhorse` | `claude:sonnet`, `codex:gpt-6.1-sol`, `codex:gpt-6-sol`, `gemini:gemini-4-argon` |
-| `light` | `claude:haiku`, `codex:gpt-5.4`, `gemini:gemini-3.8-flash`, `gemini:gemini-3.1-pro` |
+| `frontier` | `claude:opus`, `claude:claude-opus-5-5`, `claude:fable`, `claude:claude-fable-5-1`, `codex:gpt-6-astra`, `gemini:gemini-4-argon` |
+| `workhorse` | `claude:sonnet`, `claude:claude-sonnet-5-5`, `codex:gpt-6.1-sol`, `codex:gpt-6-sol` |
+| `light` | `claude:haiku`, `claude:claude-haiku-4-5`, `claude:claude-haiku-4-5-20251001`, `codex:gpt-6-luna`, `codex:gpt-5.4`, `gemini:gemini-3.8-flash`, `gemini:gemini-3.1-pro` |
 
 Effort bands (owner ruling, 2026-10-22: every provider's `high` is the top band):
 
@@ -55,9 +55,9 @@ Schema sketch:
 {
   "version": 1,
   "model_tiers": {
-    "frontier": ["claude:opus", "claude:fable", "codex:gpt-6-astra"],
-    "workhorse": ["claude:sonnet", "codex:gpt-6.1-sol", "codex:gpt-6-sol", "gemini:gemini-4-argon"],
-    "light": ["claude:haiku", "codex:gpt-5.4", "gemini:gemini-3.8-flash", "gemini:gemini-3.1-pro"]
+    "frontier": ["claude:opus", "claude:claude-opus-5-5", "claude:fable", "claude:claude-fable-5-1", "codex:gpt-6-astra", "gemini:gemini-4-argon"],
+    "workhorse": ["claude:sonnet", "claude:claude-sonnet-5-5", "codex:gpt-6.1-sol", "codex:gpt-6-sol"],
+    "light": ["claude:haiku", "claude:claude-haiku-4-5", "claude:claude-haiku-4-5-20251001", "codex:gpt-6-luna", "codex:gpt-5.4", "gemini:gemini-3.8-flash", "gemini:gemini-3.1-pro"]
   },
   "effort_bands": {
     "claude": {"low": "low", "medium": "mid", "high": "high", "xhigh": "high", "max": "high"},
