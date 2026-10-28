@@ -102,6 +102,59 @@ func compute() int {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Inline shortcut inventory
+func TestScanShortcutsAnyCaseAndSkipsTestArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"upper.go":                   "package sample\n\n// SHORTCUT: no retries, add backoff when the API rate-limits\n",
+		"playwright-report/trace.js": "// shortcut: generated report, never scanned\n",
+		"test-results/run.yml":       "# shortcut: generated results, never scanned\n",
+	}
+	for name, body := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := ScanShortcuts(dir)
+	if err != nil {
+		t.Fatalf("ScanShortcuts: %v", err)
+	}
+	if len(items) != 1 || items[0].File != "upper.go" || items[0].Line != 3 || items[0].Limit != "no retries" {
+		t.Fatalf("want only upper.go:3 \"no retries\", got %+v", items)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Inline shortcut inventory
+func FuzzContainsShortcutFold(f *testing.F) {
+	for _, seed := range []string{
+		"", ":", "shortcut:", "SHORTCUT:", "ShortCut:", "// shortcut", "shortcuts:", "hortcut:",
+		"::shortcut::", "xshortcut:", "short cut:", "shortcut", "\xc5\xbfhortcut:", "\u212ashortcut:",
+	} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Reference model: the pre-#207 ToLower check, restricted to ASCII folding.
+		want := strings.Contains(asciiLower(string(data)), "shortcut:")
+		if got := containsShortcutFold(data); got != want {
+			t.Fatalf("containsShortcutFold(%q) = %v, want %v", data, got, want)
+		}
+	})
+}
+
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + 'a' - 'A'
+		}
+	}
+	return string(b)
+}
+
 // spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
 func TestConcurrentUpdateAndCorruptCachePreservation(t *testing.T) {
 	dir := t.TempDir()

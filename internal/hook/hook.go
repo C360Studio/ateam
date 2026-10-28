@@ -90,8 +90,9 @@ func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output
 	return handle(root, flagEvent, flagAgent, stdin, state.ResolveEnvSessionID())
 }
 
-// Probe runs a hook event as no session, so it writes neither the writer lease nor the MCP-checked marker;
-// ateam doctor times session-start through it without stealing a live session's lease (#204).
+// Probe runs a hook event as no session. For session-start that means it writes neither the writer lease nor
+// the MCP-checked marker, so ateam doctor times it without stealing a live session's lease (#204); other events
+// carry no such guarantee.
 func Probe(root, flagEvent string) (Output, error) {
 	return handle(root, flagEvent, "", strings.NewReader(`{}`), "")
 }

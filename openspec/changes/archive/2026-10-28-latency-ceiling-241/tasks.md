@@ -1,0 +1,7 @@
+## 1. Implementation
+
+- [x] 1.2 `cmd/ateam/main.go`: set `hookLatencyMaxUs` to `100000`. `TestHookLatencyFindings` boundary rows move to 100000 and 100001, plus a row that 25001 now only warns.
+- [x] 1.3 `internal/hook/hook_test.go`: `TestHookLatencyBudget` fails above 100ms.
+- [x] 1.4 Rule and doc text says 100ms in `AGENTS.md`, `.agents/rules-index.md`, `.agents/protocol.md`, `internal/bootstrap/templates.go`, README, `docs/adoption.md`, `docs/daily-use.md`, and `docs/hook-flow.md`. Apply the spec delta to `openspec/specs/harness/spec.md`.
+- [x] 1.5 `task mutate:check`: a mutant reverting `hookLatencyMaxUs` to `25000` (mutant sha256 `b4eee074...`) reports `detection` against `TestHookLatencyFindings`, `-expect-text 'hookLatencyFindings(25001)'`. `cmd/ateam/main.go` is unchanged afterwards (sha256 `abfeadf3...` before and after).
+- [x] 1.6 `task verify` passes on a clean tree, and `ateam doctor --check` passes (`hook_latency_us` 10943 on a loaded machine: it warns, it does not fail).

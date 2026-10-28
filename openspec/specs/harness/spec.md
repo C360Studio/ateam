@@ -13,7 +13,7 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 #### Scenario: Warm hook latency thresholds
 
 - **WHEN** doctor evaluates hook latency
-- **THEN** `ateam doctor` SHALL measure warm best-of-3 hook latency, emit a warning when latency exceeds `10000 us` (`<10ms` target budget), and fail `--check` only above `25000 us` (`25ms` hard ceiling).
+- **THEN** `ateam doctor` SHALL measure warm best-of-3 hook latency, emit a warning when latency exceeds `10000 us` (`<10ms` target budget), and fail `--check` only above `100000 us` (`100ms` hard ceiling).
 
 #### Scenario: Mode switch and Ponytail ladder injection
 

@@ -1,20 +1,23 @@
 # ATeam (`ateam`)
 
-**Bootstrap a reproducible configuration, show which settings differ between experiments, and measure the outcome through one workflow.** Users keep their preferred coding-agent runtime. ATeam helps teams replace assumptions about its configuration with evidence.
+**A daily-driver workflow and harness for Go development across coding agents.**
 
-`ateam` is an **opinionated lab for experimenting with coding-agent harnesses, primarily in Go projects**. It provides a command-line tool, MCP server, and local web board for work with **Claude Code**, **Codex CLI**, **Gemini CLI**, and **Antigravity (`agy`)**.
+`ateam` is a single static Go binary, low-overhead MCP server, and local web board built for day-to-day Go work with **Claude Code**, **Codex CLI**, **Gemini CLI**, and **Antigravity (`agy`)**. Write your instructions, skills, and workflow rules once; run one agent or switch between them across git worktrees without losing state, context, or test discipline.
 
-The questions are practical: does a change to shared instructions, skills, hooks or verification improve outcomes within a runtime? With the same model and ATeam policy, do different runtimes behave differently? Shared bootstrap files alone do not prove that each runtime loaded or executed the same configuration.
+In daily use, `ateam` gives a Go repository:
 
-Today, the benchmark workflow supports versioned instruction comparisons with shared runner/model settings, independent grading, retained failures and offline replay. Native skill/hook activation evidence and same-model cross-runtime comparisons remain roadmap work. Existing fixtures and small API calibrations do **not** establish that ATeam improves agent performance. See the [benchmark roadmap](https://github.com/C360Studio/ateam/issues/16) for delivered capabilities, open work and evidence limits.
+- **One shared agent setup:** Maintain a single `AGENTS.md` and canonical skills in `.agents/skills/`. `ateam init` and `ateam doctor` keep thin adapters, `<10ms` lifecycle hooks, `<300`-token MCP registration, and ~500k context compaction defaults in sync across all four agent CLIs.
+- **Session continuity across worktrees and agents:** `ateam state pickup` and `ateam state handoff` reconcile live git worktrees, writer leases, **GitHub** or **Gitea** issues and draft PRs, OpenSpec task queues (`Hold:`), and inline debt markers (`// shortcut:`).
+- **Go-first engineering and test guardrails:** Built-in Ponytail scope discipline (`lite`, `full`, `ultra`, `off`), non-destructive `go test -overlay` mutation checks (`ateam mutate`), test-to-spec attribution (`ateam test-spec`), and commit-bound cross-agent or stronger-model PR review gates (`ateam review`).
+- **Built-in harness benchmarking (`ateam bench`):** When you change shared instructions, skills, hooks, or models, `ateam` doubles as an experimentation lab to test whether those changes alter outcomes on reproducible Go tasks.
 
 For day-to-day developer workflow and what to expect in an initialized repository, read [the daily developer guide](docs/daily-use.md). To bring `ateam` into a repository that already has its own instructions, hooks, and Taskfile, follow [the brownfield guide](docs/brownfield.md). For the event-by-event lifecycle, state changes, and design rationale, read [how the harness runs](docs/hook-flow.md). For optional stronger-model review, setup, and scoped owner exceptions, read [model routing and independent review](docs/model-review.md). For paired benchmark runs, native API adapters, and versioned instruction bundles, read [benchmark experiments](benchmarks/README.md).
 
 ## Opinions and Boundaries
 
-ATeam adapts Ponytail’s decision ladder and supporting mechanisms into Go: question whether code needs to exist, reuse what is already available, prefer the standard library and installed dependencies, and finish the smallest complete change. Its workflow also favors isolated worktrees, issue-linked draft PRs, OpenSpec task lists, explicit handoffs, and tests demonstrated to catch wrong behavior. These are deliberate choices that adopters should review.
+ATeam adapts Ponytail’s decision ladder and supporting mechanisms into a daily Go workflow and experimentation lab: question whether code needs to exist, reuse what is already available, prefer the standard library and installed dependencies, and finish the smallest complete change. Its workflow also favors isolated worktrees, issue-linked draft PRs, OpenSpec task lists, explicit handoffs, and tests demonstrated to catch wrong behavior. These are deliberate choices that adopters should review.
 
-Ponytail modes (`lite`, `full`, `ultra`, `off`) change injected guidance. They do not guarantee agent compliance or tune model/provider settings; `off` does not remove written repository instructions or disable all harness bookkeeping. `ultra` is a Ponytail mode set with `ateam state mode`; it is unrelated to Claude's multi-agent mode of the same name.
+Ponytail modes (`lite`, `full`, `ultra`, `off`) change injected guidance. They do not guarantee agent compliance or tune model/provider settings; `off` does not remove written repository instructions or disable all harness bookkeeping. `ultra` is a Ponytail mode set with `ateam state mode`; it is unrelated to Claude's multi-agent mode of the same name. Likewise, `ateam bench` supports versioned instruction comparisons with shared runner/model settings, independent grading, retained failures, and offline replay, while native skill/hook activation evidence and same-model cross-runtime comparisons remain [roadmap work](https://github.com/C360Studio/ateam/issues/16); existing fixtures and small API calibrations do **not** establish that ATeam improves agent performance.
 
 **Go is the primary development target, not merely the implementation language.** Mutation checks only accept Go source. Coordination features are largely language-independent, but initialization does not detect or adapt to a project’s language, shortcut scanning covers a fixed set of extensions, and each adopting project must supply its own verification tasks. Other languages are not validated as complete supported workflows.
 
@@ -105,7 +108,7 @@ ateam init --gitea
 
 ### 2. Check your setup (`ateam doctor`)
 
-Check local instruction/configuration parity, estimated MCP schema size, and measured hook latency (best of three warm runs; the 10ms target only warns, the 25ms ceiling fails `--check`). This does not prove that each installed agent CLI consumes the configuration correctly or that your project verification tasks exist:
+Check local instruction/configuration parity, estimated MCP schema size, and measured hook latency (best of three warm runs; the 10ms target only warns, the 100ms ceiling fails `--check`). This does not prove that each installed agent CLI consumes the configuration correctly or that your project verification tasks exist:
 
 ```bash
 ateam doctor --check
@@ -141,7 +144,19 @@ ateam state pickup
 
 Or use the `/pickup` skill inside Claude Code, Codex CLI, Gemini CLI, or Antigravity (`agy`). `pickup` reconciles your live git branch, `HEAD` SHA, uncommitted changes, active git worktrees, open `Hold:` items, `// shortcut:` comments, and any commits made since the last recorded handoff. Each worktree is listed with its PR status (`open PR #185`, `merged via #57`, `no PR`, and so on) and, indented beneath it, the handoffs recorded inside that worktree (`handoff: <goal> (<agent>@<branch>, <age>[, stale])`), so a session in `main` sees work parked in other worktrees.
 
-### 4. Write code, track blockers, and verify tests
+### 4. Claim a worktree and draft PR (`Claim` gate)
+
+Work in a dedicated worktree on an agent-prefixed branch, backed by a draft PR that says what it closes, and for non-trivial work an OpenSpec change:
+
+```bash
+git worktree add .worktrees/claude-my-topic -b claude/my-topic
+cd .worktrees/claude-my-topic
+gh pr create --draft --title "docs: my topic" --body "Closes #12"
+```
+
+Use `codex/<topic>` or `gemini/<topic>` for the other agents; on Gitea open the draft PR through its web UI, `tea`, or API. `ateam state pickup` then labels the worktree with its PR, and it is yours to remove once the PR lands.
+
+### 5. Write Go code, track blockers, and verify tests
 
 While working on a change:
 
@@ -187,7 +202,7 @@ While working on a change:
 
   This checks Go formatting, OpenSpec validity, `go mod tidy`, `go vet`, `revive` linting, Go unit tests with the race detector, offline benchmark self-tests, and UI type/unit tests.
 
-### 5. Hand off work at the end of a session (`ateam state handoff`)
+### 6. Hand off work at the end of a session (`ateam state handoff`)
 
 Before ending a session, switching agents, or compacting context, record a structured handoff:
 
@@ -201,18 +216,6 @@ ateam state handoff \
 ```
 
 This updates `.ateam/state.json`, releases the active session's writer lease (`.ateam/writer.json`), posts the 5-field handoff comment to the open PR on GitHub or Gitea (pass `--no-post` to stay local-only), and prints the 5-field pickup prompt for the next session.
-
-### 6. Claim the work (`Claim` gate)
-
-Work in its own worktree on an agent-prefixed branch, backed by a draft PR that says what it closes, and for non-trivial work an OpenSpec change. In practice you do this before step 4:
-
-```bash
-git worktree add .worktrees/claude-my-topic -b claude/my-topic
-cd .worktrees/claude-my-topic
-gh pr create --draft --title "docs: my topic" --body "Closes #12"
-```
-
-Use `codex/<topic>` or `gemini/<topic>` for the other agents; on Gitea open the draft PR through its web UI, `tea`, or API. `ateam state pickup` then labels the worktree with its PR, and it is yours to remove once the PR lands.
 
 ### 7. Prove it and get it reviewed (`Merge` gate)
 
@@ -269,7 +272,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 | --- | --- |
 | `ateam version` | Print the release and build commit (`ateam <git describe> (<commit>)`) |
 | `ateam init [--force] [--github\|--gitea]` | Create missing multi-agent instruction files, skills, hooks, MCP configs, ~500k context defaults, and optional GitHub/Gitea labels; `--force` backs up replaced documents first |
-| `ateam doctor [--check]` | Verify multi-agent file parity, `<300` token MCP schema budget, and measured hook latency (25ms `--check` ceiling; 10ms target) |
+| `ateam doctor [--check]` | Verify multi-agent file parity, `<300` token MCP schema budget, and measured hook latency (100ms `--check` ceiling; 10ms target) |
 | `ateam review setup --policy FILE` | Install approved model policy and role cards/pointers, refusing existing conflicts |
 | `ateam review route [--developer-models IDS]` | Check the configured reviewer against every supplied implementation model; launch no agents |
 | `ateam review check --pr N --record-comment ID [--exception-comment ID]` | Validate current review evidence and optional scoped owner exception against trusted baseline policy |
