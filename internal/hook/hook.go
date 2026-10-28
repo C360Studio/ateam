@@ -361,7 +361,7 @@ func sessionBuildWarning(root, headSHA, shortBuild string) string {
 	if shortBuild != "" && shortBuild != "dev" && shortBuild != "unknown" && state.SameCommitSHA(shortBuild, headSHA) {
 		return ""
 	}
-	return bootstrap.FormatStaleBinaryWarning(shortBuild, headSHA, bootstrap.RunningBinaryPath(root))
+	return bootstrap.FormatStaleBinaryWarning(root, shortBuild, headSHA, bootstrap.RunningBinaryPath())
 }
 
 func checkSessionStaleMCPOnce(root, sessionID, headSHA string) []string {

@@ -52,7 +52,7 @@ Replace the `rev-list --count` at `state.go:2403` with `rev-list --left-right --
 
 ## Risks / Trade-offs
 
-- D1 A leaves the hook unable to tell "a tag one commit back" from "a tag fifty back". Doctor gives the count.
+- D1 A leaves the hook unable to tell "a tag one commit back" from "a tag fifty back". Doctor resolves the tag and says whether it is behind `HEAD`, without a count (owner ruling D1 A: rev-parse, then the existing ancestry check).
 - A pre-release tag (`v0.3.4-rc1`) is a tag, while a pseudo-version (`v0.3.3-0.2026...-abcdef123456`) embeds a 12-char revision. Treat the pseudo-version's suffix as the revision, which is more precise than the tag form.
 
 ## Migration Plan

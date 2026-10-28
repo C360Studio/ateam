@@ -8,7 +8,7 @@ Hooks (`.claude/settings.json:9`) and MCP (`.mcp.json`) run the bare `ateam` on 
 
 ## What Changes
 
-1. **Module installs report their tag.** When there is no stamped commit and no `vcs.revision` but the main module version is a release tag, the build label is `<tag> (module)`, not `unknown`. Inside the ateam checkout the stale-binary warning names the tag and says how far it trails `HEAD` (`design.md` D1). Outside the checkout nothing prints, as today (#150).
+1. **Module installs report their tag.** When there is no stamped commit and no `vcs.revision` but the main module version is a release tag, the build label is `<tag> (module)`, not `unknown`. Inside the ateam checkout the stale-binary warning names the tag; doctor resolves it and says whether it is behind `HEAD`, with no commit count (`design.md` D1 A). Outside the checkout nothing prints, as today (#150).
 2. **Doctor reports the binary the hooks run.** A new `hook_binary: {path, version, build}` field sits beside `disk_build`. When it differs from `./bin/ateam` in the ateam checkout, doctor warns and names both binaries (`design.md` D2).
 3. **Advice names the binary to rebuild.** Stale-binary warnings print the resolved path and the two fixes: `task build && ln -sf "$PWD/bin/ateam" <path>`, or `go install ./cmd/ateam` (`design.md` D3).
 4. **Pickup shows behind-origin.** The default-branch worktree line and the `[ateam]` summary show `behind=N` when local `main` trails `origin/main`. The `[ateam]` line says `uncommitted changes` when `main` is dirty.

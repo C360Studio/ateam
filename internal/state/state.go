@@ -69,7 +69,8 @@ func shortSHA(rev string) string {
 }
 
 // IsModuleTag reports whether a build revision is a module version tag (a `go install <module>@<tag>` binary)
-// rather than a commit. Commits are hex and the fallbacks are "dev" / "unknown", so a leading "v" decides it.
+// rather than a commit. It relies on BuildCommit stamps being hex SHAs (Taskfile stamps `git rev-parse HEAD`),
+// like vcs.revision; the fallbacks are "dev" / "unknown", so a leading "v" decides it.
 func IsModuleTag(rev string) bool {
 	return strings.HasPrefix(strings.TrimSpace(rev), "v")
 }

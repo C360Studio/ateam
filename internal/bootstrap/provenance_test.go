@@ -54,6 +54,8 @@ func TestHookBinaryStatusComparesPathBinaryWithDiskBuild(t *testing.T) {
 		checkout    bool
 		pathLine    string // "" leaves PATH without ateam; "link" symlinks PATH ateam to ./bin/ateam
 		absHook     bool   // the Claude hook names an absolute path outside PATH
+		hookArgv0   string // a project-relative hook argv[0] that must resolve to ./bin/ateam
+		noDisk      bool   // no ./bin/ateam
 		wantVersion string
 		wantBuild   string
 		wantWarning func(path string) string
@@ -73,6 +75,15 @@ func TestHookBinaryStatusComparesPathBinaryWithDiskBuild(t *testing.T) {
 			wantWarning: func(p string) string {
 				return "hook binary " + p + " is build fff0000, not ./bin/ateam build abc1234; " + advice(p)
 			}},
+		{name: "no ./bin/ateam in the checkout", checkout: true, noDisk: true, pathLine: "ateam v0.3.3 (def5678)", wantVersion: "v0.3.3", wantBuild: "def5678",
+			wantWarning: func(p string) string {
+				return "hook binary " + p + " is build def5678, and there is no ./bin/ateam; " + advice(p)
+			}},
+		{name: "bare CLAUDE_PROJECT_DIR", checkout: true, hookArgv0: "$CLAUDE_PROJECT_DIR/bin/ateam", wantVersion: "v0.3.4", wantBuild: "abc1234"},
+		{name: "quoted CLAUDE_PROJECT_DIR", checkout: true, hookArgv0: `"$CLAUDE_PROJECT_DIR"/bin/ateam`, wantVersion: "v0.3.4", wantBuild: "abc1234"},
+		{name: "braced CLAUDE_PROJECT_DIR", checkout: true, hookArgv0: "${CLAUDE_PROJECT_DIR}/bin/ateam", wantVersion: "v0.3.4", wantBuild: "abc1234"},
+		{name: "dot-relative hook path", checkout: true, hookArgv0: "./bin/ateam", wantVersion: "v0.3.4", wantBuild: "abc1234"},
+		{name: "relative hook path", checkout: true, hookArgv0: "bin/ateam", wantVersion: "v0.3.4", wantBuild: "abc1234"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -81,7 +92,9 @@ func TestHookBinaryStatusComparesPathBinaryWithDiskBuild(t *testing.T) {
 			if tc.checkout {
 				writeGoMod(t, root, ateamGoMod)
 			}
-			writeVersionFake(t, filepath.Join(root, "bin", "ateam"), "ateam v0.3.4 (abc1234)")
+			if !tc.noDisk {
+				writeVersionFake(t, filepath.Join(root, "bin", "ateam"), "ateam v0.3.4 (abc1234)")
+			}
 			wantPath := ""
 			switch tc.pathLine {
 			case "":
@@ -99,6 +112,10 @@ func TestHookBinaryStatusComparesPathBinaryWithDiskBuild(t *testing.T) {
 				wantPath = filepath.Join(t.TempDir(), "ateam")
 				writeVersionFake(t, wantPath, "ateam v0.3.3 (fff0000)")
 				argv0 = wantPath
+			}
+			if tc.hookArgv0 != "" {
+				wantPath = filepath.Join(root, "bin", "ateam")
+				argv0 = tc.hookArgv0
 			}
 			writeClaudeHook(t, root, argv0)
 
@@ -155,6 +172,61 @@ func TestDoctorResolvesModuleTagToCommit(t *testing.T) {
 			_, got := BuildProvenanceStatus(context.Background(), root, tc.tag, head, bin)
 			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
 				t.Fatalf("BuildProvenanceStatus(%s) = %q, want %q", tc.tag, got, tc.want)
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
+func TestStaleBinaryAdviceNeverLinksIntoAWorktree(t *testing.T) {
+	base := t.TempDir()
+	mainDir := filepath.Join(base, "main")
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if err := os.MkdirAll(mainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(mainDir, "init", "-q", "-b", "main")
+	writeGoMod(t, mainDir, ateamGoMod)
+	git(mainDir, "add", "go.mod")
+	git(mainDir, "commit", "-q", "-m", "c1")
+	wt := filepath.Join(mainDir, ".worktrees", "wt")
+	git(mainDir, "worktree", "add", "-q", "-b", "claude/x", wt)
+	// Oracle: git's own answer for the linked worktree's main checkout.
+	common := filepath.Dir(git(wt, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+	writeVersionFake(t, filepath.Join(mainDir, "bin", "ateam"), "ateam v0.3.4 (abc1234)")
+	link := filepath.Join(base, "path", "ateam")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(mainDir, "bin", "ateam"), link); err != nil {
+		t.Fatal(err)
+	}
+	const opt = "/opt/bin/ateam"
+	fromWorktree := func(p string) string {
+		return fmt.Sprintf(`replace %s: go install ./cmd/ateam, or (cd "%s" && task build) && ln -sf "%s/bin/ateam" %s`, p, common, common, p)
+	}
+	for _, tc := range []struct {
+		name, root, binPath, want string
+	}{
+		{"main checkout, foreign binary", mainDir, opt, `replace /opt/bin/ateam: task build && ln -sf "$PWD/bin/ateam" /opt/bin/ateam, or go install ./cmd/ateam`},
+		{"main checkout, PATH link to its ./bin/ateam", mainDir, link, "run task build"},
+		{"linked worktree, foreign binary", wt, opt, fromWorktree(opt)},
+		{"linked worktree, PATH link to the main checkout", wt, link, fromWorktree(link)},
+		{"linked worktree, main checkout's real build", wt, filepath.Join(mainDir, "bin", "ateam"),
+			fmt.Sprintf(`rebuild %s in its checkout: (cd "%s" && task build)`, filepath.Join(mainDir, "bin", "ateam"), mainDir)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := staleBinaryAdvice(tc.root, tc.binPath); got != tc.want {
+				t.Fatalf("staleBinaryAdvice = %q, want %q", got, tc.want)
 			}
 		})
 	}

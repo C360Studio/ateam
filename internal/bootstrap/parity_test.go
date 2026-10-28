@@ -288,7 +288,7 @@ func TestDoctorBuildProvenanceAndDuplicateServeDetection(t *testing.T) {
 			t.Fatalf("expected missing build provenance warning for %q, got: %v", emptyRev, v)
 		}
 	}
-	if got := FormatStaleBinaryWarning("990e19c", "abad85b", ""); got != "binary 990e19c is behind HEAD abad85b; run task build" {
+	if got := FormatStaleBinaryWarning(t.TempDir(), "990e19c", "abad85b", ""); got != "binary 990e19c is behind HEAD abad85b; run task build" {
 		t.Fatalf("FormatStaleBinaryWarning behind = %q, want %q", got, "binary 990e19c is behind HEAD abad85b; run task build")
 	}
 
