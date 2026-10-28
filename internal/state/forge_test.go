@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -215,10 +216,7 @@ func TestGitHubSyncPartialFailureAndLocalCardPreservation(t *testing.T) {
 func TestDualForgeSyncTimestampIsolation(t *testing.T) {
 	binDir := t.TempDir()
 	fakeGH := filepath.Join(binDir, "gh")
-	scriptGH := "#!/bin/sh\nif [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n"
-	if err := os.WriteFile(fakeGH, []byte(scriptGH), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeFake(t, fakeGH, "if [ \"$1\" = \"issue\" ]; then\n  echo '[{\"number\":99,\"title\":\"Remote Issue\",\"state\":\"OPEN\"}]'\n  exit 0\nfi\necho '[{\"number\":100,\"title\":\"Remote PR\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefName\":\"claude/fix\"}]'\n")
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	dualRoot := t.TempDir()
@@ -343,7 +341,7 @@ func writeGitHubFake(t *testing.T, rendezvous bool) {
 	write("pr-closed", fakeClosedPRNumbers(false), "MERGED")
 	write("pr-closed-updated", fakeClosedPRNumbers(true), "MERGED")
 	// argv: gh <kind> list --state <state> --limit <n> ...
-	script := "#!/bin/sh\n"
+	script := ""
 	if rendezvous {
 		started := filepath.Join(dir, "started")
 		if err := os.Mkdir(started, 0o755); err != nil {
@@ -362,10 +360,25 @@ func writeGitHubFake(t *testing.T, rendezvous bool) {
 		"case \"$*\" in *sort:updated-desc*) f=\"$f-updated\";; esac\n" +
 		"if [ ! -f \"$f\" ]; then echo '[]'; exit 0; fi\n" +
 		"printf '['; head -n \"$6\" \"$f\" | paste -sd, -; printf ']'\n"
-	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+	writeFake(t, filepath.Join(dir, "gh"), script)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// writeFake writes an executable /bin/sh fake with body after the shebang and runs it once, outside any deadline, with
+// ATEAM_FAKE_PREWARM set so it exits before doing anything. macOS checks a new executable on its first exec; under
+// the full -race suite that check took up to 2.7s per file (#232, #233), enough to trip a sync deadline. Later execs
+// of the same file skip it, so the test's timed calls measure the code under test.
+func writeFake(t *testing.T, path, body string) {
+	t.Helper()
+	script := "#!/bin/sh\n[ -n \"$ATEAM_FAKE_PREWARM\" ] && exit 0\n" + body
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd := exec.Command(path)
+	cmd.Env = append(os.Environ(), "ATEAM_FAKE_PREWARM=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("prewarm %s: %v\n%s", path, err, out)
+	}
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync

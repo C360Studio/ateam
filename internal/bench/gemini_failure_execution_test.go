@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -26,7 +27,8 @@ func TestGeminiTurnLimitExecutionGuards(t *testing.T) {
 				stderr += "\n" + strings.Repeat("x", maxAdapterBytes)
 			}
 			// Write fixture text as a here-document, not executable shell interpolation.
-			script := "#!/bin/sh\ncat >/dev/null\ncat >&2 <<'ATEAM_FIXTURE'\n" + stderr + "\nATEAM_FIXTURE\n"
+			// The prewarm guard pays macOS's first-exec check on this new file outside the adapter deadline (#234).
+			script := "#!/bin/sh\n[ -n \"$ATEAM_FAKE_PREWARM\" ] && exit 0\ncat >/dev/null\ncat >&2 <<'ATEAM_FIXTURE'\n" + stderr + "\nATEAM_FIXTURE\n"
 			if tc.stdout != "" {
 				script += "printf '%s' '" + tc.stdout + "'\n"
 			}
@@ -37,6 +39,11 @@ func TestGeminiTurnLimitExecutionGuards(t *testing.T) {
 			script += fmt.Sprintf("exit %d\n", tc.code)
 			if err := os.WriteFile(e.Command[0], []byte(script), 0700); err != nil {
 				t.Fatal(err)
+			}
+			prewarm := exec.Command(e.Command[0])
+			prewarm.Env = append(os.Environ(), "ATEAM_FAKE_PREWARM=1")
+			if out, err := prewarm.CombinedOutput(); err != nil {
+				t.Fatalf("prewarm fixture: %v\n%s", err, out)
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
