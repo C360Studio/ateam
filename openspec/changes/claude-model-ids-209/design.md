@@ -8,13 +8,14 @@
 - `.agents/contracts/reviewer.md:5` says "name the exact model and effort"; `.agents/contracts/developer.md:3` says "exact model". Their `ateam review setup` sources are `internal/bootstrap/review.go:19,32`, and the copies must stay byte-equal (`review.go:230-239`, which `ateam doctor` checks).
 - `docs/adr/0002-model-tiers-and-effort-bands.md:36-38` (table) and `:58-60` (example) repeat the policy; `:86` describes matching as loose on case and spaces only.
 - `ateam init` writes no `model_tiers`. `review-policy.json` is copied from `--policy FILE` by `ConfigureReview` (`internal/bootstrap/review.go:57`), so the issue's mention of a seeded template does not apply.
+- Codex and Gemini spellings, checked 2026-10-28 against local runtime logs. Codex session files (`~/.codex/sessions/**/*.jsonl`, `"model":` field) record `gpt-6-astra`, `gpt-6-sol`, `gpt-6.1-sol` (all listed) and `gpt-6-luna` (not listed; 8 records from 2026-09-28). They also record `codex-auto-review`, which is Codex's internal approval reviewer and never a session's identity. Recent Gemini and Antigravity CLI files under `~/.gemini/` name only `gemini-4-argon`, `gemini-3.8-flash` and `gemini-3.1-pro` (all listed). PR records show `Gemini 4 Argon`, which `loose()` already matches. Records like `gemini-4-argon-medium` and `Gemini 4 Argon (High)` attach the effort to the model name. That is a recording-format mistake, not a spelling, and adding entries would not fix it.
 - Reproduced at `ad27487`: `ateam review compare --implementer gemini:gemini-4-argon:high --reviewer claude:claude-opus-5-5:high` reports `unranked`.
 
 ## Goals / Non-Goals
 
 Goals: a Claude run that records its resolved model ID ranks in the same tier as its family alias, and the contracts stop asking for a spelling the policy cannot rank.
 
-Non-goals: any change to the matching code; Codex and Gemini spellings; adopters' policies.
+Non-goals: any change to the matching code; adopters' policies; accepting a model name with the effort attached.
 
 ## Decisions
 
@@ -51,3 +52,4 @@ No data migration. When this repository's policy changes, PRs with alias records
 ## Open Questions
 
 1. **Resolved (owner, 2026-10-28): which IDs, in which tier.** frontier `claude:claude-opus-5-5`, `claude:claude-fable-5-1`; workhorse `claude:claude-sonnet-5-5`; light `claude:claude-haiku-4-5`, `claude:claude-haiku-4-5-20251001`. The Opus 4.x and Sonnet 4.x IDs are left out and rank as unranked.
+2. **OWNER RULING — `codex:gpt-6-luna`.** Codex has run it in this repository, but it is in no tier, so a review it implemented or reviewed ranks as unranked. Which tier, or leave it out?

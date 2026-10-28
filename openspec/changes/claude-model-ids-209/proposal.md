@@ -8,14 +8,14 @@ The reviewer contract asks for the "exact model", so a Claude reviewer records i
 
 ## What Changes
 
-- `.agents/review-policy.json`: add current resolved Claude model IDs to the same tier as their family alias (owner ruling, 2026-10-28: the current generation only, so Opus 4.x and Sonnet 4.x stay unranked; see design.md, Open Questions).
+- `.agents/review-policy.json`: add current resolved Claude model IDs to the same tier as their family alias (owner ruling, 2026-10-28: the current generation only, so Opus 4.x and Sonnet 4.x stay unranked; see design.md, Open Questions), plus `codex:gpt-6-luna`, the one Codex or Gemini runtime ID the policy is missing, if the owner places it in a tier.
 - ADR 0002 § 1 tier table and policy example: the same entries, plus one sentence saying a tier lists every spelling a run may record.
 - `.agents/contracts/{developer,reviewer}.md` and their `ateam review setup` sources in `internal/bootstrap/review.go`: ask runs to record the model as the policy lists it, for example `opus`, instead of the "exact model".
 
 ## Non-goals
 
 - Family normalization in `internal/review/compare.go` (option 2 in #209); the matching code stays unchanged.
-- Codex and Gemini ID spellings: none has been reported as unranked.
+- Model names with the effort attached (`gemini-4-argon-medium`): a recording mistake, not a missing spelling.
 - Rewriting existing adopters' policies; `ateam init` seeds no `model_tiers`, so each adopter's policy stays its own.
 
 ## Definition of Done
