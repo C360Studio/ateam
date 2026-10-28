@@ -90,7 +90,8 @@ func TestListTargetsRequiresRootTaskfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(t.TempDir(), "invoked")
-	writeFakeTask(t, ": > "+marker+"\necho '{\"tasks\":[{\"name\":\"fmt\",\"task\":\"fmt\"}]}'\n")
+	t.Setenv("FAKE_MARKER", marker) // paths reach the fake through the env so spaces in TMPDIR stay quoted
+	writeFakeTask(t, ": > \"$FAKE_MARKER\"\necho '{\"tasks\":[{\"name\":\"fmt\",\"task\":\"fmt\"}]}'\n")
 	if _, err := Run(context.Background(), child, "fmt", nil); err == nil || !strings.Contains(err.Error(), "read Taskfile.yml") {
 		t.Fatalf("Run in a child without Taskfile.yml: err = %v, want read Taskfile.yml error", err)
 	}
@@ -103,7 +104,8 @@ func TestListTargetsRequiresRootTaskfile(t *testing.T) {
 func TestRunSkipsDiscoveryOnCanceledContext(t *testing.T) {
 	dir := writeTaskfile(t, includesTaskfile)
 	marker := filepath.Join(t.TempDir(), "invoked")
-	writeFakeTask(t, ": > "+marker+"\n")
+	t.Setenv("FAKE_MARKER", marker)
+	writeFakeTask(t, ": > \"$FAKE_MARKER\"\n")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := Run(ctx, dir, "fmt", nil); !errors.Is(err, context.Canceled) {
@@ -123,7 +125,20 @@ func TestListTargetsStopsOnCancelDespiteHeldPipe(t *testing.T) {
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeFakeTask(t, "/bin/sleep 30 &\necho started > "+fifo+"\nwait\n")
+	t.Setenv("FAKE_FIFO", fifo)
+	writeFakeTask(t, "/bin/sleep 30 &\necho started > \"$FAKE_FIFO\"\nwait\n")
+	// O_RDWR opens without waiting for a writer, so the handshake below is bounded; closing the file unblocks the read.
+	signal, err := os.OpenFile(fifo, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer signal.Close()
+	started := make(chan struct{})
+	go func() {
+		if _, err := signal.Read(make([]byte, 1)); err == nil {
+			close(started)
+		}
+	}()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	type result struct {
@@ -135,8 +150,12 @@ func TestListTargetsStopsOnCancelDespiteHeldPipe(t *testing.T) {
 		targets, err := ListTargets(ctx, dir)
 		done <- result{targets, err}
 	}()
-	if _, err := os.ReadFile(fifo); err != nil { // blocks until the fake has started
-		t.Fatal(err)
+	select {
+	case <-started:
+	case r := <-done:
+		t.Fatalf("listing returned before the fake signaled it started: %+v, %v", r.targets, r.err)
+	case <-time.After(20 * time.Second):
+		t.Fatal("the fake never signaled that listing started")
 	}
 	canceled := time.Now()
 	cancel()
