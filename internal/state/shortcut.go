@@ -21,25 +21,27 @@ type ShortcutItem struct {
 var shortcutPattern = regexp.MustCompile(`(?i)^\s*(?://|#|--)\s*shortcut:\s*(.+)$`)
 
 var skippedDirs = map[string]bool{
-	".git":         true,
-	".ateam":       true,
-	".agents":      true,
-	".claude":      true,
-	".codex":       true,
-	".gemini":      true,
-	".worktrees":   true,
-	".enjoy-logs":  true,
-	".svelte-kit":  true,
-	"node_modules": true,
-	"vendor":       true,
-	"dist":         true,
-	"build":        true,
-	"bin":          true,
-	"coverage":     true,
-	"openspec":     true,
-	"docs":         true,
-	"testdata":     true,
-	"benchmarks":   true,
+	".git":              true,
+	".ateam":            true,
+	".agents":           true,
+	".claude":           true,
+	".codex":            true,
+	".gemini":           true,
+	".worktrees":        true,
+	".enjoy-logs":       true,
+	".svelte-kit":       true,
+	"node_modules":      true,
+	"vendor":            true,
+	"dist":              true,
+	"build":             true,
+	"bin":               true,
+	"coverage":          true,
+	"playwright-report": true,
+	"test-results":      true,
+	"openspec":          true,
+	"docs":              true,
+	"testdata":          true,
+	"benchmarks":        true,
 }
 
 var sourceExts = map[string]bool{
@@ -90,7 +92,7 @@ func scanFileShortcuts(absPath, relPath string) ([]ShortcutItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !bytes.Contains(data, []byte("shortcut:")) && !bytes.Contains(bytes.ToLower(data), []byte("shortcut:")) {
+	if !containsShortcutFold(data) {
 		return nil, nil
 	}
 
@@ -99,10 +101,10 @@ func scanFileShortcuts(absPath, relPath string) ([]ShortcutItem, error) {
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
-		line := scanner.Text()
-		if !strings.Contains(line, "shortcut:") && !strings.Contains(strings.ToLower(line), "shortcut:") {
+		if !containsShortcutFold(scanner.Bytes()) {
 			continue
 		}
+		line := scanner.Text()
 		m := shortcutPattern.FindStringSubmatch(line)
 		if len(m) < 2 {
 			continue
@@ -126,4 +128,21 @@ func scanFileShortcuts(absPath, relPath string) ([]ShortcutItem, error) {
 		})
 	}
 	return out, scanner.Err()
+}
+
+// containsShortcutFold reports whether data contains "shortcut:" in any ASCII case without copying data:
+// session-start scans every source file, and lowering each one cost a full allocation per file (#207).
+func containsShortcutFold(data []byte) bool {
+	const word = "shortcut"
+	for i := 0; ; {
+		j := bytes.IndexByte(data[i:], ':')
+		if j < 0 {
+			return false
+		}
+		j += i
+		if j >= len(word) && bytes.EqualFold(data[j-len(word):j], []byte(word)) {
+			return true
+		}
+		i = j + 1
+	}
 }
