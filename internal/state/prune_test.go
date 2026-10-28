@@ -50,7 +50,8 @@ func TestPruneVerdict(t *testing.T) {
 		{"review of merged PR", Worktree{Path: "/r/.worktrees/claude-review-pr-6", Branch: "detached", Head: "fffffff", Dirty: &clean}, true, "review of closed PR #6"},
 		{"review of closed PR with suffix", Worktree{Path: "/r/.worktrees/claude-review-pr-8-d850", Branch: "", Head: "2222222", Dirty: &clean}, true, "review of closed PR #8"},
 		{"review of open PR", Worktree{Path: "/r/.worktrees/claude-review-pr-9", Branch: "detached", Head: "3333333", Dirty: &clean}, false, "review of open PR #9"},
-		{"review of uncached PR", Worktree{Path: "/r/.worktrees/claude-review-pr-99", Branch: "detached", Head: "3333333", Dirty: &clean}, false, "review of PR #99 not in forge cache"},
+		{"review of uncached PR", Worktree{Path: "/r/.worktrees/claude-review-pr-99", Branch: "detached", Head: "3333333", Dirty: &clean}, false, "head is not PR #99's head in the forge cache"},
+		{"review with a commit past the PR head", Worktree{Path: "/r/.worktrees/claude-review-pr-6", Branch: "detached", Head: "7777777", Dirty: &clean}, false, "head is not PR #6's head in the forge cache"},
 		{"another agent's review", Worktree{Path: "/r/.worktrees/codex-review-pr-6", Branch: "detached", Head: "fffffff", Dirty: &clean}, false, "owned by codex"},
 		{"dirty review", Worktree{Path: "/r/.worktrees/claude-review-pr-6", Branch: "detached", Head: "fffffff", Dirty: &dirty}, false, "dirty"},
 		{"plain detached", Worktree{Path: "/r/.worktrees/scratch", Branch: "detached", Head: "fffffff", Dirty: &clean}, false, "detached"},
@@ -126,6 +127,7 @@ func TestPruneRemovesOnlyOwnedFinishedWorktrees(t *testing.T) {
 	git(other, "commit", "-q", "--allow-empty", "-m", "late push")
 	git(other, "push", "-q", "origin", "claude/moved")
 	git(root, "worktree", "add", "-q", "--detach", wtPath("claude-review-pr-7-d850"), "main")
+	reviewedHead := git(root, "rev-parse", "main")
 
 	ctx := context.Background()
 	st, err := Refresh(ctx, root, false)
@@ -139,7 +141,7 @@ func TestPruneRemovesOnlyOwnedFinishedWorktrees(t *testing.T) {
 		{ID: "GH-PR-4", Number: 4, Type: "pr", Column: "done", Merged: true, Branch: "claude/ahead", HeadSHA: aheadHead},
 		{ID: "GH-PR-5", Number: 5, Type: "pr", Column: "done", Merged: true, Branch: "claude/moved", HeadSHA: movedHead},
 		{ID: "GT-PR-6", Number: 6, Type: "pr", Forge: "gitea", Column: "done", Merged: true, Branch: "claude/gitea", HeadSHA: giteaHead},
-		{ID: "GH-PR-7", Number: 7, Type: "pr", Column: "done", Merged: true, Branch: "codex/reviewed", HeadSHA: mergedHead},
+		{ID: "GH-PR-7", Number: 7, Type: "pr", Column: "done", Merged: true, Branch: "codex/reviewed", HeadSHA: reviewedHead},
 	}
 	st.ReconcileWorktrees()
 
@@ -192,5 +194,117 @@ func TestPruneRemovesOnlyOwnedFinishedWorktrees(t *testing.T) {
 		if got := strings.Contains(remotes, "refs/heads/"+branch+"\n") || strings.HasSuffix(remotes, "refs/heads/"+branch); got != want {
 			t.Fatalf("remote branch %s present=%v, want %v:\n%s", branch, got, want, remotes)
 		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Prune finished worktrees the caller owns
+func TestPruneVerdictReviewPRNumberOnTwoForges(t *testing.T) {
+	// The same PR number on GitHub (open) and Gitea (closed) must not let the closed one authorize removal (#246 review).
+	clean := false
+	wt := Worktree{Path: "/r/claude-review-pr-1", Branch: "detached", Head: "aaaaaaa", Dirty: &clean}
+	gitea := BoardCard{ID: "GT-PR-1", Number: 1, Type: "pr", Forge: "gitea", Column: "done", Merged: true, HeadSHA: "bbbbbbb"}
+	github := BoardCard{ID: "GH-PR-1", Number: 1, Type: "pr", Forge: "github", Column: "in-review", HeadSHA: "aaaaaaa"}
+	for name, cards := range map[string][]BoardCard{"gitea first": {gitea, github}, "github first": {github, gitea}} {
+		st := defaultState()
+		st.Cards = cards
+		if remove, reason := st.PruneVerdict(wt, "claude", ""); remove || reason != "review of open PR #1" {
+			t.Fatalf("%s: PruneVerdict = (%v, %q), want (false, %q)", name, remove, reason, "review of open PR #1")
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Prune finished worktrees the caller owns
+func TestPrunePreservesWorkAddedAfterRefresh(t *testing.T) {
+	// Each scenario adds work between the refresh that approved a removal and the git step that would
+	// lose it; the work must survive (#246 review).
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []string{"local commit after refresh", "branch moved after worktree removal", "remote push after ls-remote", "detached commit past the PR head"} {
+		t.Run(scenario, func(t *testing.T) {
+			clearAgentSessionEnv(t)
+			for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"} {
+				t.Setenv(k, v)
+			}
+			git := func(dir string, args ...string) string {
+				t.Helper()
+				cmd := exec.Command(realGit, args...)
+				cmd.Dir = dir
+				out, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("git %v: %v: %s", args, err, out)
+				}
+				return strings.TrimSpace(string(out))
+			}
+			base := t.TempDir()
+			root, origin, other := filepath.Join(base, "repo"), filepath.Join(base, "origin.git"), filepath.Join(base, "other")
+			wt := filepath.Join(base, "claude-review-pr-1")
+			git(base, "init", "-q", "--bare", "-b", "main", origin)
+			git(base, "init", "-q", "-b", "main", root)
+			git(root, "commit", "-q", "--allow-empty", "-m", "init")
+			git(root, "remote", "add", "origin", origin)
+			git(root, "push", "-q", "origin", "main")
+			git(root, "worktree", "add", "-q", "-b", "claude/topic", wt, "main")
+			git(wt, "commit", "-q", "--allow-empty", "-m", "reviewed")
+			prHead := git(wt, "rev-parse", "HEAD")
+			git(wt, "push", "-q", "origin", "claude/topic")
+			if scenario == "detached commit past the PR head" {
+				git(wt, "switch", "-q", "--detach")
+				git(wt, "commit", "-q", "--allow-empty", "-m", "unpushed review work")
+			}
+			st, err := Refresh(context.Background(), root, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st.Cards = []BoardCard{{ID: "GH-PR-1", Number: 1, Type: "pr", Column: "done", Merged: true, Branch: "claude/topic", HeadSHA: prHead}}
+			st.ReconcileWorktrees()
+
+			// A git wrapper on PATH injects the concurrent step at the exact point under test.
+			wrap := func(trigger, inject string) {
+				bin := filepath.Join(base, "bin")
+				script := "#!/bin/sh\nif [ \"$1\" = \"" + trigger + "\" ]; then\n  \"$REAL_GIT\" \"$@\" > \"$SNAP\" 2>&1; rc=$?\n  " + inject + " >/dev/null 2>&1 || exit 99\n  cat \"$SNAP\"; exit $rc\nfi\nexec \"$REAL_GIT\" \"$@\"\n"
+				if err := os.MkdirAll(bin, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("REAL_GIT", realGit)
+				t.Setenv("SNAP", filepath.Join(base, "snap"))
+				t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			}
+			switch scenario {
+			case "local commit after refresh":
+				git(wt, "commit", "-q", "--allow-empty", "-m", "unpushed work after refresh")
+			case "branch moved after worktree removal":
+				git(base, "clone", "-q", "-b", "claude/topic", origin, other)
+				git(other, "commit", "-q", "--allow-empty", "-m", "later work")
+				git(root, "fetch", "-q", other, "claude/topic")
+				wrap("worktree", `"$REAL_GIT" -C "`+root+`" update-ref refs/heads/claude/topic FETCH_HEAD`)
+			case "remote push after ls-remote":
+				git(base, "clone", "-q", "-b", "claude/topic", origin, other)
+				git(other, "commit", "-q", "--allow-empty", "-m", "concurrent remote work")
+				wrap("ls-remote", `"$REAL_GIT" -C "`+other+`" push -q origin claude/topic`)
+			}
+
+			var out bytes.Buffer
+			failed := Prune(context.Background(), root, st, "claude", false, &out)
+			got := out.String()
+			switch scenario {
+			case "local commit after refresh", "detached commit past the PR head":
+				if _, err := os.Stat(wt); err != nil || failed {
+					t.Fatalf("worktree holding unpushed work was removed (failed=%v, stat %v):\n%s", failed, err, got)
+				}
+			case "branch moved after worktree removal":
+				if git(root, "branch", "--list", "claude/topic") == "" || !strings.Contains(got, "kept branch claude/topic, which moved since refresh") {
+					t.Fatalf("moved local branch was deleted:\n%s", got)
+				}
+			case "remote push after ls-remote":
+				if git(root, "ls-remote", "origin", "refs/heads/claude/topic") == "" || !strings.Contains(got, "kept origin/claude/topic, which moved to ") {
+					t.Fatalf("remote branch pushed after ls-remote was deleted (failed=%v):\n%s", failed, got)
+				}
+			}
+		})
 	}
 }

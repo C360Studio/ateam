@@ -52,15 +52,23 @@ func (st *State) PruneVerdict(wt Worktree, agent, currentPath string) (bool, str
 		return false, "dirty"
 	}
 	if detached {
+		// Match the PR by number and head: the number alone can name PRs on two forges, and a head past
+		// the PR's head may hold unpushed review work that this checkout's reflog is the only record of.
+		var matched []BoardCard
 		for _, c := range st.Cards {
-			if isPRCard(c) && cardPRNumber(c) == reviewPR {
-				if c.Column != "done" {
-					return false, fmt.Sprintf("review of open PR #%d", reviewPR)
-				}
-				return true, fmt.Sprintf("review of closed PR #%d", reviewPR)
+			if isPRCard(c) && cardPRNumber(c) == reviewPR && c.HeadSHA != "" && SameCommitSHA(c.HeadSHA, wt.Head) {
+				matched = append(matched, c)
 			}
 		}
-		return false, fmt.Sprintf("review of PR #%d not in forge cache", reviewPR)
+		if len(matched) == 0 {
+			return false, fmt.Sprintf("head is not PR #%d's head in the forge cache", reviewPR)
+		}
+		for _, c := range matched {
+			if c.Column != "done" {
+				return false, fmt.Sprintf("review of open PR #%d", reviewPR)
+			}
+		}
+		return true, fmt.Sprintf("review of closed PR #%d", reviewPR)
 	}
 	if strings.HasPrefix(label, "merged via ") || label == "merged (ancestor of main)" {
 		return true, label
@@ -100,6 +108,24 @@ func Prune(ctx context.Context, root string, st *State, agent string, dryRun boo
 			fmt.Fprintf(w, "would remove %s: %s\n", name, reason)
 			continue
 		}
+		approved, err := gitCombined(ctx, root, "rev-parse", "--verify", "--quiet", wt.Head+"^{commit}")
+		if err != nil {
+			fmt.Fprintf(w, "failed %s: cannot resolve head %s\n", name, wt.Head)
+			failed = true
+			continue
+		}
+		// A commit made since the refresh leaves the tree clean, which git worktree remove would accept.
+		wantRef := ""
+		if branch != "" {
+			wantRef = "refs/heads/" + branch
+		}
+		liveHead, _ := gitCombined(ctx, wt.Path, "rev-parse", "HEAD")
+		liveRef, _ := gitCombined(ctx, wt.Path, "symbolic-ref", "-q", "HEAD")
+		if liveHead != approved || liveRef != wantRef {
+			fmt.Fprintf(w, "kept %s: moved since refresh\n", name)
+			continue
+		}
+		// shortcut: a commit landing between the live check and the removal survives on a branch (update-ref below) but not on a detached checkout, whose HEAD reflog goes with it; upgrade if git gains an expected-HEAD worktree remove.
 		// No --force: git refuses a worktree that gained changes or untracked files since the refresh.
 		if out, err := gitCombined(ctx, root, "worktree", "remove", wt.Path); err != nil {
 			fmt.Fprintf(w, "failed %s: git worktree remove: %s\n", name, out)
@@ -110,30 +136,41 @@ func Prune(ctx context.Context, root string, st *State, agent string, dryRun boo
 			fmt.Fprintf(w, "removed %s: %s\n", name, reason)
 			continue
 		}
-		localHead, _ := gitCombined(ctx, root, "rev-parse", "refs/heads/"+branch)
-		// -D: a squash-merged branch is not an ancestor of main, so -d would refuse it.
-		if out, err := gitCombined(ctx, root, "branch", "-D", branch); err != nil {
-			fmt.Fprintf(w, "failed %s: worktree removed; git branch -D: %s\n", name, out)
-			failed = true
+		// Delete the branch only while it still points at the approved head; squash merges rule out git branch -d.
+		if _, err := gitCombined(ctx, root, "update-ref", "-d", wantRef, approved); err != nil {
+			fmt.Fprintf(w, "removed %s: %s; kept branch %s, which moved since refresh\n", name, reason, branch)
 			continue
 		}
-		remote, err := gitCombined(ctx, root, "ls-remote", "origin", "refs/heads/"+branch)
-		remoteHead, _, _ := strings.Cut(remote, "\t")
+		remoteHead := func() (string, error) {
+			out, err := gitCombined(ctx, root, "ls-remote", "origin", wantRef)
+			sha, _, _ := strings.Cut(out, "\t")
+			if err != nil {
+				return out, err
+			}
+			return sha, nil
+		}
+		remote, err := remoteHead()
 		switch {
 		case err != nil:
 			fmt.Fprintf(w, "failed %s: worktree and branch removed; git ls-remote: %s\n", name, remote)
 			failed = true
-		case remoteHead == "":
+		case remote == "":
 			fmt.Fprintf(w, "removed %s: %s; no remote branch\n", name, reason)
-		case localHead == "" || !SameCommitSHA(remoteHead, localHead):
-			fmt.Fprintf(w, "removed %s: %s; kept origin/%s, which moved to %.7s\n", name, reason, branch, remoteHead)
+		case remote != approved:
+			fmt.Fprintf(w, "removed %s: %s; kept origin/%s, which moved to %.7s\n", name, reason, branch, remote)
 		default:
-			if out, err := gitCombined(ctx, root, "push", "origin", "--delete", branch); err != nil {
-				fmt.Fprintf(w, "failed %s: worktree and branch removed; git push --delete: %s\n", name, out)
-				failed = true
+			// The lease makes the server refuse the delete if the branch moved after ls-remote.
+			out, err := gitCombined(ctx, root, "push", "--force-with-lease="+wantRef+":"+approved, "origin", ":"+wantRef)
+			if err == nil {
+				fmt.Fprintf(w, "removed %s: %s; deleted origin/%s\n", name, reason, branch)
 				continue
 			}
-			fmt.Fprintf(w, "removed %s: %s; deleted origin/%s\n", name, reason, branch)
+			if now, lsErr := remoteHead(); lsErr == nil && now != "" && now != approved {
+				fmt.Fprintf(w, "removed %s: %s; kept origin/%s, which moved to %.7s\n", name, reason, branch, now)
+				continue
+			}
+			fmt.Fprintf(w, "failed %s: worktree and branch removed; git push --delete: %s\n", name, out)
+			failed = true
 		}
 	}
 	return failed
