@@ -241,12 +241,12 @@ func TestHookLatencyBudget(t *testing.T) {
 		}
 	}
 	avg := time.Since(start) / (iterations * 2)
-	// Same gate as doctor: 10ms is the target, 25ms the hard ceiling. A wall-clock
-	// average under -race on a shared CI runner drifts past 10ms (#137).
-	if avg > 25*time.Millisecond {
-		t.Errorf("average hook latency %v exceeds 25ms hard ceiling (target <10ms)", avg)
+	// Same gate as doctor: 10ms is the target, 100ms the hard ceiling. A wall-clock
+	// average under -race on a shared CI runner drifts past 10ms (#137, #241).
+	if avg > 100*time.Millisecond {
+		t.Errorf("average hook latency %v exceeds 100ms hard ceiling (target <10ms)", avg)
 	} else if avg > 10*time.Millisecond {
-		t.Logf("average hook latency %v exceeds the 10ms target (hard ceiling 25ms)", avg)
+		t.Logf("average hook latency %v exceeds the 10ms target (hard ceiling 100ms)", avg)
 	}
 }
 

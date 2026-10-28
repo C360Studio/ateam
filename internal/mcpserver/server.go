@@ -394,7 +394,7 @@ func execTaskTool(ctx context.Context, root string, rawArgs json.RawMessage) (st
 	}
 	_ = json.Unmarshal(rawArgs, &args)
 	if strings.TrimSpace(args.Target) == "" || args.Target == "list" {
-		targets, err := taskrunner.ListTargets(root)
+		targets, err := taskrunner.ListTargets(ctx, root)
 		if err != nil {
 			return err.Error(), true
 		}

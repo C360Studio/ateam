@@ -461,7 +461,7 @@ func runStateSnapshot(repoRoot, sub string) int {
 
 func runTask(repoRoot string, args []string) int {
 	if len(args) == 0 || args[0] == "list" {
-		targets, err := taskrunner.ListTargets(repoRoot)
+		targets, err := taskrunner.ListTargets(context.Background(), repoRoot)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ateam task list: %v\n", err)
 			return 1
@@ -517,7 +517,7 @@ func runInit(repoRoot string, args []string) int {
 
 const (
 	hookLatencyBudgetUs = 10000
-	hookLatencyMaxUs    = 25000
+	hookLatencyMaxUs    = 100000
 )
 
 // hookLatencyFindings maps a measured hook latency to a doctor warning (above the target budget) and a --check

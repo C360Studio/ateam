@@ -108,7 +108,7 @@ ateam init --gitea
 
 ### 2. Check your setup (`ateam doctor`)
 
-Check local instruction/configuration parity, estimated MCP schema size, and measured hook latency (best of three warm runs; the 10ms target only warns, the 25ms ceiling fails `--check`). This does not prove that each installed agent CLI consumes the configuration correctly or that your project verification tasks exist:
+Check local instruction/configuration parity, estimated MCP schema size, and measured hook latency (best of three warm runs; the 10ms target only warns, the 100ms ceiling fails `--check`). This does not prove that each installed agent CLI consumes the configuration correctly or that your project verification tasks exist:
 
 ```bash
 ateam doctor --check
@@ -272,7 +272,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 | --- | --- |
 | `ateam version` | Print the release and build commit (`ateam <git describe> (<commit>)`) |
 | `ateam init [--force] [--github\|--gitea]` | Create missing multi-agent instruction files, skills, hooks, MCP configs, ~500k context defaults, and optional GitHub/Gitea labels; `--force` backs up replaced documents first |
-| `ateam doctor [--check]` | Verify multi-agent file parity, `<300` token MCP schema budget, and measured hook latency (25ms `--check` ceiling; 10ms target) |
+| `ateam doctor [--check]` | Verify multi-agent file parity, `<300` token MCP schema budget, and measured hook latency (100ms `--check` ceiling; 10ms target) |
 | `ateam review setup --policy FILE` | Install approved model policy and role cards/pointers, refusing existing conflicts |
 | `ateam review route [--developer-models IDS]` | Check the configured reviewer against every supplied implementation model; launch no agents |
 | `ateam review check --pr N --record-comment ID [--exception-comment ID]` | Validate current review evidence and optional scoped owner exception against trusted baseline policy |
