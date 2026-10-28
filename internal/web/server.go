@@ -273,7 +273,7 @@ func (s *Server) buildDashboard(ctx context.Context) (*DashboardPayload, error) 
 	if err != nil {
 		return nil, err
 	}
-	tasks, _ := taskrunner.ListTargets(root)
+	tasks, _ := taskrunner.ListTargets(ctx, root)
 	return &DashboardPayload{
 		ModelRouting: readModelRouting(root),
 		State:        st,

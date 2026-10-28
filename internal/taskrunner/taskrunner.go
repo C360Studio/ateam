@@ -3,6 +3,7 @@ package taskrunner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,9 +19,57 @@ type Target struct {
 	Desc string `json:"desc"`
 }
 
-// ListTargets parses Taskfile.yml in root using stdlib and returns sorted task targets.
-// shortcut: indentation-based Taskfile.yml parser for top-level tasks: block, upgrade to full YAML AST if nested includes are added
-func ListTargets(root string) ([]Target, error) {
+// ListTargets returns the sorted task targets in root. It asks the task CLI (`task --list-all --json`) so Task v3
+// includes: are resolved, and falls back to scanning the root Taskfile.yml when the CLI is absent or fails. A canceled
+// ctx is returned as an error rather than a reason to fall back.
+func ListTargets(ctx context.Context, root string) ([]Target, error) {
+	// Task searches ancestor directories when root has no Taskfile; require root's own so another project's tasks are
+	// never listed or run.
+	if _, err := os.Stat(filepath.Join(root, "Taskfile.yml")); err != nil {
+		return nil, fmt.Errorf("read Taskfile.yml: %w", err)
+	}
+	out, err := listWithTask(ctx, root)
+	if err == nil {
+		return out, nil
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return scanTaskfile(root)
+}
+
+func listWithTask(ctx context.Context, root string) ([]Target, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "task", "--taskfile", "Taskfile.yml", "--list-all", "--json")
+	cmd.Dir = root
+	// A descendant that inherits stdout would otherwise hold Output open past the deadline.
+	cmd.WaitDelay = time.Second
+	raw, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	// name is Task's display label (a task's label: when set); task is the key that `task <target>` accepts.
+	var listed struct {
+		Tasks []struct {
+			Task string `json:"task"`
+			Desc string `json:"desc"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal(raw, &listed); err != nil {
+		return nil, fmt.Errorf("parse task --list-all --json: %w", err)
+	}
+	out := make([]Target, 0, len(listed.Tasks))
+	for _, t := range listed.Tasks {
+		out = append(out, Target{Name: t.Task, Desc: t.Desc})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// scanTaskfile parses Taskfile.yml in root using stdlib.
+// shortcut: indentation-based fallback sees only top-level tasks: in the root Taskfile.yml, upgrade to a YAML AST if offline listing must resolve includes:
+func scanTaskfile(root string) ([]Target, error) {
 	p := filepath.Join(root, "Taskfile.yml")
 	data, err := os.ReadFile(p)
 	if err != nil {
@@ -78,7 +127,7 @@ func Run(ctx context.Context, root, target string, extraArgs []string) (string, 
 	if target == "" {
 		return "", fmt.Errorf("target name is required")
 	}
-	targets, err := ListTargets(root)
+	targets, err := ListTargets(ctx, root)
 	if err != nil {
 		return "", err
 	}
@@ -96,7 +145,7 @@ func Run(ctx context.Context, root, target string, extraArgs []string) (string, 
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	args := []string{target}
+	args := []string{"--taskfile", "Taskfile.yml", target}
 	if len(extraArgs) > 0 {
 		args = append(args, "--")
 		args = append(args, extraArgs...)

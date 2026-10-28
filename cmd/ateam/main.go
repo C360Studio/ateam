@@ -424,7 +424,7 @@ func runStateSnapshot(repoRoot, sub string) int {
 
 func runTask(repoRoot string, args []string) int {
 	if len(args) == 0 || args[0] == "list" {
-		targets, err := taskrunner.ListTargets(repoRoot)
+		targets, err := taskrunner.ListTargets(context.Background(), repoRoot)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ateam task list: %v\n", err)
 			return 1
