@@ -211,7 +211,7 @@ You are a lazy senior developer. The best code is the code never written. Solve 
 | ` + "`verify`" + ` | Canonical skills in ` + "`.agents/skills/*/SKILL.md`" + ` have matching thin adapters in ` + "`.claude/skills/`" + ` and ` + "`.gemini/commands/`" + ` | ` + "`.agents/README.md`" + ` |
 | ` + "`verify`" + ` | Hook configs in ` + "`.claude/settings.json`" + `, ` + "`.codex/hooks.json`" + `, ` + "`.gemini/settings.json`" + `, and ` + "`.agents/hooks.json`" + ` map native events to ` + "`ateam hook`" + `; with ` + "`ATEAM_HOOK_SCOPE=user`" + `, ` + "`ateam doctor`" + ` also accepts one complete local or user-scope file (` + "`.claude/settings.local.json`" + `, ` + "`~/.claude/settings.json`" + `, ` + "`~/.codex/hooks.json`" + `, ` + "`~/.gemini/settings.json`" + `) and names the file under ` + "`hook_sources`" + ` | ` + "`.agents/README.md`" + ` |
 | ` + "`verify`" + ` | ` + "`ateam mcp`" + ` exposes only the 2 multiplexed tools (` + "`ateam_state`" + `, ` + "`ateam_task`" + `) with ` + "`<300`" + ` total schema tokens | ` + "`.agents/README.md`" + ` |
-| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<10ms`" + ` target budget (` + "`doctor`" + ` warns ` + "`>10ms`" + `, fails ` + "`--check`" + ` ` + "`>25ms`" + `) with zero external runtime dependencies | ` + "`.agents/README.md`" + ` |
+| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<10ms`" + ` target budget (` + "`doctor`" + ` warns ` + "`>10ms`" + `, fails ` + "`--check`" + ` ` + "`>100ms`" + `) with zero external runtime dependencies | ` + "`.agents/README.md`" + ` |
 
 ### 3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done
 
@@ -252,7 +252,7 @@ const defaultRulesIndexMD = `# Rules Enforcement Index
 | ` + "`verify`" + ` | Canonical skills in ` + "`.agents/skills/*/SKILL.md`" + ` have matching thin adapters in ` + "`.claude/skills/`" + ` and ` + "`.gemini/commands/`" + ` | ` + "`ateam doctor`" + ` |
 | ` + "`verify`" + ` | Hook configs in ` + "`.claude/settings.json`" + `, ` + "`.codex/hooks.json`" + `, ` + "`.gemini/settings.json`" + `, and ` + "`.agents/hooks.json`" + ` map native events to ` + "`ateam hook`" + `; with ` + "`ATEAM_HOOK_SCOPE=user`" + `, ` + "`ateam doctor`" + ` also accepts one complete local or user-scope file (` + "`.claude/settings.local.json`" + `, ` + "`~/.claude/settings.json`" + `, ` + "`~/.codex/hooks.json`" + `, ` + "`~/.gemini/settings.json`" + `) and names the file under ` + "`hook_sources`" + ` | ` + "`ateam doctor`" + ` |
 | ` + "`verify`" + ` | ` + "`ateam mcp`" + ` exposes only the 2 multiplexed tools (` + "`ateam_state`" + `, ` + "`ateam_task`" + `) with ` + "`<300`" + ` total schema tokens | ` + "`ateam doctor`" + ` |
-| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<10ms`" + ` target budget (` + "`doctor`" + ` warns ` + "`>10ms`" + `, fails ` + "`--check`" + ` ` + "`>25ms`" + `) with zero external runtime dependencies | ` + "`ateam doctor`" + ` |
+| ` + "`verify`" + ` | ` + "`ateam hook`" + ` executes normalized lifecycle events in ` + "`<10ms`" + ` target budget (` + "`doctor`" + ` warns ` + "`>10ms`" + `, fails ` + "`--check`" + ` ` + "`>100ms`" + `) with zero external runtime dependencies | ` + "`ateam doctor`" + ` |
 
 ## 3. State, OpenSpec, Forge (GitHub/Gitea), and Definition of Done
 

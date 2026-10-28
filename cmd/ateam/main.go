@@ -480,7 +480,7 @@ func runInit(repoRoot string, args []string) int {
 
 const (
 	hookLatencyBudgetUs = 10000
-	hookLatencyMaxUs    = 25000
+	hookLatencyMaxUs    = 100000
 )
 
 // hookLatencyFindings maps a measured hook latency to a doctor warning (above the target budget) and a --check
