@@ -470,15 +470,21 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 				}
 			}
 		}
-		// Run openspec CLI validation if node_modules/.bin/openspec is present; say so when it
-		// is not, so a green check does not read as strict validation (#127).
-		localBin := filepath.Join(root, "node_modules", ".bin", "openspec")
-		strictSkipped = true
-		if st, err := os.Stat(localBin); err == nil && !st.IsDir() {
-			strictSkipped = false
+		// Run openspec CLI validation with the repo-pinned node_modules/.bin/openspec, else the
+		// one on PATH (#205: brownfield repos install it globally); say so when neither exists,
+		// so a green check does not read as strict validation (#127).
+		bin := filepath.Join(root, "node_modules", ".bin", "openspec")
+		if st, err := os.Stat(bin); err != nil || st.IsDir() {
+			// LookPath can return a "./openspec" path alongside exec.ErrDot; never run that.
+			if bin, err = exec.LookPath("openspec"); err != nil {
+				bin = ""
+			}
+		}
+		strictSkipped = bin == ""
+		if bin != "" {
 			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
-			cmd := exec.CommandContext(cctx, localBin, "validate", "--all", "--strict", "--no-interactive")
+			cmd := exec.CommandContext(cctx, bin, "validate", "--all", "--strict", "--no-interactive")
 			cmd.Dir = root
 			if out, err := cmd.CombinedOutput(); err != nil {
 				return string(out), 1, fmt.Errorf("openspec validate failed: %w", err)
@@ -517,7 +523,7 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 		}
 	}
 	if strictSkipped {
-		out.WriteString("openspec: strict validation skipped (node_modules/.bin/openspec not installed; run npm ci at the repository root)\n")
+		out.WriteString("openspec: strict validation skipped (openspec not found in node_modules/.bin or on PATH; run npm ci at the repository root or install @fission-ai/openspec)\n")
 	}
 	fmt.Fprintf(&out, "holds: ok (%d tasks.md read)\n", readCount)
 	return out.String(), 0, nil
