@@ -956,13 +956,110 @@ func checkAntigravityConfigs(root string) []string {
 	return out
 }
 
-// FormatStaleBinaryWarning formats the missing-provenance or behind-HEAD warning shared by doctor and session-start.
-func FormatStaleBinaryWarning(shortBuild, headSHA string) string {
+// FormatStaleBinaryWarning formats the missing-provenance, module-install, or behind-HEAD warning shared by
+// doctor and session-start. binPath is the stale binary's path ("" when it is the checkout's ./bin/ateam).
+func FormatStaleBinaryWarning(shortBuild, headSHA, binPath string) string {
 	shortBuild = strings.TrimSpace(shortBuild)
+	headSHA = strings.TrimSpace(headSHA)
 	if shortBuild == "" || shortBuild == "dev" || shortBuild == "unknown" {
 		return "binary has no build provenance; build with task build"
 	}
-	return fmt.Sprintf("binary %s is behind HEAD %s; run task build", shortBuild, strings.TrimSpace(headSHA))
+	if state.IsModuleTag(shortBuild) {
+		return fmt.Sprintf("binary %s (module install) is not built from HEAD %s; %s", shortBuild, headSHA, staleBinaryAdvice(binPath))
+	}
+	return fmt.Sprintf("binary %s is behind HEAD %s; %s", shortBuild, headSHA, staleBinaryAdvice(binPath))
+}
+
+// staleBinaryAdvice names the commands that replace the binary at binPath (#251). The checkout's own
+// ./bin/ateam ("") only needs a rebuild; a symlink onto it would loop.
+func staleBinaryAdvice(binPath string) string {
+	if binPath == "" {
+		return "run task build"
+	}
+	return fmt.Sprintf(`replace %s: task build && ln -sf "$PWD/bin/ateam" %s, or go install ./cmd/ateam`, binPath, binPath)
+}
+
+// RunningBinaryPath returns the running executable's path for stale-binary advice, or "" when it is (or
+// links to) root's ./bin/ateam. It makes no subprocess, so the session-start hook may call it.
+func RunningBinaryPath(root string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return adviceBinaryPath(root, exe)
+}
+
+func adviceBinaryPath(root, binPath string) string {
+	resolved, err := filepath.EvalSymlinks(binPath)
+	if err != nil {
+		return binPath
+	}
+	if disk, err := filepath.EvalSymlinks(filepath.Join(root, "bin", "ateam")); err == nil && disk == resolved {
+		return ""
+	}
+	return binPath
+}
+
+// HookBinary describes the ateam binary the Claude hook command resolves to on PATH (#251).
+type HookBinary struct {
+	Path    string `json:"path"`
+	Version string `json:"version"`
+	Build   string `json:"build"`
+}
+
+// HookBinaryStatus resolves argv[0] of the Claude hook command on PATH and reads its version. In the ateam
+// checkout it warns when that binary's build differs from diskBuild (./bin/ateam's label) or is a module
+// install; outside it, and when no binary resolves, it only reports.
+func HookBinaryStatus(ctx context.Context, root, diskBuild string) (HookBinary, []string) {
+	path, err := exec.LookPath(claudeHookArgv0(root))
+	if err != nil {
+		return HookBinary{Version: "absent"}, nil
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	version, build := state.ReadBinaryVersion(ctx, path)
+	hb := HookBinary{Path: path, Version: version, Build: build}
+	if !IsAteamCheckout(root) || (build == diskBuild && build != "module") {
+		return hb, nil
+	}
+	what := "build " + build
+	if build == "module" {
+		what = version + " (module install)"
+	}
+	return hb, []string{fmt.Sprintf("hook binary %s is %s, not ./bin/ateam build %s; %s", path, what, diskBuild, staleBinaryAdvice(adviceBinaryPath(root, path)))}
+}
+
+// claudeHookArgv0 returns argv[0] of the first ateam hook command in the Claude hook file doctor accepted,
+// else the bare "ateam" every generated config uses.
+func claudeHookArgv0(root string) string {
+	_, sources := inspectHookConfigs(root)
+	for _, c := range hookClients {
+		if c.agent != "claude" {
+			continue
+		}
+		label := sources["claude"]
+		if label == "" {
+			label = c.project
+		}
+		path := filepath.Join(root, filepath.FromSlash(label))
+		if rest, ok := strings.CutPrefix(label, "~/"); ok {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				break
+			}
+			path = filepath.Join(home, filepath.FromSlash(rest))
+		}
+		byNative, _ := readJSONObject(path)[c.root].(map[string]any)
+		for _, ev := range c.events {
+			for _, cmd := range hookCommands(byNative[ev.native], c.nested) {
+				if tokens := strings.Fields(cmd); isAteamHook(tokens) {
+					return tokens[0]
+				}
+			}
+		}
+	}
+	return "ateam"
 }
 
 // DiskBuildStatus reports the ./bin/ateam build label for doctor, or "absent" / "unreadable",
@@ -1001,24 +1098,33 @@ func IsAteamCheckout(root string) bool {
 // BuildProvenanceNotApplicable is the doctor build_provenance value outside the ateam checkout.
 const BuildProvenanceNotApplicable = "not applicable (binary is not built from this checkout)"
 
-// BuildProvenanceStatus returns the doctor build_provenance field and the build warnings, reading
+// BuildProvenanceStatus returns the doctor build_provenance field and the build warnings (advice names binPath), reading
 // go.mod once. Outside the ateam checkout the binary was never built from root, so there are no warnings (#150).
-func BuildProvenanceStatus(ctx context.Context, root, buildRev, headSHA string) (string, []string) {
+func BuildProvenanceStatus(ctx context.Context, root, buildRev, headSHA, binPath string) (string, []string) {
 	if !IsAteamCheckout(root) {
 		return BuildProvenanceNotApplicable, nil
 	}
-	return "checked", checkBuildProvenance(ctx, root, buildRev, headSHA)
+	return "checked", checkBuildProvenance(ctx, root, buildRev, headSHA, binPath)
 }
 
-// checkBuildProvenance checks whether the running binary's commit is an ancestor of checkout HEAD.
-func checkBuildProvenance(ctx context.Context, root, buildRev, headSHA string) []string {
+// checkBuildProvenance checks whether the running binary's commit is an ancestor of checkout HEAD. A module
+// install's tag is resolved to its commit first (#251); only doctor pays that subprocess, never the hook.
+func checkBuildProvenance(ctx context.Context, root, buildRev, headSHA, binPath string) []string {
 	buildRev = strings.TrimSpace(buildRev)
 	headSHA = strings.TrimSpace(headSHA)
 	if buildRev == "" || buildRev == "dev" || buildRev == "unknown" {
-		return []string{FormatStaleBinaryWarning(buildRev, headSHA)}
+		return []string{FormatStaleBinaryWarning(buildRev, headSHA, binPath)}
 	}
 	if headSHA == "" || headSHA == "uncommitted" {
 		return nil
+	}
+	tag := ""
+	if state.IsModuleTag(buildRev) {
+		tag = buildRev
+		buildRev = resolveTagCommit(ctx, root, tag)
+		if buildRev == "" {
+			return []string{FormatStaleBinaryWarning(tag, headSHA, binPath)}
+		}
 	}
 	shortBuild := buildRev
 	if len(shortBuild) > 7 {
@@ -1034,7 +1140,23 @@ func checkBuildProvenance(ctx context.Context, root, buildRev, headSHA string) [
 	if err := cmd.Run(); err != nil {
 		return []string{fmt.Sprintf("binary build commit %s is not an ancestor of checkout HEAD %s; rebuild ./bin/ateam from this checkout", shortBuild, headSHA)}
 	}
-	return []string{FormatStaleBinaryWarning(shortBuild, headSHA)}
+	if tag != "" {
+		return []string{fmt.Sprintf("binary %s (module install, %s) is behind HEAD %s; %s", tag, shortBuild, headSHA, staleBinaryAdvice(binPath))}
+	}
+	return []string{FormatStaleBinaryWarning(shortBuild, headSHA, binPath)}
+}
+
+// resolveTagCommit returns the commit a tag names in root, or "" when the tag is not there.
+func resolveTagCommit(ctx context.Context, root, tag string) string {
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "git", "rev-parse", "--verify", "--quiet", "refs/tags/"+tag+"^{commit}")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // CheckUnarchivedOpenSpecChanges returns a doctor warning for any OpenSpec change under openspec/changes/ whose tasks are all complete.

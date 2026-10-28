@@ -656,9 +656,13 @@ func TestSessionStartWarnsWhenBinaryBehindHead(t *testing.T) {
 	origBuildCommit := state.BuildCommit
 	t.Cleanup(func() { state.BuildCommit = origBuildCommit })
 
-	// 1. Binary built before HEAD prints "binary <x> is behind HEAD <y>; run task build" at session-start and nothing on subsequent prompts.
+	// 1. Binary built before HEAD prints "binary <x> is behind HEAD <y>; replace <path>: ..." at session-start and nothing on subsequent prompts.
 	state.BuildCommit = "990e19c000000000000000000000000000000000"
-	const wantBehind = "binary 990e19c is behind HEAD abad85b; run task build"
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBehind := "binary 990e19c is behind HEAD abad85b; replace " + exe + `: task build && ln -sf "$PWD/bin/ateam" ` + exe + ", or go install ./cmd/ateam"
 	outBehind, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-behind"}`))
 	if err != nil {
 		t.Fatalf("Handle session-start behind HEAD: %v", err)

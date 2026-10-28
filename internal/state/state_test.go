@@ -1871,3 +1871,56 @@ func TestHandoffSlotRefusalNamesHolderLease(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/changes/provenance-251/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
+func TestPickupShowsDefaultBranchBehindOrigin(t *testing.T) {
+	git := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	origin := t.TempDir()
+	git(origin, "init", "-q", "-b", "main")
+	git(origin, "commit", "-q", "--allow-empty", "-m", "c1")
+	local := filepath.Join(t.TempDir(), "local")
+	git(origin, "clone", "-q", origin, local)
+
+	summarize := func() (string, GitStatus) {
+		st := defaultState()
+		st.Git = SnapshotGit(context.Background(), local)
+		return BuildPickupSummary(st), st.Git
+	}
+	even, _ := summarize()
+	if strings.Contains(even, "behind=") {
+		t.Fatalf("main even with origin/main printed behind:\n%s", even)
+	}
+
+	// origin gains 2 commits; local gains 1 of its own, so ahead and behind differ and a swap shows.
+	git(origin, "commit", "-q", "--allow-empty", "-m", "c2")
+	git(origin, "commit", "-q", "--allow-empty", "-m", "c3")
+	git(local, "fetch", "-q", "origin")
+	git(local, "commit", "-q", "--allow-empty", "-m", "local")
+	summary, gs := summarize()
+	if gs.DefaultBehindRemote != 2 || gs.DefaultAheadOfRemote != 1 {
+		t.Fatalf("behind=%d ahead=%d, want behind=2 ahead=1", gs.DefaultBehindRemote, gs.DefaultAheadOfRemote)
+	}
+	ateamLine := lineWithPrefixIn(summary, "[ateam]")
+	if !strings.Contains(ateamLine, "| dirty=false | behind=2 |") {
+		t.Fatalf("[ateam] line = %q, want | behind=2", ateamLine)
+	}
+	mainLine := lineWithPrefixIn(summary, "  - main (")
+	if !strings.Contains(mainLine, ", ahead=") || !strings.Contains(mainLine, ", behind=2, ") {
+		t.Fatalf("main worktree line = %q, want behind=2", mainLine)
+	}
+
+	if err := os.WriteFile(filepath.Join(local, "wip.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dirty, _ := summarize()
+	if line := lineWithPrefixIn(dirty, "[ateam]"); !strings.Contains(line, "| dirty=true (uncommitted changes) | behind=2 |") {
+		t.Fatalf("dirty main [ateam] line = %q, want dirty=true (uncommitted changes)", line)
+	}
+}

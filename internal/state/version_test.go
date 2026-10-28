@@ -42,3 +42,39 @@ func TestVersionStringUsesStampedVersion(t *testing.T) {
 		t.Fatalf("VersionString() = %q, want %q", got, want)
 	}
 }
+
+// spec: openspec/changes/provenance-251/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
+func TestBuildRevisionLabelsModuleInstalls(t *testing.T) {
+	withMain := func(v string, settings ...debug.BuildSetting) *debug.BuildInfo {
+		return &debug.BuildInfo{Main: debug.Module{Path: "github.com/c360studio/ateam", Version: v}, Settings: settings}
+	}
+	vcs := []debug.BuildSetting{{Key: "vcs.revision", Value: "9f11a42c0ffee9f11a42c0ffee9f11a42c0ffee0"}, {Key: "vcs.modified", Value: "true"}}
+	cases := []struct {
+		name                string
+		stamped             string
+		info                *debug.BuildInfo
+		ok                  bool
+		wantShort, wantFull string
+		wantVersion         string
+	}{
+		{"go install module@tag", "", withMain("v0.3.3"), true, "v0.3.3", "v0.3.3", "ateam v0.3.3 (module)"},
+		{"go install pre-release tag", "", withMain("v0.3.4-rc1"), true, "v0.3.4-rc1", "v0.3.4-rc1", "ateam v0.3.4-rc1 (module)"},
+		{"go install pseudo-version", "", withMain("v0.3.4-0.20261028123456-abcdef123456"), true, "abcdef1", "abcdef123456", "ateam v0.3.4-0.20261028123456-abcdef123456 (abcdef1)"},
+		{"pre-release pseudo-version", "", withMain("v0.3.4-rc1.0.20261028123456-0123456789ab"), true, "0123456", "0123456789ab", "ateam v0.3.4-rc1.0.20261028123456-0123456789ab (0123456)"},
+		{"go build or go run", "", withMain("(devel)"), true, "unknown", "", "ateam dev (unknown)"},
+		{"vcs stamp wins over the module tag", "", withMain("v0.3.3", vcs...), true, "9f11a42", "9f11a42c0ffee9f11a42c0ffee9f11a42c0ffee0", "ateam v0.3.3 (9f11a42-dirty)"},
+		{"ldflags commit wins over everything", "ea0c7845a875", withMain("v0.3.3", vcs...), true, "ea0c784", "ea0c7845a875", "ateam v0.3.3 (ea0c784)"},
+		{"no build info", "", nil, false, "unknown", "", "ateam dev (unknown)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			short, full, _ := buildRevision(tc.stamped, tc.info, tc.ok)
+			if short != tc.wantShort || full != tc.wantFull {
+				t.Fatalf("buildRevision = (%q, %q), want (%q, %q)", short, full, tc.wantShort, tc.wantFull)
+			}
+			if got := versionString("", tc.stamped, tc.info, tc.ok); got != tc.wantVersion {
+				t.Fatalf("versionString = %q, want %q", got, tc.wantVersion)
+			}
+		})
+	}
+}
