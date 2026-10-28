@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1 and 2 (#229). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1 and 2 (#229). Evidence: the owner approved in Enjoy on 2026-10-28, ruling OQ1 A (remove host-managed worktrees too; git is the source of truth) and OQ2 deferred (`--all` out of scope); Claude wrote the header at their request.
 
 ## 2. Classifier
 

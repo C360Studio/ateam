@@ -62,6 +62,6 @@ None. This adds a new command and output suffix, with no state schema change.
 
 ## Open Questions
 
-1. **Needs owner ruling:** when a host app manages a worktree's lifecycle, should prune still remove the worktree (A: yes; git is the truth and the host sees it gone), or should it add `--branches-only` to delete only the local and remote branches (B)? This changes task 3.1.
-2. **Needs owner ruling:** is `--all` (D3 B) wanted now for the owner's backlog, or deferred? The recommendation is to defer.
+1. **Ruled (owner, 2026-10-28): A.** When a host app manages a worktree's lifecycle, should prune still remove the worktree (A: yes; git is the truth and the host sees it gone), or should it add `--branches-only` to delete only the local and remote branches (B)? This changes task 3.1.
+2. **Ruled (owner, 2026-10-28): deferred.** Is `--all` (D3 B) wanted now for the owner's backlog, or deferred? The recommendation is to defer.
 3. Not blocking: the protocol's `<agent>/review-pr-<n>` disagrees with the review-pr skill's `<agent>-review-pr-<n>` directory. The proposal is to match the skill's directory name, allowing a `-<suffix>`, and to fix the protocol text in task 5.1.

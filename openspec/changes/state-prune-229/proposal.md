@@ -1,6 +1,6 @@
 # Change Proposal: `state-prune-229`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-28)
 
 ## Why
 
@@ -20,7 +20,7 @@ Dogfood pass 10 (main 4debfe3, 2026-10-27) found three finished worktrees in one
 ## Non-goals
 
 - No MCP action and no hook. Prune runs only when an agent or the owner asks for it.
-- No removal of other agents' worktrees, and no `--all` flag (design Open Question 2).
+- No removal of other agents' worktrees, and no `--all` flag (deferred by the owner, design Open Question 2).
 - No change to how worktree labels are computed, or to the forge sync cap of 50 closed items.
 - No cleanup of handoff slots. Pickup already prunes stale ones.
 
