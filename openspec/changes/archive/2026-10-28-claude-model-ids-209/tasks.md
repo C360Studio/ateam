@@ -1,0 +1,11 @@
+## 1. Approval
+
+- [x] 1.1 Owner approves `proposal.md` and `design.md`, fills `Approved-by: Coby (2026-10-28)`, and removes the approval hold in the same edit (#209).
+
+## 2. Implementation
+
+- [x] 2.1 Add the ruled Claude IDs in their selected tiers, add `codex:gpt-6-luna` in `light`, and move `gemini:gemini-4-argon` from `workhorse` to `frontier` (design.md, Open Questions 1–3) in `.agents/review-policy.json` (#209). Evidence: `.agents/review-policy.json` updated; `ateam review compare --implementer gemini:gemini-4-argon:high --reviewer claude:claude-opus-5-5:high`, `--reviewer claude:opus:high`, and `--implementer claude:opus:high --reviewer gemini:gemini-4-argon:high` all exit 0.
+- [x] 2.2 Add a test that loads the committed policy and asserts each resolved Claude ID ranks with its alias, `codex:gpt-6-luna` ranks in `light`, and `gemini:gemini-4-argon` ranks in `frontier` (#209). Evidence: `TestCommittedPolicyTiers` in `internal/review/compare_test.go` checks committed `.agents/review-policy.json` against `adrPolicy()` and pairwise comparisons; `cp` + SHA-256 backup/restore mutation checks (`f3d79718...` unchanged before/after) report `detection` when removing `claude:claude-opus-5-5`, demoting `gemini:gemini-4-argon` to `workhorse`, or removing `codex:gpt-6-luna`.
+- [x] 2.3 Update the ADR 0002 § 1 table, policy example, and status line (#209). Evidence: `docs/adr/0002-model-tiers-and-effort-bands.md:3,30-39,57-61` matches `.agents/review-policy.json` entry for entry.
+- [x] 2.4 Contract, `/review-pr` skill, and protocol wording (#209). Evidence: `.agents/contracts/{developer,reviewer}.md`, `internal/bootstrap/review.go`, `.agents/skills/review-pr/SKILL.md`, `internal/bootstrap/templates.go`, `internal/bootstrap/parity_test.go`, and `.agents/protocol.md` updated; `ateam doctor --check` passes (`violations: null`), and `task mutate:check` reports `detection` on both `internal/bootstrap/review.go` (`TestCanonicalReviewContracts`) and `internal/bootstrap/templates.go` (`TestInitRepoAndParitySensitivity`).
+- [x] 2.5 Archive the change before marking the PR ready (#209). Evidence: archived to `openspec/changes/archive/2026-10-28-claude-model-ids-209/`; `task spec:queue` shows 0 in-flight changes.

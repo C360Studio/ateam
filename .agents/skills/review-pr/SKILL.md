@@ -32,7 +32,7 @@ Verdict: APPROVE | REQUEST CHANGES
 <findings, checks run, unavailable evidence, limitations>
 ```
 
-Name your provider, exact model, and reasoning effort. Remove the review checkout (`git worktree remove .worktrees/<agent>-review-pr-<n>`) once the comment is posted. End your conclusion with 1–2 lines naming what you skipped or did not check and any residual risk.
+Name your provider, model as `.agents/review-policy.json` lists it (for example `opus`), and reasoning effort. Remove the review checkout (`git worktree remove .worktrees/<agent>-review-pr-<n>`) once the comment is posted. End your conclusion with 1–2 lines naming what you skipped or did not check and any residual risk.
 
 ## 5. Clear the Merge Check
 
