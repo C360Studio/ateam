@@ -141,7 +141,10 @@ func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
 			t.Fatal(err)
 		}
 		wf := string(data)
-		for _, want := range []string{"pull_request_target:", "labeled, unlabeled", "runs-on: ubuntu-24.04", "persist-credentials: false", "run: scripts/gate-files.sh \"$PR_NUMBER\"", "  contents: read\n  pull-requests: read\n"} {
+		for _, want := range []string{"pull_request_target:", "labeled, unlabeled", "runs-on: ubuntu-24.04", "persist-credentials: false", "run: scripts/gate-files.sh \"$PR_NUMBER\"", "  contents: read\n  pull-requests: read\n",
+			// #250: skipped and renamed on a draft; pull_request_target is never the
+			// event name pull_request, so the guard tests the draft flag alone.
+			"    name: ${{ github.event.pull_request.draft && 'Gate files (draft, skipped)' || 'Gate files' }}\n    if: ${{ !github.event.pull_request.draft }}\n"} {
 			if !strings.Contains(wf, want) {
 				t.Fatalf("%s gate-files.yml lacks %q", forge, want)
 			}
@@ -172,14 +175,20 @@ func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
 func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 	// #143: each Gitea workflow is the GitHub one except the merge-check step's
 	// credentials (Gitea's CI) or the forge and token (Gitea's gate files), so a
-	// change to one that misses the other fails here.
-	for _, tc := range []struct{ file, github, gitea string }{
+	// change to one that misses the other fails here. #250: the Gitea trigger
+	// also lists edited, because leaving Gitea's WIP: title prefix is an edit;
+	// GitHub does not take it, or every body edit would rerun Verify.
+	for _, tc := range []struct{ file, github, gitea, ghTypes, gtTypes string }{
 		{"ci.yml", "          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
 			"          # Gitea: the job token only, no extra secret. It cannot read the branch\n" +
 				"          # protection rule, so the up-to-date setting prints strict=unverified.\n" +
-				"          GITEA_TOKEN: ${{ github.token }}\n"},
+				"          GITEA_TOKEN: ${{ github.token }}\n",
+			"    types: [opened, synchronize, reopened, ready_for_review]\n",
+			"    types: [opened, synchronize, reopened, ready_for_review, edited]\n"},
 		{"gate-files.yml", "          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
-			"          ATEAM_FORGE: gitea\n          GITEA_TOKEN: ${{ github.token }}\n"},
+			"          ATEAM_FORGE: gitea\n          GITEA_TOKEN: ${{ github.token }}\n",
+			"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]\n",
+			"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]\n"},
 	} {
 		gh, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", tc.file))
 		if err != nil {
@@ -189,7 +198,16 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		for _, line := range strings.Split(string(gh), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "types:") && strings.Contains(line, "edited") {
+				t.Errorf(".github/workflows/%s triggers on edited; only the Gitea twin takes it (#250)", tc.file)
+			}
+		}
 		want := strings.Replace(string(gh), tc.github, tc.gitea, 1)
+		if !strings.Contains(want, tc.ghTypes) {
+			t.Errorf(".github/workflows/%s lacks the trigger line %q", tc.file, tc.ghTypes)
+		}
+		want = strings.Replace(want, tc.ghTypes, tc.gtTypes, 1)
 		if tc.file == "gate-files.yml" {
 			want = strings.Replace(want, "that judges it (#140). It must never check out or run pull request code: the\n",
 				"that judges it (#140; the Gitea twin of .github/workflows/gate-files.yml, #143).\n# It must never check out or run pull request code: the\n", 1)

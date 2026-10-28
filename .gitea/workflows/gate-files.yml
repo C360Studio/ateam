@@ -8,7 +8,7 @@ name: Gate files
 # through the API only.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
 
 concurrency:
   group: gate-files-${{ github.event.pull_request.number }}
@@ -20,7 +20,10 @@ permissions:
 
 jobs:
   gate-files:
-    name: Gate files
+    # Skipped and renamed on a draft, so a draft head carries no Gate files check
+    # run for GitHub to count as passing (#250).
+    name: ${{ github.event.pull_request.draft && 'Gate files (draft, skipped)' || 'Gate files' }}
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

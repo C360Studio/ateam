@@ -868,7 +868,38 @@ var (
 const (
 	verifyTimeoutMinutes = 15
 	runnerLabel          = "ubuntu-24.04"
+	// draftGuard skips a pull-request job on a draft and keeps every push run (#250).
+	draftGuard = "github.event_name != 'pull_request' || !github.event.pull_request.draft"
 )
+
+// ciJobNames are the required-check names each ci.yml job reports when it runs.
+var ciJobNames = map[string]string{"verify": "Verify", "merge-check": "Merge check", "required": "Required"}
+
+// draftName is the job name the merge-gate spec requires: a skipped draft job
+// must not carry its required-check name, or GitHub counts the skip as passing (#250).
+func draftName(name string) string {
+	return fmt.Sprintf("${{ github.event.pull_request.draft && '%s (draft, skipped)' || '%s' }}", name, name)
+}
+
+func draftViolations(wf ciWorkflow) []string {
+	var out []string
+	for _, id := range slices.Sorted(maps.Keys(ciJobNames)) {
+		job, ok := wf.Jobs[id]
+		if !ok {
+			continue
+		}
+		if got, want := strings.TrimSpace(fmt.Sprint(job.Name)), draftName(ciJobNames[id]); got != want {
+			out = append(out, fmt.Sprintf("ci.yml: job %s is named %v; the merge-gate spec requires name: %s so a skipped draft job leaves no %s check run at the head", id, job.Name, want, ciJobNames[id]))
+		}
+		if id == "required" {
+			continue // requiredStepViolations checks its always() form
+		}
+		if got := strings.TrimSpace(fmt.Sprint(job.If)); got != draftGuard {
+			out = append(out, fmt.Sprintf("ci.yml: job %s runs under if: %v; the merge-gate spec requires if: %s so drafts skip it and push to main still runs it", id, job.If, draftGuard))
+		}
+	}
+	return out
+}
 
 // spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
 func TestCIWorkflowPinned(t *testing.T) {
@@ -890,15 +921,19 @@ func TestCIWorkflowPinnedSensitivity(t *testing.T) {
     types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.action != 'edited' }}
 permissions:
   contents: read
 jobs:
   verify:
+    name: ${{ github.event.pull_request.draft && 'Verify (draft, skipped)' || 'Verify' }}
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps: [{run: task verify}]
   merge-check:
+    name: ${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || 'Merge check' }}
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -907,9 +942,10 @@ jobs:
       pull-requests: read
     steps: [{run: scripts/merge-check.sh}]
   required:
+    name: ${{ github.event.pull_request.draft && 'Required (draft, skipped)' || 'Required' }}
     runs-on: ubuntu-24.04
     needs: [verify, merge-check]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     steps:
       - name: Require every needed job to succeed
         env:
@@ -946,21 +982,31 @@ jobs:
 			[]string{"job verify", "30", "15 minutes"}},
 		{"write-all on the workflow", "permissions:\n  contents: read\njobs:", "permissions: write-all\njobs:",
 			[]string{"workflow", "write-all"}},
-		{"required without if: always()", "    if: always()\n", "",
-			[]string{"job required", "if: always()"}},
+		{"required without if: always()", "    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)\n", "",
+			[]string{"job required", "if: always() &&"}},
+		{"required skips drafts without always()", "    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)\n", "    if: github.event_name != 'pull_request' || !github.event.pull_request.draft\n",
+			[]string{"job required", "if: always() &&"}},
+		{"verify runs on drafts", "    if: github.event_name != 'pull_request' || !github.event.pull_request.draft\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n", "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n",
+			[]string{"job verify", "drafts skip it"}},
+		{"verify guard skips push to main", "    if: github.event_name != 'pull_request' || !github.event.pull_request.draft\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n", "    if: ${{ !github.event.pull_request.draft }}\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n",
+			[]string{"job verify", "push to main"}},
+		{"required keeps its name on a draft", "    name: ${{ github.event.pull_request.draft && 'Required (draft, skipped)' || 'Required' }}\n", "    name: Required\n",
+			[]string{"job required", "no Required check run"}},
+		{"merge-check renamed away from its check", "'Merge check (draft, skipped)' || 'Merge check' }}", "'Merge check (draft, skipped)' || 'Merge-check' }}",
+			[]string{"job merge-check", "no Merge check check run"}},
 		{"step exits 0 for skipped", `if [ "$r" != "success" ]`, `if [ "$r" != "success" ] && [ "$r" != "skipped" ]`,
 			[]string{"job required", "exits 0", "skipped"}},
 		{"step reads verify alone", "${{ join(needs.*.result, ' ') }}", "${{ needs.verify.result }}",
 			[]string{"job required", "does not take its results from needs.*.result"}},
 		{"ready type missing", "types: [opened, synchronize, reopened, ready_for_review]", "types: [opened, synchronize, reopened]",
 			[]string{"pull_request", "ready_for_review"}},
-		{"ready_for_review run cancels the same head", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}\n", "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
+		{"ready_for_review run cancels the same head", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.action != 'edited' }}\n", "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
 			[]string{"cancel-in-progress", "ready_for_review", "failed Required"}},
-		{"cancel-in-progress unconditionally", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}\n", "  cancel-in-progress: true\n",
+		{"cancel-in-progress unconditionally", "  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.action != 'edited' }}\n", "  cancel-in-progress: true\n",
 			[]string{"cancel-in-progress", "ready_for_review"}},
 		{"a fourth job on the moving label", "jobs:\n", "jobs:\n  lint: {runs-on: ubuntu-latest, steps: [{run: echo}]}\n",
 			[]string{"job lint", "ubuntu-latest", "ubuntu-24.04"}},
-		{"verify on a list of labels", "  verify:\n    runs-on: ubuntu-24.04\n", "  verify:\n    runs-on: [self-hosted, ubuntu-24.04]\n",
+		{"verify on a list of labels", "    if: github.event_name != 'pull_request' || !github.event.pull_request.draft\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n", "    if: github.event_name != 'pull_request' || !github.event.pull_request.draft\n    runs-on: [self-hosted, ubuntu-24.04]\n    timeout-minutes: 15\n",
 			[]string{"job verify", "[self-hosted ubuntu-24.04]"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -978,6 +1024,7 @@ type ciWorkflow struct {
 }
 
 type ciJob struct {
+	Name            any
 	RunsOn          any
 	Needs           any
 	If              any
@@ -1012,6 +1059,7 @@ func ciWorkflowViolations(t *testing.T, data []byte) []string {
 	}
 	violations := pullRequestTriggerViolations(wf.On)
 	violations = append(violations, concurrencyViolations(wf.Concurrency)...)
+	violations = append(violations, draftViolations(wf)...)
 	violations = append(violations, writeGrants("workflow", wf.Permissions)...)
 	names := make([]string, 0, len(wf.Jobs))
 	for name := range wf.Jobs {
@@ -1069,9 +1117,9 @@ func ciWorkflowViolations(t *testing.T, data []byte) []string {
 
 // cancelInProgressExpr is the only cancel-in-progress value the merge-gate spec
 // accepts: superseded pull-request runs are cancelled, but the ready_for_review
-// run reuses the head SHA, and cancelling the run already in flight leaves a
-// failed Required on a head that was never broken (#87).
-const cancelInProgressExpr = "${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}"
+// run (and Gitea's edited run, #250) reuses the head SHA, and cancelling the run
+// already in flight leaves a failed Required on a head that was never broken (#87).
+const cancelInProgressExpr = "${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.action != 'edited' }}"
 
 func concurrencyViolations(raw any) []string {
 	if raw == nil {
@@ -1207,8 +1255,8 @@ func evalNeedsExpression(expr string, needs []string, results map[string]string)
 
 func requiredStepViolations(t *testing.T, req ciJob, needs []string) []string {
 	var out []string
-	if cond := strings.TrimSpace(fmt.Sprint(req.If)); req.If == nil || (cond != "always()" && cond != "${{ always() }}") {
-		out = append(out, fmt.Sprintf("ci.yml: job required runs under if: %v; the merge-gate spec requires if: always(), or a failed or cancelled needed job leaves Required skipped, which GitHub reports as success", req.If))
+	if want := "always() && (" + draftGuard + ")"; req.If == nil || strings.TrimSpace(fmt.Sprint(req.If)) != want {
+		out = append(out, fmt.Sprintf("ci.yml: job required runs under if: %v; the merge-gate spec requires if: %s, or a failed or cancelled needed job leaves Required skipped, which GitHub reports as success", req.If, want))
 	}
 	if req.ContinueOnError != nil {
 		out = append(out, fmt.Sprintf("ci.yml: job required sets continue-on-error: %v; the merge-gate spec requires it to fail", req.ContinueOnError))
@@ -1349,6 +1397,7 @@ func decodeCIJob(raw any) ciJob {
 	if !ok {
 		return j
 	}
+	j.Name = m["name"]
 	j.RunsOn = m["runs-on"]
 	j.Needs = m["needs"]
 	j.If = m["if"]

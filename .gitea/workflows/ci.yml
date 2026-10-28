@@ -8,15 +8,16 @@ on:
   # ready_for_review: marking a draft ready starts the run that applies the
   # review check, which does not fail a draft.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 
 # Superseded PR runs are cancelled, except the run that marking a draft ready
-# starts: it reuses the head SHA, and cancelling the run already in flight would
-# leave a failed Required on a head that was never broken (#87). Pushes to main
-# are never cancelled, so two quick merges never leave one on a commit either.
+# starts (or, on Gitea, an edit): it reuses the head SHA, and cancelling the run
+# already in flight would leave a failed Required on a head that was never
+# broken (#87). Pushes to main are never cancelled, so two quick merges never
+# leave one on a commit either.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.action != 'edited' }}
 
 permissions:
   contents: read
@@ -24,7 +25,8 @@ permissions:
 # Every job is pinned to ubuntu-24.04 by the merge-gate spec.
 jobs:
   verify:
-    name: Verify
+    name: ${{ github.event.pull_request.draft && 'Verify (draft, skipped)' || 'Verify' }}
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -59,7 +61,8 @@ jobs:
 
   # Up-to-date rule, review check and known-flake check (scripts/merge-check.sh).
   merge-check:
-    name: Merge check
+    name: ${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || 'Merge check' }}
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -94,10 +97,13 @@ jobs:
 
   # Single required status check: anything other than success in a needed job
   # (failure, cancelled, skipped, or a job that never ran) fails the aggregate.
+  # On a draft every job is skipped and renamed, so a draft head carries no check
+  # run named Required (GitHub counts a skipped one as passing, #250). A skipped
+  # job's name is not evaluated: the draft check run shows the raw expression.
   required:
-    name: Required
+    name: ${{ github.event.pull_request.draft && 'Required (draft, skipped)' || 'Required' }}
     needs: [verify, merge-check]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

@@ -9,12 +9,32 @@
 
 ## 2. Implementation
 
-- [ ] 2.1 Add the draft guard and draft rename to `Verify`, `Merge check`, and `Required` (`.github/workflows/ci.yml:27`, `:65`, `:96-111`; Gitea twin), with `Required` as `if: always() && (...)`. Acceptance: static test plus `detection` mutations for a dropped guard, a dropped rename, `Required` without `always()`, `Required` accepting `skipped`, and a guard that skips `push` to `main`.
-- [ ] 2.2 Add the draft guard and rename to `Gate files` (`.github/workflows/gate-files.yml:20`; Gitea twin). Acceptance: `TestGateFilesWorkflowRunsFromBase` (`internal/bootstrap/gatefiles_test.go:134`) asserts both, and a mutation that drops either is detected.
-- [ ] 2.3 Add `edited` to the `types:` of `.gitea/workflows/ci.yml` and `.gitea/workflows/gate-files.yml` only, and give `TestGiteaWorkflowsTwinGitHub` (`gatefiles_test.go:172`) a documented exception for those two lines. Acceptance: the twin test passes and still fails on any other drift, including `edited` appearing in a GitHub file.
-- [ ] 2.4 Update the scenarios at `openspec/specs/harness/spec.md:445` and `:457` with the draft contract (guard, rename, `always()` form, Gitea `edited`), and update `TestCIWorkflowPinned`/`Sensitivity` (`internal/bootstrap/mergecheck_test.go:874-960`) to match. Acceptance: `task spec:check` and `task test:spec` are green.
-- [ ] 2.5 Add to `.agents/protocol.md` § 2 Verify: CI on a draft is deferred, not passed, and local gates are unchanged. Acceptance: `ateam doctor` parity is green.
+- [x] 2.1 Add the draft guard and draft rename to `Verify`, `Merge check`, and `Required` (`.github/workflows/ci.yml:27`, `:65`, `:96-111`; Gitea twin), with `Required` as `if: always() && (...)`. Acceptance: static test plus `detection` mutations for a dropped guard, a dropped rename, `Required` without `always()`, `Required` accepting `skipped`, and a guard that skips `push` to `main`.
+- [x] 2.2 Add the draft guard and rename to `Gate files` (`.github/workflows/gate-files.yml:20`; Gitea twin). Acceptance: `TestGateFilesWorkflowRunsFromBase` (`internal/bootstrap/gatefiles_test.go:134`) asserts both, and a mutation that drops either is detected.
+- [x] 2.3 Add `edited` to the `types:` of `.gitea/workflows/ci.yml` and `.gitea/workflows/gate-files.yml` only, and give `TestGiteaWorkflowsTwinGitHub` (`gatefiles_test.go:172`) a documented exception for those two lines. Acceptance: the twin test passes and still fails on any other drift, including `edited` appearing in a GitHub file.
+- [x] 2.4 Update the scenarios at `openspec/specs/harness/spec.md:445` and `:457` with the draft contract (guard, rename, `always()` form, Gitea `edited`), and update `TestCIWorkflowPinned`/`Sensitivity` (`internal/bootstrap/mergecheck_test.go:874-960`) to match. Acceptance: `task spec:check` and `task test:spec` are green.
+- [x] 2.5 Add to `.agents/protocol.md` § 2 Verify: CI on a draft is deferred, not passed, and local gates are unchanged. Acceptance: `ateam doctor` parity is green.
 
 ## 3. Lifecycle evidence
 
 - [ ] 3.1 On a throwaway PR (1.3's may be reused), record check states for draft opened, draft synchronize, non-draft opened, draft → ready at the same SHA, ready synchronize, ready → draft → ready, and auto-merge armed immediately after ready. Acceptance: the PR body table cites run URLs, and Gitea is recorded as executed or unavailable with the reason.
+
+## Evidence
+
+- 2.1-2.3: `TestCIWorkflowPinned`, `TestCIWorkflowPinnedSensitivity` (6 new cases), `TestGateFilesWorkflowRunsFromBase`, and `TestGiteaWorkflowsTwinGitHub` in `internal/bootstrap`. Twelve workflow mutants were each applied with `cp` and SHA-256 restore and run against those tests, and all twelve gave `detection` with the expected message:
+  - `Verify` guard dropped
+  - `Merge check` guard dropped
+  - guard narrowed to `!draft`, which skips push to `main`
+  - `Required` rename dropped
+  - `Required` without `always()`
+  - `Required` accepting `skipped`
+  - `ready_for_review` trigger dropped
+  - `Gate files` guard dropped
+  - `Gate files` rename dropped
+  - Gitea `ci.yml` `edited` dropped
+  - GitHub `ci.yml` taking `edited`
+  - Gitea `gate-files.yml` `edited` dropped
+- Deviation from D3's text: `Gate files` runs on `pull_request_target`, so `github.event_name != 'pull_request'` would always be true there. Its guard is `${{ !github.event.pull_request.draft }}`.
+- Addition: `cancel-in-progress` also excludes `edited`, on both forges. Without that, a Gitea body edit on a ready PR would cancel the same-head run in flight, which is the #87 failure. GitHub never sees `edited` in `ci.yml`, so the clause is inert there, and the twins stay byte-identical apart from the `types:` lines.
+- Generated checks: not used. The contract is a fixed set of exact YAML expressions, and the table cases plus mutants cover each one.
+
