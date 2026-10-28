@@ -54,6 +54,6 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 #### Scenario: Draft pull requests defer CI and ready revisions run every gate
 
 - **WHEN** a `pull_request` or `pull_request_target` event arrives for a draft pull request
-- **THEN** `Verify`, `Merge check`, and `Gate files` do not run, and `Required` reports the draft as deferred in the form the owner rules in `draft-ci-250` design D2; it never reports a draft as verified
+- **THEN** `Verify`, `Merge check`, and `Gate files` do not run, and `Required` is skipped; no job reports a draft as verified
 - **AND** a non-draft `opened` or `reopened`, a `ready_for_review`, and every `synchronize` while the pull request is not a draft run `Verify`, `Merge check`, `Required`, and `Gate files` against the head revision, and `push` to `main` still runs `Verify`
 - **AND** whenever `Required` runs for a non-draft revision it fails on any needed result other than `success`, including `skipped`, so a ready pull request never merges on a skipped or stale draft-era result

@@ -1,6 +1,6 @@
 # Change Proposal: `draft-ci-250`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-28)
 
 ## Why
 
@@ -8,9 +8,11 @@ Both forges' `CI` and `Gate files` workflows run on every draft push (#250). In 
 
 ## What Changes
 
-- `CI` (both forges): `Verify` and `Merge check` skip when the pull request is a draft, and `Required` reports as `design.md` D2 decides. They run in full on non-draft `opened`/`reopened`, on `ready_for_review`, on every `synchronize` while the pull request is ready, and on push to `main`.
-- `Gate files` (both forges): the job skips on draft events. It runs on ready, on later pushes, and on label changes to a ready pull request, still from the trusted base.
-- `Required` still rejects a skipped, failed, cancelled, or missing prerequisite whenever it runs. GitHub treats a skipped required check as passing. A draft head that is marked ready at the same SHA therefore carries a skipped `Required` until the ready run reports. How that window is closed is `design.md` D2, and the owner rules on it before tasks start.
+- `CI` (both forges): `Verify` and `Required` (now `needs: [verify]` only) skip when the pull request is a draft (D2 = A, grey). They run in full on non-draft `opened`/`reopened`, on `ready_for_review`, on every `synchronize` while the pull request is ready, and on push to `main`.
+- `Merge check` (both forges) moves to its own workflow and required context, `merge-check.yml`, triggered on `opened`, `synchronize`, `reopened`, `ready_for_review`, `edited`, `labeled`, `unlabeled`; it skips drafts and keeps the base-branch checkout (#140). It measures PR state, not code, so it reruns on the events that change that state: the reviewer's `reviewed-by:` body edit clears it without a manual rerun (D5).
+- `Gate files` (both forges): the job skips on draft events and adds `edited`. It runs on ready, on later pushes, on title/body edits, and on label changes to a ready pull request, still from the trusted base.
+- `Required` still rejects a skipped, failed, cancelled, or missing prerequisite whenever it runs. GitHub treats a skipped required check as passing, so a draft head marked ready at the same SHA carries a skipped `Required` until the ready run's check run exists. Task 1.2 measures that window before the workflow lands; `design.md` D2 carries the decision rule.
+- The `main` ruleset requires `Required`, `Merge check`, and `Gate files` (owner edit). `review-pr` § 5 drops the manual rerun and `.agents/protocol.md` § 4 drops the "expect one red Merge check" sentence (#192).
 - Workflow tests in `internal/bootstrap` and the "Merge gate and CI workflow enforcement" requirement state this scheduling contract. Mutation checks show that dropping the draft guard, the ready trigger, or the skipped-prerequisite rejection is caught.
 - `.agents/protocol.md` § Verify says CI on a draft is deferred, not passed, and that local gates are unchanged.
 
@@ -20,7 +22,7 @@ Both forges' `CI` and `Gate files` workflows run on every draft push (#250). In 
 
 ## Non-goals
 
-- No change to `scripts/merge-check.sh`, `scripts/gate-files.sh`, the ruleset, required-check names, review sequencing (#192), or local `task verify` obligations.
+- No change to `scripts/merge-check.sh`, `scripts/gate-files.sh`, the review-record format, the `Required` and `Gate files` context names, review-after-ready sequencing, or local `task verify` obligations. The ruleset edit adding `Merge check` is the owner's.
 - No `[skip ci]` convention, no new external automation, and no rewrite of the #87 concurrency rule beyond what the draft guard needs.
 
 ## Definition of Done
