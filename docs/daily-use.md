@@ -11,7 +11,7 @@ This guide covers day-to-day work in a repository that uses default `ateam` sett
 | Claim and build | Steer `/ponytail` mode; run parallel tasks in separate worktrees. | The agent claims `.worktrees/<agent>-<topic>`, opens a draft PR, writes code and tests, and tracks holds/shortcuts. |
 | Pause or switch | Run `/handoff` (or `ateam state handoff --goal "..."`) before stopping. | `ateam` saves `.ateam/state.json`, clears the writer lease, and comments on the open PR. |
 | Ready and review | Open a fresh session and run `/review-pr <pr>`. | The implementer runs `/preflight`, archives specs, and marks ready; the reviewer verifies and posts `reviewed-by:`. |
-| Merge and clean up | Squash-merge the approved PR (or arm auto-merge). | After merge, the claiming agent deletes its worktree and remote branch. |
+| Merge and clean up | Squash-merge the approved PR (or arm auto-merge). | After merge, the claiming agent deletes its worktree and remote branch (`ateam state prune`). |
 
 ## 1. Start or resume a session
 
@@ -86,7 +86,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 1. Once your checks pass and the review approves, squash-merge the PR (`gh pr merge --squash`) or merge on Gitea.
 2. When your repository enables branch protection and auto-merge, arm `gh pr merge --squash --auto` (or Gitea `merge_when_checks_succeed`) instead.
 3. To enforce review records, `main` rulesets, and `class:flake` blocks in CI, wire in `ateam review gate <pr-number>` ([merge gate setup](adoption.md#the-merge-gate-on-github-and-gitea)).
-4. After the PR merges, the claiming agent removes `.worktrees/<agent>-<topic>` and deletes the remote branch.
+4. After the PR merges, the claiming agent removes `.worktrees/<agent>-<topic>` and deletes the remote branch; `ateam state prune` does both for every merged, clean worktree on its prefix (`--dry-run` lists them first).
 5. An agent MUST NOT delete a worktree that belongs to another agent or contains uncommitted or unpushed work.
 
 ## What to expect day to day

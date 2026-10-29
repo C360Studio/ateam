@@ -169,6 +169,8 @@ While working on a change:
     Hold: waiting on secret rotation in staging
   ```
 
+  A hold that starts with `HALT`, `RED`, or `OPEN-Q` (for example `Hold: OPEN-Q proposal awaits owner approval`) shows under that marker; any other hold shows as `BLOCKED`.
+
   Inspect all in-flight changes and holds with `ateam state spec-queue` (or `task spec:queue`), and validate spec formatting with `ateam state spec-check` (or `task spec:check`).
 - **Mark temporary code limits inline:** If you intentionally defer an edge case, add a comment in the code:
 
@@ -238,7 +240,7 @@ gh pr ready
 gh pr merge --squash --auto
 ```
 
-On Gitea, arm it with `POST /repos/{owner}/{repo}/pulls/{n}/merge` and `{"do":"squash","merge_when_checks_succeed":true}`. After the merge lands, the agent that claimed the branch removes its worktree (`git worktree remove <path>`) and deletes the remote branch; never one that is dirty, unpushed, or not yours.
+On Gitea, arm it with `POST /repos/{owner}/{repo}/pulls/{n}/merge` and `{"do":"squash","merge_when_checks_succeed":true}`. After the merge lands, the agent that claimed the branch removes its worktree and deletes the remote branch with `ateam state prune` (`--dry-run` first lists what it would remove), or by hand with `git worktree remove <path>` and `git push origin --delete <branch>`; never one that is dirty, unpushed, or not yours.
 
 ---
 
@@ -286,7 +288,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 | `ateam state holds` | Scan `openspec/` and markdown files for `Hold:` items |
 | `ateam state debt` | Scan source files for `// shortcut: <limit>, <when to upgrade>` comments |
 | `ateam state spec-queue` | List in-flight `openspec/changes/*` with task counts and caveats (`HALT`, `RED`, `BLOCKED`, `WONTDO`, `OPEN-Q`) |
-| `ateam state spec-check` | Validate `openspec/` specs and changes and ensure `Hold:` lines live inside task items |
+| `ateam state spec-check` | Validate `openspec/` specs and changes and ensure `Hold:` lines live inside task items; strict validation runs the repo-pinned `node_modules/.bin/openspec`, else `openspec` on `PATH`, and is skipped with a notice when neither exists |
 | `ateam state sync [--forge github\|gitea]` | Sync open issues and PRs from GitHub or Gitea into `.ateam/state.json` |
 | `ateam state mode [lite\|full\|ultra\|off]` | Get or set the Ponytail discipline level (not Claude's multi-agent mode) |
 | `ateam state herdr <open-pane\|on-event>` | Open `pickup`/`spec-queue` herdr popups or emit caveat/Hold toasts when running inside `herdr` (`HERDR_ENV=1`) |
