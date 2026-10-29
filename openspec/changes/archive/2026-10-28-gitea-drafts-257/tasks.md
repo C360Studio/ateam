@@ -52,4 +52,3 @@
   - Leaving WIP posted `pending` within 3s. `Required` failed at +216s, and `Gate files` failed without the label.
   - `POST …/actions/runs/19576/rerun` and `…/19577/rerun` both returned 201. Their jobs skipped again under the draft names only. `CI / Required (pull_request)` and `Gate files` stayed `failure`, the combined status stayed `failure`, and a merge returned `Not all required status checks successful`.
   - Not reproduced: the unfixed overwrite itself, a baseline on `7c3e12a`. The finding is source-level, and the fix removes the required-name path.
-
