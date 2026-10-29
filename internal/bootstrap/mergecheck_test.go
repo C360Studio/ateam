@@ -881,17 +881,14 @@ func draftName(name string) string {
 	return fmt.Sprintf("${{ github.event.pull_request.draft && '%s (draft, skipped)' || '%s' }}", name, name)
 }
 
-func draftViolations(wf ciWorkflow, renamed bool) []string {
+func draftViolations(wf ciWorkflow) []string {
 	var out []string
 	for _, id := range slices.Sorted(maps.Keys(ciJobNames)) {
 		job, ok := wf.Jobs[id]
 		if !ok {
 			continue
 		}
-		want := ciJobNames[id]
-		if renamed {
-			want = draftName(want)
-		}
+		want := draftName(ciJobNames[id])
 		if got := strings.TrimSpace(fmt.Sprint(job.Name)); got != want {
 			out = append(out, fmt.Sprintf("ci.yml: job %s is named %v; the merge-gate spec requires name: %s so a skipped draft job leaves no %s check run at the head", id, job.Name, want, ciJobNames[id]))
 		}
@@ -911,7 +908,7 @@ func TestCIWorkflowPinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := ciWorkflowViolations(t, data, true); len(v) > 0 {
+	if v := ciWorkflowViolations(t, data); len(v) > 0 {
 		t.Fatalf("ci.yml violations:\n- %s", strings.Join(v, "\n- "))
 	}
 }
@@ -961,7 +958,7 @@ jobs:
             if [ "$r" != "success" ]; then echo "required check did not succeed: $r"; exit 1; fi
           done
 `
-	if v := ciWorkflowViolations(t, []byte(good), true); len(v) > 0 {
+	if v := ciWorkflowViolations(t, []byte(good)); len(v) > 0 {
 		t.Fatalf("clean fixture violations:\n- %s", strings.Join(v, "\n- "))
 	}
 
@@ -1014,7 +1011,7 @@ jobs:
 			[]string{"job verify", "[self-hosted ubuntu-24.04]"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			requireViolation(t, ciWorkflowViolations(t, plant(t, tc.old, tc.repl), true), tc.wants...)
+			requireViolation(t, ciWorkflowViolations(t, plant(t, tc.old, tc.repl)), tc.wants...)
 		})
 	}
 }
@@ -1056,19 +1053,16 @@ type ciStep struct {
 	Run             string
 }
 
-// ciWorkflowViolations checks ci.yml against the merge-gate spec. Both forges
-// skip draft jobs under the draft guard. renamed is true for GitHub, whose
-// skipped jobs take a non-required name (#250); Gitea 28.x keeps plain names,
-// because a new run posts pending for every job at once and leaving WIP:
-// cancels the WIP run (#257).
-func ciWorkflowViolations(t *testing.T, data []byte, renamed bool) []string {
+// ciWorkflowViolations checks ci.yml against the merge-gate spec. On both
+// forges a draft job is skipped under a non-required name (#250, #257).
+func ciWorkflowViolations(t *testing.T, data []byte) []string {
 	wf, err := parseCIWorkflowYAML(data)
 	if err != nil {
 		return []string{fmt.Sprintf("ci.yml: %v", err)}
 	}
 	violations := pullRequestTriggerViolations(wf.On)
 	violations = append(violations, concurrencyViolations(wf.Concurrency)...)
-	violations = append(violations, draftViolations(wf, renamed)...)
+	violations = append(violations, draftViolations(wf)...)
 	violations = append(violations, writeGrants("workflow", wf.Permissions)...)
 	names := make([]string, 0, len(wf.Jobs))
 	for name := range wf.Jobs {

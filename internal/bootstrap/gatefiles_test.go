@@ -148,8 +148,8 @@ func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
 		}
 		// #257: on Gitea, skipped on a WIP pull request except on label_updated or
 		// label_cleared, Gitea's actions for adding and removing a label.
-		if forge == ".gitea" && !strings.Contains(wf, "    name: Gate files\n    if: ${{ !github.event.pull_request.draft || github.event.action == 'label_updated' || github.event.action == 'label_cleared' }}\n") {
-			t.Fatalf("%s gate-files.yml: the job must skip a WIP pull request except on label_updated and label_cleared (#257)", forge)
+		if forge == ".gitea" && !strings.Contains(wf, "    name: ${{ github.event.pull_request.draft && github.event.action != 'label_updated' && github.event.action != 'label_cleared' && 'Gate files (draft, skipped)' || 'Gate files' }}\n    if: ${{ !github.event.pull_request.draft || github.event.action == 'label_updated' || github.event.action == 'label_cleared' }}\n") {
+			t.Fatalf("%s gate-files.yml: the job must skip a WIP pull request under a non-required name except on label_updated and label_cleared (#257)", forge)
 		}
 		// #250: on GitHub, skipped and renamed on a draft except when a label is
 		// removed, so revoking gate-change-approved replaces an earlier pass at the
@@ -185,8 +185,8 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 	// #143: each Gitea workflow is the GitHub one except the merge-check step's
 	// credentials (Gitea's CI) or the forge and token (Gitea's gate files), so a
 	// change to one that misses the other fails here. #257: both forges skip
-	// draft jobs, but Gitea 28.x differs: it takes edited (leaving WIP: is an
-	// edit), keeps plain job names, and reports label changes as label_updated.
+	// and rename draft jobs, but Gitea 28.x takes edited (leaving WIP: is an
+	// edit) and reports label changes as label_updated, not unlabeled.
 	type swap struct{ github, gitea string }
 	for _, tc := range []struct {
 		file  string
@@ -199,11 +199,8 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 					"          GITEA_TOKEN: ${{ github.token }}\n"},
 			{"    types: [opened, synchronize, reopened, ready_for_review]\n",
 				"    types: [opened, synchronize, reopened, ready_for_review, edited]\n"},
-			{"    name: " + draftName("Verify") + "\n", "    name: Verify\n"},
-			{"    name: " + draftName("Merge check") + "\n", "    name: Merge check\n"},
-			{"    name: " + draftName("Required") + "\n", "    name: Required\n"},
-			{"  # On a draft every job is skipped and renamed, so a draft head carries no check\n  # run named Required (GitHub counts a skipped one as passing, #250). A skipped\n  # job's name is not evaluated: the draft check run shows the raw expression.\n  # The Gitea twin keeps plain names: Gitea posts pending for every job when a\n  # run starts, and leaving WIP: cancels the WIP run. It needs Gitea 28.x (#257).\n",
-				"  # On a WIP pull request every job is skipped (Gitea sets draft from the WIP:\n  # prefix). Leaving WIP: is an edited event: its run posts pending for every job\n  # at once, and the concurrency rule cancels the WIP run, so no skipped status\n  # survives on a ready head. Needs Gitea 28.x: older Gitea ignores a compound\n  # always() and would skip Required over a failed Verify (#257).\n"},
+			{"  # On a draft every job is skipped and renamed, so a draft head carries no check\n  # run named Required (GitHub counts a skipped one as passing, #250). A skipped\n  # job's name is not evaluated: the draft check run shows the raw expression.\n  # The Gitea twin does the same for a WIP: title and needs Gitea 28.x (#257).\n",
+				"  # On a WIP pull request every job is skipped and renamed (Gitea sets draft from\n  # the WIP: prefix). Gitea counts a skipped status as passing, and a WIP run\n  # rerun after the PR is ready skips again from its saved event, so a skipped\n  # job must never post under a required name. Leaving WIP: is an edited event.\n  # Needs Gitea 28.x: older Gitea evaluates neither name: nor a compound\n  # always() (#257).\n"},
 		}},
 		{"gate-files.yml", []swap{
 			{"          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
@@ -213,7 +210,7 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 			{"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]\n",
 				"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]\n"},
 			{"    # Skipped and renamed on a draft, so a draft head carries no Gate files check\n    # run for GitHub to count as passing (#250). Removing a label still runs it\n    # on a draft, so revoking gate-change-approved replaces an earlier pass at\n    # the same head before the PR can be marked ready again.\n    name: ${{ github.event.pull_request.draft && github.event.action != 'unlabeled' && 'Gate files (draft, skipped)' || 'Gate files' }}\n    if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}\n",
-				"    # Skipped on a WIP pull request, except on a label change: Gitea reports\n    # adding and removing a label as label_updated (label_cleared for all), so\n    # revoking gate-change-approved still replaces an earlier pass (#257).\n    name: Gate files\n    if: ${{ !github.event.pull_request.draft || github.event.action == 'label_updated' || github.event.action == 'label_cleared' }}\n"},
+				"    # Skipped and renamed on a WIP pull request, so a rerun of a WIP run never\n    # posts a skipped Gate files status; a label change still runs it under its\n    # required name: Gitea reports adding and removing a label as label_updated\n    # (label_cleared for all), so revoking gate-change-approved fails it (#257).\n    name: ${{ github.event.pull_request.draft && github.event.action != 'label_updated' && github.event.action != 'label_cleared' && 'Gate files (draft, skipped)' || 'Gate files' }}\n    if: ${{ !github.event.pull_request.draft || github.event.action == 'label_updated' || github.event.action == 'label_cleared' }}\n"},
 		}},
 	} {
 		gh, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", tc.file))
@@ -239,7 +236,7 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := ciWorkflowViolations(t, gt, false); len(v) > 0 {
+	if v := ciWorkflowViolations(t, gt); len(v) > 0 {
 		t.Fatalf(".gitea/workflows/ci.yml violations:\n- %s", strings.Join(v, "\n- "))
 	}
 }

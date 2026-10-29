@@ -98,8 +98,7 @@ jobs:
   # On a draft every job is skipped and renamed, so a draft head carries no check
   # run named Required (GitHub counts a skipped one as passing, #250). A skipped
   # job's name is not evaluated: the draft check run shows the raw expression.
-  # The Gitea twin keeps plain names: Gitea posts pending for every job when a
-  # run starts, and leaving WIP: cancels the WIP run. It needs Gitea 28.x (#257).
+  # The Gitea twin does the same for a WIP: title and needs Gitea 28.x (#257).
   required:
     name: ${{ github.event.pull_request.draft && 'Required (draft, skipped)' || 'Required' }}
     needs: [verify, merge-check]

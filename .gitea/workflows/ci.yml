@@ -24,7 +24,7 @@ permissions:
 # Every job is pinned to ubuntu-24.04 by the merge-gate spec.
 jobs:
   verify:
-    name: Verify
+    name: ${{ github.event.pull_request.draft && 'Verify (draft, skipped)' || 'Verify' }}
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -60,7 +60,7 @@ jobs:
 
   # Up-to-date rule, review check and known-flake check (scripts/merge-check.sh).
   merge-check:
-    name: Merge check
+    name: ${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || 'Merge check' }}
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -96,13 +96,14 @@ jobs:
 
   # Single required status check: anything other than success in a needed job
   # (failure, cancelled, skipped, or a job that never ran) fails the aggregate.
-  # On a WIP pull request every job is skipped (Gitea sets draft from the WIP:
-  # prefix). Leaving WIP: is an edited event: its run posts pending for every job
-  # at once, and the concurrency rule cancels the WIP run, so no skipped status
-  # survives on a ready head. Needs Gitea 28.x: older Gitea ignores a compound
-  # always() and would skip Required over a failed Verify (#257).
+  # On a WIP pull request every job is skipped and renamed (Gitea sets draft from
+  # the WIP: prefix). Gitea counts a skipped status as passing, and a WIP run
+  # rerun after the PR is ready skips again from its saved event, so a skipped
+  # job must never post under a required name. Leaving WIP: is an edited event.
+  # Needs Gitea 28.x: older Gitea evaluates neither name: nor a compound
+  # always() (#257).
   required:
-    name: Required
+    name: ${{ github.event.pull_request.draft && 'Required (draft, skipped)' || 'Required' }}
     needs: [verify, merge-check]
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-24.04
