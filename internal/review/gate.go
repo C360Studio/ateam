@@ -292,7 +292,7 @@ func (g *gateRun) review(ctx context.Context) (bool, error) {
 	case pull.Draft:
 		g.say("pull request #%d is a draft: a review finding does not fail a draft (%d above)", g.pr, g.findings)
 	default:
-		g.say("FAIL: the review check has %d finding(s); editing the description starts no run, so run the merge-check job again after the edit", g.findings)
+		g.say("FAIL: the review check has %d finding(s); a description edit reruns this check only where it runs on edited (merge-check.yml); elsewhere run the merge-check job again after the edit", g.findings)
 		return true, nil
 	}
 	return false, nil

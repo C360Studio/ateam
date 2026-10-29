@@ -503,7 +503,7 @@ func TestMergeCheckReview(t *testing.T) {
 		} {
 			r := runMergeCheck(t, reviewGH(false, "User", tc.body, "docs/a.md", "scripts/x.sh"), "12")
 			r.requirePass(t, "reviewing agent: "+tc.reviewer)
-			r.requireNotInOutput(t, "editing the description starts no run")
+			r.requireNotInOutput(t, "a description edit reruns this check")
 		}
 	})
 	t.Run("model named on both lines", func(t *testing.T) {
