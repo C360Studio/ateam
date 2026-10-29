@@ -26,7 +26,7 @@ These apply to `.gitea/workflows/` only. GitHub is unchanged.
   - `edited` is added to the `pull_request` types.
   - `Verify` and `Merge check` take the #250 draft guard, `if: github.event_name != 'pull_request' || !github.event.pull_request.draft`.
   - `Required` keeps `needs: [verify, merge-check]` under `if: always() && (<guard>)`.
-  - Job names stay plain (design D2).
+  - Job names stay plain (design D2). Amended after Codex review: skipped jobs are renamed as on GitHub (D2 B).
 - `gate-files.yml`:
   - `edited` is added to the trigger.
   - The job runs under `if: ${{ !github.event.pull_request.draft || github.event.action == 'label_updated' || github.event.action == 'label_cleared' }}`, so a label removal on a WIP PR still re-runs it.

@@ -46,4 +46,10 @@
   - `gate-files.yml` `edited` dropped
 - Deviation: D4 A called for shipping the probe steps as a recipe in `docs/`. After the owner ruled 28.x as the minimum, the docs only state the requirement and its reason (`docs/adoption.md`), because a recipe would be unrequested surface. `.github/workflows/ci.yml` changed only in a comment that pointed at the old Gitea form.
 - Generated checks: not used. The contract is a fixed set of exact YAML expressions, and the table cases plus mutants cover each one.
+- Codex review at `7c3e12a` (REQUEST CHANGES, P1): rerunning a completed WIP run after the PR is ready would post `skipped` under `CI / Required` or `Gate files`. Fixed at `734ed13` by renaming skipped WIP jobs, as on GitHub. Twenty-one workflow mutants gave `detection`, including Gitea rename dropped on `Required`, `Verify`, and `Gate files`, and the rename ignoring `label_updated`.
+- **Rerun history, live** (same private 28.2.0 instance, candidate tree `734ed13` on the test default branch, then restored). PR R was opened as WIP, with a failing Go test and a `scripts/gate-files.sh` touch:
+  - The WIP runs (CI 19576, Gate files 19577) posted only `CI / … (draft, skipped)` and `Gate files (draft, skipped)` contexts.
+  - Leaving WIP posted `pending` within 3s. `Required` failed at +216s, and `Gate files` failed without the label.
+  - `POST …/actions/runs/19576/rerun` and `…/19577/rerun` both returned 201. Their jobs skipped again under the draft names only. `CI / Required (pull_request)` and `Gate files` stayed `failure`, the combined status stayed `failure`, and a merge returned `Not all required status checks successful`.
+  - Not reproduced: the unfixed overwrite itself, a baseline on `7c3e12a`. The finding is source-level, and the fix removes the required-name path.
 

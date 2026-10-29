@@ -45,7 +45,8 @@ Goal: no `Verify` runner work on Gitea WIP pushes, with no path for a WIP-era or
 
 ### D2. Names on Gitea
 
-- **A (recommended): keep plain names.** No stale window needs closing. Leaving WIP posts `pending` at once and cancels the WIP run, and Gitea refuses to merge WIP. The rename would also break the required context on any build that does not evaluate `name:`.
+- **Amended after Codex review at `7c3e12a`: B is taken.** A completed WIP run can be rerun after the PR is ready (`services/actions/rerun.go` in v28.2.0). It re-evaluates its saved `draft=true` event from `run.EventPayload`, skips again, and posts `skipped` under the required context, which `Combine` counts as a pass. Renaming the skipped jobs keeps every WIP run, including reruns, off the required names. `Gate files` keeps its name on `label_updated`/`label_cleared`.
+- **A (original recommendation, withdrawn): keep plain names.** No stale window needs closing. Leaving WIP posts `pending` at once and cancels the WIP run, and Gitea refuses to merge WIP. The rename would also break the required context on any build that does not evaluate `name:`.
 - **B: copy the GitHub rename.** The twins would match byte for byte, but that buys nothing here and costs compatibility.
 
 ### D3. `edited` and cancellation
