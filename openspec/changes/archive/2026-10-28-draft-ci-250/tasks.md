@@ -18,7 +18,16 @@
 
 ## 3. Lifecycle evidence
 
-- [ ] 3.1 On a throwaway PR (1.3's may be reused), record check states for draft opened, draft synchronize, non-draft opened, draft → ready at the same SHA, ready synchronize, ready → draft → ready, and auto-merge armed immediately after ready. Acceptance: the PR body table cites run URLs, and Gitea is recorded as executed or unavailable with the reason.
+- [x] 3.1 On a throwaway PR (1.3's may be reused), record check states for draft opened, draft synchronize, non-draft opened, draft → ready at the same SHA, ready synchronize, ready → draft → ready, and auto-merge armed immediately after ready. Acceptance: the PR body table cites run URLs, and Gitea is recorded as executed or unavailable with the reason.
+  Result (2026-10-28/29 UTC, owner-approved throwaway private repo `C360Studio/ateam-ci-probe-250`, to be deleted by the owner, so its run links are not cited). `main` held this branch at `c0f44b0`, so `Gate files` ran the candidate definition from the trusted base. The `main-required-checks` ruleset required `Required` and `Gate files` with strict up-to-date checks, and squash auto-merge was enabled. PR 1 was docs-only and PR 2 touched `scripts/gate-files.sh`.
+  - **Draft opened / draft synchronize** (PR 1, `6ed407d`, `51ed13f`): all four jobs were skipped under the raw-expression names. No check run named `Required` or `Gate files` existed, and the PR was `BLOCKED`.
+  - **Draft → ready, same SHA** (`51ed13f`, ready at 23:44:08Z): `Verify` and `Merge check` started by +6s. `Gate files` succeeded at +17s, and `Merge check` succeeded at +28s. There was no `Required` context until +350s, and the PR stayed `BLOCKED` the whole time. It became `CLEAN` only when the ready run's `Required` succeeded at +362s.
+  - **Ready synchronize** (`d100ea0`): the new head started with no required checks and ran `Verify`, `Merge check`, and `Gate files`, staying `BLOCKED`.
+  - **Ready → draft → push → ready, with auto-merge armed at ready** (`d43fe9e`): the in-flight ready run kept running after conversion to draft. The draft push skipped every job under non-required names. `gh pr ready` and `gh pr merge --squash --auto` ran back to back, and the PR stayed `BLOCKED`/`OPEN` until the ready run's `Required` succeeded at 23:58:56Z. Auto-merge merged at 23:59:31Z, after `Required` and never before it.
+  - **Non-draft opened** (PR 2, `44d5534`): `Verify`, `Merge check`, and `Gate files` ran at once. `Gate files` failed because there was no label.
+  - **Label revocation on a draft** (PR 2, same SHA): `gate-change-approved` was added at 00:01:14Z, and `Gate files` succeeded. The PR was converted to draft at 00:01:33Z and the label removed at 00:01:39Z. The `unlabeled` run started at 00:01:45Z under the required name `Gate files` and completed as **failure** while the PR was still a draft, replacing the earlier pass. Marked ready at 00:01:58Z, `Gate files` failed again, and the PR stayed `BLOCKED`. `Required` failed at 00:06:31Z because `Merge check` requires a review record on a code PR, as designed.
+  - Seen on the first attempt: an `unlabeled` run cancelled by a ready event 3s later posts `cancelled` under `Gate files`. That is also a non-pass, because `cancel-in-progress` is on for that workflow.
+  - **Gitea:** not executed, because the Gitea workflows are byte-identical to `main` (design D4).
 
 ## Evidence
 
