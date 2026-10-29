@@ -6,7 +6,7 @@ Approved-by:
 
 #250 (PR #252, `e2c8d08`) stopped CI runner work on GitHub draft PRs. Gitea was left unchanged because Codex's review, working from the v1.22.6 source, found four behaviours that made the GitHub workflow unsafe there (#257). Gitea still runs the full `Verify` on every WIP push.
 
-A live probe on 2026-10-29, on a private Gitea test instance that reports version `28.2.0`, found that three of the four do not hold on that build:
+A live probe on 2026-10-29, on a private Gitea test instance running `28.2.0` (the current upstream 28 series, which follows 1.27.x), found that three of the four do not hold on that build:
 
 | v1.22.6 finding | Seen on the test instance |
 |---|---|

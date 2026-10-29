@@ -24,7 +24,7 @@ Lines are on `main` at `e2c8d08`.
   - With the `ci.yml` concurrency rule, leaving WIP 15s into a 75s WIP job **cancelled** that run (19542), and `Hold`/`Agg` kept the ready run's `success` for 90s.
   - Adding and removing a label both gave `action=label_updated` (runs 19544, 19546).
 - Gitea `main` source: `services/pull/commit_status.go` `MergeRequiredContextsCommitStatus` combines the latest status per required context, and `modules/commitstatus` `Combine` counts `skipped` as success. A skipped `Required` is therefore a pass. That is safe only because Gitea refuses to merge a WIP PR, and the ready run replaces the status at once.
-- I could not tell which Gitea release line `28.2.0` is. Open question 1.
+- `28.2.0` is a current upstream Gitea release: the second maintenance release of the 28 series, dated 2026-10-18 ([release notes](https://blog.gitea.com/release-of-28.2.0/)). The series follows 1.27.x after a renumbering. The notes do not say in which release compound `always()`, `edited` cancellation, or `name:` evaluation arrived; they arrived somewhere after 1.22.
 
 ## Goals / Non-Goals
 
@@ -55,7 +55,7 @@ Goal: no `Verify` runner work on Gitea WIP pushes, with no path for a WIP-era or
 
 ### D4. Minimum Gitea version (open question 1)
 
-- **A (recommended): require a version that passes the probe and document it.** That version must evaluate compound `always()`, cancel on `edited` under `concurrency`, and set `draft` from WIP. Ship the probe steps as the acceptance recipe in `docs/` and say that older Gitea should keep the pre-#257 twins.
+- **A (recommended): require Gitea 28.x, the verified series, and document it.** The probe steps ship as the acceptance recipe in `docs/` for anyone on another build, and older Gitea should keep the pre-#257 twins. Pinning the exact 1.2x release where each behaviour arrived is not attempted: there is no older instance to probe.
 - **B: keep Gitea unchanged** until the release line of `28.2.0` is identified.
 
 ### D5. `Gate files` label revocation
@@ -69,5 +69,5 @@ Use `!github.event.pull_request.draft || github.event.action == 'label_updated' 
 
 ## Open Questions
 
-1. **(owner ruling) D4:** which Gitea versions must ateam's `.gitea/workflows` support, and what release is the test instance's `28.2.0`? If any pre-compound-`always()` Gitea must be supported, take D4 B and close #257 as won't-do for now.
+1. **(owner ruling) D4:** is Gitea 28.x the supported minimum for ateam's `.gitea/workflows`? If a 1.2x Gitea, such as an adopter's, must keep working, take D4 B and close #257 as won't-do for now.
 2. **(owner ruling) D3:** accept CI reruns on every Gitea PR description edit, or keep Gitea unchanged until a title-only filter is verified.
