@@ -16,5 +16,5 @@
 
 ## 5. Live proof and verify
 
-- [ ] 5.1 The owner adds `Merge check` to the `main` ruleset. A cross-agent review on this PR clears `Merge check` through the description edit with no manual rerun; the PR records the run IDs. A Gitea test-instance probe records the new context, and the test repo is restored (#255).
-- [ ] 5.2 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#255).
+- [ ] 5.1 (After ready, recorded on PR #260.) The owner adds `Merge check` to the `main` ruleset. A cross-agent review on this PR clears `Merge check` through the description edit with no manual rerun; the PR records the run IDs. A Gitea test-instance probe records the new context, and the test repo is restored (#255).
+- [x] 5.2 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#255). Evidence: all three exit 0 at the archive commit.
