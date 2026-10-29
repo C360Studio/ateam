@@ -881,28 +881,19 @@ func draftName(name string) string {
 	return fmt.Sprintf("${{ github.event.pull_request.draft && '%s (draft, skipped)' || '%s' }}", name, name)
 }
 
-func draftViolations(wf ciWorkflow, deferDrafts bool) []string {
+func draftViolations(wf ciWorkflow) []string {
 	var out []string
 	for _, id := range slices.Sorted(maps.Keys(ciJobNames)) {
 		job, ok := wf.Jobs[id]
 		if !ok {
 			continue
 		}
-		want := ciJobNames[id]
-		if deferDrafts {
-			want = draftName(want)
-		}
+		want := draftName(ciJobNames[id])
 		if got := strings.TrimSpace(fmt.Sprint(job.Name)); got != want {
 			out = append(out, fmt.Sprintf("ci.yml: job %s is named %v; the merge-gate spec requires name: %s so a skipped draft job leaves no %s check run at the head", id, job.Name, want, ciJobNames[id]))
 		}
 		if id == "required" {
 			continue // requiredStepViolations checks its always() form
-		}
-		if !deferDrafts {
-			if job.If != nil {
-				out = append(out, fmt.Sprintf("ci.yml: job %s runs under if: %v; on Gitea the merge-gate spec requires no draft guard, because Gitea reports a skipped job as success", id, job.If))
-			}
-			continue
 		}
 		if got := strings.TrimSpace(fmt.Sprint(job.If)); got != draftGuard {
 			out = append(out, fmt.Sprintf("ci.yml: job %s runs under if: %v; the merge-gate spec requires if: %s so drafts skip it and push to main still runs it", id, job.If, draftGuard))
@@ -917,7 +908,7 @@ func TestCIWorkflowPinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := ciWorkflowViolations(t, data, true); len(v) > 0 {
+	if v := ciWorkflowViolations(t, data); len(v) > 0 {
 		t.Fatalf("ci.yml violations:\n- %s", strings.Join(v, "\n- "))
 	}
 }
@@ -967,7 +958,7 @@ jobs:
             if [ "$r" != "success" ]; then echo "required check did not succeed: $r"; exit 1; fi
           done
 `
-	if v := ciWorkflowViolations(t, []byte(good), true); len(v) > 0 {
+	if v := ciWorkflowViolations(t, []byte(good)); len(v) > 0 {
 		t.Fatalf("clean fixture violations:\n- %s", strings.Join(v, "\n- "))
 	}
 
@@ -1020,7 +1011,7 @@ jobs:
 			[]string{"job verify", "[self-hosted ubuntu-24.04]"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			requireViolation(t, ciWorkflowViolations(t, plant(t, tc.old, tc.repl), true), tc.wants...)
+			requireViolation(t, ciWorkflowViolations(t, plant(t, tc.old, tc.repl)), tc.wants...)
 		})
 	}
 }
@@ -1062,18 +1053,16 @@ type ciStep struct {
 	Run             string
 }
 
-// ciWorkflowViolations checks ci.yml against the merge-gate spec. deferDrafts is
-// true for GitHub, whose jobs skip drafts under a non-required name (#250). Gitea
-// keeps plain names, no draft guard, and if: always(): Gitea 1.22 evaluates
-// neither name: nor a compound always(), and maps a skipped job to success.
-func ciWorkflowViolations(t *testing.T, data []byte, deferDrafts bool) []string {
+// ciWorkflowViolations checks ci.yml against the merge-gate spec. On both
+// forges a draft job is skipped under a non-required name (#250, #257).
+func ciWorkflowViolations(t *testing.T, data []byte) []string {
 	wf, err := parseCIWorkflowYAML(data)
 	if err != nil {
 		return []string{fmt.Sprintf("ci.yml: %v", err)}
 	}
 	violations := pullRequestTriggerViolations(wf.On)
 	violations = append(violations, concurrencyViolations(wf.Concurrency)...)
-	violations = append(violations, draftViolations(wf, deferDrafts)...)
+	violations = append(violations, draftViolations(wf)...)
 	violations = append(violations, writeGrants("workflow", wf.Permissions)...)
 	names := make([]string, 0, len(wf.Jobs))
 	for name := range wf.Jobs {
@@ -1118,7 +1107,7 @@ func ciWorkflowViolations(t *testing.T, data []byte, deferDrafts bool) []string 
 				violations = append(violations, fmt.Sprintf("ci.yml: %s sets defaults.run.shell %q; the test runs required's step as GitHub runs bash", d.where, d.shell))
 			}
 		}
-		violations = append(violations, requiredStepViolations(t, req, needs, deferDrafts)...)
+		violations = append(violations, requiredStepViolations(t, req, needs)...)
 	}
 
 	if v, ok := wf.Jobs["verify"]; !ok {
@@ -1267,12 +1256,9 @@ func evalNeedsExpression(expr string, needs []string, results map[string]string)
 	return "", false
 }
 
-func requiredStepViolations(t *testing.T, req ciJob, needs []string, deferDrafts bool) []string {
+func requiredStepViolations(t *testing.T, req ciJob, needs []string) []string {
 	var out []string
-	want := "always()"
-	if deferDrafts {
-		want = "always() && (" + draftGuard + ")"
-	}
+	want := "always() && (" + draftGuard + ")"
 	if req.If == nil || strings.TrimSpace(fmt.Sprint(req.If)) != want {
 		out = append(out, fmt.Sprintf("ci.yml: job required runs under if: %v; the merge-gate spec requires if: %s, or a failed or cancelled needed job leaves Required skipped, which GitHub reports as success", req.If, want))
 	}

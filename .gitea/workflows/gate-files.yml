@@ -8,7 +8,7 @@ name: Gate files
 # through the API only.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
 
 concurrency:
   group: gate-files-${{ github.event.pull_request.number }}
@@ -20,7 +20,12 @@ permissions:
 
 jobs:
   gate-files:
-    name: Gate files
+    # Skipped and renamed on a WIP pull request, so a rerun of a WIP run never
+    # posts a skipped Gate files status; a label change still runs it under its
+    # required name: Gitea reports adding and removing a label as label_updated
+    # (label_cleared for all), so revoking gate-change-approved fails it (#257).
+    name: ${{ github.event.pull_request.draft && github.event.action != 'label_updated' && github.event.action != 'label_cleared' && 'Gate files (draft, skipped)' || 'Gate files' }}
+    if: ${{ !github.event.pull_request.draft || github.event.action == 'label_updated' || github.event.action == 'label_cleared' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
