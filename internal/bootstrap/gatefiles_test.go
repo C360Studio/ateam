@@ -163,19 +163,12 @@ func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
 				t.Fatalf("%s gate-files.yml contains %q: it must not check out or run pull request code, or write", forge, banned)
 			}
 		}
-		ci, err := os.ReadFile(filepath.Join(repoRoot(t), forge, "workflows", "ci.yml"))
+		mc, err := os.ReadFile(filepath.Join(repoRoot(t), forge, "workflows", "merge-check.yml"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		job := string(ci)
-		start := strings.Index(job, "\n  merge-check:\n")
-		end := strings.Index(job, "\n  required:\n")
-		if start < 0 || end < start {
-			t.Fatalf("%s ci.yml: cannot find the merge-check job before the required job", forge)
-		}
-		job = job[start:end]
-		if !strings.Contains(job, "ref: ${{ github.event.pull_request.base.sha || github.sha }}") || strings.Contains(job, "pull_request.head") {
-			t.Fatalf("%s ci.yml merge-check job must check out the base commit, not the pull request:\n%s", forge, job)
+		if job := string(mc); !strings.Contains(job, "ref: ${{ github.event.pull_request.base.sha }}") || strings.Contains(job, "pull_request.head") {
+			t.Fatalf("%s merge-check.yml must check out the base commit, not the pull request:\n%s", forge, job)
 		}
 	}
 }
@@ -183,7 +176,7 @@ func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
 // spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
 func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 	// #143: each Gitea workflow is the GitHub one except the merge-check step's
-	// credentials (Gitea's CI) or the forge and token (Gitea's gate files), so a
+	// credentials and contexts (#255) or the forge and token (Gitea's gate files), so a
 	// change to one that misses the other fails here. #257: both forges skip
 	// and rename draft jobs, but Gitea 28.x takes edited (leaving WIP: is an
 	// edit) and reports label changes as label_updated, not unlabeled.
@@ -193,14 +186,19 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 		swaps []swap
 	}{
 		{"ci.yml", []swap{
-			{"          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
-				"          # Gitea: the job token only, no extra secret. It cannot read the branch\n" +
-					"          # protection rule, so the up-to-date setting prints strict=unverified.\n" +
-					"          GITEA_TOKEN: ${{ github.token }}\n"},
 			{"    types: [opened, synchronize, reopened, ready_for_review]\n",
 				"    types: [opened, synchronize, reopened, ready_for_review, edited]\n"},
 			{"  # On a draft every job is skipped and renamed, so a draft head carries no check\n  # run named Required (GitHub counts a skipped one as passing, #250). A skipped\n  # job's name is not evaluated: the draft check run shows the raw expression.\n  # The Gitea twin does the same for a WIP: title and needs Gitea 28.x (#257).\n",
 				"  # On a WIP pull request every job is skipped and renamed (Gitea sets draft from\n  # the WIP: prefix). Gitea counts a skipped status as passing, and a WIP run\n  # rerun after the PR is ready skips again from its saved event, so a skipped\n  # job must never post under a required name. Leaving WIP: is an edited event.\n  # Needs Gitea 28.x: older Gitea evaluates neither name: nor a compound\n  # always() (#257).\n"},
+		}},
+		{"merge-check.yml", []swap{
+			{"          # Every check the main ruleset must require, so dropping one fails here.\n          ATEAM_REQUIRED_CHECKS: Required,Merge check\n          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
+				"          # Every context main's branch protection must require, so dropping one\n          # fails here.\n          ATEAM_REQUIRED_CHECKS: CI / Required (pull_request),Merge check / Merge check (pull_request)\n" +
+					"          # Gitea: the job token only, no extra secret. It cannot read the branch\n" +
+					"          # protection rule, so the up-to-date setting prints strict=unverified.\n" +
+					"          GITEA_TOKEN: ${{ github.token }}\n"},
+			{"  # Skipped and renamed on a draft, so a draft head carries no check run named\n  # Merge check for GitHub to count as passing (#250).\n",
+				"  # Skipped and renamed on a WIP pull request (Gitea sets draft from the WIP:\n  # prefix), so a rerun of a WIP run never posts a skipped Merge check, which\n  # Gitea counts as passing; leaving WIP: is an edited event (#257).\n"},
 		}},
 		{"gate-files.yml", []swap{
 			{"          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",

@@ -43,7 +43,7 @@ Adopter seam: none; adopters do not copy ateam's workflows (`docs/adoption.md:77
 
 ### D4. Triggers and concurrency
 
-`pull_request: [opened, synchronize, reopened, ready_for_review, edited]`. Concurrency `merge-check-${{ github.event.pull_request.number }}`, cancel-in-progress (about 30s per run; the latest event wins). Recommended to omit `labeled`/`unlabeled` (#255 listed them): no PR label is a gate input. Drop the `push: main` run: on `main` it only re-reads the ruleset, and `task merge:check` does that locally.
+`pull_request: [opened, synchronize, reopened, ready_for_review, edited]`. Concurrency `merge-check-${{ github.event.pull_request.number }}`, queued with `cancel-in-progress: false` (about 30s per run; the latest event runs last). Implementation changed this from cancel-in-progress: a cancelled `Merge check` beside a pass at one head is the #87 failure shape. Recommended to omit `labeled`/`unlabeled` (#255 listed them): no PR label is a gate input. Drop the `push: main` run: on `main` it only re-reads the ruleset, and `task merge:check` does that locally.
 
 ### D5. A re-review whose description does not change
 
@@ -54,7 +54,7 @@ A second review at a new head reuses the `reviewed-by:` line, so no `edited` eve
 
 ## Risks / Trade-offs
 
-- A cancelled earlier run and a later one share the check name at one head; GitHub reads the latest check run per name, so the cancel is cosmetic.
+- Runs queue rather than cancel, so a burst of edits costs one run each (about 30s); only the newest pending run waits, older pending ones are dropped before their jobs start.
 - PRs opened before the merge get the new workflows from the merge ref on their next event.
 - Gitea fires `edited` on any body edit (accepted on #257); the merge check is cheap.
 

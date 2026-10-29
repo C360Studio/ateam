@@ -860,7 +860,7 @@ func TestMergeCheckReview(t *testing.T) {
 }
 
 var (
-	requiredNeeds         = []string{"verify", "merge-check"}
+	requiredNeeds         = []string{"verify"}
 	mergeCheckPermissions = map[string]string{"contents": "read", "issues": "read", "pull-requests": "read"}
 	pullRequestTypes      = []string{"opened", "synchronize", "reopened", "ready_for_review"}
 )
@@ -873,7 +873,7 @@ const (
 )
 
 // ciJobNames are the required-check names each ci.yml job reports when it runs.
-var ciJobNames = map[string]string{"verify": "Verify", "merge-check": "Merge check", "required": "Required"}
+var ciJobNames = map[string]string{"verify": "Verify", "required": "Required"}
 
 // draftName is the job name the merge-gate spec requires: a skipped draft job
 // must not carry its required-check name, or GitHub counts the skip as passing (#250).
@@ -932,20 +932,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps: [{run: task verify}]
-  merge-check:
-    name: ${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || 'Merge check' }}
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      issues: read
-      pull-requests: read
-    steps: [{run: scripts/merge-check.sh}]
   required:
     name: ${{ github.event.pull_request.draft && 'Required (draft, skipped)' || 'Required' }}
     runs-on: ubuntu-24.04
-    needs: [verify, merge-check]
+    needs: [verify]
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     steps:
       - name: Require every needed job to succeed
@@ -973,12 +963,12 @@ jobs:
 		name, old, repl string
 		wants           []string
 	}{
-		{"required needs only verify", "needs: [verify, merge-check]", "needs: [verify]",
-			[]string{"job required", "merge-check", "missing"}},
+		{"required needs nothing", "needs: [verify]", "needs: []",
+			[]string{"job required", "verify is missing"}},
+		{"merge-check back in ci.yml", "  required:\n", "  merge-check: {runs-on: ubuntu-24.04, steps: [{run: scripts/merge-check.sh}]}\n  required:\n",
+			[]string{"job merge-check is in ci.yml", "merge-check.yml"}},
 		{"write permission on a job", "    timeout-minutes: 15\n", "    timeout-minutes: 15\n    permissions:\n      issues: write\n",
 			[]string{"job verify", "issues: write"}},
-		{"fourth permission on merge-check", "      pull-requests: read\n", "      pull-requests: read\n      actions: read\n",
-			[]string{"job merge-check", "actions: read"}},
 		{"verify limit changed", "timeout-minutes: 15", "timeout-minutes: 30",
 			[]string{"job verify", "30", "15 minutes"}},
 		{"write-all on the workflow", "permissions:\n  contents: read\njobs:", "permissions: write-all\njobs:",
@@ -993,8 +983,6 @@ jobs:
 			[]string{"job verify", "push to main"}},
 		{"required keeps its name on a draft", "    name: ${{ github.event.pull_request.draft && 'Required (draft, skipped)' || 'Required' }}\n", "    name: Required\n",
 			[]string{"job required", "no Required check run"}},
-		{"merge-check renamed away from its check", "'Merge check (draft, skipped)' || 'Merge check' }}", "'Merge check (draft, skipped)' || 'Merge-check' }}",
-			[]string{"job merge-check", "no Merge check check run"}},
 		{"step exits 0 for skipped", `if [ "$r" != "success" ]`, `if [ "$r" != "success" ] && [ "$r" != "skipped" ]`,
 			[]string{"job required", "exits 0", "skipped"}},
 		{"step reads verify alone", "${{ join(needs.*.result, ' ') }}", "${{ needs.verify.result }}",
@@ -1012,6 +1000,110 @@ jobs:
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requireViolation(t, ciWorkflowViolations(t, plant(t, tc.old, tc.repl)), tc.wants...)
+		})
+	}
+}
+
+// mergeCheckTypes are the pull_request activity types merge-check.yml runs on:
+// edited carries the reviewer's reviewed-by: description edit (#255).
+var mergeCheckTypes = []string{"opened", "synchronize", "reopened", "ready_for_review", "edited"}
+
+// mergeCheckWorkflowViolations checks merge-check.yml against the merge-gate
+// spec (#255): PR-state triggers, runs queued and never cancelled, skipped and
+// renamed on a draft, read-only, built from the base commit, and told every
+// context main must require.
+func mergeCheckWorkflowViolations(data []byte, checks string) []string {
+	wf, err := parseCIWorkflowYAML(data)
+	if err != nil {
+		return []string{fmt.Sprintf("merge-check.yml: %v", err)}
+	}
+	violations := pullRequestTriggerViolations(wf.On, mergeCheckTypes)
+	if o, ok := wf.On.(map[string]any); !ok || len(o) != 1 {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: triggers on %v; the merge-gate spec allows only pull_request", wf.On))
+	}
+	c, _ := wf.Concurrency.(map[string]any)
+	if g := fmt.Sprint(c["group"]); !strings.Contains(g, "github.event.pull_request.number") {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: concurrency group %q is not per pull request", g))
+	}
+	if got := fmt.Sprint(c["cancel-in-progress"]); got != "false" {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: cancel-in-progress is %s; the merge-gate spec requires false, so no cancelled Merge check sits beside a pass at one head (#87)", got))
+	}
+	violations = append(violations, writeGrants("workflow", wf.Permissions)...)
+	if len(wf.Jobs) != 1 {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: has %d jobs; the merge-gate spec requires the one job merge-check", len(wf.Jobs)))
+	}
+	job, ok := wf.Jobs["merge-check"]
+	if !ok {
+		return append(violations, "merge-check.yml: no job merge-check")
+	}
+	if got := strings.TrimSpace(fmt.Sprint(job.Name)); got != draftName("Merge check") {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check is named %v; the merge-gate spec requires %s so a skipped draft job leaves no Merge check check run", job.Name, draftName("Merge check")))
+	}
+	if got := strings.TrimSpace(fmt.Sprint(job.If)); got != "${{ !github.event.pull_request.draft }}" {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check runs under if: %v; the merge-gate spec requires drafts skip it", job.If))
+	}
+	if label, ok := job.RunsOn.(string); !ok || label != runnerLabel {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check runs on %v; the merge-gate spec requires %s", job.RunsOn, runnerLabel))
+	}
+	violations = append(violations, mergeCheckPermissionViolations(job.Permissions)...)
+	ran := false
+	for _, st := range job.Steps {
+		if st.Run != `scripts/merge-check.sh "$PR_NUMBER"` {
+			continue
+		}
+		ran = true
+		if got := fmt.Sprint(st.Env["ATEAM_REQUIRED_CHECKS"]); got != checks {
+			violations = append(violations, fmt.Sprintf("merge-check.yml: ATEAM_REQUIRED_CHECKS is %q; the merge-gate spec requires %q so a ruleset dropping one fails the check", got, checks))
+		}
+	}
+	if !ran {
+		violations = append(violations, "merge-check.yml: no step runs scripts/merge-check.sh \"$PR_NUMBER\"")
+	}
+	return violations
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge check runs on pull-request state events
+func TestMergeCheckWorkflowPinned(t *testing.T) {
+	for forge, checks := range map[string]string{
+		".github": "Required,Merge check",
+		".gitea":  "CI / Required (pull_request),Merge check / Merge check (pull_request)",
+	} {
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), forge, "workflows", "merge-check.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v := mergeCheckWorkflowViolations(data, checks); len(v) > 0 {
+			t.Errorf("%s merge-check.yml violations:\n- %s", forge, strings.Join(v, "\n- "))
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge check runs on pull-request state events
+func TestMergeCheckWorkflowPinnedSensitivity(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "merge-check.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := string(data)
+	const checks = "Required,Merge check"
+	for _, tc := range []struct {
+		name, old, repl string
+		wants           []string
+	}{
+		{"edited dropped", "ready_for_review, edited]", "ready_for_review]", []string{"edited is missing"}},
+		{"a push trigger", "on:\n", "on:\n  push:\n    branches: [main]\n", []string{"allows only pull_request"}},
+		{"runs cancel", "cancel-in-progress: false", "cancel-in-progress: true", []string{"cancel-in-progress is true"}},
+		{"group per ref", "merge-check-${{ github.event.pull_request.number }}", "merge-check-${{ github.ref }}", []string{"not per pull request"}},
+		{"draft guard dropped", "    if: ${{ !github.event.pull_request.draft }}\n", "", []string{"drafts skip it"}},
+		{"name kept on a draft", "    name: " + draftName("Merge check") + "\n", "    name: Merge check\n", []string{"is named Merge check"}},
+		{"a check dropped from the list", "ATEAM_REQUIRED_CHECKS: Required,Merge check", "ATEAM_REQUIRED_CHECKS: Required", []string{`ATEAM_REQUIRED_CHECKS is "Required"`}},
+		{"write permission", "      pull-requests: read\n", "      pull-requests: write\n", []string{"pull-requests: write"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(good, tc.old) {
+				t.Fatalf("merge-check.yml lacks %q", tc.old)
+			}
+			requireViolation(t, mergeCheckWorkflowViolations([]byte(strings.Replace(good, tc.old, tc.repl, 1)), checks), tc.wants...)
 		})
 	}
 }
@@ -1060,7 +1152,7 @@ func ciWorkflowViolations(t *testing.T, data []byte) []string {
 	if err != nil {
 		return []string{fmt.Sprintf("ci.yml: %v", err)}
 	}
-	violations := pullRequestTriggerViolations(wf.On)
+	violations := pullRequestTriggerViolations(wf.On, pullRequestTypes)
 	violations = append(violations, concurrencyViolations(wf.Concurrency)...)
 	violations = append(violations, draftViolations(wf)...)
 	violations = append(violations, writeGrants("workflow", wf.Permissions)...)
@@ -1079,10 +1171,8 @@ func ciWorkflowViolations(t *testing.T, data []byte) []string {
 		}
 	}
 
-	if mc, ok := wf.Jobs["merge-check"]; !ok {
-		violations = append(violations, "ci.yml: no job merge-check; the merge-gate spec requires it")
-	} else {
-		violations = append(violations, mergeCheckPermissionViolations(mc.Permissions)...)
+	if _, ok := wf.Jobs["merge-check"]; ok {
+		violations = append(violations, "ci.yml: job merge-check is in ci.yml; the merge-gate spec runs it from merge-check.yml, so a pull-request state event does not rerun Verify (#255)")
 	}
 
 	if req, ok := wf.Jobs["required"]; !ok {
@@ -1142,7 +1232,7 @@ func concurrencyViolations(raw any) []string {
 	return nil
 }
 
-func pullRequestTriggerViolations(on any) []string {
+func pullRequestTriggerViolations(on any, pullRequestTypes []string) []string {
 	var trigger any
 	found := false
 	switch o := on.(type) {

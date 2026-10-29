@@ -29,6 +29,10 @@ type gateWorld struct {
 	issues     []worldIssue // open issues
 	// required: main requires the Required check; strict: and the up-to-date setting.
 	required, strict bool
+	// checks and giteaChecks are GateOptions.Checks on each forge; ghContexts
+	// overrides the contexts the GitHub rule requires when required is set.
+	checks, giteaChecks []string
+	ghContexts          []string
 	// giteaContexts overrides the status checks Gitea's protection lists;
 	// giteaChecksOff turns its status checks off.
 	giteaContexts    []string
@@ -77,6 +81,9 @@ const (
 	shaMainTip   = "dc854c651fbf82695f4d552badc36340e2f7c472"
 	implRevCodex = "implemented-by: claude (opus)\nreviewed-by: codex (gpt-6)\n"
 )
+
+// giteaMergeCheck is the Gitea context of merge-check.yml's job (#255).
+const giteaMergeCheck = "Merge check / Merge check (pull_request)"
 
 func issueURL(n int) string { return fmt.Sprintf("%s/issues/%d", gateHTMLRoot, n) }
 
@@ -132,8 +139,15 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 	answers := map[string][]byte{}
 	rule := map[string]any{"type": "deletion", "ruleset_id": 7}
 	if w.required {
+		listed := []map[string]any{{"context": "Required"}}
+		if w.ghContexts != nil {
+			listed = nil
+			for _, c := range w.ghContexts {
+				listed = append(listed, map[string]any{"context": c})
+			}
+		}
 		rule = map[string]any{"type": "required_status_checks", "ruleset_id": 7, "parameters": map[string]any{
-			"strict_required_status_checks_policy": w.strict, "required_status_checks": []map[string]any{{"context": "Required"}}}}
+			"strict_required_status_checks_policy": w.strict, "required_status_checks": listed}}
 	}
 	answers["api repos/{owner}/{repo}/rules/branches/main"] = mustJSON(t, []any{rule})
 	answers["api repos/{owner}/{repo}/rulesets/7"] = []byte(`{"enforcement":"active"}`)
@@ -207,7 +221,7 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 		}
 	}
 	var out bytes.Buffer
-	code := Gate(context.Background(), &out, ForgeConfig{Provider: "github"}, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(dir, "no-policy.json")})
+	code := Gate(context.Background(), &out, ForgeConfig{Provider: "github"}, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(dir, "no-policy.json"), Checks: w.checks})
 	return code, out.String()
 }
 
@@ -363,7 +377,7 @@ func runGitea(t *testing.T, w gateWorld) (int, string) {
 	srv := giteaServer(t, w)
 	var out bytes.Buffer
 	cfg := ForgeConfig{Provider: "gitea", BaseURL: srv.URL, Owner: gateOwner, Repo: gateRepo, Token: gateToken}
-	code := Gate(context.Background(), &out, cfg, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(t.TempDir(), "no-policy.json")})
+	code := Gate(context.Background(), &out, cfg, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(t.TempDir(), "no-policy.json"), Checks: w.giteaChecks})
 	// Messages name API paths, never the forge host (owner ruling 6 on #143).
 	if host := strings.TrimPrefix(srv.URL, "http://"); strings.Contains(out.String(), host) {
 		t.Errorf("gitea output names the forge host %s\n%s", host, out.String())
@@ -459,6 +473,22 @@ func TestGateGitea(t *testing.T) {
 		{name: "up-to-date setting off", world: func(w *gateWorld) { w.strict = false },
 			github: &forgeWant{1, []string{"strict_required_status_checks_policy=false", "a head behind main could merge", "merge-check: FAILED"}},
 			gitea:  &forgeWant{1, []string{"block_on_outdated_branch=false; a head behind main could merge", "merge-check: FAILED"}}},
+		// #255: ATEAM_REQUIRED_CHECKS names every context the rules must require.
+		{name: "every listed check required", world: func(w *gateWorld) {
+			w.checks, w.ghContexts = []string{"Required", "Merge check"}, []string{"Required", "Merge check", "Gate files"}
+			w.giteaChecks = []string{giteaRequired, giteaMergeCheck}
+			w.giteaContexts = []string{giteaRequired, giteaMergeCheck}
+		}, github: &forgeWant{0, []string{"context=Required strict", "context=Merge check strict", "merge-check: ok"}},
+			gitea: &forgeWant{0, []string{"context=" + giteaRequired + ", " + giteaMergeCheck + " required=true", "merge-check: ok"}}},
+		{name: "a listed check not required", world: func(w *gateWorld) {
+			w.checks, w.ghContexts = []string{"Required", "Merge check"}, []string{"Required", "Gate files"}
+			w.giteaChecks = []string{giteaRequired, giteaMergeCheck}
+		}, github: &forgeWant{1, []string{"context=Required strict", "no rule in force on main requires Merge check;", "merge-check: FAILED"}},
+			gitea: &forgeWant{1, []string{"no rule in force on main requires " + giteaMergeCheck + ";", "merge-check: FAILED"}}},
+		{name: "the default ignores a second required check", world: func(w *gateWorld) {
+			w.ghContexts = []string{"Gate files", "Required"}
+			w.giteaContexts = []string{giteaMergeCheck, giteaRequired}
+		}, both: &forgeWant{0, []string{"merge-check: ok"}}},
 		{name: "check not required", world: func(w *gateWorld) { w.required = false },
 			both: &forgeWant{1, []string{"no rule in force on main requires", "merge-check: FAILED"}}},
 		{name: "context listed but status checks off", world: func(w *gateWorld) { w.giteaChecksOff = true },

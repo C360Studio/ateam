@@ -460,3 +460,21 @@ func TestReviewCompareReviewerRecord(t *testing.T) {
 		}
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge check runs on pull-request state events
+func TestRequiredChecks(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{" , ", nil},
+		{"Required", []string{"Required"}},
+		{"Required, Merge check ,", []string{"Required", "Merge check"}},
+		{"CI / Required (pull_request),Merge check / Merge check (pull_request)", []string{"CI / Required (pull_request)", "Merge check / Merge check (pull_request)"}},
+	} {
+		if got := requiredChecks(tc.in); !slices.Equal(got, tc.want) {
+			t.Errorf("requiredChecks(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

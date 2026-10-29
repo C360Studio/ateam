@@ -156,21 +156,39 @@ func (p ghRuleParams) contexts() []string {
 	return out
 }
 
-func (s ghSource) upToDate(ctx context.Context, out io.Writer) (bool, error) {
-	const check = "Required"
+func (s ghSource) upToDate(ctx context.Context, out io.Writer, checks []string) (bool, error) {
+	if len(checks) == 0 {
+		checks = []string{"Required"}
+	}
 	name := "the rules in force on main"
 	args := []string{"api", "repos/{owner}/{repo}/rules/branches/main"}
 	var raw []json.RawMessage
 	if err := s.ghRead(ctx, name, &raw, args...); err != nil {
 		return false, err
 	}
-	var all, found []ghRule
+	var all []ghRule
 	for _, v := range raw {
 		var r ghRule
 		if !isJSONObject(v) || json.Unmarshal(v, &r) != nil {
 			return false, ghShape(name, args, v)
 		}
 		all = append(all, r)
+	}
+	ok := true
+	for _, check := range checks {
+		held, err := s.requires(ctx, out, all, check)
+		if err != nil {
+			return false, err
+		}
+		ok = ok && held
+	}
+	return ok, nil
+}
+
+// requires reports whether an active strict rule among all requires check.
+func (s ghSource) requires(ctx context.Context, out io.Writer, all []ghRule, check string) (bool, error) {
+	var found []ghRule
+	for _, r := range all {
 		if jqString(r.Type) == "required_status_checks" && slices.Contains(r.params().contexts(), check) {
 			found = append(found, r)
 		}
