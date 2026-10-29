@@ -19,7 +19,12 @@ permissions:
 
 jobs:
   gate-files:
-    name: Gate files
+    # Skipped and renamed on a draft, so a draft head carries no Gate files check
+    # run for GitHub to count as passing (#250). Removing a label still runs it
+    # on a draft, so revoking gate-change-approved replaces an earlier pass at
+    # the same head before the PR can be marked ready again.
+    name: ${{ github.event.pull_request.draft && github.event.action != 'unlabeled' && 'Gate files (draft, skipped)' || 'Gate files' }}
+    if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

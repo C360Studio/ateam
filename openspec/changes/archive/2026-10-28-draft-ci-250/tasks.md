@@ -1,0 +1,57 @@
+## 1. Approval and measurement
+
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)`, removing this hold in the same edit, and ruling on design Open Questions 1 (D2) and 2 (D4) (#250).
+  Ruled 2026-10-28, amended the same day: D2 = rename on draft so no required-name check run exists at a draft head; D4 = same bytes plus `edited` on the Gitea trigger lines; D5 merge-check split parked as its own issue (amended ruling comment on #250 / PR #252).
+- [x] 1.2 Measure GitHub's stale-skip window on a throwaway draft PR whose `Required` skips on drafts: mark it ready and immediately query `gh api repos/{o}/{r}/commits/<sha>/check-runs` and `gh pr view --json mergeStateStatus` every 5s until the ready run's `Required` exists. Acceptance: the record shows whether a skipped `Required` was the latest context at the head while the ready run was in flight.
+  Result (2026-10-28, throwaway PR #254, closed unmerged): the window is **minutes** for `Required`. The probe `ci.yml` had a guarded `Verify` (`sleep 120`) and `Required` with `needs: [verify]`. The draft run ([40770567153](https://github.com/C360Studio/ateam/actions/runs/40770567153)) left `Verify` and `Required` `skipped`. After `gh pr ready` at 21:16:38Z, the ready run ([40770596171](https://github.com/C360Studio/ateam/actions/runs/40770596171)) created `Verify` at 21:16:42Z (+4s) and `Gate files` at +5s. Its `Required` check run did not exist until 21:18:47Z (+129s), after `Verify` finished. For those 129s the skipped `Required` was the only `Required` context at the head, and `statusCheckRollup` reported it as `COMPLETED/SKIPPED`. `mergeStateStatus` stayed `BLOCKED` only because the probe touched a gate file, so `Gate files` failed. This measurement motivated D2's rename: a plain skip leaves a passing `Required` at the head for the length of `Verify`.
+- [x] 1.3 Confirm the rename on a throwaway draft PR whose jobs carry the D2 `name:` expression: record that the draft head has no check run named `Required` or `Gate files`, that `gh pr view --json statusCheckRollup` and the checks UI show them as expected/waiting, and what they show in the first 10s after `gh pr ready` at the same SHA. Acceptance: the record cites both run URLs; if the expression is not evaluated in `name:`, stop and hand off.
+  Result (2026-10-28, throwaway PR #256, closed unmerged; probe `ci.yml` with the D2 `name:`/`if:` pair on `Verify` (`sleep 60`) and on `Required` with `needs: [verify]`): the safety property holds, but the draft label is not what D2 expected. **A skipped job's `name:` is not evaluated.** The draft run ([40776449237](https://github.com/C360Studio/ateam/actions/runs/40776449237)) created skipped check runs named with the raw expression text, `github.event.pull_request.draft && 'Required (draft, skipped)' || 'Required'`, not `Required (draft, skipped)`. Either way, the draft head had no check run named `Required`. `statusCheckRollup` listed none, and `mergeStateStatus` was `BLOCKED`. After `gh pr ready` at 21:59:59Z, the ready run ([40776477758](https://github.com/C360Studio/ateam/actions/runs/40776477758)) evaluated the names. `Verify` existed at +7s, and `Required` existed at +74s once `Verify` had finished, at which point it ran and succeeded. From +1s to +68s, the rollup had no `Required` entry at all, so nothing stale could satisfy the ruleset. `Gate files` runs from the base branch (`pull_request_target`), so the probe could not exercise its rename. It failed throughout because the probe touched a gate file, which also kept the PR `BLOCKED`. The checks UI's "Expected — Waiting for status" text was not inspected; absence from the rollup is the evidence.
+
+## 2. Implementation
+
+- [x] 2.1 Add the draft guard and draft rename to `Verify`, `Merge check`, and `Required` (`.github/workflows/ci.yml:27`, `:65`, `:96-111`; Gitea twin), with `Required` as `if: always() && (...)`. Acceptance: static test plus `detection` mutations for a dropped guard, a dropped rename, `Required` without `always()`, `Required` accepting `skipped`, and a guard that skips `push` to `main`.
+- [x] 2.2 Add the draft guard and rename to `Gate files` (`.github/workflows/gate-files.yml:20`; Gitea twin). Acceptance: `TestGateFilesWorkflowRunsFromBase` (`internal/bootstrap/gatefiles_test.go:134`) asserts both, and a mutation that drops either is detected.
+- [~] 2.3 Add `edited` to the `types:` of `.gitea/workflows/ci.yml` and `.gitea/workflows/gate-files.yml` only, and give `TestGiteaWorkflowsTwinGitHub` (`gatefiles_test.go:172`) a documented exception for those two lines. Acceptance: the twin test passes and still fails on any other drift, including `edited` appearing in a GitHub file.
+  Not done, deliberately: the D4 amendment (Codex review at `e1e5f3e`) keeps the Gitea workflows identical to `main`, so there is no `edited` trigger or twin exception for it.
+- [x] 2.4 Update the scenarios at `openspec/specs/harness/spec.md:445` and `:457` with the draft contract (guard, rename, `always()` form, Gitea `edited`), and update `TestCIWorkflowPinned`/`Sensitivity` (`internal/bootstrap/mergecheck_test.go:874-960`) to match. Acceptance: `task spec:check` and `task test:spec` are green.
+- [x] 2.5 Add to `.agents/protocol.md` § 2 Verify: CI on a draft is deferred, not passed, and local gates are unchanged. Acceptance: `ateam doctor` parity is green.
+
+## 3. Lifecycle evidence
+
+- [x] 3.1 On a throwaway PR (1.3's may be reused), record check states for draft opened, draft synchronize, non-draft opened, draft → ready at the same SHA, ready synchronize, ready → draft → ready, and auto-merge armed immediately after ready. Acceptance: the PR body table cites run URLs, and Gitea is recorded as executed or unavailable with the reason.
+  Result (2026-10-28/29 UTC, owner-approved throwaway private repo `C360Studio/ateam-ci-probe-250`, to be deleted by the owner, so its run links are not cited). `main` held this branch at `c0f44b0`, so `Gate files` ran the candidate definition from the trusted base. The `main-required-checks` ruleset required `Required` and `Gate files` with strict up-to-date checks, and squash auto-merge was enabled. PR 1 was docs-only and PR 2 touched `scripts/gate-files.sh`.
+  - **Draft opened / draft synchronize** (PR 1, `6ed407d`, `51ed13f`): all four jobs were skipped under the raw-expression names. No check run named `Required` or `Gate files` existed, and the PR was `BLOCKED`.
+  - **Draft → ready, same SHA** (`51ed13f`, ready at 23:44:08Z): `Verify` and `Merge check` started by +6s. `Gate files` succeeded at +17s, and `Merge check` succeeded at +28s. There was no `Required` context until +350s, and the PR stayed `BLOCKED` the whole time. It became `CLEAN` only when the ready run's `Required` succeeded at +362s.
+  - **Ready synchronize** (`d100ea0`): the new head started with no required checks and ran `Verify`, `Merge check`, and `Gate files`, staying `BLOCKED`.
+  - **Ready → draft → push → ready, with auto-merge armed at ready** (`d43fe9e`): the in-flight ready run kept running after conversion to draft. The draft push skipped every job under non-required names. `gh pr ready` and `gh pr merge --squash --auto` ran back to back, and the PR stayed `BLOCKED`/`OPEN` until the ready run's `Required` succeeded at 23:58:56Z. Auto-merge merged at 23:59:31Z, after `Required` and never before it.
+  - **Non-draft opened** (PR 2, `44d5534`): `Verify`, `Merge check`, and `Gate files` ran at once. `Gate files` failed because there was no label.
+  - **Label revocation on a draft** (PR 2, same SHA): `gate-change-approved` was added at 00:01:14Z, and `Gate files` succeeded. The PR was converted to draft at 00:01:33Z and the label removed at 00:01:39Z. The `unlabeled` run started at 00:01:45Z under the required name `Gate files` and completed as **failure** while the PR was still a draft, replacing the earlier pass. Marked ready at 00:01:58Z, `Gate files` failed again, and the PR stayed `BLOCKED`. `Required` failed at 00:06:31Z because `Merge check` requires a review record on a code PR, as designed.
+  - Seen on the first attempt: an `unlabeled` run cancelled by a ready event 3s later posts `cancelled` under `Gate files`. That is also a non-pass, because `cancel-in-progress` is on for that workflow.
+  - **Gitea:** not executed, because the Gitea workflows are byte-identical to `main` (design D4).
+
+## Evidence
+
+- 2.1-2.3: `TestCIWorkflowPinned`, `TestCIWorkflowPinnedSensitivity` (6 new cases), `TestGateFilesWorkflowRunsFromBase`, and `TestGiteaWorkflowsTwinGitHub` in `internal/bootstrap`. Twelve workflow mutants were each applied with `cp` and SHA-256 restore and run against those tests, and all twelve gave `detection` with the expected message:
+  - `Verify` guard dropped
+  - `Merge check` guard dropped
+  - guard narrowed to `!draft`, which skips push to `main`
+  - `Required` rename dropped
+  - `Required` without `always()`
+  - `Required` accepting `skipped`
+  - `ready_for_review` trigger dropped
+  - `Gate files` guard dropped
+  - `Gate files` rename dropped
+  - Gitea `ci.yml` `edited` dropped
+  - GitHub `ci.yml` taking `edited`
+  - Gitea `gate-files.yml` `edited` dropped
+- Deviation from D3's text: `Gate files` runs on `pull_request_target`, so `github.event_name != 'pull_request'` would always be true there. Its guard is `${{ !github.event.pull_request.draft }}`.
+- Addition: `cancel-in-progress` also excludes `edited`, on both forges. Without that, a Gitea body edit on a ready PR would cancel the same-head run in flight, which is the #87 failure. GitHub never sees `edited` in `ci.yml`, so the clause is inert there, and the twins stay byte-identical apart from the `types:` lines.
+- Generated checks: not used. The contract is a fixed set of exact YAML expressions, and the table cases plus mutants cover each one.
+- Codex review at `f50d296` ([REQUEST CHANGES](https://github.com/C360Studio/ateam/pull/252)). Both findings were fixed:
+  - **P1, Gitea names:** Gitea 1.22 does not evaluate `name:`, so the Gitea twins keep plain names. Gitea's own v1.22.6 source shows the rename is not needed there (design Context correction).
+  - **P1, label revocation:** `Gate files` still runs on a draft `unlabeled` event under its required name.
+
+  Four new mutants all gave `detection`: the `unlabeled` exception dropped on GitHub, the same on Gitea, the GitHub rename ignoring `unlabeled`, and the Gitea `ci.yml` taking the rename. That makes 16 of 16 with SHA-256 restore. The live ready → draft → unlabel → ready history needs the base-branch `Gate files`, so it belongs to 3.1.
+- Provenance: the implementation runs were `claude (opus, medium)`.
+- Codex review at `e1e5f3e` (REQUEST CHANGES) raised three Gitea P1s: a compound `always()` that is not a dependency override, `label_updated` instead of `unlabeled`, and a stale WIP-run overwrite. Fixed by not deferring drafts on Gitea. The Gitea workflows are byte-identical to `6a844a1`, and the 2.3 `edited` trigger was dropped with them, along with the `cancel-in-progress` `edited` clause. The mutation set was rerun, and all 14 gave `detection`, including three Gitea mutants: a compound `always()`, a draft guard on `Verify`, and a draft guard on `Gate files`.
+
