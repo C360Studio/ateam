@@ -920,7 +920,8 @@ func hookCommands(entries any, nested bool) []string {
 // hookWords splits a hook command into words the way a shell would for the cases hook configs use:
 // blanks separate words, single quotes are literal, and double quotes group. With projectDir set,
 // $CLAUDE_PROJECT_DIR and ${CLAUDE_PROJECT_DIR} outside single quotes expand to it. It interprets
-// nothing else (no escapes, no other variables, no command substitution).
+// nothing else (no escapes, no other variables, no command substitution). An unterminated quote
+// returns nil, so the command is never recognized as an ateam hook.
 func hookWords(cmd, projectDir string) []string {
 	expand := func(s string) string {
 		if projectDir == "" {
@@ -944,7 +945,7 @@ func hookWords(cmd, projectDir string) []string {
 			inWord = true
 			end := strings.IndexByte(cmd[i+1:], c)
 			if end < 0 {
-				end = len(cmd) - i - 1 // unterminated: the rest of the command
+				return nil // unterminated quote: the shell rejects the command before ateam starts
 			}
 			part := cmd[i+1 : i+1+end]
 			if c == '"' {

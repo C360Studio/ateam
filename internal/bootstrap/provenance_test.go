@@ -253,18 +253,35 @@ func TestStaleBinaryAdviceNeverLinksIntoAWorktree(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Build provenance names the binary the hooks run
 func TestHookConfigValidationAcceptsQuotedHookPaths(t *testing.T) {
-	// Doctor's parity check and hook_binary read hook commands through one parser (hookWords).
+	// Doctor's parity check and hook_binary read hook commands through one parser (hookWords). A command
+	// the shell cannot parse must fail validation; /bin/sh -n is the independent oracle for which is which.
 	var claude hookClient
 	for _, c := range hookClients {
 		if c.agent == "claude" {
 			claude = c
 		}
 	}
-	for _, argv0 := range []string{`"$CLAUDE_PROJECT_DIR/bin/ateam"`, `"${CLAUDE_PROJECT_DIR}/bin/ateam"`, `'/opt/my tools/ateam'`, "ateam"} {
-		t.Run(argv0, func(t *testing.T) {
+	cases := []struct {
+		name, format string // format takes the event name
+		valid        bool
+	}{
+		{"quoted bare project dir", `"$CLAUDE_PROJECT_DIR/bin/ateam" hook --event %s --agent claude`, true},
+		{"quoted braced project dir", `"${CLAUDE_PROJECT_DIR}/bin/ateam" hook --event %s --agent claude`, true},
+		{"single-quoted path with spaces", `'/opt/my tools/ateam' hook --event %s --agent claude`, true},
+		{"bare", `ateam hook --event %s --agent claude`, true},
+		{"closed quoted agent", `ateam hook --event %s --agent "claude"`, true},
+		{"unterminated opening double quote", `ateam hook --event %s --agent "claude`, false},
+		{"unterminated trailing double quote", `ateam hook --event %s --agent claude"`, false},
+		{"unterminated opening single quote", `'ateam hook --event %s --agent claude`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			byNative := map[string]any{}
 			for _, ev := range claude.events {
-				cmd := argv0 + " hook --event " + ev.event + " --agent claude"
+				cmd := fmt.Sprintf(tc.format, ev.event)
+				if err := exec.Command("/bin/sh", "-n", "-c", cmd).Run(); (err == nil) != tc.valid {
+					t.Fatalf("oracle: sh -n on %q gave err=%v, want valid=%v", cmd, err, tc.valid)
+				}
 				byNative[ev.native] = []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": cmd}}}}
 			}
 			data, err := json.Marshal(map[string]any{claude.root: byNative})
@@ -275,8 +292,12 @@ func TestHookConfigValidationAcceptsQuotedHookPaths(t *testing.T) {
 			if err := os.WriteFile(path, data, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if _, violations := hookFileViolations(hookFile{label: ".claude/settings.json", path: path}, claude); len(violations) != 0 {
-				t.Fatalf("violations for %s: %v", argv0, violations)
+			_, violations := hookFileViolations(hookFile{label: ".claude/settings.json", path: path}, claude)
+			if tc.valid && len(violations) != 0 {
+				t.Fatalf("violations for valid %s: %v", tc.name, violations)
+			}
+			if !tc.valid && len(violations) == 0 {
+				t.Fatalf("malformed %s accepted with no violations", tc.name)
 			}
 		})
 	}
