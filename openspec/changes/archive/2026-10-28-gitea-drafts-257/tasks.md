@@ -11,13 +11,25 @@
 
 ## 3. Lifecycle evidence
 
-- [ ] 3.1 On the private test instance, with the candidate workflows on the default branch and protection requiring `CI / Required (pull_request)`, record:
+- [x] 3.1 On the private test instance, with the candidate workflows on the default branch and protection requiring `CI / Required (pull_request)`, record:
   - WIP opened
   - a WIP push
   - leaving WIP at the same SHA, idle and with a WIP run in flight
   - a failed `Verify` on a ready PR, which must stay unmergeable
   - label revocation through `label_updated` on WIP
   - a merge attempt while WIP
+  Result (2026-10-29 UTC, private Gitea 28.2.0 test instance). The candidate tree (`486358e`) was committed onto the test repo's default branch, whose branch protection requires `CI / Required (pull_request)` with `block_on_outdated_branch`. Afterwards the tree was restored to its earlier content (identical tree, new commit). Each item names its throwaway PR, all now closed with their branches deleted:
+  - **WIP opened / WIP push** (PR W, docs-only): `Verify`, `Merge check`, `Required`, and `Gate files` all posted `skipped` on both heads. A merge attempt while WIP returned `405 Work in progress PRs cannot be merged`.
+  - **Leaving WIP at the same SHA** (PR W): all four contexts were `pending` within 2s. A merge attempt at +3s returned `Not all required status checks successful`. `Gate files` and `Merge check` succeeded, and `Required` and `Verify` succeeded at about +269s.
+  - **Leaving WIP with a WIP run in flight:** on the real workflows a WIP run skips every job at once, so there is no long run to overlap. The probe workflow showed the protection: run 19542, held open 75s, was cancelled when WIP was removed, and no stale status replaced the ready run's statuses for 90s.
+  - **Failed `Verify` on a ready PR** (PR F, a deliberately failing Go test, run 19563): `Verify` failed, `Merge check` failed (code PR without a review record), and `Required` **ran** under the compound `always()` and failed. A merge attempt was refused.
+  - **Label revocation on WIP** (PR G, touching `scripts/gate-files.sh`):
+    - `Gate files` failed while unlabelled, and passed with `gate-change-approved`.
+    - Going WIP posted `skipped`.
+    - Removing the label while WIP ran `Gate files` on `label_updated`, and it **failed**.
+    - Leaving WIP ran it again, and it failed again.
+    - A merge attempt was refused.
+  - Not exercised: `label_cleared`, which removes every label at once. It is covered by the expression test and the `label_cleared` mutant.
 
   Acceptance: the record gives run ids and states without naming the host.
 
