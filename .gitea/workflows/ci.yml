@@ -8,7 +8,7 @@ on:
   # ready_for_review: marking a draft ready starts the run that applies the
   # review check, which does not fail a draft.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 
 # Superseded PR runs are cancelled, except the run that marking a draft ready
 # starts: it reuses the head SHA, and cancelling the run already in flight would
@@ -25,6 +25,7 @@ permissions:
 jobs:
   verify:
     name: Verify
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -60,6 +61,7 @@ jobs:
   # Up-to-date rule, review check and known-flake check (scripts/merge-check.sh).
   merge-check:
     name: Merge check
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -94,10 +96,15 @@ jobs:
 
   # Single required status check: anything other than success in a needed job
   # (failure, cancelled, skipped, or a job that never ran) fails the aggregate.
+  # On a WIP pull request every job is skipped (Gitea sets draft from the WIP:
+  # prefix). Leaving WIP: is an edited event: its run posts pending for every job
+  # at once, and the concurrency rule cancels the WIP run, so no skipped status
+  # survives on a ready head. Needs Gitea 28.x: older Gitea ignores a compound
+  # always() and would skip Required over a failed Verify (#257).
   required:
     name: Required
     needs: [verify, merge-check]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

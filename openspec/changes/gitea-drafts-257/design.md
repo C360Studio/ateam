@@ -70,4 +70,4 @@ Use `!github.event.pull_request.draft || github.event.action == 'label_updated' 
 ## Open Questions
 
 1. **D4 ruled 2026-10-29 by the owner (Enjoy): Gitea 28.x is the minimum.**
-2. **(owner ruling) D3:** a title-only filter is impossible on Gitea 28.2.0 (`changes` is `null`). Either accept a CI rerun on every Gitea PR edit, or keep Gitea unchanged.
+2. **D3 ruled 2026-10-29 by the owner (Enjoy): accept a CI rerun on every Gitea PR edit.** A title-only filter is impossible on Gitea 28.2.0, because `changes` is `null`.
