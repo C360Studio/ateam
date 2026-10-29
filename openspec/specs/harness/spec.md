@@ -3,7 +3,9 @@
 ## Purpose
 
 Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks across Claude Code, Codex CLI, and Gemini CLI, the 2-tool low-tax MCP server (`ateam_state`, `ateam_task`), OpenSpec queue and `Hold:` validation (`spec:queue` and `spec:check`), dual-forge state synchronization (**GitHub** and **Gitea**), `// shortcut:` debt scanning, and the agentic benchmark suite (`ateam bench`).
+
 ## Requirements
+
 ### Requirement: Lifecycle hook normalization under 10ms
 
 `ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 10ms using cached `.ateam/state.json`.
@@ -433,17 +435,17 @@ ATeam initialization SHALL scaffold the context and compaction defaults specifie
 
 ### Requirement: Merge gate and CI workflow enforcement
 
-CI SHALL enforce the pinned verification workflow and aggregate `Required` check. The merge check SHALL require an active strict `main` ruleset (on Gitea, branch protection requiring `CI / Required (pull_request)` with `block_on_outdated_branch`), review by a not-weaker reviewer for non-draft code PRs, and no open known flakes unless the PR closes them, on GitHub and on Gitea.
+CI SHALL enforce the pinned verification workflow and aggregate `Required` check, and `merge-check.yml` the `Merge check`. The merge check SHALL require an active strict `main` ruleset (on Gitea, branch protection requiring `CI / Required (pull_request)` with `block_on_outdated_branch`) requiring each check in `ATEAM_REQUIRED_CHECKS` when set, review by a not-weaker reviewer for non-draft code PRs, and no open known flakes unless the PR closes them, on GitHub and on Gitea.
 
 #### Scenario: Complete workflow and merge-check contract
 
 - **WHEN** the workflow and merge check are evaluated
-- **THEN** `.github/workflows/ci.yml` SHALL trigger on `push` to `main` and `pull_request` (`opened`, `synchronize`, `reopened`, `ready_for_review`), pin every job to `ubuntu-24.04` with read-only permissions, run `Verify` (`15` minute timeout, `ateam doctor --check` and `task verify`) and `Merge check` (`scripts/merge-check.sh`), and gate merges on the aggregate `Required` job (`if: always()`, reading `join(needs.*.result, ' ')`). `scripts/merge-check.sh` (`task merge:check`) SHALL verify the active `main` ruleset requiring `Required` (`strict_required_status_checks_policy=true`), classify a changed file (and any `previous_filename` on rename) as a document only when its path ends in `.md` (outside `.claude/agents/` and `.agents/contracts/`) or starts with `openspec/` and ends in `.md`, `.yml`, `.yaml`, or `.json`, enforce review (`implemented-by:` and `reviewed-by:` each naming one of `claude`, `codex`, `gemini`, the reviewer not weaker by tier then band through `ateam review compare`, and different agents only when the policy sets `cross_provider`) on non-draft code pull requests, and block merges while any open `class:flake` issue is not closed by the pull request.
+- **THEN** `.github/workflows/ci.yml` SHALL trigger on `push` to `main` and `pull_request` (`opened`, `synchronize`, `reopened`, `ready_for_review`), pin every job to `ubuntu-24.04` with read-only permissions, run `Verify` (`15` minute timeout, `ateam doctor --check` and `task verify`), and gate merges on the aggregate `Required` job beside `Merge check` (`scripts/merge-check.sh`, in `.github/workflows/merge-check.yml`) (`if: always()`, reading `join(needs.*.result, ' ')`). `scripts/merge-check.sh` (`task merge:check`) SHALL verify the active `main` ruleset requiring `Required`, or each check `ATEAM_REQUIRED_CHECKS` lists (`strict_required_status_checks_policy=true`), classify a changed file (and any `previous_filename` on rename) as a document only when its path ends in `.md` (outside `.claude/agents/` and `.agents/contracts/`) or starts with `openspec/` and ends in `.md`, `.yml`, `.yaml`, or `.json`, enforce review (`implemented-by:` and `reviewed-by:` each naming one of `claude`, `codex`, `gemini`, the reviewer not weaker by tier then band through `ateam review compare`, and different agents only when the policy sets `cross_provider`) on non-draft code pull requests, and block merges while any open `class:flake` issue is not closed by the pull request.
 
 #### Scenario: Pinned CI workflow and Required aggregate
 
 - **WHEN** `.github/workflows/ci.yml` is evaluated against the merge-gate contract
-- **THEN** `pull_request` lists `opened`, `synchronize`, `reopened`, and `ready_for_review`, every job runs on `ubuntu-24.04` without write permissions, `merge-check` has only `contents: read`, `issues: read`, and `pull-requests: read`, `verify` and `merge-check` run under `if: github.event_name != 'pull_request' || !github.event.pull_request.draft`, `required` needs `verify` and `merge-check` under `if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)` and fails unless every needed job succeeded, each of the three is named `${{ github.event.pull_request.draft && '<name> (draft, skipped)' || '<name>' }}` for its check name `Verify`, `Merge check`, or `Required`, and `concurrency.cancel-in-progress` is `${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}` so the run that marking a draft ready starts never cancels the in-flight run for the same head and leaves a failed `Required` on it
+- **THEN** `pull_request` lists `opened`, `synchronize`, `reopened`, and `ready_for_review`, every job runs on `ubuntu-24.04` without write permissions, there is no `merge-check` job, `verify` runs under `if: github.event_name != 'pull_request' || !github.event.pull_request.draft`, `required` needs `verify` under `if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)` and fails unless every needed job succeeded, each of the two is named `${{ github.event.pull_request.draft && '<name> (draft, skipped)' || '<name>' }}` for its check name `Verify` or `Required`, and `concurrency.cancel-in-progress` is `${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' }}` so the run that marking a draft ready starts never cancels the in-flight run for the same head and leaves a failed `Required` on it
 
 #### Scenario: Review strength and known-flake merge check
 
@@ -456,19 +458,19 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 - **THEN** the `Gate files` check (`.github/workflows/gate-files.yml` on `pull_request_target`, running `scripts/gate-files.sh` from the base branch with read-only permissions and never checking out or running pull request code) fails until the pull request carries the label `gate-change-approved`, and passes for a pull request that touches no gate file
 - **AND** a failed read, a file list that is not a list of file objects, or one shorter than the pull request's `changed_files` (the listing stops at 3,000 files) exits 2 naming the read, never counted as no gate file
 - **AND** the same holds on Gitea for `.gitea/workflows/gate-files.yml`, which runs `scripts/gate-files.sh` with `ATEAM_FORGE=gitea` to read Gitea's API with `curl`, every file page until an empty one, and the labels from the pull request
-- **AND** the `Merge check` job checks out and builds from the base commit (`github.event.pull_request.base.sha`, or `github.sha` on a push), so the merge-check script, the review policy it reads, and the `ateam` binary are never taken from the pull request they judge
+- **AND** the `Merge check` job checks out and builds from the base commit (`github.event.pull_request.base.sha`), so the merge-check script, the review policy it reads, and the `ateam` binary are never taken from the pull request they judge
 
 #### Scenario: Merge check on either forge
 
 - **WHEN** `scripts/merge-check.sh` runs
 - **THEN** it runs `$ATEAM review gate` (default `ateam`), which picks the forge from `ATEAM_FORGE`, else under Actions from `GITHUB_SERVER_URL` (`https://github.com` is GitHub, any other root is Gitea) with `GITHUB_REPOSITORY`, else from `origin`, else GitHub through `gh`, and prints `merge-check: forge=<forge> repo=<owner>/<repo> (from <source>)` without the host
 - **AND** GitHub is read through `gh` with the argv the shell script used, and Gitea through API v1 with `GITEA_TOKEN`, with the same review and known-flake lines on both
-- **AND** `.gitea/workflows/ci.yml` is `.github/workflows/ci.yml` with only the merge-check step's credentials changed, to `GITEA_TOKEN: ${{ github.token }}` (no extra secret)
+- **AND** `.gitea/workflows/merge-check.yml` is `.github/workflows/merge-check.yml` with only the merge-check step's credentials changed, to `GITEA_TOKEN: ${{ github.token }}` (no extra secret), and its `ATEAM_REQUIRED_CHECKS` to the Gitea contexts
 
 #### Scenario: Gitea up-to-date rule
 
 - **WHEN** the merge check reads Gitea
-- **THEN** the up-to-date rule holds only when `main` is `protected`, the branch protection in force on it (`effective_branch_protection_name`) has `enable_status_check` and lists exactly `CI / Required (pull_request)` in `status_check_contexts` (no glob), and, when the rule can be read, has `block_on_outdated_branch`; otherwise it fails like a GitHub ruleset without the strict setting
+- **THEN** the up-to-date rule holds only when `main` is `protected`, the branch protection in force on it (`effective_branch_protection_name`) has `enable_status_check` and lists exactly `CI / Required (pull_request)`, or each context `ATEAM_REQUIRED_CHECKS` lists, in `status_check_contexts` (no glob), and, when the rule can be read, has `block_on_outdated_branch`; otherwise it fails like a GitHub ruleset without the strict setting
 - **AND** when reading the rule answers 403 or 404 (the Gitea Actions job token, the only token the CI job uses), the branch's `protected`, `enable_status_check` and `status_check_contexts` decide and the run prints `merge-check: rule strict=unverified (branch protection needs a repo-admin token; the job token can see protected, status check and context only)`
 - **AND** any other failed read of the branch or the rule (401, 5xx, a wrong shape) exits 2, never passes
 
@@ -485,10 +487,10 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 #### Scenario: Draft pull requests defer CI and ready revisions run every gate
 
 - **WHEN** a `pull_request` or `pull_request_target` event arrives on GitHub for a draft pull request
-- **THEN** `Verify`, `Merge check`, `Required`, and `Gate files` do not run (`if: github.event_name != 'pull_request' || !github.event.pull_request.draft`, with `Required` as `always() && (...)`, and `Gate files`, whose event is always `pull_request_target`, as `if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}`, so removing a label on a draft still replaces an earlier `Gate files` pass at the same head), and each is renamed on a draft (`name: ${{ github.event.pull_request.draft && '<job> (draft, skipped)' || '<job>' }}`) so no check run named `Required` or `Gate files` exists at a draft head and the required contexts stay unreported; GitHub does not evaluate a skipped job's `name:`, so the draft's skipped check run carries the raw expression text, which is also not a required name
+- **THEN** `Verify`, `Merge check`, `Required`, and `Gate files` do not run (`if: github.event_name != 'pull_request' || !github.event.pull_request.draft`, with `Required` as `always() && (...)`, `Merge check`, whose event is always `pull_request`, as `if: ${{ !github.event.pull_request.draft }}`, and `Gate files`, whose event is always `pull_request_target`, as `if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}`, so removing a label on a draft still replaces an earlier `Gate files` pass at the same head), and each is renamed on a draft (`name: ${{ github.event.pull_request.draft && '<job> (draft, skipped)' || '<job>' }}`) so no check run named `Required`, `Merge check`, or `Gate files` exists at a draft head and the required contexts stay unreported; GitHub does not evaluate a skipped job's `name:`, so the draft's skipped check run carries the raw expression text, which is also not a required name
 - **AND** a non-draft `opened` or `reopened`, a `ready_for_review`, and every `synchronize` while the pull request is not a draft run `Verify`, `Merge check`, `Required`, and `Gate files` against the head revision under their required names, and `push` to `main` still runs `Verify`
 - **AND** whenever `Required` runs for a non-draft revision it fails on any needed result other than `success`, including `skipped`
-- **AND** on Gitea, `.gitea/workflows/ci.yml` adds `edited` to its `pull_request` types and skips `Verify` and `Merge check` on a WIP pull request under the same guard, with `required` under `if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)` and each skipped job renamed `<name> (draft, skipped)` as on GitHub, so a rerun of a WIP run, which re-evaluates its saved `draft=true` event, never posts under a required context; `.gitea/workflows/gate-files.yml` adds `edited`, runs under `if: ${{ !github.event.pull_request.draft || github.event.action == 'label_updated' || github.event.action == 'label_cleared' }}`, and keeps the name `Gate files` for those two actions; the existing `concurrency` rule cancels an in-flight WIP run when the pull request leaves WIP; and this needs Gitea 28.x, as `docs/adoption.md` states, because older Gitea evaluates neither `name:` nor the compound `always()`
+- **AND** on Gitea, `.gitea/workflows/ci.yml` adds `edited` to its `pull_request` types and skips `Verify` on a WIP pull request under the same guard, as `.gitea/workflows/merge-check.yml` skips `Merge check`, with `required` under `if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)` and each skipped job renamed `<name> (draft, skipped)` as on GitHub, so a rerun of a WIP run, which re-evaluates its saved `draft=true` event, never posts under a required context; `.gitea/workflows/gate-files.yml` adds `edited`, runs under `if: ${{ !github.event.pull_request.draft || github.event.action == 'label_updated' || github.event.action == 'label_cleared' }}`, and keeps the name `Gate files` for those two actions; the existing `concurrency` rule cancels an in-flight WIP run when the pull request leaves WIP; and this needs Gitea 28.x, as `docs/adoption.md` states, because older Gitea evaluates neither `name:` nor the compound `always()`
 
 ### Requirement: MCP process attribution
 
@@ -761,3 +763,26 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 - **WHEN** local `main` trails `origin/main` by 2 commits
 - **THEN** pickup's `main` worktree line and the `[ateam]` summary show `behind=2`, and neither shows `behind` when the two are even
 
+### Requirement: Merge check runs on pull-request state events
+
+`Merge check` SHALL run in its own workflow (`.github/workflows/merge-check.yml` and its Gitea twin), separate from `CI`, on the pull-request events that change its inputs, and SHALL be a required context of its own beside `Required` and `Gate files`. `Required` SHALL need only `Verify`.
+
+#### Scenario: The reviewer's description edit re-runs the merge check
+
+- **WHEN** a ready code pull request's head carries a review record comment and the reviewer then edits the description to add `reviewed-by:`
+- **THEN** the `edited` event runs `Merge check` against the head with no manual rerun, and it passes
+
+#### Scenario: An open flake issue does not fail Required
+
+- **WHEN** an issue labelled `class:flake` is open and a pull request that does not close it gets a green `Verify`
+- **THEN** `Required` passes and `Merge check` fails, naming the open issue
+
+#### Scenario: Pinned merge-check workflow
+
+- **WHEN** `.github/workflows/merge-check.yml` is evaluated against the merge-gate contract
+- **THEN** it triggers only on `pull_request` (`opened`, `synchronize`, `reopened`, `ready_for_review`, `edited`), runs one queued run per pull request (`concurrency.group` per pull request number, `cancel-in-progress: false`, so no cancelled `Merge check` sits beside a pass at one head), has the one job `merge-check` on `ubuntu-24.04` with only `contents: read`, `issues: read`, and `pull-requests: read`, and runs `scripts/merge-check.sh "$PR_NUMBER"` with `ATEAM_REQUIRED_CHECKS: Required,Merge check`
+
+#### Scenario: A draft pull request carries no Merge check
+
+- **WHEN** a draft pull request is opened, pushed, or edited
+- **THEN** the merge-check job is skipped under a name that is not a required context, as for `Verify` on a draft
