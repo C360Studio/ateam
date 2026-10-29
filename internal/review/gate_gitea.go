@@ -102,7 +102,10 @@ func giteaList[T any](ctx context.Context, s *giteaSource, name, path string, q 
 // admin token (owner ruling on #143: no extra secrets), so a 403 or 404 on the
 // rule leaves the up-to-date setting unverified and the reader-level fields
 // decide; any other failure is unavailable, never a pass.
-func (s *giteaSource) upToDate(ctx context.Context, out io.Writer) (bool, error) {
+func (s *giteaSource) upToDate(ctx context.Context, out io.Writer, checks []string) (bool, error) {
+	if len(checks) == 0 {
+		checks = []string{giteaRequired}
+	}
 	var branch struct {
 		Protected         *bool     `json:"protected"`
 		Protection        *string   `json:"effective_branch_protection_name"`
@@ -116,13 +119,13 @@ func (s *giteaSource) upToDate(ctx context.Context, out io.Writer) (bool, error)
 		return false, giteaShape("the main branch", "/branches/main", "protected, effective_branch_protection_name, enable_status_check or status_check_contexts is missing")
 	}
 	if !*branch.Protected {
-		fmt.Fprintf(out, "merge-check: no branch protection in force on main requires %s\n", giteaRequired)
+		fmt.Fprintf(out, "merge-check: no branch protection in force on main requires %s\n", strings.Join(checks, ", "))
 		return false, nil
 	}
 	// Gitea names the rule in force only to a repository admin; the job token
 	// sees protected=true with an empty name, so the reader-level fields decide.
 	if *branch.Protection == "" {
-		lines, ok := giteaProtection("(hidden from this token)", *branch.EnableStatusCheck, *branch.Contexts, nil)
+		lines, ok := giteaProtection("(hidden from this token)", checks, *branch.EnableStatusCheck, *branch.Contexts, nil)
 		return giteaPrint(out, lines, ok), nil
 	}
 	name := "branch protection " + *branch.Protection
@@ -136,7 +139,7 @@ func (s *giteaSource) upToDate(ctx context.Context, out io.Writer) (bool, error)
 	var status *forgeStatusError
 	switch {
 	case errors.As(err, &status) && (status.code == http.StatusForbidden || status.code == http.StatusNotFound):
-		lines, ok := giteaProtection(*branch.Protection, *branch.EnableStatusCheck, *branch.Contexts, nil)
+		lines, ok := giteaProtection(*branch.Protection, checks, *branch.EnableStatusCheck, *branch.Contexts, nil)
 		return giteaPrint(out, lines, ok), nil
 	case err != nil:
 		return false, err
@@ -144,7 +147,7 @@ func (s *giteaSource) upToDate(ctx context.Context, out io.Writer) (bool, error)
 	if p.EnableStatusCheck == nil || p.Contexts == nil || p.BlockOutdated == nil {
 		return false, giteaShape(name, path, "enable_status_check, status_check_contexts or block_on_outdated_branch is missing")
 	}
-	lines, ok := giteaProtection(*branch.Protection, *p.EnableStatusCheck, *p.Contexts, p.BlockOutdated)
+	lines, ok := giteaProtection(*branch.Protection, checks, *p.EnableStatusCheck, *p.Contexts, p.BlockOutdated)
 	return giteaPrint(out, lines, ok), nil
 }
 
@@ -159,23 +162,34 @@ func giteaPrint(out io.Writer, lines []string, ok bool) bool {
 	return ok
 }
 
-// giteaProtection holds when the rule requires the exact status check
-// CI / Required (pull_request) (owner ruling 1 on #143: no glob) and blocks a
-// merge from a branch behind main. A nil blockOutdated is a rule only an admin
-// can read: it holds on the status check alone and says so.
-func giteaProtection(rule string, enabled bool, contexts []string, blockOutdated *bool) ([]string, bool) {
-	required := enabled && slices.Contains(contexts, giteaRequired)
+// giteaProtection holds when the rule requires each exact status check in
+// checks (owner ruling 1 on #143: no glob) and blocks a merge from a branch
+// behind main. A nil blockOutdated is a rule only an admin can read: it holds
+// on the status checks alone and says so.
+func giteaProtection(rule string, checks []string, enabled bool, contexts []string, blockOutdated *bool) ([]string, bool) {
+	var missing []string
+	for _, c := range checks {
+		if !slices.Contains(contexts, c) {
+			missing = append(missing, c)
+		}
+	}
+	want := strings.Join(checks, ", ")
+	required := enabled && len(missing) == 0
 	block := "unverified"
 	if blockOutdated != nil {
 		block = strconv.FormatBool(*blockOutdated)
 	}
-	lines := []string{fmt.Sprintf("rule type=branch_protection name=%s context=%s required=%t block_on_outdated_branch=%s", rule, giteaRequired, required, block)}
+	lines := []string{fmt.Sprintf("rule type=branch_protection name=%s context=%s required=%t block_on_outdated_branch=%s", rule, want, required, block)}
 	if !required {
 		listed, err := json.Marshal(contexts)
 		if err != nil {
 			listed = []byte("?")
 		}
-		return append(lines, fmt.Sprintf("no rule in force on main requires %s; branch protection %s has enable_status_check=%t status_check_contexts=%s", giteaRequired, rule, enabled, listed)), false
+		name := strings.Join(missing, ", ")
+		if name == "" {
+			name = want
+		}
+		return append(lines, fmt.Sprintf("no rule in force on main requires %s; branch protection %s has enable_status_check=%t status_check_contexts=%s", name, rule, enabled, listed)), false
 	}
 	if blockOutdated == nil {
 		// Owner ruling on #143: this passes, and says so in the run summary.
@@ -183,7 +197,7 @@ func giteaProtection(rule string, enabled bool, contexts []string, blockOutdated
 			"::warning::the up-to-date rule is unverified: this token cannot read block_on_outdated_branch, so a head behind main is not checked here"), true
 	}
 	if !*blockOutdated {
-		return append(lines, fmt.Sprintf("FAIL: branch protection %s requires %s with block_on_outdated_branch=false; a head behind main could merge", rule, giteaRequired)), false
+		return append(lines, fmt.Sprintf("FAIL: branch protection %s requires %s with block_on_outdated_branch=false; a head behind main could merge", rule, want)), false
 	}
 	return lines, true
 }

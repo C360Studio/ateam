@@ -23,11 +23,12 @@ import (
 // `ateam review gate`. It reads the forge when it runs, so a re-run sees the
 // state of that moment.
 //
-//  1. The rules in force on main must require the Required check with the
-//     up-to-date setting on (GitHub: an active ruleset with
-//     strict_required_status_checks_policy; Gitea: branch protection with the
-//     status check CI / Required (pull_request) and block_on_outdated_branch,
-//     the latter printed strict=unverified when the token cannot read the rule).
+//  1. The rules in force on main must require the Required check, or each of
+//     GateOptions.Checks when set, with the up-to-date setting on (GitHub: an
+//     active ruleset with strict_required_status_checks_policy; Gitea: branch
+//     protection with the status check CI / Required (pull_request) and
+//     block_on_outdated_branch, the latter printed strict=unverified when the
+//     token cannot read the rule).
 //  2. On a pull-request run, a non-draft code pull request needs one
 //     implemented-by: and one reviewed-by: line, a reviewer not weaker than every
 //     implementer once .agents/review-policy.json exists, and a review record
@@ -49,6 +50,10 @@ type GateOptions struct {
 	Event string
 	// PolicyPath is .agents/review-policy.json of the checkout being judged from.
 	PolicyPath string
+	// Checks are the status-check contexts the rules on main must each require
+	// (ATEAM_REQUIRED_CHECKS); empty is the forge's one aggregate, Required on
+	// GitHub and giteaRequired on Gitea (#255).
+	Checks []string
 }
 
 const (
@@ -104,8 +109,9 @@ type gateIssue struct {
 // gateSource is one forge's reads. Every list it returns is complete or an
 // error; an error is "unavailable" (exit 2) unless it is a *gateExit.
 type gateSource interface {
-	// upToDate prints the rule lines and reports whether the up-to-date rule holds.
-	upToDate(ctx context.Context, out io.Writer) (bool, error)
+	// upToDate prints the rule lines and reports whether the up-to-date rule
+	// holds with every check in checks required; empty checks is the forge default.
+	upToDate(ctx context.Context, out io.Writer, checks []string) (bool, error)
 	pullRequest(ctx context.Context, pr int) (gatePull, error)
 	files(ctx context.Context, pr int) ([]gateFile, error)
 	// commits returns the PR's commits oldest first and the count the forge reports.
@@ -185,7 +191,7 @@ func (g *gateRun) run(ctx context.Context) error {
 		return err
 	}
 	failed := false
-	ok, err := g.src.upToDate(ctx, g.out)
+	ok, err := g.src.upToDate(ctx, g.out, g.opts.Checks)
 	if err != nil {
 		return err
 	}
@@ -286,7 +292,7 @@ func (g *gateRun) review(ctx context.Context) (bool, error) {
 	case pull.Draft:
 		g.say("pull request #%d is a draft: a review finding does not fail a draft (%d above)", g.pr, g.findings)
 	default:
-		g.say("FAIL: the review check has %d finding(s); editing the description starts no run, so run the merge-check job again after the edit", g.findings)
+		g.say("FAIL: the review check has %d finding(s); a description edit reruns this check only where it runs on edited (merge-check.yml); elsewhere run the merge-check job again after the edit", g.findings)
 		return true, nil
 	}
 	return false, nil

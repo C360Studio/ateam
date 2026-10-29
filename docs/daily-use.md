@@ -96,7 +96,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 - **Advisory hooks versus hard CI gates:** `ateam hook` and Ponytail modes inject prompt guidance; they do not block edits, enforce obedience, or run tests automatically.
 - **Local checks versus optional CI gates:** `task verify` and `ateam doctor --check` run locally; add `ateam review gate` in CI to block unreviewed code PRs.
 - **Commit-bound reviews:** Pushing a code commit after review invalidates `Reviewed at <sha>` and requires a fresh review comment.
-- **One red `Merge check` (when wired in CI):** Marking a PR ready runs CI before `/review-pr` comments; the reviewer reruns that failed job.
+- **One red `Merge check` (when wired in CI):** Marking a PR ready runs it before `/review-pr` comments. The reviewer's `reviewed-by:` description edit reruns it where it runs on `edited` (ateam's `merge-check.yml`); otherwise the reviewer reruns it.
 - **Shared token warning in `ateam doctor`:** Solo setups see a non-failing warning until `ATEAM_TOKEN_READ` and `ATEAM_TOKEN_WRITE` use separate tokens ([forge tokens](adoption.md#forge-tokens)).
 - **MCP reload reminder after upgrades:** After you upgrade the `ateam` binary, `session-start` warns if a running `ateam mcp` process is older; restart your agent CLI.
 - **Go-first tool limits:** Coordination works in any language, while `ateam mutate` accepts only non-test `.go` files and `debt`/`test-spec` scan fixed file extensions ([adoption limits](adoption.md#feature-and-language-boundaries)).

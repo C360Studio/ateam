@@ -173,8 +173,21 @@ func reviewGate(root string, args []string) int {
 	if len(args) > 0 {
 		pr = args[0]
 	}
-	opts := review.GateOptions{PR: pr, Actions: actions, Event: os.Getenv("GITHUB_EVENT_NAME"), PolicyPath: filepath.Join(root, ".agents", "review-policy.json")}
+	opts := review.GateOptions{PR: pr, Actions: actions, Event: os.Getenv("GITHUB_EVENT_NAME"), PolicyPath: filepath.Join(root, ".agents", "review-policy.json"),
+		Checks: requiredChecks(os.Getenv("ATEAM_REQUIRED_CHECKS"))}
 	return review.Gate(ctx, os.Stdout, cfg, opts)
+}
+
+// requiredChecks splits ATEAM_REQUIRED_CHECKS on commas; unset or blank leaves
+// the gate's per-forge default (#255).
+func requiredChecks(v string) []string {
+	var out []string
+	for _, c := range strings.Split(v, ",") {
+		if c = strings.TrimSpace(c); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // gateForge picks the forge the merge check reads: ATEAM_FORGE when set; under
