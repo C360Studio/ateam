@@ -21,39 +21,71 @@ import (
 // BuildCommit can be stamped at link time via -ldflags "-X github.com/c360studio/ateam/internal/state.BuildCommit=<sha>".
 var BuildCommit string
 
-// BuildRevision returns the short and full VCS commit revision embedded in the binary and whether the build tree was dirty.
+// BuildRevision returns the short and full build revision embedded in the binary and whether the build tree was dirty.
+// A `go install <module>@<tag>` binary carries no vcs.revision, so its revision is the tag (see IsModuleTag);
+// a pseudo-version yields the 12-char commit it embeds (#251).
 func BuildRevision() (shortRev, fullRev string, modified bool) {
-	if raw := strings.TrimSpace(BuildCommit); raw != "" {
-		fullRev = raw
-		shortRev = raw
-		if len(shortRev) > 7 {
-			shortRev = shortRev[:7]
-		}
-		return shortRev, fullRev, false
+	info, ok := debug.ReadBuildInfo()
+	return buildRevision(BuildCommit, info, ok)
+}
+
+// pseudoVersionRe matches a Go pseudo-version and captures its 12-char commit
+// (vX.0.0-ts-rev, vX.Y.Z-pre.0.ts-rev, vX.Y.(Z+1)-0.ts-rev).
+var pseudoVersionRe = regexp.MustCompile(`^v\d+\.(?:0\.0-|\d+\.\d+-(?:[^+]*\.)?0\.)\d{14}-([0-9a-f]{12})(?:\+incompatible)?$`)
+
+func buildRevision(stamped string, info *debug.BuildInfo, ok bool) (shortRev, fullRev string, modified bool) {
+	if raw := strings.TrimSpace(stamped); raw != "" {
+		return shortSHA(raw), raw, false
 	}
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, s := range info.Settings {
-			switch s.Key {
-			case "vcs.revision":
-				fullRev = strings.TrimSpace(s.Value)
-			case "vcs.modified":
-				modified = strings.TrimSpace(s.Value) == "true"
-			}
+	if !ok || info == nil {
+		return "unknown", "", false
+	}
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			fullRev = strings.TrimSpace(s.Value)
+		case "vcs.modified":
+			modified = strings.TrimSpace(s.Value) == "true"
 		}
-		if fullRev != "" {
-			shortRev = fullRev
-			if len(shortRev) > 7 {
-				shortRev = shortRev[:7]
-			}
-			return shortRev, fullRev, modified
-		}
+	}
+	if fullRev != "" {
+		return shortSHA(fullRev), fullRev, modified
+	}
+	v := strings.TrimSpace(info.Main.Version)
+	if m := pseudoVersionRe.FindStringSubmatch(v); m != nil {
+		return shortSHA(m[1]), m[1], false
+	}
+	if IsModuleTag(v) {
+		return v, v, false
 	}
 	return "unknown", "", false
 }
 
-// BuildLabel returns a compact build provenance identifier (e.g. "9f11a42", "9f11a42-dirty", or "unknown").
+func shortSHA(rev string) string {
+	if len(rev) > 7 {
+		return rev[:7]
+	}
+	return rev
+}
+
+// IsModuleTag reports whether a build revision is a module version tag (a `go install <module>@<tag>` binary)
+// rather than a commit. It relies on BuildCommit stamps being hex SHAs (Taskfile stamps `git rev-parse HEAD`),
+// like vcs.revision; the fallbacks are "dev" / "unknown", so a leading "v" decides it.
+func IsModuleTag(rev string) bool {
+	return strings.HasPrefix(strings.TrimSpace(rev), "v")
+}
+
+// BuildLabel returns a compact build provenance identifier (e.g. "9f11a42", "9f11a42-dirty", "module", or "unknown").
 func BuildLabel() string {
-	shortRev, _, modified := BuildRevision()
+	info, ok := debug.ReadBuildInfo()
+	return buildLabel(BuildCommit, info, ok)
+}
+
+func buildLabel(stamped string, info *debug.BuildInfo, ok bool) string {
+	shortRev, _, modified := buildRevision(stamped, info, ok)
+	if IsModuleTag(shortRev) {
+		return "module" // the tag itself is the release version beside it (#251)
+	}
 	if modified && shortRev != "unknown" && shortRev != "dev" {
 		return shortRev + "-dirty"
 	}
@@ -87,7 +119,12 @@ func releaseVersion(stamped string, info *debug.BuildInfo, ok bool) string {
 
 // VersionString formats the human-readable CLI version including build provenance.
 func VersionString() string {
-	return fmt.Sprintf("ateam %s (%s)", ReleaseVersion(), BuildLabel())
+	info, ok := debug.ReadBuildInfo()
+	return versionString(Version, BuildCommit, info, ok)
+}
+
+func versionString(version, commit string, info *debug.BuildInfo, ok bool) string {
+	return fmt.Sprintf("ateam %s (%s)", releaseVersion(version, info, ok), buildLabel(commit, info, ok))
 }
 
 // ReadDiskBinaryBuild inspects ./bin/ateam in root (if present) and returns its short build revision and label.
@@ -101,12 +138,23 @@ func ReadDiskBinaryBuild(ctx context.Context, root string) (shortRev, label stri
 	if info, err := os.Stat(binPath); err != nil || info.IsDir() {
 		return "", "absent"
 	}
+	_, label = ReadBinaryVersion(ctx, binPath)
+	shortRev = strings.TrimSuffix(label, "-dirty")
+	if label == "unreadable" {
+		shortRev = ""
+	}
+	return shortRev, label
+}
+
+// ReadBinaryVersion runs `<path> --version` and returns the release version and build label it prints
+// ("ateam v0.3.3 (module)" -> "v0.3.3", "module"); the label is "unreadable" when it fails or names no build.
+func ReadBinaryVersion(ctx context.Context, path string) (version, label string) {
 	// 10s, not 2s: --version exits at once, so this only guards a hung binary.
 	// Under a full -race suite a 2s spawn timed out and the running build was
 	// reported as the disk build (#116). Not on the <10ms hook path.
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, binPath, "--version").Output()
+	out, err := exec.CommandContext(cctx, path, "--version").Output()
 	if err != nil {
 		return "", "unreadable"
 	}
@@ -118,11 +166,13 @@ func ReadDiskBinaryBuild(ctx context.Context, root string) (shortRev, label stri
 	}
 	label = strings.TrimSpace(line[openIdx+1 : closeIdx])
 	label = strings.TrimSpace(strings.TrimPrefix(label, "build="))
-	shortRev = strings.TrimSuffix(label, "-dirty")
-	if shortRev == "" {
+	if strings.TrimSuffix(label, "-dirty") == "" {
 		return "", "unreadable"
 	}
-	return shortRev, label
+	if fields := strings.Fields(line[:openIdx]); len(fields) >= 2 {
+		version = fields[1]
+	}
+	return version, label
 }
 
 // MCPProcess describes a running `ateam mcp` server process recorded in .ateam/mcp-processes.json.
@@ -510,10 +560,12 @@ type GitStatus struct {
 	Worktrees  []Worktree `json:"worktrees,omitempty"`
 	// DefaultRemoteRef ("origin/main" or "origin/master") and DefaultRemoteHead are the
 	// default branch's remote-tracking ref and tip already on disk; DefaultAheadOfRemote
-	// counts local commits on that branch not on the remote (#210).
+	// counts local commits on that branch not on the remote (#210), DefaultBehindRemote
+	// remote commits not yet on the local branch (#251).
 	DefaultRemoteRef     string `json:"default_remote_ref,omitempty"`
 	DefaultRemoteHead    string `json:"default_remote_head,omitempty"`
 	DefaultAheadOfRemote int    `json:"default_ahead_of_remote,omitempty"`
+	DefaultBehindRemote  int    `json:"default_behind_remote,omitempty"`
 }
 
 // BoardCard represents an issue, PR claim, or OpenSpec item on the PM board.
@@ -2400,7 +2452,12 @@ func SnapshotGit(ctx context.Context, root string) GitStatus {
 	for _, b := range []string{"main", "master"} {
 		if sha := runGitLine(ctx, root, "rev-parse", "--short", "--verify", "--quiet", "refs/remotes/origin/"+b); sha != "" {
 			gs.DefaultRemoteRef, gs.DefaultRemoteHead = "origin/"+b, sha
-			gs.DefaultAheadOfRemote, _ = strconv.Atoi(runGitLine(ctx, root, "rev-list", "--count", "refs/remotes/origin/"+b+"..refs/heads/"+b))
+			// Left counts local-only commits (ahead), right counts remote-only commits (behind), in one call (#251).
+			counts := strings.Fields(runGitLine(ctx, root, "rev-list", "--left-right", "--count", "refs/heads/"+b+"...refs/remotes/origin/"+b))
+			if len(counts) == 2 {
+				gs.DefaultAheadOfRemote, _ = strconv.Atoi(counts[0])
+				gs.DefaultBehindRemote, _ = strconv.Atoi(counts[1])
+			}
 			break
 		}
 	}
@@ -2599,6 +2656,22 @@ func resolveGitDirs(root string) (gitDir, commonDir string, ok bool) {
 	return gitDir, commonDir, true
 }
 
+// summaryDirtyField renders the [ateam] dirty value; on the default branch it names uncommitted changes and
+// appends "| behind=N" when the local branch trails its remote (#251).
+func summaryDirtyField(gs GitStatus) string {
+	field := fmt.Sprintf("%v", gs.Dirty)
+	if gs.Branch == "" || gs.Branch != strings.TrimPrefix(gs.DefaultRemoteRef, "origin/") {
+		return field
+	}
+	if gs.Dirty {
+		field += " (uncommitted changes)"
+	}
+	if gs.DefaultBehindRemote > 0 {
+		field += fmt.Sprintf(" | behind=%d", gs.DefaultBehindRemote)
+	}
+	return field
+}
+
 // BuildPickupSummary creates a concise reconciliation report for SessionStart or pickup.
 func BuildPickupSummary(st *State) string {
 	st.ReconcileWorktrees()
@@ -2622,8 +2695,8 @@ func BuildPickupSummary(st *State) string {
 		}
 		buildField = fmt.Sprintf("build=%s mcp=%s", diskBuild, strings.TrimSpace(st.MCPBuild))
 	}
-	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%v | shortcuts=%d | holds=%s | %s | synced=%s (closed capped at %d)\n",
-		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, st.Git.Dirty, len(st.Shortcuts), holdsDisplay, buildField, syncedDisplay, closedItemCap)
+	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%s | shortcuts=%d | holds=%s | %s | synced=%s (closed capped at %d)\n",
+		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, summaryDirtyField(st.Git), len(st.Shortcuts), holdsDisplay, buildField, syncedDisplay, closedItemCap)
 	if strings.TrimSpace(st.MCPStaleTarget) != "" {
 		fmt.Fprintf(&b, "WARNING: MCP server binary is stale; restart the client to pick up %s\n", strings.TrimSpace(st.MCPStaleTarget))
 	}
@@ -2870,7 +2943,11 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 		if remove, _ := st.PruneVerdict(wt, st.CurrentAgent, ""); remove {
 			statuses[i] += ", prune candidate"
 		}
-		fmt.Fprintf(b, "  - %s (head=%s, dirty=%s, ahead=%d, %s)\n", branch, wt.Head, dirtyStr, wt.AheadCount, statuses[i])
+		aheadStr := fmt.Sprintf("ahead=%d", wt.AheadCount)
+		if n := st.Git.DefaultBehindRemote; n > 0 && wt.Branch != "" && wt.Branch == strings.TrimPrefix(st.Git.DefaultRemoteRef, "origin/") {
+			aheadStr += fmt.Sprintf(", behind=%d", n)
+		}
+		fmt.Fprintf(b, "  - %s (head=%s, dirty=%s, %s, %s)\n", branch, wt.Head, dirtyStr, aheadStr, statuses[i])
 		for _, line := range worktreeHandoffLines(st, wt) {
 			fmt.Fprintf(b, "    handoff: %s\n", line)
 		}

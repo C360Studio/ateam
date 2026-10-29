@@ -344,6 +344,13 @@ func reconcileSessionStartHandoffs(root, flagAgent, br, sha string, wtHeadChange
 }
 
 func checkSessionBuildProvenance(root, headSHA string) string {
+	shortBuild, _, _ := state.BuildRevision()
+	return sessionBuildWarning(root, headSHA, shortBuild)
+}
+
+// sessionBuildWarning compares the running build with HEAD by string only. A module install's tag is
+// labelled, not resolved: the hook spawns no subprocess (#150, #251); doctor resolves it.
+func sessionBuildWarning(root, headSHA, shortBuild string) string {
 	headSHA = strings.TrimSpace(headSHA)
 	if headSHA == "" || headSHA == "uncommitted" {
 		return ""
@@ -351,11 +358,10 @@ func checkSessionBuildProvenance(root, headSHA string) string {
 	if !bootstrap.IsAteamCheckout(root) {
 		return ""
 	}
-	shortBuild, _, _ := state.BuildRevision()
 	if shortBuild != "" && shortBuild != "dev" && shortBuild != "unknown" && state.SameCommitSHA(shortBuild, headSHA) {
 		return ""
 	}
-	return bootstrap.FormatStaleBinaryWarning(shortBuild, headSHA)
+	return bootstrap.FormatStaleBinaryWarning(root, shortBuild, headSHA, bootstrap.RunningBinaryPath())
 }
 
 func checkSessionStaleMCPOnce(root, sessionID, headSHA string) []string {

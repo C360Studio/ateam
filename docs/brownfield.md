@@ -19,7 +19,7 @@ build `v0.3.1`: it predates the adopter checks this guide describes), put `bin/a
 ateam version   # ateam v0.3.2 (<commit>)
 ```
 
-The release part comes from the build, not from the source. `task build` stamps `git describe`, so a tag checkout prints the tag and a later commit prints `<tag>-<n>-g<commit>`. A plain `go build` prints the version Go embeds from git, which can be the parent checkout's inside a linked worktree, or `dev` without git data. Use `task build`.
+The release part comes from the build, not from the source. `task build` stamps `git describe`, so a tag checkout prints the tag and a later commit prints `<tag>-<n>-g<commit>`. A plain `go build` prints the version Go embeds from git, which can be the parent checkout's inside a linked worktree, or `dev` without git data. Use `task build`. A smoke pass qualifies a release candidate only when `ateam doctor` shows `hook_binary`, `disk_build`, and `head_commit` at the candidate commit, because the hooks run the `ateam` on `PATH`, not `./bin/ateam`.
 
 ## 2. Run init without `--force`
 

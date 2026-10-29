@@ -249,7 +249,7 @@ func TestBuildProvenanceChecksOnlyTheAteamCheckout(t *testing.T) {
 			if got := IsAteamCheckout(dir); got != tc.wantApp {
 				t.Fatalf("IsAteamCheckout = %v, want %v", got, tc.wantApp)
 			}
-			label, got := BuildProvenanceStatus(context.Background(), dir, staleBuild, head)
+			label, got := BuildProvenanceStatus(context.Background(), dir, staleBuild, head, "")
 			wantLabel := BuildProvenanceNotApplicable
 			if tc.wantApp {
 				wantLabel = "checked"
@@ -276,19 +276,19 @@ func TestDoctorBuildProvenanceAndDuplicateServeDetection(t *testing.T) {
 	dir := t.TempDir()
 	writeGoMod(t, dir, "module github.com/c360studio/ateam\n\ngo 1.26\n")
 	// 1. Build provenance drift check:
-	if _, v := BuildProvenanceStatus(ctx, dir, "ea0c7845a875", "9f11a42"); len(v) == 0 {
+	if _, v := BuildProvenanceStatus(ctx, dir, "ea0c7845a875", "9f11a42", ""); len(v) == 0 {
 		t.Fatal("expected build provenance violation when build rev differs from HEAD")
 	}
-	if _, v := BuildProvenanceStatus(ctx, dir, "9f11a4200000", "9f11a42"); len(v) > 0 {
+	if _, v := BuildProvenanceStatus(ctx, dir, "9f11a4200000", "9f11a42", ""); len(v) > 0 {
 		t.Fatalf("expected matching build provenance to pass, got: %v", v)
 	}
 	for _, emptyRev := range []string{"", "dev", "unknown"} {
-		_, v := BuildProvenanceStatus(ctx, dir, emptyRev, "9f11a42")
+		_, v := BuildProvenanceStatus(ctx, dir, emptyRev, "9f11a42", "")
 		if len(v) == 0 || !strings.Contains(v[0], "binary has no build provenance; build with task build") {
 			t.Fatalf("expected missing build provenance warning for %q, got: %v", emptyRev, v)
 		}
 	}
-	if got := FormatStaleBinaryWarning("990e19c", "abad85b"); got != "binary 990e19c is behind HEAD abad85b; run task build" {
+	if got := FormatStaleBinaryWarning(t.TempDir(), "990e19c", "abad85b", ""); got != "binary 990e19c is behind HEAD abad85b; run task build" {
 		t.Fatalf("FormatStaleBinaryWarning behind = %q, want %q", got, "binary 990e19c is behind HEAD abad85b; run task build")
 	}
 
