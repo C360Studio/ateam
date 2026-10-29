@@ -555,7 +555,7 @@ func runDoctor(repoRoot string, args []string) int {
 	}
 	_, fullRev, _ := state.BuildRevision()
 	_, headSHA := state.ReadFastGitHead(repoRoot)
-	buildProvenance, warnings := bootstrap.BuildProvenanceStatus(context.Background(), repoRoot, fullRev, headSHA)
+	buildProvenance, warnings := bootstrap.BuildProvenanceStatus(context.Background(), repoRoot, fullRev, headSHA, bootstrap.RunningBinaryPath())
 	warnings = append(warnings, bootstrap.CheckUnarchivedOpenSpecChanges(repoRoot)...)
 	latencyWarning, latencyViolation := hookLatencyFindings(hookUs)
 	if latencyWarning != "" {
@@ -570,6 +570,8 @@ func runDoctor(repoRoot string, args []string) int {
 	warnings = append(warnings, mcpWarnings...)
 	diskBuild, diskWarnings := bootstrap.DiskBuildStatus(context.Background(), repoRoot)
 	warnings = append(warnings, diskWarnings...)
+	hookBinary, hookBinaryWarnings := bootstrap.HookBinaryStatus(context.Background(), repoRoot, diskBuild)
+	warnings = append(warnings, hookBinaryWarnings...)
 	warnings = append(warnings, forgeTokenWarnings()...)
 
 	adopterSkills, skillAliases := bootstrap.SkillInventory(repoRoot)
@@ -580,6 +582,7 @@ func runDoctor(repoRoot string, args []string) int {
 		"build_commit":           state.BuildLabel(),
 		"build_provenance":       buildProvenance,
 		"disk_build":             diskBuild,
+		"hook_binary":            hookBinary,
 		"head_commit":            headSHA,
 		"running_serve_pids":     servePIDs,
 		"running_mcp_processes":  mcpProcs,

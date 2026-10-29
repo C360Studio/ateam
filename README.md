@@ -72,7 +72,7 @@ rm -rf internal/web/dist && cp -R ui/build internal/web/dist
 go build -o bin/ateam ./cmd/ateam
 ```
 
-Expose `./bin/ateam` on your `PATH`—for example, symlink it into `~/.local/bin/ateam` (`ln -sf "$PWD/bin/ateam" ~/.local/bin/ateam`) so `brew doctor` is unaffected and desktop hosts (such as Enjoy) pick up rebuilds in place—so Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy`) can invoke `ateam` from their hook and MCP configurations. Check which build you are running with `ateam version`, which prints the release and the commit it was built from. `task build` takes the release from `git describe`: a tag checkout prints `ateam v0.3.3 (<commit>)`, a commit after a tag prints `ateam v0.3.2-19-gfd9d205 (fd9d205)`, and a dirty tree appends `-dirty`. `go install github.com/c360studio/ateam/cmd/ateam@<tag>` prints that tag, and `go run` prints `dev`. GitHub releases carry no prebuilt binaries yet.
+Expose `./bin/ateam` on your `PATH`—for example, symlink it into `~/.local/bin/ateam` (`ln -sf "$PWD/bin/ateam" ~/.local/bin/ateam`) so `brew doctor` is unaffected and desktop hosts (such as Enjoy) pick up rebuilds in place—so Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy`) can invoke `ateam` from their hook and MCP configurations. Check which build you are running with `ateam version`, which prints the release and the commit it was built from. `task build` takes the release from `git describe`: a tag checkout prints `ateam v0.3.3 (<commit>)`, a commit after a tag prints `ateam v0.3.2-19-gfd9d205 (fd9d205)`, and a dirty tree appends `-dirty`. `go install github.com/c360studio/ateam/cmd/ateam@<tag>` prints `ateam <tag> (module)`, and `go run` prints `dev`. GitHub releases carry no prebuilt binaries yet.
 
 ---
 
