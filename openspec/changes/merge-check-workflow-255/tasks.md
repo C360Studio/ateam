@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1-3 (#255). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1-3 (#255). Evidence: the owner approved in Enjoy on 2026-10-29, ruling D2 A (`pull_request`), D3 C (`ATEAM_REQUIRED_CHECKS` list, default `Required`), and D4 omit `labeled`/`unlabeled`; Claude wrote the header at their request.
 
 ## 2. Workflows
 

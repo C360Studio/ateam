@@ -66,6 +66,4 @@ A second review at a new head reuses the `reviewed-by:` line, so no `edited` eve
 
 ## Open Questions
 
-1. **Owner ruling: D2 event.** Recommended A (`pull_request`).
-2. **Owner ruling: D3 rule check.** Recommended C (env list, default `Required`).
-3. **Owner ruling: D4 `labeled`/`unlabeled`.** Recommended omit.
+Resolved by the owner on 2026-10-29: D2 A (`pull_request`), D3 C (env list, default `Required`), D4 omit `labeled`/`unlabeled`.

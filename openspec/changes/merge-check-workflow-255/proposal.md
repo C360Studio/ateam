@@ -1,6 +1,6 @@
 # Change Proposal: `merge-check-workflow-255`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-29)
 
 ## Why
 
