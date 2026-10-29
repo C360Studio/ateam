@@ -41,8 +41,9 @@ func TestSessionStartLabelsModuleInstallWithoutGit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The test binary is not named ateam, so go install cannot write it and is not offered.
 	want := "binary v0.3.3 (module install) is not built from HEAD 6e8d841; replace " + exe +
-		`: task build && ln -sf "$PWD/bin/ateam" ` + exe + ", or go install ./cmd/ateam"
+		": (cd '" + dir + "' && task build) && ln -sf '" + dir + "/bin/ateam' '" + exe + "'"
 	if got := sessionBuildWarning(dir, "6e8d841", "v0.3.3"); got != want {
 		t.Fatalf("session-start warning = %q, want %q", got, want)
 	}

@@ -877,7 +877,7 @@ func hookFileViolations(f hookFile, c hookClient) (parsed map[string]any, out []
 	for _, ev := range c.events {
 		found, withAgent := false, false
 		for _, cmd := range hookCommands(byNative[ev.native], c.nested) {
-			tokens := strings.Fields(cmd)
+			tokens := hookWords(cmd, "")
 			if !isAteamHook(tokens) || !hasFlag(tokens, "--event", ev.event) {
 				continue
 			}
@@ -915,6 +915,57 @@ func hookCommands(entries any, nested bool) []string {
 		}
 	}
 	return out
+}
+
+// hookWords splits a hook command into words the way a shell would for the cases hook configs use:
+// blanks separate words, single quotes are literal, and double quotes group. With projectDir set,
+// $CLAUDE_PROJECT_DIR and ${CLAUDE_PROJECT_DIR} outside single quotes expand to it. It interprets
+// nothing else (no escapes, no other variables, no command substitution).
+func hookWords(cmd, projectDir string) []string {
+	expand := func(s string) string {
+		if projectDir == "" {
+			return s
+		}
+		return strings.NewReplacer("${CLAUDE_PROJECT_DIR}", projectDir, "$CLAUDE_PROJECT_DIR", projectDir).Replace(s)
+	}
+	var words []string
+	var cur strings.Builder
+	inWord := false
+	for i := 0; i < len(cmd); {
+		switch c := cmd[i]; c {
+		case ' ', '\t', '\n':
+			if inWord {
+				words = append(words, cur.String())
+				cur.Reset()
+				inWord = false
+			}
+			i++
+		case '\'', '"':
+			inWord = true
+			end := strings.IndexByte(cmd[i+1:], c)
+			if end < 0 {
+				end = len(cmd) - i - 1 // unterminated: the rest of the command
+			}
+			part := cmd[i+1 : i+1+end]
+			if c == '"' {
+				part = expand(part)
+			}
+			cur.WriteString(part)
+			i += end + 2
+		default:
+			j := i
+			for j < len(cmd) && !strings.ContainsRune(" \t\n'\"", rune(cmd[j])) {
+				j++
+			}
+			cur.WriteString(expand(cmd[i:j]))
+			inWord = true
+			i = j
+		}
+	}
+	if inWord {
+		words = append(words, cur.String())
+	}
+	return words
 }
 
 // isAteamHook reports whether a command's tokens start with ateam (bare or as a path) followed by hook.
@@ -972,8 +1023,9 @@ func FormatStaleBinaryWarning(root, shortBuild, headSHA, binPath string) string 
 
 // staleBinaryAdvice names the commands that replace the binary at binPath, its invocation path (#251).
 // It never suggests a symlink over a real checkout build, nor one into a linked worktree that
-// `ateam state prune` later deletes: from a linked worktree the link targets the main checkout.
-// It reads files only, so the session-start hook may call it.
+// `ateam state prune` later deletes: from a linked worktree it builds and links the main checkout.
+// Every path is single-quoted, and the install alternative targets binPath's directory, so the
+// command replaces the binary the warning names. It reads files only, so the hook may call it.
 func staleBinaryAdvice(root, binPath string) string {
 	if binPath == "" {
 		return "run task build"
@@ -984,18 +1036,37 @@ func staleBinaryAdvice(root, binPath string) string {
 	}
 	if fi, err := os.Lstat(binPath); err == nil && fi.Mode()&os.ModeSymlink == 0 && filepath.Base(filepath.Dir(binPath)) == "bin" {
 		if checkout := filepath.Dir(filepath.Dir(binPath)); IsAteamCheckout(checkout) {
-			return fmt.Sprintf(`rebuild %s in its checkout: (cd "%s" && task build)`, binPath, checkout)
+			return fmt.Sprintf("rebuild %s in its checkout: (cd %s && task build)", binPath, shellQuote(checkout))
 		}
 	}
-	mainDir := mainCheckout(root)
-	switch {
-	case mainDir == root:
-		return fmt.Sprintf(`replace %s: task build && ln -sf "$PWD/bin/ateam" %s, or go install ./cmd/ateam`, binPath, binPath)
-	case mainDir != "":
-		return fmt.Sprintf(`replace %s: go install ./cmd/ateam, or (cd "%s" && task build) && ln -sf "%s/bin/ateam" %s`, binPath, mainDir, mainDir, binPath)
-	default:
-		return fmt.Sprintf("replace %s: go install ./cmd/ateam", binPath)
+	checkout := mainCheckout(root)
+	if checkout == "" {
+		checkout = root // a bare common dir: build in this worktree, never link into it
+		if install := goInstallTo(checkout, binPath); install != "" {
+			return fmt.Sprintf("replace %s: %s", binPath, install)
+		}
+		return fmt.Sprintf("replace %s with a current ateam build", binPath)
 	}
+	advice := fmt.Sprintf("replace %s: (cd %s && task build) && ln -sf %s %s", binPath, shellQuote(checkout),
+		shellQuote(filepath.Join(checkout, "bin", "ateam")), shellQuote(binPath))
+	if install := goInstallTo(checkout, binPath); install != "" {
+		advice += ", or " + install
+	}
+	return advice
+}
+
+// goInstallTo returns a go install that writes binPath itself, or "" when go install cannot: it names
+// the binary "ateam" and writes it to GOBIN, which defaults elsewhere.
+func goInstallTo(checkout, binPath string) string {
+	if filepath.Base(binPath) != "ateam" {
+		return ""
+	}
+	return fmt.Sprintf("(cd %s && GOBIN=%s go install ./cmd/ateam)", shellQuote(checkout), shellQuote(filepath.Dir(binPath)))
+}
+
+// shellQuote single-quotes s for a POSIX shell, so $, backticks, and spaces in a path stay literal.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // mainCheckout returns root when it is a main checkout (or not a git checkout), the main checkout of a
@@ -1086,14 +1157,6 @@ func HookBinaryStatus(ctx context.Context, root, diskBuild string) (HookBinary, 
 	return hb, []string{fmt.Sprintf("hook binary %s is %s, %s; %s", path, what, disk, staleBinaryAdvice(root, path))}
 }
 
-// expandProjectDir replaces Claude Code's $CLAUDE_PROJECT_DIR (bare, braced, or quoted) in argv0 with root.
-func expandProjectDir(argv0, root string) string {
-	return strings.Trim(strings.NewReplacer(
-		`"$CLAUDE_PROJECT_DIR"`, root, `"${CLAUDE_PROJECT_DIR}"`, root,
-		"${CLAUDE_PROJECT_DIR}", root, "$CLAUDE_PROJECT_DIR", root,
-	).Replace(argv0), `"`)
-}
-
 // claudeHookArgv0 returns argv[0] of the first ateam hook command in the Claude hook file doctor accepted,
 // else the bare "ateam" every generated config uses.
 func claudeHookArgv0(root string) string {
@@ -1117,8 +1180,8 @@ func claudeHookArgv0(root string) string {
 		byNative, _ := readJSONObject(path)[c.root].(map[string]any)
 		for _, ev := range c.events {
 			for _, cmd := range hookCommands(byNative[ev.native], c.nested) {
-				if tokens := strings.Fields(cmd); isAteamHook(tokens) {
-					return expandProjectDir(tokens[0], root)
+				if tokens := hookWords(cmd, root); isAteamHook(tokens) {
+					return tokens[0]
 				}
 			}
 		}

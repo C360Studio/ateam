@@ -662,7 +662,7 @@ func TestSessionStartWarnsWhenBinaryBehindHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantBehind := "binary 990e19c is behind HEAD abad85b; replace " + exe + `: task build && ln -sf "$PWD/bin/ateam" ` + exe + ", or go install ./cmd/ateam"
+	wantBehind := "binary 990e19c is behind HEAD abad85b; replace " + exe + ": (cd '" + dir + "' && task build) && ln -sf '" + dir + "/bin/ateam' '" + exe + "'"
 	outBehind, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-behind"}`))
 	if err != nil {
 		t.Fatalf("Handle session-start behind HEAD: %v", err)
