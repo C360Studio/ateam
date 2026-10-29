@@ -51,7 +51,7 @@ Goal: no `Verify` runner work on Gitea WIP pushes, with no path for a WIP-era or
 ### D3. `edited` and cancellation
 
 - Leaving WIP is an `edited` event. The existing `cancel-in-progress` expression is true for `edited`, so the WIP run is cancelled. That cancellation is the observed protection against a stale WIP overwrite.
-- Cost: a description edit on a ready Gitea PR, such as the reviewer's `reviewed-by:` line, also reruns CI and cancels the in-flight run. The cancelled run posts a non-pass, which fails closed, until the new run finishes. That is noise, not a safety gap. A title-only filter would need `github.event.changes.title`, which is unverified on Gitea. Rejected for now.
+- Cost: a description edit on a ready Gitea PR, such as the reviewer's `reviewed-by:` line, also reruns CI and cancels the in-flight run. The cancelled run posts a non-pass, which fails closed, until the new run finishes. That is noise, not a safety gap. A title-only filter is not possible on Gitea 28.2.0. Probes on 2026-10-29 (runs 19550-19555) showed that `github.event.changes` is `null` for both a body edit and a title edit, so the event does not say which field changed. The WIP state itself is read from the title, through `pull_request.draft`; only the trigger is broad.
 
 ### D4. Minimum Gitea version (open question 1)
 
@@ -69,5 +69,5 @@ Use `!github.event.pull_request.draft || github.event.action == 'label_updated' 
 
 ## Open Questions
 
-1. **(owner ruling) D4:** is Gitea 28.x the supported minimum for ateam's `.gitea/workflows`? If a 1.2x Gitea, such as an adopter's, must keep working, take D4 B and close #257 as won't-do for now.
-2. **(owner ruling) D3:** accept CI reruns on every Gitea PR description edit, or keep Gitea unchanged until a title-only filter is verified.
+1. **D4 ruled 2026-10-29 by the owner (Enjoy): Gitea 28.x is the minimum.**
+2. **(owner ruling) D3:** a title-only filter is impossible on Gitea 28.2.0 (`changes` is `null`). Either accept a CI rerun on every Gitea PR edit, or keep Gitea unchanged.
