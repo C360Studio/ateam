@@ -9,4 +9,4 @@
 - [x] 2.3 Pickup's `, prune candidate` label uses the same verdict without `--force` (#263). Evidence: each non-forced row asserts the label matches the verdict.
 - [x] 2.4 Name `--force` and the occupancy rule in `README.md`, `docs/daily-use.md`, and the `ateam state` help (#263).
 - [x] 2.5 `task verify` green on a clean tree, `ateam doctor` parity green, `ateam bench --selftest` green. Evidence: `task verify` exit 0 on a clean tree at `c945436` (`test-spec: all discovered supported tests have valid citations`, `selftest_passed: true`); `ateam doctor --check` `passed: true`, `violations: null`.
-- [ ] 2.6 Archive the change before marking the PR ready (#263).
+- [x] 2.6 Archive the change before marking the PR ready (#263). Evidence: archived to `openspec/changes/archive/2026-10-30-prune-occupancy-263/`; `.agents/protocol.md` § Close and its `ateam init` template (`protocolCloseStep`, `internal/bootstrap/templates.go`) name the occupancy rule and `--force`.
