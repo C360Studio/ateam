@@ -1,6 +1,6 @@
 # Change Proposal: `test-spec-base-237`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-30)
 
 ## Why
 

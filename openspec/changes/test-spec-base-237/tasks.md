@@ -1,7 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1-3 (#237).
-  Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1-3 (#237). Evidence: the owner approved in Enjoy on 2026-10-30 with the recommended rulings (OQ1 D4 A, OQ2 D3 B, OQ3 D1 A); Claude wrote the header at their request.
 
 ## 2. Diff scope
 
