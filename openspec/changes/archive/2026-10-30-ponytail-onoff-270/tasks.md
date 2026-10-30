@@ -18,4 +18,4 @@
 
 ## 5. Verify
 
-- [ ] 5.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0; `ateam state mode lite` prints `on` and `ateam state mode banana` exits 1 (#270).
+- [x] 5.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0; `ateam state mode lite` prints `on` and `ateam state mode banana` exits 1 (#270). Evidence: `task verify` exited 0 on a clean tree at `570c1ac`; `ateam doctor --check` passed and `ateam bench --selftest` reported `selftest_passed: true` (9 of 9 evaluated, `ui-datepicker` skipped); `ateam state mode lite` printed `{"mode": "on"}` and `ateam state mode banana` exited 1 with `invalid mode "banana"`.
