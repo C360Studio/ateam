@@ -68,7 +68,7 @@ func linkTypeScript(t *testing.T, root string) {
 	}
 }
 
-// spec: openspec/changes/test-spec-base-237/specs/test-attribution/spec.md#Requirement: Diff-scoped attribution
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Diff-scoped attribution
 func TestBaseScope(t *testing.T) {
 	cited := "package p\n\nimport \"testing\"\n\n" + citation + "func TestNew(t *testing.T) {}\n"
 	uncited := "package p\n\nimport \"testing\"\n\nfunc TestNew(t *testing.T) {}\n"
@@ -142,7 +142,7 @@ func TestBaseScope(t *testing.T) {
 	})
 }
 
-// spec: openspec/changes/test-spec-base-237/specs/test-attribution/spec.md#Requirement: Diff-scoped attribution
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Diff-scoped attribution
 func TestBaseRefusals(t *testing.T) {
 	root := brownfield(t)
 	shallow := filepath.Join(t.TempDir(), "shallow")
@@ -168,7 +168,7 @@ func TestBaseRefusals(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/test-spec-base-237/specs/test-attribution/spec.md#Requirement: Diff-scoped attribution
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Diff-scoped attribution
 func TestParseHunks(t *testing.T) {
 	patch := "diff --git a/x_test.go b/x_test.go\n--- a/x_test.go\n+++ b/x_test.go\n" +
 		"@@ -3 +3 @@ func A\n-a\n+b\n" + // one line, no count

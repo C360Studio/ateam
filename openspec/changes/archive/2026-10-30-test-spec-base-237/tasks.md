@@ -14,4 +14,4 @@
 
 ## 4. Verify
 
-- [ ] 4.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#237).
+- [x] 4.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#237). Evidence: `task verify` green on a clean tree at the implementation commit; `ateam doctor --check` and `ateam bench --selftest` exit 0; `ateam test-spec --base origin/main` passes on this branch.
