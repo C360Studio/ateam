@@ -25,9 +25,14 @@ jobs:
   # Skipped and renamed on a WIP pull request (Gitea sets draft from the WIP:
   # prefix), so a rerun of a WIP run never posts a skipped Merge check, which
   # Gitea counts as passing; leaving WIP: is an edited event (#257).
+  # Also skipped and renamed until the description contains reviewed-by: (#262):
+  # before the review record the pull request is not yet judgeable, so the
+  # required context stays absent instead of failing. contains() is looser than
+  # the gate's line rule, so a loose match only runs the full check below; it
+  # reads the event payload, so a rerun replays the description it saw.
   merge-check:
-    name: ${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || 'Merge check' }}
-    if: ${{ !github.event.pull_request.draft }}
+    name: ${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || !contains(github.event.pull_request.body, 'reviewed-by:') && 'Merge check (awaiting review record, skipped)' || 'Merge check' }}
+    if: ${{ !github.event.pull_request.draft && contains(github.event.pull_request.body, 'reviewed-by:') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

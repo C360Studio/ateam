@@ -1008,6 +1008,14 @@ jobs:
 // edited carries the reviewer's reviewed-by: description edit (#255).
 var mergeCheckTypes = []string{"opened", "synchronize", "reopened", "ready_for_review", "edited"}
 
+// mergeCheckIf and mergeCheckName skip the job on a draft (#250) and while the
+// description has no reviewed-by: (#262), each under a name that is not a
+// required context, so neither state posts a failed or a passing Merge check.
+const (
+	mergeCheckIf   = "${{ !github.event.pull_request.draft && contains(github.event.pull_request.body, 'reviewed-by:') }}"
+	mergeCheckName = "${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || !contains(github.event.pull_request.body, 'reviewed-by:') && 'Merge check (awaiting review record, skipped)' || 'Merge check' }}"
+)
+
 // mergeCheckWorkflowViolations checks merge-check.yml against the merge-gate
 // spec (#255): PR-state triggers, runs queued and never cancelled, skipped and
 // renamed on a draft, read-only, built from the base commit, and told every
@@ -1036,11 +1044,11 @@ func mergeCheckWorkflowViolations(data []byte, checks string) []string {
 	if !ok {
 		return append(violations, "merge-check.yml: no job merge-check")
 	}
-	if got := strings.TrimSpace(fmt.Sprint(job.Name)); got != draftName("Merge check") {
-		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check is named %v; the merge-gate spec requires %s so a skipped draft job leaves no Merge check check run", job.Name, draftName("Merge check")))
+	if got := strings.TrimSpace(fmt.Sprint(job.Name)); got != mergeCheckName {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check is named %v; the merge-gate spec requires %s so a skipped draft or awaiting job leaves no Merge check check run", job.Name, mergeCheckName))
 	}
-	if got := strings.TrimSpace(fmt.Sprint(job.If)); got != "${{ !github.event.pull_request.draft }}" {
-		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check runs under if: %v; the merge-gate spec requires drafts skip it", job.If))
+	if got := strings.TrimSpace(fmt.Sprint(job.If)); got != mergeCheckIf {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check runs under if: %v; the merge-gate spec requires drafts and descriptions without reviewed-by: skip it", job.If))
 	}
 	if label, ok := job.RunsOn.(string); !ok || label != runnerLabel {
 		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check runs on %v; the merge-gate spec requires %s", job.RunsOn, runnerLabel))
@@ -1094,8 +1102,10 @@ func TestMergeCheckWorkflowPinnedSensitivity(t *testing.T) {
 		{"a push trigger", "on:\n", "on:\n  push:\n    branches: [main]\n", []string{"allows only pull_request"}},
 		{"runs cancel", "cancel-in-progress: false", "cancel-in-progress: true", []string{"cancel-in-progress is true"}},
 		{"group per ref", "merge-check-${{ github.event.pull_request.number }}", "merge-check-${{ github.ref }}", []string{"not per pull request"}},
-		{"draft guard dropped", "    if: ${{ !github.event.pull_request.draft }}\n", "", []string{"drafts skip it"}},
-		{"name kept on a draft", "    name: " + draftName("Merge check") + "\n", "    name: Merge check\n", []string{"is named Merge check"}},
+		{"draft guard dropped", "    if: " + mergeCheckIf + "\n", "    if: ${{ contains(github.event.pull_request.body, 'reviewed-by:') }}\n", []string{"drafts and descriptions"}},
+		{"awaiting guard dropped", "    if: " + mergeCheckIf + "\n", "    if: ${{ !github.event.pull_request.draft }}\n", []string{"drafts and descriptions"}},
+		{"name kept on a draft", "    name: " + mergeCheckName + "\n", "    name: Merge check\n", []string{"is named Merge check"}},
+		{"name kept while awaiting", "    name: " + mergeCheckName + "\n", "    name: " + draftName("Merge check") + "\n", []string{"awaiting job leaves no"}},
 		{"a check dropped from the list", "ATEAM_REQUIRED_CHECKS: Required,Merge check", "ATEAM_REQUIRED_CHECKS: Required", []string{`ATEAM_REQUIRED_CHECKS is "Required"`}},
 		{"write permission", "      pull-requests: read\n", "      pull-requests: write\n", []string{"pull-requests: write"}},
 	} {
