@@ -130,10 +130,11 @@ summary, and `ateam state pickup` prints it on demand.
   Antigravity read it directly, so doctor still requires it with its markers; deleting it fails with
   `missing canonical skill`.
 - **OpenSpec tracks.** If your repository already has `openspec/config.yaml`, `ateam init` leaves it untouched
-  (otherwise writing `schema: spec-driven`). Non-trivial changes choose `quick` (`proposal.md` + `tasks.md`, no
-  `design.md`) or `design` (`proposal.md` + `design.md` via `/design` + `tasks.md`), gated on `Approved-by:` and Task 1's
-  `Hold: OPEN-Q proposal awaits owner approval`; copy `rules: design:` from ateam's `openspec/config.yaml` only if you
-  also invoke `openspec instructions design` alongside `/design` (#218). `ateam state spec-check` uses
+  (otherwise writing `schema: spec-driven` and the `rules: design:` block). Non-trivial changes choose `quick`
+  (`proposal.md` + `tasks.md`, no `design.md`) or `design` (`proposal.md` + `design.md` via `/design` + `tasks.md`), gated
+  on `Approved-by:` and Task 1's `Hold: OPEN-Q proposal awaits owner approval`; with your own config, copy
+  `rules: design:` from ateam's `openspec/config.yaml` if you also invoke `openspec instructions design` alongside
+  `/design`. `ateam state spec-check` uses
   `node_modules/.bin/openspec` or `openspec` on `PATH` for strict validation and prints a skip notice when neither is
   installed.
 - **Verification.** Do not copy ateam's `Taskfile.yml`. Keep your own `task verify` or CI entry point and add the
