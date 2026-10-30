@@ -872,6 +872,46 @@ const (
 	draftGuard = "github.event_name != 'pull_request' || !github.event.pull_request.draft"
 )
 
+// awaitingProbeViolations checks the awaiting probe (#262): never named as a
+// required check, skipped on a draft, read-only, built from the base commit, and
+// publishing the probe's answer as the job output merge-check reads.
+func awaitingProbeViolations(jobs map[string]ciJob) []string {
+	job, ok := jobs["awaiting"]
+	if !ok {
+		return []string{"merge-check.yml: no job awaiting"}
+	}
+	var out []string
+	if got := fmt.Sprint(job.Name); got != "Merge check probe" {
+		out = append(out, fmt.Sprintf("merge-check.yml: job awaiting is named %v; the merge-gate spec requires Merge check probe, which is not a required context", job.Name))
+	}
+	if got := strings.TrimSpace(fmt.Sprint(job.If)); got != "${{ !github.event.pull_request.draft }}" {
+		out = append(out, fmt.Sprintf("merge-check.yml: job awaiting runs under if: %v; the merge-gate spec requires drafts skip it", job.If))
+	}
+	if label, ok := job.RunsOn.(string); !ok || label != runnerLabel {
+		out = append(out, fmt.Sprintf("merge-check.yml: job awaiting runs on %v; the merge-gate spec requires %s", job.RunsOn, runnerLabel))
+	}
+	out = append(out, mergeCheckPermissionViolations(job.Permissions)...)
+	if o, _ := job.Outputs["awaiting"].(string); o != "${{ steps.probe.outputs.awaiting }}" {
+		out = append(out, fmt.Sprintf("merge-check.yml: job awaiting outputs awaiting=%v; the merge-gate spec requires ${{ steps.probe.outputs.awaiting }}", job.Outputs["awaiting"]))
+	}
+	base, probed := false, false
+	for _, st := range job.Steps {
+		if strings.HasPrefix(st.Uses, "actions/checkout@") && fmt.Sprint(st.With["ref"]) == "${{ github.event.pull_request.base.sha }}" {
+			base = true
+		}
+		if st.ID == "probe" && strings.Contains(st.Run, `"$ATEAM" review gate --awaiting "$PR_NUMBER"`) && strings.Contains(st.Run, ">> \"$GITHUB_OUTPUT\"") {
+			probed = true
+		}
+	}
+	if !base {
+		out = append(out, "merge-check.yml: job awaiting does not check out the base commit; the probe must not come from the tree it judges (#140)")
+	}
+	if !probed {
+		out = append(out, "merge-check.yml: job awaiting has no step probe running ateam review gate --awaiting into GITHUB_OUTPUT")
+	}
+	return out
+}
+
 // ciJobNames are the required-check names each ci.yml job reports when it runs.
 var ciJobNames = map[string]string{"verify": "Verify", "required": "Required"}
 
@@ -1008,6 +1048,15 @@ jobs:
 // edited carries the reviewer's reviewed-by: description edit (#255).
 var mergeCheckTypes = []string{"opened", "synchronize", "reopened", "ready_for_review", "edited"}
 
+// mergeCheckIf and mergeCheckName skip the job on a draft (#250) and while the
+// awaiting probe answers true (#262), each under a name that is not a required
+// context, so neither state posts a failed or a passing Merge check; always()
+// runs the full check when the probe failed and left no answer.
+const (
+	mergeCheckIf   = "${{ always() && !github.event.pull_request.draft && needs.awaiting.outputs.awaiting != 'true' }}"
+	mergeCheckName = "${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || needs.awaiting.outputs.awaiting == 'true' && 'Merge check (awaiting review record, skipped)' || 'Merge check' }}"
+)
+
 // mergeCheckWorkflowViolations checks merge-check.yml against the merge-gate
 // spec (#255): PR-state triggers, runs queued and never cancelled, skipped and
 // renamed on a draft, read-only, built from the base commit, and told every
@@ -1029,18 +1078,22 @@ func mergeCheckWorkflowViolations(data []byte, checks string) []string {
 		violations = append(violations, fmt.Sprintf("merge-check.yml: cancel-in-progress is %s; the merge-gate spec requires false, so no cancelled Merge check sits beside a pass at one head (#87)", got))
 	}
 	violations = append(violations, writeGrants("workflow", wf.Permissions)...)
-	if len(wf.Jobs) != 1 {
-		violations = append(violations, fmt.Sprintf("merge-check.yml: has %d jobs; the merge-gate spec requires the one job merge-check", len(wf.Jobs)))
+	if len(wf.Jobs) != 2 {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: has %d jobs; the merge-gate spec requires the jobs awaiting and merge-check", len(wf.Jobs)))
 	}
+	violations = append(violations, awaitingProbeViolations(wf.Jobs)...)
 	job, ok := wf.Jobs["merge-check"]
 	if !ok {
 		return append(violations, "merge-check.yml: no job merge-check")
 	}
-	if got := strings.TrimSpace(fmt.Sprint(job.Name)); got != draftName("Merge check") {
-		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check is named %v; the merge-gate spec requires %s so a skipped draft job leaves no Merge check check run", job.Name, draftName("Merge check")))
+	if got := fmt.Sprint(job.Needs); got != "awaiting" {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check needs %v; the merge-gate spec requires awaiting", job.Needs))
 	}
-	if got := strings.TrimSpace(fmt.Sprint(job.If)); got != "${{ !github.event.pull_request.draft }}" {
-		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check runs under if: %v; the merge-gate spec requires drafts skip it", job.If))
+	if got := strings.TrimSpace(fmt.Sprint(job.Name)); got != mergeCheckName {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check is named %v; the merge-gate spec requires %s so a skipped draft or awaiting job leaves no Merge check check run", job.Name, mergeCheckName))
+	}
+	if got := strings.TrimSpace(fmt.Sprint(job.If)); got != mergeCheckIf {
+		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check runs under if: %v; the merge-gate spec requires drafts and descriptions without reviewed-by: skip it", job.If))
 	}
 	if label, ok := job.RunsOn.(string); !ok || label != runnerLabel {
 		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check runs on %v; the merge-gate spec requires %s", job.RunsOn, runnerLabel))
@@ -1094,8 +1147,18 @@ func TestMergeCheckWorkflowPinnedSensitivity(t *testing.T) {
 		{"a push trigger", "on:\n", "on:\n  push:\n    branches: [main]\n", []string{"allows only pull_request"}},
 		{"runs cancel", "cancel-in-progress: false", "cancel-in-progress: true", []string{"cancel-in-progress is true"}},
 		{"group per ref", "merge-check-${{ github.event.pull_request.number }}", "merge-check-${{ github.ref }}", []string{"not per pull request"}},
-		{"draft guard dropped", "    if: ${{ !github.event.pull_request.draft }}\n", "", []string{"drafts skip it"}},
-		{"name kept on a draft", "    name: " + draftName("Merge check") + "\n", "    name: Merge check\n", []string{"is named Merge check"}},
+		{"draft guard dropped", "    if: " + mergeCheckIf + "\n", "    if: ${{ always() && needs.awaiting.outputs.awaiting != 'true' }}\n", []string{"drafts and descriptions"}},
+		{"awaiting guard dropped", "    if: " + mergeCheckIf + "\n", "    if: ${{ always() && !github.event.pull_request.draft }}\n", []string{"drafts and descriptions"}},
+		{"a failed probe skips the check", "    if: " + mergeCheckIf + "\n", "    if: ${{ !github.event.pull_request.draft && needs.awaiting.outputs.awaiting != 'true' }}\n", []string{"drafts and descriptions"}},
+		{"needs dropped", "    needs: awaiting\n", "", []string{"job merge-check needs"}},
+		{"probe named as the required check", "    name: Merge check probe\n", "    name: Merge check\n", []string{"job awaiting is named Merge check"}},
+		{"probe built from the pull request", "          ref: ${{ github.event.pull_request.base.sha }}\n          persist-credentials: false\n\n      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0\n        with:\n          go-version-file: go.mod\n\n      - run: go build -o \"$RUNNER_TEMP/ateam\" ./cmd/ateam\n\n      - name: Is the pull request", "          ref: ${{ github.event.pull_request.head.sha }}\n          persist-credentials: false\n\n      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0\n        with:\n          go-version-file: go.mod\n\n      - run: go build -o \"$RUNNER_TEMP/ateam\" ./cmd/ateam\n\n      - name: Is the pull request", []string{"job awaiting does not check out the base commit"}},
+		{"probe answer not published", ` >> "$GITHUB_OUTPUT"`, "", []string{"no step probe"}},
+		{"probe output unwired", "      awaiting: ${{ steps.probe.outputs.awaiting }}\n", "      awaiting: 'false'\n", []string{"job awaiting outputs awaiting"}},
+		{"probe runs on a draft", "    name: Merge check probe\n    if: ${{ !github.event.pull_request.draft }}\n", "    name: Merge check probe\n", []string{"job awaiting runs under if"}},
+		{"probe write permission", "      pull-requests: read\n    outputs:\n", "      pull-requests: write\n    outputs:\n", []string{"pull-requests: write"}},
+		{"name kept on a draft", "    name: " + mergeCheckName + "\n", "    name: Merge check\n", []string{"is named Merge check"}},
+		{"name kept while awaiting", "    name: " + mergeCheckName + "\n", "    name: " + draftName("Merge check") + "\n", []string{"awaiting job leaves no"}},
 		{"a check dropped from the list", "ATEAM_REQUIRED_CHECKS: Required,Merge check", "ATEAM_REQUIRED_CHECKS: Required", []string{`ATEAM_REQUIRED_CHECKS is "Required"`}},
 		{"write permission", "      pull-requests: read\n", "      pull-requests: write\n", []string{"pull-requests: write"}},
 	} {
@@ -1125,6 +1188,7 @@ type ciJob struct {
 	Permissions     any
 	TimeoutMinutes  any
 	Env             map[string]any
+	Outputs         map[string]any
 	Defaults        ciDefaults
 	Steps           []ciStep
 }
@@ -1137,6 +1201,8 @@ type ciDefaults struct {
 
 type ciStep struct {
 	Name            string
+	ID              string
+	With            map[string]any
 	If              any
 	ContinueOnError any
 	Uses            string
@@ -1501,6 +1567,9 @@ func decodeCIJob(raw any) ciJob {
 	if envMap, ok := m["env"].(map[string]any); ok {
 		j.Env = envMap
 	}
+	if outMap, ok := m["outputs"].(map[string]any); ok {
+		j.Outputs = outMap
+	}
 	j.Defaults = decodeCIDefaults(m["defaults"])
 	if stepsSlice, ok := m["steps"].([]any); ok {
 		for _, item := range stepsSlice {
@@ -1508,6 +1577,12 @@ func decodeCIJob(raw any) ciJob {
 				var st ciStep
 				if v, ok := sm["name"]; ok {
 					st.Name = fmt.Sprint(v)
+				}
+				if v, ok := sm["id"]; ok {
+					st.ID = fmt.Sprint(v)
+				}
+				if withMap, ok := sm["with"].(map[string]any); ok {
+					st.With = withMap
 				}
 				st.If = sm["if"]
 				st.ContinueOnError = sm["continue-on-error"]

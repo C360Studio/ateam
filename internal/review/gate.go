@@ -54,6 +54,11 @@ type GateOptions struct {
 	// (ATEAM_REQUIRED_CHECKS); empty is the forge's one aggregate, Required on
 	// GitHub and giteaRequired on Gitea (#255).
 	Checks []string
+	// Awaiting runs only the awaiting probe (#262) instead of the merge check:
+	// it prints awaiting=true when the pull request is a code pull request
+	// with no reviewed-by: line and no review record comment, else
+	// awaiting=false, and exits 0 either way.
+	Awaiting bool
 }
 
 const (
@@ -190,6 +195,16 @@ func (g *gateRun) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if g.opts.Awaiting {
+		awaiting := false
+		if !push {
+			if awaiting, err = g.awaiting(ctx); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintf(g.out, "awaiting=%t\n", awaiting)
+		return nil
+	}
 	failed := false
 	ok, err := g.src.upToDate(ctx, g.out, g.opts.Checks)
 	if err != nil {
@@ -250,6 +265,50 @@ func (g *gateRun) kind() (bool, error) {
 	}
 	g.pr = n
 	return false, nil
+}
+
+// awaiting reports a pull request not yet judgeable (#262): a code pull
+// request whose description has no reviewed-by: line and which has no review
+// record comment by any agent. Anything else, a documents-only pull request,
+// a line, or any record, approving or not, is judged by the full merge check,
+// so a line removed after an approval at the same head fails there instead of
+// leaving the earlier pass standing.
+func (g *gateRun) awaiting(ctx context.Context) (bool, error) {
+	pull, err := g.src.pullRequest(ctx, g.pr)
+	if err != nil {
+		return false, err
+	}
+	files, err := g.src.files(ctx, g.pr)
+	if err != nil {
+		return false, err
+	}
+	if len(files) != pull.ChangedFiles {
+		return false, fmt.Errorf("the file list of pull request #%d is incomplete: it has %d of %d files", g.pr, len(files), pull.ChangedFiles)
+	}
+	if len(gateCodeNames(files)) == 0 {
+		g.say("pull request #%d is documents only; the merge check judges it", g.pr)
+		return false, nil
+	}
+	for _, l := range strings.Split(pull.Body, "\n") {
+		if strings.HasPrefix(strings.TrimSuffix(l, "\r"), "reviewed-by:") {
+			g.say("the description has a reviewed-by: line; the merge check judges it")
+			return false, nil
+		}
+	}
+	comments, err := g.src.comments(ctx, g.pr)
+	if err != nil {
+		return false, err
+	}
+	for _, c := range comments {
+		for _, agent := range []string{"claude", "codex", "gemini"} {
+			if gateIsRecord(c, agent) {
+				g.say("a review record comment exists; the merge check judges it")
+				return false, nil
+			}
+		}
+	}
+	g.say("code pull request #%d has no reviewed-by: line and no review record comment; awaiting its review", g.pr)
+	return true, nil
 }
 
 // review is the review check; it reports whether it fails the run.
