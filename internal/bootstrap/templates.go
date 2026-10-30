@@ -331,6 +331,20 @@ Use ateam review check --pr N --record-comment ID with optional --exception-comm
 
 `
 
+// openspecConfig is openspec/config.yaml. Its rules: design: block matches this repository's own, so
+// `openspec instructions design` shows adopters the rules the design skill carries.
+const openspecConfig = `schema: spec-driven
+
+rules:
+  design:
+    - "Write design.md only on the design track (.agents/protocol.md § 2 Clarify); a quick-track change has none."
+    - "Context is an inventory of file:line claims you opened in this session, not remembered; run git log -S before calling anything dead."
+    - "Each Decision names at least two options with cost, blast radius, and what each forecloses, plus the adopter seam: what a developer who never opened this file must know, and what happens if they do nothing."
+    - "Mark each Open Question that needs an owner ruling as such; a question that would change specs, approach, or tasks is resolved before tasks."
+    - "Each task in tasks.md carries its file:line premise and its acceptance check."
+    - "Stay under 120 lines; task spec:check warns past the limit."
+`
+
 // architectContract is .agents/contracts/architect.md: the design-track role drafts, never implements or rules.
 const architectContract = `# Architect contract
 
@@ -590,7 +604,7 @@ func defaultTemplateFiles() map[string]string {
 		".codex/config.toml":                    codexMCPConfig,
 		".mcp.json":                             claudeMCPJSON,
 		".gemini/settings.json":                 geminiSettingsJSON,
-		"openspec/config.yaml":                  "schema: spec-driven\n",
+		"openspec/config.yaml":                  openspecConfig,
 		"openspec/changes/.gitkeep":             "# keep\n",
 		"openspec/specs/.gitkeep":               "# keep\n",
 	}

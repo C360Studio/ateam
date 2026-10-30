@@ -196,3 +196,32 @@ func TestAdopterProtocolMarkers(t *testing.T) {
 		requireViolation(t, v, `"Deliverable"`, `"non-goals"`, `"Definition of Done"`, `"Stop boundary"`)
 	})
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Opt-in design track
+func TestInitWritesDesignRulesMatchingThisRepository(t *testing.T) {
+	root := t.TempDir()
+	if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(filepath.Join(root, "openspec", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := os.ReadFile(filepath.Join(repoRoot(t), "openspec", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := func(data []byte) string {
+		_, after, ok := strings.Cut(string(data), "\nrules:\n")
+		if !ok {
+			t.Fatalf("no rules: block in:\n%s", data)
+		}
+		return after
+	}
+	if got, want := rules(written), rules(own); got != want {
+		t.Fatalf("init design rules drifted from openspec/config.yaml:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+	if !strings.HasPrefix(string(written), "schema: spec-driven\n") {
+		t.Fatalf("config lost its schema line:\n%s", written)
+	}
+}
