@@ -35,6 +35,10 @@ func TestConfigureReviewLifecycle(t *testing.T) {
 	if err := os.WriteFile(contract, []byte(reviewerContract+"\nProject rule: verify API compatibility.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	architect := filepath.Join(root, ".agents/contracts/architect.md")
+	if err := os.WriteFile(architect, []byte(architectContract+"\nProject rule: name the owning package.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ConfigureReview(root, []byte(testReviewPolicy)); err != nil {
 		t.Fatalf("local contract additions must be preserved: %v", err)
 	}
@@ -45,7 +49,7 @@ func TestConfigureReviewLifecycle(t *testing.T) {
 
 // spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestConfigureReviewConflictNoWrites(t *testing.T) {
-	for _, conflict := range []string{".agents/review-policy.json", ".agents/contracts/reviewer.md", ".agents/routes/reviewer.md", ".claude/skills/ateam-reviewer/SKILL.md", ".gemini/commands/ateam-reviewer.toml", ".claude/skills/ateam-developer/SKILL.md", ".gemini/commands/ateam-developer.toml"} {
+	for _, conflict := range []string{".agents/review-policy.json", ".agents/contracts/architect.md", ".agents/contracts/reviewer.md", ".agents/routes/reviewer.md", ".claude/skills/ateam-reviewer/SKILL.md", ".gemini/commands/ateam-reviewer.toml", ".claude/skills/ateam-developer/SKILL.md", ".gemini/commands/ateam-developer.toml"} {
 		t.Run(conflict, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, conflict)
@@ -104,7 +108,7 @@ func TestConfigureReviewRefusesInvalidAndSymlinks(t *testing.T) {
 // spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 // spec: openspec/specs/model-review/spec.md#Requirement: Portable enforcement and honest trust boundaries
 func TestReviewSetupDrift(t *testing.T) {
-	for _, path := range []string{".agents/review-policy.json", ".agents/contracts/developer.md", ".agents/contracts/reviewer.md", ".agents/routes/developer.md", ".agents/routes/reviewer.md", ".claude/skills/ateam-reviewer/SKILL.md"} {
+	for _, path := range []string{".agents/review-policy.json", ".agents/contracts/architect.md", ".agents/contracts/developer.md", ".agents/contracts/reviewer.md", ".agents/routes/developer.md", ".agents/routes/reviewer.md", ".claude/skills/ateam-reviewer/SKILL.md"} {
 		t.Run(path, func(t *testing.T) {
 			root := t.TempDir()
 			if _, err := ConfigureReview(root, []byte(testReviewPolicy)); err != nil {
