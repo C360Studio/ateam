@@ -427,7 +427,7 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 		t.Fatalf("session-start missing active writer lease warning:\n%s", out.AdditionalContext)
 	}
 
-	// Astra #5 & G-01: Same session ID must NOT warn even when PID differs, and ClearWriterLease clears the lease.
+	// Astra #5 & G-01: Same session ID must NOT warn even when PID differs, and removing the lease clears it.
 	if _, err := HandleWithAgent(dir, "turn-end", "codex", strings.NewReader(`{"session_id":"same-session"}`)); err != nil {
 		t.Fatalf("HandleWithAgent turn-end: %v", err)
 	}
@@ -442,12 +442,12 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 		t.Fatalf("same-session lease triggered false competing-writer warning:\n%s", sameOut.AdditionalContext)
 	}
 
-	if err := state.ClearWriterLease(dir); err != nil {
-		t.Fatalf("ClearWriterLease: %v", err)
+	if err := os.Remove(state.WriterLeasePath(dir)); err != nil {
+		t.Fatalf("remove writer lease: %v", err)
 	}
 	afterHandoffOut, err := HandleWithAgent(dir, "session-start", "claude", strings.NewReader(`{"session_id":"next-session"}`))
 	if err != nil {
-		t.Fatalf("HandleWithAgent after ClearWriterLease: %v", err)
+		t.Fatalf("HandleWithAgent after the lease is removed: %v", err)
 	}
 	if strings.Contains(afterHandoffOut.AdditionalContext, "WARNING: another writer may be active") {
 		t.Fatalf("cleared writer lease still triggered warning:\n%s", afterHandoffOut.AdditionalContext)
@@ -659,15 +659,15 @@ func TestHookWarnsStaleClientMCPOncePerSession(t *testing.T) {
 	}
 
 	// 5. Review #70 Finding 1b: Clearing the writer lease (as handoff does) must preserve the session's checked status.
-	if err := state.ClearWriterLease(dir); err != nil {
-		t.Fatalf("ClearWriterLease: %v", err)
+	if err := os.Remove(state.WriterLeasePath(dir)); err != nil {
+		t.Fatalf("remove writer lease: %v", err)
 	}
 	afterHandoff, err := Handle(dir, "before-prompt", strings.NewReader(`{"session_id":"sess-1","prompt":"resume after handoff"}`))
 	if err != nil {
-		t.Fatalf("Handle before-prompt after ClearWriterLease: %v", err)
+		t.Fatalf("Handle before-prompt after the lease is removed: %v", err)
 	}
 	if afterHandoff.AdditionalContext != "" || calls != 2 {
-		t.Fatalf("expected before-prompt after ClearWriterLease to stay silent with calls=2, got out=%q calls=%d", afterHandoff.AdditionalContext, calls)
+		t.Fatalf("expected before-prompt after the lease is removed to stay silent with calls=2, got out=%q calls=%d", afterHandoff.AdditionalContext, calls)
 	}
 }
 

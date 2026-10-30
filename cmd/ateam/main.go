@@ -343,13 +343,9 @@ func runStateHandoff(repoRoot string, args []string) int {
 	if strings.TrimSpace(ho.Addresses) == "" {
 		ho.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 	}
-	if _, err := state.Update(repoRoot, func(cur *state.State) error {
-		if err := cur.SetHandoffGuarded(ho, *force); err != nil {
-			return err
-		}
+	// A foreign or identity-less writer lease stays in place silently (#265).
+	if _, err := state.SaveHandoffReleasingLease(repoRoot, ho, *force, sessionID, func(cur *state.State) {
 		cur.CurrentAgent = agentName
-		cur.Writer = nil
-		return nil
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "ateam state handoff: %v\n", err)
 		var held *state.HandoffSlotHeldError
@@ -358,7 +354,6 @@ func runStateHandoff(repoRoot string, args []string) int {
 		}
 		return 1
 	}
-	_ = state.ClearWriterLease(repoRoot)
 	if strings.TrimSpace(ho.SessionID) == "" {
 		fmt.Fprintf(os.Stderr, "ateam state handoff: warning: %s\n", state.HandoffNoSessionWarning(ho))
 	}

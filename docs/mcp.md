@@ -101,7 +101,7 @@ Expect initialization followed by exactly two tool definitions. EOF stops this t
 | `spec_queue` | Returns in-flight OpenSpec task/caveat summary. | Local refresh only. |
 | `spec_check` | Validates OpenSpec and reports tool error on invalid specs. | May invoke installed OpenSpec CLI. |
 | `board` | Returns board cards as JSON text. | Attempts a bounded remote forge sync when stale, falling back to cache on failure. |
-| `handoff` | Accepts `goal`, `addresses`, `constraints`, `done_when`, `checks_to_run`, and optional boolean `post`. Returns the five-field checkpoint and posting status. | Saves checkpoint, attempts to clear the writer lease, and **defaults to attempting a PR comment** when a forge is configured. Set `post:false` for local-only use. |
+| `handoff` | Accepts `goal`, `addresses`, `constraints`, `done_when`, `checks_to_run`, and optional boolean `post`. Returns the five-field checkpoint and posting status. | Saves checkpoint, releases the writer lease only when it is this session's (a kept lease is named as `writer lease: kept (held by <agent> session <id>)`), and **defaults to attempting a PR comment** when a forge is configured. Set `post:false` for local-only use. |
 
 Example local-only handoff:
 
