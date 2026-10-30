@@ -8,6 +8,7 @@ In daily use, `ateam` gives a Go repository:
 
 - **One shared agent setup:** Maintain a single `AGENTS.md` and canonical skills in `.agents/skills/`. `ateam init` and `ateam doctor` keep thin adapters, `<10ms` lifecycle hooks, `<300`-token MCP registration, and ~500k context compaction defaults in sync across all four agent CLIs.
 - **Session continuity across worktrees and agents:** `ateam state pickup` and `ateam state handoff` reconcile live git worktrees, writer leases, **GitHub** or **Gitea** issues and draft PRs, OpenSpec task queues (`Hold:`), and inline debt markers (`// shortcut:`).
+- **Right-sized OpenSpec planning (`trivial`, `quick`, `design`):** Trivial edits skip `openspec/changes/`; non-trivial changes declare `quick` (one-page `proposal.md` + `tasks.md`) or `design` (adds a read-only `design.md` with options, trade-offs, and `file:line` premises when architectural triggers fire), gated on a single owner `Approved-by:` checkpoint before code.
 - **Go-first engineering and test guardrails:** Built-in Ponytail scope discipline (`lite`, `full`, `ultra`, `off`), non-destructive `go test -overlay` mutation checks (`ateam mutate`), test-to-spec attribution (`ateam test-spec`), and commit-bound cross-agent or stronger-model PR review gates (`ateam review`).
 - **Built-in harness benchmarking (`ateam bench`):** When you change shared instructions, skills, hooks, or models, `ateam` doubles as an experimentation lab to test whether those changes alter outcomes on reproducible Go tasks.
 
@@ -43,6 +44,33 @@ Every part of `ateam` is designed to solve one of those four problems directly:
 - **Two MCP tools under 300 tokens:** Instead of one MCP tool per action, `ateam mcp` exposes only `ateam_state` (pickup, handoff, debt, mode, OpenSpec checks, cached board) and `ateam_task` (list and run `Taskfile.yml` targets). Tool definitions are approximately 190 tokens by the bytes/4 estimate. See the [MCP setup and tool guide](docs/mcp.md) for registration, prompts/resources, side effects, and connection checks.
 - **Source-code comments instead of separate debt files:** Intentional shortcuts are marked right where they happen (`// shortcut: <what is limited>, <when to upgrade>`) and scanned from source by `ateam state debt`. Task blockers are marked inline in `openspec/changes/<id>/tasks.md` with `Hold: <reason>`.
 - **Non-destructive mutation testing (`ateam mutate`):** To verify that a unit test actually catches a bug, `ateam mutate` runs `go test -overlay` against a temporary modified file outside your repository—never touching your working tree or running destructive `git checkout` / `git restore` commands.
+
+---
+
+## Planning Paths in OpenSpec (`trivial`, `quick`, and `design`)
+
+Before mutating state, the `Clarify` gate ([`.agents/protocol.md`](.agents/protocol.md)) picks one of three planning paths so routine work stays fast while architectural changes get a human-reviewed design before code:
+
+| Path | When to choose it | Files in `openspec/changes/<id>/` | Roles and pre-code checkpoint |
+| --- | --- | --- | --- |
+| **`trivial`** | Small fix, docs update, or obvious single-place edit | None (no change directory) | Confirm scope when ambiguous; go straight to a worktree and draft PR. |
+| **`quick`** *(default non-trivial)* | Non-trivial work where **none** of the four `design` triggers below apply | `proposal.md` (≤ 60 lines) + `tasks.md` (+ `specs/<cap>/spec.md` scenario edits when needed); **no `design.md`** | Developer drafts `proposal.md` with an empty `Approved-by:` header and places `Hold: OPEN-Q proposal awaits owner approval` on Task 1, then stops and hands off. Owner fills `Approved-by: <name> (<YYYY-MM-DD>)` and deletes the hold line in one edit. |
+| **`design`** *(full architectural path)* | Any trigger fires: **(1)** adds a spec `Requirement`, **(2)** touches >1 capability under `openspec/specs/`, **(3)** adds adopter-reachable exported surface (CLI, MCP, JSON, templates, exported Go API), or **(4)** touches a boot path, durability/ack behavior, or a gate file | `proposal.md` (≤ 60 lines) + `design.md` (≤ 120 lines) + `specs/<cap>/spec.md` deltas + `tasks.md` (each task tied to `file:line` premises and an acceptance check) | Read-only [`architect`](.agents/contracts/architect.md) role (`/design` skill; `frontier` / `high` default in [ADR 0003](docs/adr/0003-roles-and-routes.md)) drafts `design.md` and task premises—never rules or writes code. The **same single** `Approved-by:` + `Hold: OPEN-Q` edit approves `proposal.md`, `design.md`, and owner rulings on Open Questions together before a `developer` implements. |
+
+### How OpenSpec artifacts and checks differ across paths
+
+- **One built-in schema, optional `design.md`:** Both `quick` and `design` use OpenSpec's `spec-driven` schema (`openspec/config.yaml`). No forked schema or `Track:` metadata parser is added—`proposal.md` declares the track, and `design.md` exists only on `design`.
+- **Fixed `design.md` structure when triggered:** On `design`, [`.agents/skills/design/SKILL.md`](.agents/skills/design/SKILL.md) writes OpenSpec's `spec-driven` sections (`Context`, `Goals / Non-Goals`, `Decisions`, `Risks / Trade-offs`, `Migration Plan`, `Open Questions`) with three extra rules:
+  1. `Context` lists `file:line` claims opened in that session (running `git log -S` before calling anything dead).
+  2. Every `Decision` compares at least two options (cost, blast radius, what each forecloses) and states the **adopter seam** (what a developer who never opened the file must know, and what happens if they do nothing).
+  3. `Open Questions` needing an owner ruling are marked explicitly; any question that would alter specs, approach, or tasks is resolved before implementation tasks run.
+- **Reviewable length warnings and strict validation (`ateam state spec-check`):**
+  - Fails on any `Hold:` line placed outside a task block below the first `## ` heading.
+  - Runs `openspec validate --all --strict --no-interactive` when `openspec` is installed (`node_modules/.bin/openspec` or `PATH`), which rejects any `Requirement` missing `SHALL`/`MUST` or a `#### Scenario:` (`WHEN`/`THEN`) block (and requires spec deltas unless `.openspec.yaml` sets `skip_specs: true`).
+  - **Warns without failing** when `proposal.md` exceeds **60 lines** (one page) or `design.md` exceeds **120 lines**, keeping human review focused on concise specs rather than rubber-stamping long plans.
+- **Queue visibility and merge-check note:** `ateam state spec-queue` surfaces `OPEN-Q` while a change awaits approval and `done, not archived` once every task is complete with zero caveats. On code PRs, `ateam review gate` (`task merge:check`) prints a non-blocking `note: OpenSpec change <id> has no Approved-by; the spec was not human-reviewed` when `proposal.md` has no filled `Approved-by:`.
+- **OpenSpec track vs. Ponytail mode:** The OpenSpec track (`quick` vs `design`) is the **planning and effort dial** before code (which artifacts exist, whether an architect pass runs, and what the owner approves). Ponytail (`lite`, `full`, `ultra`, `off`) is the **code-scope reminder** during implementation (`ultra` pairs naturally with `design` when pushing back on unrequested scope).
+- **Why this is "BMAD-lite" without the ceremony:** Prompted by BMAD's planning strengths, `ateam` keeps three mechanisms—an upfront planning track (`quick` vs `design`), a structured architecture artifact (`design.md`) reviewed before code, and an explicit human checkpoint (`Approved-by:` + `OPEN-Q` hold)—while refusing personas, rigid multi-phase ceremonies, mandatory PRDs or UX docs, prose as program state, and separate workflow installers.
 
 ---
 
@@ -89,8 +117,8 @@ ateam init
 This creates missing harness files. Existing client configuration is always preserved; `--force` replaces generated documents and adapters, first copying a hand-written `AGENTS.md`, `CLAUDE.md`, `.agents/protocol.md` or `.agents/rules-index.md` to `<name>.ateam-backup-<timestamp>` and listing it under `backed_up`. `.gitignore` entries are appended separately. In a repository that already has its own instructions, run `init` without `--force` and follow [the brownfield guide](docs/brownfield.md). It installs the same opinionated templates for every language and does **not** create a `Taskfile.yml` or install project tools. Review the generated instructions and supply your own verification tasks before asking an agent to follow them:
 
 - `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`)
-- `.agents/protocol.md`, `.agents/rules-index.md`, `.agents/README.md`, and `.agents/skills/{pickup,handoff,preflight,ponytail,review-pr}/SKILL.md`
-- `.agents/contracts/developer.md` and `.agents/contracts/reviewer.md`
+- `.agents/protocol.md`, `.agents/rules-index.md`, `.agents/README.md`, and `.agents/skills/{pickup,handoff,preflight,ponytail,review-pr,design}/SKILL.md`
+- `.agents/contracts/{architect,developer,reviewer}.md`
 - `.agents/hooks.json` and `.agents/plugins/ateam/{plugin.json,mcp_config.json}` (Antigravity lifecycle hooks and workspace MCP plugin)
 - `.claude/settings.json` (hooks + `"autoCompactWindow": 500000`), `.claude/skills/*/SKILL.md`, and `.mcp.json` (MCP registration)
 - `.codex/hooks.json` and `.codex/config.toml` (MCP registration + `model_context_window = 500000` / `model_auto_compact_token_limit = 450000`)
@@ -144,9 +172,9 @@ ateam state pickup
 
 Or use the `/pickup` skill inside Claude Code, Codex CLI, Gemini CLI, or Antigravity (`agy`). `pickup` reconciles your live git branch, `HEAD` SHA, uncommitted changes, active git worktrees, open `Hold:` items, `// shortcut:` comments, and any commits made since the last recorded handoff. Each worktree is listed with its PR status (`open PR #185`, `merged via #57`, `no PR`, and so on) and, indented beneath it, the handoffs recorded inside that worktree (`handoff: <goal> (<agent>@<branch>, <age>[, stale])`), so a session in `main` sees work parked in other worktrees.
 
-### 4. Claim a worktree and draft PR (`Claim` gate)
+### 4. Clarify the track, claim a worktree, and open a draft PR (`Clarify` & `Claim` gates)
 
-Work in a dedicated worktree on an agent-prefixed branch, backed by a draft PR that says what it closes, and for non-trivial work an OpenSpec change:
+Confirm scope and choose the planning path (`trivial`, `quick`, or `design`; see [Planning Paths in OpenSpec](#planning-paths-in-openspec-trivial-quick-and-design)), then claim a dedicated worktree on an agent-prefixed branch backed by a draft PR:
 
 ```bash
 git worktree add .worktrees/claude-my-topic -b claude/my-topic
@@ -154,7 +182,9 @@ cd .worktrees/claude-my-topic
 gh pr create --draft --title "docs: my topic" --body "Closes #12"
 ```
 
-Use `codex/<topic>` or `gemini/<topic>` for the other agents; on Gitea open the draft PR through its web UI, `tea`, or API. `ateam state pickup` then labels the worktree with its PR, and it is yours to remove once the PR lands.
+Use `codex/<topic>` or `gemini/<topic>` for the other agents (or `move_to_worktree` in Enjoy desktop); on Gitea open the draft PR through its web UI, `tea`, or API. `ateam state pickup` then labels the worktree with its PR, and it is yours to remove once the PR lands.
+
+For non-trivial work, draft `openspec/changes/<id>/proposal.md` (≤ 60 lines, with `Approved-by:`) and `tasks.md` (plus `design.md` ≤ 120 lines via `/design` when on the `design` track), and place `Hold: OPEN-Q proposal awaits owner approval` under Task 1 until the owner fills `Approved-by: <name> (<YYYY-MM-DD>)` and deletes that hold line in the same edit.
 
 ### 5. Write Go code, track blockers, and verify tests
 
@@ -288,7 +318,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 | `ateam state holds` | Scan `openspec/` and markdown files for `Hold:` items |
 | `ateam state debt` | Scan source files for `// shortcut: <limit>, <when to upgrade>` comments |
 | `ateam state spec-queue` | List in-flight `openspec/changes/*` with task counts and caveats (`HALT`, `RED`, `BLOCKED`, `WONTDO`, `OPEN-Q`) |
-| `ateam state spec-check` | Validate `openspec/` specs and changes and ensure `Hold:` lines live inside task items; strict validation runs the repo-pinned `node_modules/.bin/openspec`, else `openspec` on `PATH`, and is skipped with a notice when neither exists |
+| `ateam state spec-check` | Validate `openspec/` specs and changes, ensure `Hold:` lines live inside task items, and warn (without failing) when `proposal.md` exceeds 60 lines or `design.md` exceeds 120; strict validation runs the repo-pinned `node_modules/.bin/openspec`, else `openspec` on `PATH`, and is skipped with a notice when neither exists |
 | `ateam state sync [--forge github\|gitea]` | Sync open issues and PRs from GitHub or Gitea into `.ateam/state.json` |
 | `ateam state mode [lite\|full\|ultra\|off]` | Get or set the Ponytail discipline level (not Claude's multi-agent mode) |
 | `ateam state herdr <open-pane\|on-event>` | Open `pickup`/`spec-queue` herdr popups or emit caveat/Hold toasts when running inside `herdr` (`HERDR_ENV=1`) |
@@ -334,15 +364,15 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 │   ├── rules-index.md         # Enforcement matrix paired with AGENTS.md
 │   ├── hooks.json             # Antigravity (agy) native lifecycle hook configuration
 │   ├── plugins/ateam/         # Antigravity (agy) workspace MCP plugin
-│   ├── contracts/             # Canonical developer and reviewer role contracts
+│   ├── contracts/             # Canonical architect, developer, and reviewer role contracts
 │   ├── herdr/                 # Optional herdr plugin manifest (herdr-plugin.toml)
-│   └── skills/                # Canonical skills (pickup, handoff, preflight, ponytail, review-pr)
+│   └── skills/                # Canonical skills (pickup, handoff, preflight, ponytail, review-pr, design)
 ├── .mcp.json                  # Claude Code project MCP registration
 ├── .claude/                   # Claude Code hook/compaction settings and thin skill adapters
 ├── .codex/                    # Codex CLI hook, MCP, and context window settings
 ├── .gemini/                   # Gemini CLI hook, MCP, compression settings, and command adapters
 ├── benchmarks/                # Benchmark experiment configs, bundles, and calibration reports
-├── docs/                      # Adoption, brownfield, hook-flow, MCP, and model-review guides
+├── docs/                      # Daily-use, adoption, brownfield, hook-flow, MCP, model-review, and ADRs
 ├── openspec/                  # Spec-driven requirements (specs/) and active/archived changes
 ├── cmd/ateam/                 # CLI entrypoint
 ├── internal/
@@ -361,4 +391,4 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 
 ## Origins
 
-Ponytail supplied the decision ladder and discipline ideas adapted into Go here. SemEngine informed shared-state handoff and pickup; OpenSpec supplies the spec/change workflow vocabulary. The lab combines these ideas to explore harness configuration, without claiming that their effectiveness has already been measured.
+Ponytail supplied the decision ladder and discipline ideas adapted into Go here. SemEngine informed shared-state handoff and pickup; OpenSpec supplies the spec/change workflow vocabulary; BMAD prompted the opt-in `design` track and human spec-approval checkpoint (keeping declared planning depth and a fixed-shape architecture artifact while omitting personas, phases, and mandatory PRDs). The lab combines these ideas to explore harness configuration, without claiming that their effectiveness has already been measured.

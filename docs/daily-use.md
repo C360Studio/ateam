@@ -7,7 +7,7 @@ This guide covers day-to-day work in a repository that uses default `ateam` sett
 | Phase | What you do | What `ateam` or the agent does |
 | --- | --- | --- |
 | Orient | Start your agent CLI or open `ateam serve`. | `ateam hook` injects branch, `HEAD`, `Hold:`, shortcut, and `full` mode state. |
-| Clarify | Confirm scope and sign `Approved-by:` in `proposal.md`. | The agent inspects the tree, drafts `proposal.md` (and `design.md` when needed), and pauses on Task 1. |
+| Clarify | Confirm scope, pick `quick` or `design`, and sign `Approved-by:`. | The agent inspects the tree, drafts `proposal.md` + `tasks.md` (plus read-only `design.md` on `design`), and pauses on Task 1's `OPEN-Q` hold. |
 | Claim and build | Steer `/ponytail` mode; run parallel tasks in separate worktrees. | The agent claims `.worktrees/<agent>-<topic>`, opens a draft PR, writes code and tests, and tracks holds/shortcuts. |
 | Pause or switch | Run `/handoff` (or `ateam state handoff --goal "..."`) before stopping. | `ateam` saves `.ateam/state.json`, clears the writer lease, and comments on the open PR. |
 | Ready and review | Open a fresh session and run `/review-pr <pr>`. | The implementer runs `/preflight`, archives specs, and marks ready; the reviewer verifies and posts `reviewed-by:`. |
@@ -22,19 +22,21 @@ This guide covers day-to-day work in a repository that uses default `ateam` sett
 5. When you want a browser board for issues, holds, and shortcuts, run `ateam serve` and open `http://127.0.0.1:8420`.
 6. When you want to refresh cached GitHub or Gitea issues and PRs manually, run `ateam state sync`.
 
-## 2. Clarify scope and approve the proposal
+## 2. Clarify scope, pick a track, and approve the proposal
 
 1. Give the agent an issue number or a task description.
-2. When a request leaves choices open, the agent MUST stop before editing and confirm four items:
-   - **Deliverable:** What output the agent produces (an answer, an issue, an OpenSpec proposal, or a code change).
+2. When a request leaves choices open, the agent MUST stop before editing and confirm:
+   - **Deliverable:** What output the agent produces and which role drafts it ([ADR 0003](adr/0003-roles-and-routes.md)).
    - **Scope and non-goals:** Which packages or files change, and which files stay untouched.
    - **Definition of Done:** Which `Taskfile.yml` or `ateam` commands prove the change works.
-   - **Stop boundary:** Whether the agent pauses after the proposal or runs through verification.
-3. For non-trivial work, the agent creates `openspec/changes/<id>/proposal.md` (at most 60 lines) and `openspec/changes/<id>/tasks.md`.
-4. When a change adds spec requirements or spans capabilities, `/design` ([design skill](../.agents/skills/design/SKILL.md)) drafts `design.md` (at most 120 lines).
-5. The agent adds `Hold: OPEN-Q proposal awaits owner approval` under Task 1 and hands off to you.
-6. Before implementation begins, fill in `Approved-by: <name> (<YYYY-MM-DD>)` in `proposal.md` and delete that `Hold:` line in `tasks.md`.
-7. When you want to validate OpenSpec files and task holds directly, run `ateam state spec-check`.
+   - **Stop boundary:** Whether the agent pauses after the proposal/design (default for non-trivial work) or runs through verification.
+   - **Track (non-trivial work):** `quick` or `design` (trivial fixes and docs-only edits skip `openspec/changes/` altogether).
+3. On the **`quick` track** (the default when no `design` trigger applies), the developer creates `openspec/changes/<id>/proposal.md` (at most 60 lines, with an empty `Approved-by:` header) and `openspec/changes/<id>/tasks.md` (plus any `specs/<capability>/spec.md` scenario edits), with **no `design.md`**.
+4. A change MUST take the **`design` track** when it **(a)** adds a spec `Requirement`, **(b)** touches more than one capability under `openspec/specs/`, **(c)** adds exported surface reachable from an adopting repository, or **(d)** touches a boot path, durability/ack behavior, or a gate file.
+5. On `design`, `/design` ([design skill](../.agents/skills/design/SKILL.md)) runs under the read-only [architect contract](../.agents/contracts/architect.md): it drafts `design.md` (at most 120 lines) in OpenSpec's `spec-driven` sections (`file:line` context inventory, at least two options per decision with cost/blast radius/foreclosures and the adopter seam, and marked owner-ruling `Open Questions`) and ties each task in `tasks.md` to its `file:line` premise and acceptance check. The architect never rules or writes code.
+6. On both non-trivial tracks, Task 1 in `tasks.md` starts with `Hold: OPEN-Q proposal awaits owner approval` (surfaced under `OPEN-Q` by `ateam state spec-queue` and `pickup`), and the agent stops there and hands off.
+7. One edit approves the change: fill in `Approved-by: <name> (<YYYY-MM-DD>)` in `proposal.md` (recording any Open Question rulings) and delete that `Hold:` line in `tasks.md`; on `design`, that single edit lifts the gate for both `proposal.md` and `design.md`.
+8. Run `ateam state spec-check` (`task spec:check`) to validate OpenSpec structure and task holds; it runs `openspec validate --all --strict --no-interactive` when `openspec` is installed and warns, without failing, past 60 lines (`proposal.md`) or 120 lines (`design.md`). On code PRs, `ateam review gate` (`task merge:check`) prints a non-blocking note when `proposal.md` has no filled `Approved-by:`.
 
 ## 3. Claim a worktree and build
 
@@ -94,6 +96,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 - **Fast hooks and small schemas:** `ateam hook` runs in under 10ms (100ms `--check` limit), and `ateam mcp` uses about 190 schema tokens ([MCP guide](mcp.md)).
 - **Explicit blind-spot lines:** At the end of each task conclusion and each handoff, the agent states what it skipped and what risk remains in one or two lines. Acknowledgements and progress updates skip this, but still name blockers, failed or unavailable checks, and changed risks.
 - **Advisory hooks versus hard CI gates:** `ateam hook` and Ponytail modes inject prompt guidance; they do not block edits, enforce obedience, or run tests automatically.
+- **OpenSpec track versus Ponytail mode:** `quick` versus `design` sets pre-code planning depth and OpenSpec artifacts; `/ponytail` (`lite`, `full`, `ultra`, `off`) adjusts injected code-scope reminders during implementation without changing OpenSpec requirements.
 - **Local checks versus optional CI gates:** `task verify` and `ateam doctor --check` run locally; add `ateam review gate` in CI to block unreviewed code PRs.
 - **Commit-bound reviews:** Pushing a code commit after review invalidates `Reviewed at <sha>` and requires a fresh review comment.
 - **One red `Merge check` (when wired in CI):** Marking a PR ready runs it before `/review-pr` comments. The reviewer's `reviewed-by:` description edit reruns it where it runs on `edited` (ateam's `merge-check.yml`); otherwise the reviewer reruns it.

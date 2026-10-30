@@ -103,11 +103,20 @@ summary, and `ateam state pickup` prints it on demand.
   your own `preflight`, put it at `.agents/skills/<yours>/SKILL.md` and point the Claude and Gemini adapters at it;
   doctor reports `skill_aliases` such as `alias: .claude/skills/preflight -> .agents/skills/acme-preflight`. An aliased
   target inherits the canonical skill's obligations: it is not an ordinary adopter skill, and doctor requires `## 1.`
-  and the canonical markers in it (`task verify` and `Record Evidence` for preflight; `Goal:` and `ateam state handoff`
-  for handoff; `Verify Write Ownership` and `ateam state pickup` for pickup). Add the markers to your file or
+  and the canonical markers in it (`file:line` and `adopter seam` for design; `Goal:` and `ateam state handoff` for
+  handoff; `Verify Write Ownership` and `ateam state pickup` for pickup; `6-Step Decision Ladder` and `// shortcut:`
+  for ponytail; `task verify` and `Record Evidence` for preflight; `reviewed-by:` and `Reviewed at` for review-pr, or
+  `review-implementation.md` and `--reviewer-record` under `review_record: "aip"`). Add the markers to your file or
   consolidate onto the generic one. Keep the generic `.agents/skills/preflight/SKILL.md` either way: Codex and
   Antigravity read it directly, so doctor still requires it with its markers; deleting it fails with
   `missing canonical skill`.
+- **OpenSpec tracks.** If your repository already has `openspec/config.yaml`, `ateam init` leaves it untouched
+  (otherwise writing `schema: spec-driven`). Non-trivial changes choose `quick` (`proposal.md` + `tasks.md`, no
+  `design.md`) or `design` (`proposal.md` + `design.md` via `/design` + `tasks.md`), gated on `Approved-by:` and Task 1's
+  `Hold: OPEN-Q proposal awaits owner approval`; copy `rules: design:` from ateam's `openspec/config.yaml` only if you
+  also invoke `openspec instructions design` alongside `/design` (#218). `ateam state spec-check` uses
+  `node_modules/.bin/openspec` or `openspec` on `PATH` for strict validation and prints a skip notice when neither is
+  installed.
 - **Verification.** Do not copy ateam's `Taskfile.yml`. Keep your own `task verify` or CI entry point and add the
   `ateam` binary to it: `ateam doctor --check` for parity, and `ateam review gate <pr>` for the merge gate (see
   [the merge gate](adoption.md#the-merge-gate-on-github-and-gitea)).
