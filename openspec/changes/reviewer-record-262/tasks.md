@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1-3 (#262). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1-3 (#262). Evidence: the owner approved in Enjoy on 2026-10-30, ruling Q1 D1 A (payload expression), Q2 the name `Merge check (awaiting review record, skipped)`, and Q3 yes, prove the rejection-after-approval rerun live on #277; Claude wrote the header at their request.
 
 ## 2. Workflows
 

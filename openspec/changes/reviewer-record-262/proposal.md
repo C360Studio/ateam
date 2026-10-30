@@ -1,6 +1,6 @@
 # Change Proposal: `reviewer-record-262`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-30)
 
 ## Why
 

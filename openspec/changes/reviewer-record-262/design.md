@@ -55,6 +55,4 @@ An initial rejection leaves no line, so the check stays skipped and the forge ke
 
 ## Open Questions
 
-1. **Owner ruling:** D1 A (expression) or B (probe job)? The issue says "probe job". I recommend A.
-2. **Owner ruling:** skip name `Merge check (awaiting review record, skipped)`, or something else?
-3. **Owner ruling:** may this PR carry a deliberate `REQUEST CHANGES` record after its approval, to prove the D3 transition live? Without it, D3 rests on static reading and offline gate tests only.
+Resolved by the owner on 2026-10-30: Q1 D1 A (payload expression), Q2 `Merge check (awaiting review record, skipped)`, Q3 yes, prove D3 live on #277.
