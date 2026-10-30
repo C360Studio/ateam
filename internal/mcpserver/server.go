@@ -319,17 +319,13 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		if h.Addresses == "" {
 			h.Addresses = fmt.Sprintf("branch %s, SHA %s", st.Git.Branch, st.Git.HeadSHA)
 		}
-		if _, err := state.Update(root, func(cur *state.State) error {
-			if err := cur.SetHandoffGuarded(h, args.Force); err != nil {
-				return err
-			}
+		kept, err := state.SaveHandoffReleasingLease(root, h, args.Force, st.CurrentSessionID, func(cur *state.State) {
 			cur.CurrentAgent = st.CurrentAgent
-			cur.Writer = nil
-			return nil
-		}); err != nil {
+		})
+		if err != nil {
+			// A *state.LeaseReleaseError names the saved handoff; the forge post is skipped either way (#265).
 			return err.Error(), true
 		}
-		_ = state.ClearWriterLease(root)
 		prompt := state.FormatFiveFieldPrompt(h)
 		shouldPost := args.Post == nil || *args.Post
 		statusLine := "PR comment: skipped (post=false)"
@@ -346,6 +342,9 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 					statusLine = "PR comment: posted"
 				}
 			}
+		}
+		if kept != nil {
+			statusLine += fmt.Sprintf("\nwriter lease: kept (held by %s session %s)", kept.Agent, kept.SessionID)
 		}
 		if strings.TrimSpace(h.SessionID) == "" {
 			statusLine += "\nwarning: " + state.HandoffNoSessionWarning(h)
