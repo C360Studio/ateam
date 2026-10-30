@@ -670,6 +670,12 @@ A non-trivial change SHALL declare the `quick` or `design` track at Clarify. `at
 - **THEN** it writes `.agents/skills/design/SKILL.md`, `.claude/skills/design/SKILL.md`, and `.gemini/commands/design.toml`
 - **AND** `ateam doctor --check` fails once `.agents/skills/design/SKILL.md` is removed
 
+#### Scenario: Init ships the design rules
+
+- **WHEN** `ateam init` runs where no `openspec/config.yaml` exists
+- **THEN** it writes `schema: spec-driven` and a `rules: design:` block identical to ateam's own `openspec/config.yaml`, so `openspec instructions design` lists them
+- **AND** an existing `openspec/config.yaml` stays byte-for-byte unchanged
+
 ### Requirement: Default-branch handoff freshness follows the remote tip
 
 For any session other than its holder's, a handoff in a default-branch slot SHALL be stale when its checkpoint differs from the default branch's remote-tracking tip already on disk, unless the checkpoint is the local HEAD and the local branch is ahead of that tip. A deliberate handoff written with no resolvable session id SHALL warn, and a slot refusal SHALL name the holder's writer-lease state when it is known.
