@@ -71,6 +71,12 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **THEN** both report the same release version, which is the `-ldflags` value of `state.Version` when one is stamped, else the main module version embedded by the Go toolchain when it is neither empty nor `(devel)`, else `dev`, so a build of a release tag reports that tag without a source edit; `task build` stamps `state.Version` from `git describe --tags --always --dirty`, so a build in a linked worktree reports its own checkout rather than the parent checkout Go's VCS stamping would read
 - **AND** MCP `serverInfo.version` reads `<version> (<build>)`, with the same build label as `ateam version`
 
+#### Scenario: MCP refuses invalid handoff arguments
+
+- **WHEN** an `ateam_state` call carries arguments that do not decode (a wrong-type `goal` or `post`), or a `handoff` call carries a missing or blank `goal`
+- **THEN** the tool returns `isError: true` naming the problem before refreshing state, writing the cache, releasing the writer lease, or posting to a forge, and the previous checkpoint and `writer.json` are unchanged
+- **AND** a `handoff` with a nonblank `goal` and the other actions behave as before, and `required` in the schema stays `["action"]`
+
 ### Requirement: OpenSpec queue and stray Hold detection
 
 `ateam state spec-queue` SHALL scan `openspec/changes/*/tasks.md` and report open-task holds (`Hold:`) and caveats (`WONTDO`, `HALT`, `RED`, `BLOCKED`, `OPEN-Q`). `ateam state spec-check` SHALL fail with exit code 1 when any `Hold:` appears below a file's first `## ` heading outside every task block, or exit code 2 when a `tasks.md` is unreadable or invalid UTF-8. Truncated caveat display text SHALL remain valid UTF-8.

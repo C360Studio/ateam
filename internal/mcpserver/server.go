@@ -62,7 +62,7 @@ func Tools() []ToolDef {
 					"mode":          map[string]any{"type": "string"},
 					"slot":          map[string]any{"type": "string"},
 					"agent":         map[string]any{"type": "string"},
-					"goal":          map[string]any{"type": "string"},
+					"goal":          map[string]any{"type": "string", "description": "handoff: required"},
 					"addresses":     map[string]any{"type": "string"},
 					"constraints":   map[string]any{"type": "string"},
 					"done_when":     map[string]any{"type": "string"},
@@ -270,7 +270,12 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		ConversationID string `json:"conversationId"`
 		Slot           string `json:"slot"`
 	}
-	_ = json.Unmarshal(rawArgs, &args)
+	// Absent arguments stay valid for actions that need none; a wrong-type field fails the call (#266).
+	if len(rawArgs) > 0 {
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return "invalid arguments: " + err.Error(), true
+		}
+	}
 
 	// read_handoff returns before the refresh and identity resolution below: reading
 	// another slot must not write the cache or change who this session is (#196).
@@ -280,6 +285,10 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 			return err.Error(), true
 		}
 		return text, false
+	}
+	// Refused before the refresh so a blank goal writes no cache, releases no lease, and posts nothing (#266).
+	if args.Action == "handoff" && strings.TrimSpace(args.Goal) == "" {
+		return "handoff: goal is required", true
 	}
 
 	var (
@@ -392,7 +401,11 @@ func execTaskTool(ctx context.Context, root string, rawArgs json.RawMessage) (st
 		Target string   `json:"target"`
 		Args   []string `json:"args"`
 	}
-	_ = json.Unmarshal(rawArgs, &args)
+	if len(rawArgs) > 0 {
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return "invalid arguments: " + err.Error(), true
+		}
+	}
 	if strings.TrimSpace(args.Target) == "" || args.Target == "list" {
 		targets, err := taskrunner.ListTargets(ctx, root)
 		if err != nil {
