@@ -116,3 +116,24 @@ summary, and `ateam state pickup` prints it on demand.
   [reviewer contract § Record](../.agents/contracts/reviewer.md#record), or set `"review_record": "aip"` and
   compare with `ateam review compare --reviewer-record`; see [model review](model-review.md#review-record-mode-review_record).
   Mapping historical records is yours.
+
+## 5. Gate new tests first
+
+`ateam test-spec` fails on every uncited `Test`/`Fuzz`/`Example` and Vitest test, so a repository with years of tests
+fails it on day one. Start with the diff scope in your pull-request CI:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0   # --base needs the merge base; a depth-1 clone exits 2
+- run: ateam test-spec --base origin/${{ github.base_ref }}
+```
+
+With `--base <ref>`, a missing citation is reported only for a test whose declaration, body, or attached comment
+lines changed since the merge base of `<ref>` and `HEAD`, counting uncommitted edits and untracked files, so a local
+run shows what the PR will. Editing a legacy test therefore obliges citing it; untouched ones never fail. Malformed or
+dangling citations and unparseable test files fail anywhere in the tree, so renaming a requirement still catches
+every test that cites it, and an older house citation form fails until it is rewritten. An unknown `<ref>`, a root
+outside a git work tree, or a clone without the merge base exits 2 rather than checking everything or nothing.
+
+Once `ateam test-spec` with no flag reports zero, add it to `task verify` and keep the `--base` run or drop it.

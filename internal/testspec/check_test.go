@@ -47,7 +47,7 @@ func TestGoAttribution(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := fixture(t, tc.source, "### Requirement: Works\n")
-			ds, err := Check(context.Background(), root)
+			ds, err := Check(context.Background(), root, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,7 +72,7 @@ func TestReferenceRefusals(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := fixture(t, "package p\n// spec: "+tc.ref+"\nfunc TestWorks(t *testing.T) {}", tc.spec)
-			ds, err := Check(context.Background(), root)
+			ds, err := Check(context.Background(), root, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -94,7 +94,7 @@ func TestReferenceRefusals(t *testing.T) {
 		if err := os.Symlink(target, path); err != nil {
 			t.Fatal(err)
 		}
-		ds, err := Check(context.Background(), root)
+		ds, err := Check(context.Background(), root, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,7 +122,7 @@ func TestDiscoveryAndDeterminism(t *testing.T) {
 	}
 	want := "a_test.go:4: TestA: missing spec citation\nsample_test.go:2: TestZ: missing spec citation\ntestdata/b_test.go:2: TestB: missing spec citation\n"
 	for range 2 {
-		ds, err := Check(context.Background(), root)
+		ds, err := Check(context.Background(), root, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -132,7 +132,7 @@ func TestDiscoveryAndDeterminism(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := Check(ctx, root); err == nil {
+	if _, err := Check(ctx, root, ""); err == nil {
 		t.Fatal("cancellation ignored")
 	}
 }
@@ -178,7 +178,7 @@ func TestVitestIntegration(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "ui/sample.test.ts"), []byte(source), 0644); err != nil {
 		t.Fatal(err)
 	}
-	ds, err := Check(context.Background(), root)
+	ds, err := Check(context.Background(), root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestVitestIntegration(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "ui/node_modules")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Check(context.Background(), root); err == nil {
+	if _, err := Check(context.Background(), root, ""); err == nil {
 		t.Fatal("missing TypeScript installation accepted")
 	}
 }
@@ -212,7 +212,7 @@ func checkAIP(t *testing.T, directive string, files map[string]string) string {
 	t.Helper()
 	root := fixture(t, "package p\n"+directive+"func TestWorks(t *testing.T) {}", "### Requirement: Works\n")
 	writeFiles(t, root, files)
-	ds, err := Check(context.Background(), root)
+	ds, err := Check(context.Background(), root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestAIPRootWithGlobMetacharacters(t *testing.T) {
 		"sample_test.go":             "package p\n//aip:verifies BR-1\nfunc TestWorks(t *testing.T) {}",
 		"openspec/specs/dev/spec.md": "#### Scenario: BR-1 x\n",
 	})
-	ds, err := Check(context.Background(), root)
+	ds, err := Check(context.Background(), root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestAIPSpecFileRefusals(t *testing.T) {
 	if err := os.Symlink(filepath.Join(outside, "spec.md"), filepath.Join(root, "openspec/specs/link/spec.md")); err != nil {
 		t.Fatal(err)
 	}
-	ds, err := Check(context.Background(), root)
+	ds, err := Check(context.Background(), root, "")
 	if err != nil {
 		t.Fatal(err)
 	}

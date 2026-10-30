@@ -34,6 +34,7 @@ type comment struct {
 type declaration struct {
 	File     string    `json:"file"`
 	Line     int       `json:"line"`
+	End      int       `json:"end"` // last line of the declaration, for --base scoping
 	Name     string    `json:"name"`
 	Comments []comment `json:"comments"`
 	Error    string    `json:"error"`
@@ -45,7 +46,9 @@ const aipDirective = "aip:verifies"
 var vitestScanner string
 
 // Check checks supported test sources under root. Build tags do not exclude Go tests.
-func Check(ctx context.Context, root string) ([]Diagnostic, error) {
+// A nonempty base limits missing-citation diagnostics to tests changed since the
+// merge base of base and HEAD (see changedLines); every other diagnostic still applies.
+func Check(ctx context.Context, root, base string) ([]Diagnostic, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -53,6 +56,12 @@ func Check(ctx context.Context, root string) ([]Diagnostic, error) {
 	root, err = filepath.EvalSymlinks(root)
 	if err != nil {
 		return nil, err
+	}
+	var changed map[string]lineSet
+	if base != "" {
+		if changed, err = changedLines(ctx, root, base); err != nil {
+			return nil, err
+		}
 	}
 	var declarations []declaration
 	var jsFiles []string
@@ -174,7 +183,7 @@ func Check(ctx context.Context, root string) ([]Diagnostic, error) {
 				diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": " + err.Error()})
 			}
 		}
-		if !found {
+		if !found && (changed == nil || changed[d.File].touches(d)) {
 			diagnostics = append(diagnostics, Diagnostic{d.File, d.Line, d.Name + ": missing spec citation"})
 		}
 	}
@@ -221,7 +230,7 @@ func scanGo(root, rel string) []declaration {
 		if !selected {
 			continue
 		}
-		d := declaration{File: rel, Line: fset.Position(fn.Pos()).Line, Name: name}
+		d := declaration{File: rel, Line: fset.Position(fn.Pos()).Line, End: fset.Position(fn.End()).Line, Name: name}
 		if fn.Doc != nil && fset.Position(fn.Doc.End()).Line+1 == d.Line {
 			for _, c := range fn.Doc.List {
 				d.Comments = append(d.Comments, comment{fset.Position(c.Pos()).Line, c.Text})
