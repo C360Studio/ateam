@@ -39,7 +39,7 @@ func testHandoff(session string) Handoff {
 	return Handoff{Goal: "goal " + session, Agent: "claude", SessionID: session, Branch: "main", UpdatedAt: time.Now().UTC()}
 }
 
-// spec: openspec/changes/state-lease-owner-265/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
 func TestOwnsWriterLease(t *testing.T) {
 	clearLeaseIdentityEnv(t)
 	now := time.Now().UTC()
@@ -78,7 +78,7 @@ func TestOwnsWriterLease(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/state-lease-owner-265/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
 func TestSaveHandoffReleasingLease(t *testing.T) {
 	clearLeaseIdentityEnv(t)
 	t.Run("own lease is released", func(t *testing.T) {
@@ -131,7 +131,7 @@ func TestSaveHandoffReleasingLease(t *testing.T) {
 	})
 }
 
-// spec: openspec/changes/state-lease-owner-265/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
 func TestLeaseWrittenDuringHandoffSurvives(t *testing.T) {
 	clearLeaseIdentityEnv(t)
 	root := t.TempDir()
@@ -166,7 +166,7 @@ func TestLeaseWrittenDuringHandoffSurvives(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/state-lease-owner-265/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
 func TestSaveHandoffReportsFailedRelease(t *testing.T) {
 	clearLeaseIdentityEnv(t)
 	root := t.TempDir()

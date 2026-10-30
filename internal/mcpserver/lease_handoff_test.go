@@ -39,7 +39,7 @@ func handoffArgs(session string) json.RawMessage {
 	return json.RawMessage(`{"action":"handoff","agent":"claude","session_id":"` + session + `","goal":"goal ` + session + `","post":false}`)
 }
 
-// spec: openspec/changes/state-lease-owner-265/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
 func TestMCPHandoffKeepsAnotherSessionsWriterLease(t *testing.T) {
 	// #265: session B's handoff deleted session A's live lease.
 	for _, leaseAgent := range []string{"codex", "claude"} {
@@ -70,7 +70,7 @@ func TestMCPHandoffKeepsAnotherSessionsWriterLease(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/state-lease-owner-265/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
 func TestMCPHandoffReleasesOwnWriterLease(t *testing.T) {
 	dir := t.TempDir()
 	writeLiveLease(t, dir, "claude", "B")
@@ -83,7 +83,7 @@ func TestMCPHandoffReleasesOwnWriterLease(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/state-lease-owner-265/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
 func TestMCPHandoffReportsUnreleasedLease(t *testing.T) {
 	dir := t.TempDir()
 	writeLiveLease(t, dir, "claude", "B")

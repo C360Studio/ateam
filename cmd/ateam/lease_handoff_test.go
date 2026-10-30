@@ -60,7 +60,7 @@ func assertLeaseKept(t *testing.T, root string, want []byte) {
 	}
 }
 
-// spec: openspec/changes/state-lease-owner-265/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
 func TestStateHandoffKeepsAnotherSessionsWriterLease(t *testing.T) {
 	// #265: session B's handoff deleted session A's live lease.
 	for _, leaseAgent := range []string{"codex", "claude"} {
@@ -78,7 +78,7 @@ func TestStateHandoffKeepsAnotherSessionsWriterLease(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/state-lease-owner-265/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
 func TestStateHandoffReleasesOwnWriterLease(t *testing.T) {
 	dir := t.TempDir()
 	writeLiveLease(t, dir, "claude", "B")
@@ -93,7 +93,7 @@ func TestStateHandoffReleasesOwnWriterLease(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/state-lease-owner-265/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Handoff releases only the caller's writer lease
 func TestStateHandoffReportsUnreleasedLease(t *testing.T) {
 	dir := t.TempDir()
 	writeLiveLease(t, dir, "claude", "B")
