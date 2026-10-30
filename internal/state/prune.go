@@ -15,10 +15,14 @@ import (
 // reviewCheckoutRe matches the directory review-pr creates for a detached review checkout (<agent>-review-pr-<n>[-suffix]).
 var reviewCheckoutRe = regexp.MustCompile(`^(claude|codex|gemini|agy)-review-pr-([1-9][0-9]*)(?:-[A-Za-z0-9]+)?$`)
 
+// pruneHandoffWindow is how long a handoff recorded for a finished worktree's branch keeps prune away from it (#263).
+const pruneHandoffWindow = 30 * time.Minute
+
 // PruneVerdict reports whether `ateam state prune` run as agent would remove wt, and why (#229).
-// It reads only cached state, so pickup can call it inside the session-start budget.
-// currentPath, when set, names the caller's checkout, which is never removed.
-func (st *State) PruneVerdict(wt Worktree, agent, currentPath string) (bool, string) {
+// It reads only cached state and, for a finished branch worktree, that worktree's writer lease and state
+// cache, so pickup can call it inside the session-start budget. currentPath, when set, names the caller's
+// checkout, which is never removed. force skips only the occupancy check (#263).
+func (st *State) PruneVerdict(wt Worktree, agent, currentPath string, force bool) (bool, string) {
 	branch := strings.TrimSpace(wt.Branch)
 	detached := branch == "" || branch == "detached" || branch == "HEAD"
 	label := st.WorktreePRStatus(wt)
@@ -73,9 +77,60 @@ func (st *State) PruneVerdict(wt Worktree, agent, currentPath string) (bool, str
 		return true, fmt.Sprintf("review of closed PR #%d", reviewPR)
 	}
 	if strings.HasPrefix(label, "merged via ") || label == "merged (ancestor of main)" {
+		if !force {
+			if why := st.occupiedBy(wt); why != "" {
+				return false, why
+			}
+		}
 		return true, label
 	}
 	return false, label
+}
+
+// occupiedBy names another session that may still be working in wt, or returns "" (#263). Every session of
+// one agent shares its branch prefix, so ownership alone cannot tell them apart. A writer lease counts while
+// its pid is alive or it was seen within writerLeaseTTL; a handoff for wt's branch in wt's own cache counts
+// for pruneHandoffWindow. The caller's own session never counts; when the caller's session is
+// unknown, every lease and handoff does.
+func (st *State) occupiedBy(wt Worktree) string {
+	caller := st.effectiveSessionID()
+	other := func(session string) bool {
+		session = strings.TrimSpace(session)
+		return caller == "" || session != caller
+	}
+	name := func(session string) string {
+		if session = strings.TrimSpace(session); session != "" {
+			return "session " + session
+		}
+		return "an unknown session"
+	}
+	lease, err := ReadWriterLease(wt.Path)
+	if err != nil {
+		return "writer lease unreadable: " + err.Error()
+	}
+	if lease != nil && other(lease.SessionID) {
+		recent := !lease.LastSeen.IsZero() && time.Since(lease.LastSeen) < writerLeaseTTL
+		if recent || IsProcessAlive(lease.PID) {
+			return fmt.Sprintf("%s holds the lease (%s)", name(lease.SessionID), formatHandoffRelativeAge(lease.LastSeen))
+		}
+	}
+	var newest *Handoff
+	consider := func(h *Handoff) {
+		if h == nil || h.UpdatedAt.IsZero() || time.Since(h.UpdatedAt) >= pruneHandoffWindow || !other(h.SessionID) {
+			return
+		}
+		if newest == nil || h.UpdatedAt.After(newest.UpdatedAt) {
+			newest = h
+		}
+	}
+	// worktreeHandoffSlots skips slots this cache also holds, for display; an empty Handoffs map reads them all.
+	for _, h := range worktreeHandoffSlots(&State{Git: st.Git}, wt) {
+		consider(h)
+	}
+	if newest != nil {
+		return fmt.Sprintf("%s handed off %s; prune after 30m or pass --force", name(newest.SessionID), formatHandoffRelativeAge(newest.UpdatedAt))
+	}
+	return ""
 }
 
 func samePath(a, b string) bool {
@@ -93,15 +148,15 @@ func samePath(a, b string) bool {
 
 // Prune removes each linked worktree PruneVerdict clears for agent, with its local branch and, when the
 // remote branch still points at the local head, its origin branch. Every other linked worktree is listed
-// with the reason it was kept. It reports whether any git step failed.
-func Prune(ctx context.Context, root string, st *State, agent string, dryRun bool, w io.Writer) (failed bool) {
+// with the reason it was kept. force overrides only the occupancy check. It reports whether any git step failed.
+func Prune(ctx context.Context, root string, st *State, agent string, dryRun, force bool, w io.Writer) (failed bool) {
 	for _, wt := range st.Git.Worktrees {
 		branch := strings.TrimSpace(wt.Branch)
 		name := branch
 		if name == "" || name == "detached" || name == "HEAD" {
 			branch, name = "", filepath.Base(wt.Path)
 		}
-		remove, reason := st.PruneVerdict(wt, agent, root)
+		remove, reason := st.PruneVerdict(wt, agent, root, force)
 		if !remove {
 			fmt.Fprintf(w, "kept %s: %s\n", name, reason)
 			continue

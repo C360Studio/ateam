@@ -1,0 +1,12 @@
+## 1. Approval
+
+- [x] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit (#263). Evidence: owner picked 'Approve both, quick track' in Enjoy on 2026-10-30; Claude wrote the header from that answer.
+
+## 2. Implementation
+
+- [x] 2.1 Before `PruneVerdict` clears a finished branch worktree, read that worktree's writer lease and own handoff cache; keep it for another session's live lease (pid alive or `last_seen` within `writerLeaseTTL`) or a handoff under 30 minutes old; exempt the caller's own session and count every session when the caller's is unknown (#263). Acceptance: table test through `PruneVerdict`, the `Prune` dry run, and the pickup label; `task mutate:check` dropping the lease read reports `detection`. Evidence: `(*State).occupiedBy` in `internal/state/prune.go`; `TestPruneKeepsWorktreeAnotherSessionOccupies` (14 rows); `ateam mutate` reported `detection` at `prune_test.go:429` for the dropped lease read, for the caller exemption forced off, and for the handoff read routed through the display dedupe; `prune.go` SHA-256 unchanged.
+- [x] 2.2 `ateam state prune --force` skips only the occupancy rules; `--force --dry-run` lists what it would remove (#263). Evidence: `force` threaded through `Prune` and `PruneVerdict`; the `force past a live lease` and `force past a fresh handoff` rows, and every row's forced-dirty assertion that `dirty` still keeps it. The MCP schema is unchanged: prune is not an MCP action.
+- [x] 2.3 Pickup's `, prune candidate` label uses the same verdict without `--force` (#263). Evidence: each non-forced row asserts the label matches the verdict.
+- [x] 2.4 Name `--force` and the occupancy rule in `README.md`, `docs/daily-use.md`, and the `ateam state` help (#263).
+- [ ] 2.5 `task verify` green on a clean tree, `ateam doctor` parity green, `ateam bench --selftest` green.
+- [ ] 2.6 Archive the change before marking the PR ready (#263).

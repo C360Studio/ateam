@@ -664,6 +664,9 @@ func HandoffSlotKey(agent, branch string) string {
 	return a + "@" + b
 }
 
+// writerLeaseTTL is how long a writer lease counts as active after its last_seen.
+const writerLeaseTTL = 10 * time.Minute
+
 func isCallerActiveWriterLease(lease *WriterLease, callerSessionID string) bool {
 	if lease == nil || strings.TrimSpace(lease.Agent) == "" {
 		return false
@@ -671,7 +674,7 @@ func isCallerActiveWriterLease(lease *WriterLease, callerSessionID string) bool 
 	if lease.PID > 0 && !IsProcessAlive(lease.PID) {
 		return false
 	}
-	if !lease.LastSeen.IsZero() && time.Since(lease.LastSeen) >= 10*time.Minute {
+	if !lease.LastSeen.IsZero() && time.Since(lease.LastSeen) >= writerLeaseTTL {
 		return false
 	}
 	callerSession := strings.TrimSpace(callerSessionID)
@@ -2807,7 +2810,7 @@ func BuildPickupSummary(st *State) string {
 		sameSession := curSession != "" && leaseSession == curSession
 		sameClientPID := curSession == "" && st.Writer.PID > 0 && (st.Writer.PID == ResolveClientPID() || st.Writer.PID == os.Getpid())
 		sameHerdrPane := os.Getenv("HERDR_ENV") == "1" && st.Writer.HerdrPaneID != "" && st.Writer.HerdrPaneID == strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
-		if time.Since(st.Writer.LastSeen) < 10*time.Minute && pidAlive && leaseSession != "" && !sameSession && !sameClientPID && !sameHerdrPane {
+		if time.Since(st.Writer.LastSeen) < writerLeaseTTL && pidAlive && leaseSession != "" && !sameSession && !sameClientPID && !sameHerdrPane {
 			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)%s\n",
 				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		}
@@ -3014,7 +3017,7 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 		} else if wt.Branch != "" && wt.Branch == st.Git.Branch && wt.Head != "" && SameCommitSHA(wt.Head, st.Git.HeadSHA) {
 			dirtyStr = fmt.Sprintf("%v", st.Git.Dirty)
 		}
-		if remove, _ := st.PruneVerdict(wt, st.CurrentAgent, ""); remove {
+		if remove, _ := st.PruneVerdict(wt, st.CurrentAgent, "", false); remove {
 			statuses[i] += ", prune candidate"
 		}
 		aheadStr := fmt.Sprintf("ahead=%d", wt.AheadCount)

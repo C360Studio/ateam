@@ -3,11 +3,13 @@ package state
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // spec: openspec/specs/harness/spec.md#Requirement: Prune finished worktrees the caller owns
@@ -58,13 +60,13 @@ func TestPruneVerdict(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			remove, reason := st.PruneVerdict(tc.wt, "claude", "/r/me")
+			remove, reason := st.PruneVerdict(tc.wt, "claude", "/r/me", false)
 			if remove != tc.remove || reason != tc.reason {
 				t.Fatalf("PruneVerdict = (%v, %q), want (%v, %q)", remove, reason, tc.remove, tc.reason)
 			}
 		})
 	}
-	if remove, reason := st.PruneVerdict(cases[0].wt, "", ""); remove || reason != "owned by claude" {
+	if remove, reason := st.PruneVerdict(cases[0].wt, "", "", false); remove || reason != "owned by claude" {
 		t.Fatalf("unresolved caller: PruneVerdict = (%v, %q), want (false, %q)", remove, reason, "owned by claude")
 	}
 
@@ -149,7 +151,7 @@ func TestPruneRemovesOnlyOwnedFinishedWorktrees(t *testing.T) {
 	remoteRefs := func() string { return git(root, "ls-remote", "origin") }
 	beforeWT, beforeRemote := worktrees(), remoteRefs()
 	var dry bytes.Buffer
-	if Prune(ctx, root, st, "claude", true, &dry) {
+	if Prune(ctx, root, st, "claude", true, false, &dry) {
 		t.Fatalf("dry run reported a failure:\n%s", dry.String())
 	}
 	if worktrees() != beforeWT || remoteRefs() != beforeRemote {
@@ -160,7 +162,7 @@ func TestPruneRemovesOnlyOwnedFinishedWorktrees(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if Prune(ctx, root, st, "claude", false, &out) {
+	if Prune(ctx, root, st, "claude", false, false, &out) {
 		t.Fatalf("prune reported a failure:\n%s", out.String())
 	}
 	for _, want := range []string{
@@ -210,7 +212,7 @@ func TestPruneVerdictReviewPRNumberOnTwoForges(t *testing.T) {
 	for name, cards := range map[string][]BoardCard{"gitea first": {gitea, github}, "github first": {github, gitea}} {
 		st := defaultState()
 		st.Cards = cards
-		if remove, reason := st.PruneVerdict(wt, "claude", ""); remove || reason != "review of open PR #1" {
+		if remove, reason := st.PruneVerdict(wt, "claude", "", false); remove || reason != "review of open PR #1" {
 			t.Fatalf("%s: PruneVerdict = (%v, %q), want (false, %q)", name, remove, reason, "review of open PR #1")
 		}
 		// The review checked out aaaaaaa, then the still-open GitHub PR advanced past it while the Gitea PR closed at it.
@@ -219,7 +221,7 @@ func TestPruneVerdictReviewPRNumberOnTwoForges(t *testing.T) {
 		if name == "github first" {
 			st.Cards[0], st.Cards[1] = st.Cards[1], st.Cards[0]
 		}
-		if remove, reason := st.PruneVerdict(wt, "claude", ""); remove || reason != "review of open PR #1" {
+		if remove, reason := st.PruneVerdict(wt, "claude", "", false); remove || reason != "review of open PR #1" {
 			t.Fatalf("%s, open PR advanced: PruneVerdict = (%v, %q), want (false, %q)", name, remove, reason, "review of open PR #1")
 		}
 	}
@@ -314,7 +316,7 @@ func TestPrunePreservesWorkAddedAfterRefresh(t *testing.T) {
 			}
 
 			var out bytes.Buffer
-			failed := Prune(context.Background(), root, st, "claude", false, &out)
+			failed := Prune(context.Background(), root, st, "claude", false, false, &out)
 			got := out.String()
 			switch scenario {
 			case "local commit after refresh", "detached commit past the PR head":
@@ -340,6 +342,116 @@ func TestPrunePreservesWorkAddedAfterRefresh(t *testing.T) {
 			case "remote push after ls-remote":
 				if git(root, "ls-remote", "origin", "refs/heads/claude/topic") == "" || !strings.Contains(got, "kept origin/claude/topic, which moved to ") {
 					t.Fatalf("remote branch pushed after ls-remote was deleted (failed=%v):\n%s", failed, got)
+				}
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Prune finished worktrees the caller owns
+func TestPruneKeepsWorktreeAnotherSessionOccupies(t *testing.T) {
+	// #263: every Claude session shares the claude/ prefix, so ownership alone lets one session remove the
+	// finished worktree another is still standing in.
+	clearAgentSessionEnv(t)
+	now := time.Now()
+	alive := os.Getpid()
+	type lease struct {
+		session  string
+		pid      int
+		lastSeen time.Duration
+	}
+	type handoff struct {
+		session string
+		age     time.Duration
+	}
+	const handoffReason = "session other handed off 5m ago; prune after 30m or pass --force"
+	cases := []struct {
+		name     string
+		caller   string
+		lease    *lease
+		handoff  *handoff
+		rootSlot bool // the caller checkout's cache also holds the slot, with an older handoff
+		force    bool
+		remove   bool
+		reason   string
+	}{
+		{name: "nothing recorded", caller: "me", remove: true, reason: "merged via #1"},
+		{name: "live pid lease from another session", caller: "me", lease: &lease{"other", alive, 2 * time.Hour}, reason: "session other holds the lease (2h ago)"},
+		{name: "recent lease with no live pid", caller: "me", lease: &lease{"other", 0, 3 * time.Minute}, reason: "session other holds the lease (3m ago)"},
+		{name: "expired lease with no live pid", caller: "me", lease: &lease{"other", 0, 2 * time.Hour}, remove: true, reason: "merged via #1"},
+		{name: "live lease without a session id", caller: "me", lease: &lease{"", alive, time.Minute}, reason: "an unknown session holds the lease (1m ago)"},
+		{name: "fresh handoff from another session", caller: "me", handoff: &handoff{"other", 5 * time.Minute}, reason: handoffReason},
+		{name: "fresh handoff whose slot the caller's cache also holds", caller: "me", handoff: &handoff{"other", 5 * time.Minute}, rootSlot: true, reason: handoffReason},
+		{name: "old handoff from another session", caller: "me", handoff: &handoff{"other", 2 * time.Hour}, remove: true, reason: "merged via #1"},
+		{name: "caller's own live lease", caller: "me", lease: &lease{"me", alive, time.Minute}, remove: true, reason: "merged via #1"},
+		{name: "caller's own fresh handoff", caller: "me", handoff: &handoff{"me", 5 * time.Minute}, remove: true, reason: "merged via #1"},
+		{name: "unknown caller keeps a lease", lease: &lease{"me", alive, time.Minute}, reason: "session me holds the lease (1m ago)"},
+		{name: "unknown caller keeps a handoff", handoff: &handoff{"me", 5 * time.Minute}, reason: "session me handed off 5m ago; prune after 30m or pass --force"},
+		{name: "force past a live lease", caller: "me", lease: &lease{"other", alive, 2 * time.Hour}, force: true, remove: true, reason: "merged via #1"},
+		{name: "force past a fresh handoff", caller: "me", handoff: &handoff{"other", 5 * time.Minute}, force: true, remove: true, reason: "merged via #1"},
+	}
+	clean, dirty := false, true
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			write := func(path string, v any) {
+				t.Helper()
+				data, err := json.Marshal(v)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			st := defaultState()
+			st.Git.Branch = "main"
+			st.CurrentAgent, st.CurrentSessionID = "claude", tc.caller
+			st.Cards = []BoardCard{{ID: "GH-PR-1", Number: 1, Type: "pr", Column: "done", Merged: true, Branch: "claude/merged", HeadSHA: "aaaaaaa"}}
+			if tc.lease != nil {
+				write(WriterLeasePath(dir), WriterLease{Agent: "claude", SessionID: tc.lease.session, PID: tc.lease.pid, LastSeen: now.Add(-tc.lease.lastSeen)})
+			}
+			if tc.handoff != nil {
+				h := &Handoff{Goal: "finish #1", Agent: "claude", SessionID: tc.handoff.session, Branch: "claude/merged", UpdatedAt: now.Add(-tc.handoff.age)}
+				write(CacheFilePath(dir), map[string]any{"handoffs": map[string]*Handoff{"claude@claude/merged": h}})
+				if tc.rootSlot {
+					old := *h
+					old.UpdatedAt = now.Add(-2 * time.Hour)
+					st.Handoffs = map[string]*Handoff{"claude@claude/merged": &old}
+				}
+			}
+			wt := Worktree{Path: dir, Branch: "claude/merged", Head: "aaaaaaa", Dirty: &clean, AheadCount: 1}
+			remove, reason := st.PruneVerdict(wt, "claude", "/r/me", tc.force)
+			if remove != tc.remove || reason != tc.reason {
+				t.Fatalf("PruneVerdict = (%v, %q), want (%v, %q)", remove, reason, tc.remove, tc.reason)
+			}
+			// Occupancy never overrides the dirty rule, with or without force.
+			dirtyWT := wt
+			dirtyWT.Dirty = &dirty
+			if remove, reason := st.PruneVerdict(dirtyWT, "claude", "/r/me", true); remove || reason != "dirty" {
+				t.Fatalf("forced dirty: PruneVerdict = (%v, %q), want (false, %q)", remove, reason, "dirty")
+			}
+
+			// Prune's dry run and pickup's label apply the same verdict; dry run with force shows what force removes.
+			st.Git.Worktrees = []Worktree{wt}
+			var out bytes.Buffer
+			if Prune(context.Background(), "/r/me", st, "claude", true, tc.force, &out) {
+				t.Fatalf("dry run reported a failure:\n%s", out.String())
+			}
+			wantLine := "kept claude/merged: " + tc.reason + "\n"
+			if tc.remove {
+				wantLine = "would remove claude/merged: " + tc.reason + "\n"
+			}
+			if out.String() != wantLine {
+				t.Fatalf("dry run printed %q, want %q", out.String(), wantLine)
+			}
+			if !tc.force {
+				candidate := strings.Contains(BuildPickupSummary(st), "merged via #1, prune candidate)")
+				if candidate != tc.remove {
+					t.Fatalf("pickup prune candidate = %v, want %v", candidate, tc.remove)
 				}
 			}
 		})

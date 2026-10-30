@@ -175,7 +175,7 @@ Subcommands:
   handoff      Record the five-field handoff checkpoint (see ateam state handoff -h)
   read-handoff <agent>@<branch>
                Print another slot's handoff without changing state
-  prune        Remove your clean, merged worktrees and their branches (--dry-run, --agent)
+  prune        Remove your clean, merged worktrees and their branches (--dry-run, --agent, --force)
   holds        List unticked Hold: items as JSON
   debt         List // shortcut: comments as JSON
   spec-queue   Show in-flight OpenSpec changes with their holds and caveats
@@ -258,6 +258,7 @@ func runStatePrune(repoRoot string, args []string) int {
 	fs := flag.NewFlagSet("state prune", flag.ContinueOnError)
 	agent := fs.String("agent", "", "agent whose worktrees to prune (default: the resolved caller)")
 	dryRun := fs.Bool("dry-run", false, "print what would be removed without changing anything")
+	force := fs.Bool("force", false, "remove a finished worktree even while another session holds its lease or handed off there in the last 30m")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -268,12 +269,14 @@ func runStatePrune(repoRoot string, args []string) int {
 		return 1
 	}
 	st.ReconcileWorktrees()
-	who := state.ResolveActiveAgentForSession(repoRoot, *agent, state.ResolveActiveSessionID(repoRoot, ""), st.Git.Branch, st.Writer)
+	// The caller's own lease or handoff in a finished worktree must not keep it (#263).
+	st.CurrentSessionID = state.ResolveActiveSessionID(repoRoot, "")
+	who := state.ResolveActiveAgentForSession(repoRoot, *agent, st.CurrentSessionID, st.Git.Branch, st.Writer)
 	if who == "" {
 		fmt.Fprintln(os.Stderr, "ateam state prune: cannot resolve the caller's agent; pass --agent")
 		return 2
 	}
-	failed := state.Prune(ctx, repoRoot, st, who, *dryRun, os.Stdout)
+	failed := state.Prune(ctx, repoRoot, st, who, *dryRun, *force, os.Stdout)
 	if !*dryRun {
 		// Refresh so the cache no longer lists the removed worktrees.
 		if _, err := state.Refresh(ctx, repoRoot, false); err != nil {
