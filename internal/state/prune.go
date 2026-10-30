@@ -124,7 +124,11 @@ func (st *State) occupiedBy(wt Worktree) string {
 		}
 	}
 	// worktreeHandoffSlots skips slots this cache also holds, for display; an empty Handoffs map reads them all.
-	for _, h := range worktreeHandoffSlots(&State{Git: st.Git}, wt) {
+	slots, err := readWorktreeHandoffSlots(&State{Git: st.Git}, wt)
+	if err != nil {
+		return "handoff cache unreadable: " + err.Error()
+	}
+	for _, h := range slots {
 		consider(h)
 	}
 	if newest != nil {

@@ -370,7 +370,9 @@ func TestPruneKeepsWorktreeAnotherSessionOccupies(t *testing.T) {
 		caller   string
 		lease    *lease
 		handoff  *handoff
-		rootSlot bool // the caller checkout's cache also holds the slot, with an older handoff
+		rootSlot bool   // the caller checkout's cache also holds the slot, with an older handoff
+		badCache string // "malformed" or "dir": the worktree's state.json cannot be read as JSON
+		prefix   bool   // reason ends in an error text that names a temp path, so match its start
 		force    bool
 		remove   bool
 		reason   string
@@ -389,6 +391,10 @@ func TestPruneKeepsWorktreeAnotherSessionOccupies(t *testing.T) {
 		{name: "unknown caller keeps a handoff", handoff: &handoff{"me", 5 * time.Minute}, reason: "session me handed off 5m ago; prune after 30m or pass --force"},
 		{name: "force past a live lease", caller: "me", lease: &lease{"other", alive, 2 * time.Hour}, force: true, remove: true, reason: "merged via #1"},
 		{name: "force past a fresh handoff", caller: "me", handoff: &handoff{"other", 5 * time.Minute}, force: true, remove: true, reason: "merged via #1"},
+		// A deletion guard fails closed: a cache that may hold a fresh handoff but cannot be read keeps the worktree.
+		{name: "malformed handoff cache", caller: "me", badCache: "malformed", reason: "handoff cache unreadable: ", prefix: true},
+		{name: "unreadable handoff cache", caller: "me", badCache: "dir", reason: "handoff cache unreadable: ", prefix: true},
+		{name: "force past an unreadable handoff cache", caller: "me", badCache: "dir", force: true, remove: true, reason: "merged via #1"},
 	}
 	clean, dirty := false, true
 	for _, tc := range cases {
@@ -423,9 +429,25 @@ func TestPruneKeepsWorktreeAnotherSessionOccupies(t *testing.T) {
 					st.Handoffs = map[string]*Handoff{"claude@claude/merged": &old}
 				}
 			}
+			switch tc.badCache {
+			case "malformed":
+				if err := os.WriteFile(CacheFilePath(dir), []byte(`{"handoffs": {"claude@claude/merged": `), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			case "dir":
+				if err := os.MkdirAll(CacheFilePath(dir), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			matches := func(got string) bool {
+				if tc.prefix {
+					return strings.HasPrefix(got, tc.reason)
+				}
+				return got == tc.reason
+			}
 			wt := Worktree{Path: dir, Branch: "claude/merged", Head: "aaaaaaa", Dirty: &clean, AheadCount: 1}
 			remove, reason := st.PruneVerdict(wt, "claude", "/r/me", tc.force)
-			if remove != tc.remove || reason != tc.reason {
+			if remove != tc.remove || !matches(reason) {
 				t.Fatalf("PruneVerdict = (%v, %q), want (%v, %q)", remove, reason, tc.remove, tc.reason)
 			}
 			// Occupancy never overrides the dirty rule, with or without force.
@@ -445,7 +467,10 @@ func TestPruneKeepsWorktreeAnotherSessionOccupies(t *testing.T) {
 			if tc.remove {
 				wantLine = "would remove claude/merged: " + tc.reason + "\n"
 			}
-			if out.String() != wantLine {
+			if tc.prefix {
+				wantLine = strings.TrimSuffix(wantLine, "\n")
+			}
+			if (tc.prefix && !strings.HasPrefix(out.String(), wantLine)) || (!tc.prefix && out.String() != wantLine) {
 				t.Fatalf("dry run printed %q, want %q", out.String(), wantLine)
 			}
 			if !tc.force {

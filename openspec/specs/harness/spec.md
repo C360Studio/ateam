@@ -764,6 +764,7 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 - **WHEN** a finished, clean, owned branch worktree's own `.ateam/writer.json` names a session other than the caller's whose pid is alive or whose `last_seen` is within the writer-lease TTL, or its own `.ateam/state.json` holds a handoff for its branch from a session other than the caller's written less than 30 minutes ago
 - **THEN** it is kept as `session <id> holds the lease (<age> ago)` or `session <id> handed off <age> ago; prune after 30m or pass --force`, and pickup does not mark it a prune candidate
 - **AND** a lease or handoff from the caller's own session does not keep it, while with no resolvable caller session every lease and handoff does
+- **AND** a writer lease or `.ateam/state.json` that exists but cannot be read or parsed keeps it as `writer lease unreadable: <err>` or `handoff cache unreadable: <err>`, while a missing one keeps nothing
 - **AND WHEN** `--force` is passed, the worktree is removed as if neither rule applied (with `--dry-run`, listed as `would remove`), and every other keep reason still holds
 
 ### Requirement: Build provenance names the binary the hooks run
