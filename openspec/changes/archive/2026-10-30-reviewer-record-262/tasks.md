@@ -15,4 +15,4 @@
 ## 4. Live proof and verify
 
 - [ ] 4.1 (After ready, recorded on this PR.) Record the awaiting-skip run, then the approving-edit run passing. If Open Question 3 is approved, record the rejection-after-approval rerun failing, then a fresh approval. Run the Gitea test-instance probe for the skip and the edit run, then restore the test repo (#262).
-- [ ] 4.2 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#262).
+- [x] 4.2 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#262). Evidence: `task verify` (which runs `ateam bench --selftest`) exits 0 on a clean tree at `aa39b92`, and `ateam doctor --check` exits 0 with no violations.
