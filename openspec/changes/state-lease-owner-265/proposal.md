@@ -1,6 +1,6 @@
 # Change Proposal: `state-lease-owner-265`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-10-30)
 
 ## Why
 
