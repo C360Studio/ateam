@@ -771,7 +771,7 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 
 ### Requirement: Merge check runs on pull-request state events
 
-`Merge check` SHALL run in its own workflow (`.github/workflows/merge-check.yml` and its Gitea twin), separate from `CI`, on the pull-request events that change its inputs, and SHALL be a required context of its own beside `Required` and `Gate files`. `Required` SHALL need only `Verify`. While a code pull request's description has no `reviewed-by:` line and the pull request has no review record comment by any agent, the job SHALL be skipped under a name that is not a required context, as on a draft; a probe job built from the base commit (`ateam review gate --awaiting`) decides it by reading the forge when it runs. A documents-only pull request, or one with a line or any record, SHALL be judged in full, and a failed probe SHALL leave the full check to run.
+`Merge check` SHALL run in its own workflow (`.github/workflows/merge-check.yml` and its Gitea twin), separate from `CI`, on the pull-request events that change its inputs, and SHALL be a required context of its own beside `Required` and `Gate files`. `Required` SHALL need only `Verify`. While a code pull request awaits its review (no `reviewed-by:` line, no review record comment), the job SHALL be skipped under a name that is not a required context, decided by a probe job built from the base.
 
 #### Scenario: The reviewer's description edit re-runs the merge check
 
@@ -797,6 +797,11 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 
 - **WHEN** a ready code pull request is opened, marked ready, pushed, or edited, its description has no `reviewed-by:` line, and it has no review record comment
 - **THEN** the merge-check job is skipped under `Merge check (awaiting review record, skipped)`, no failed `Merge check` is posted, and the absent required context keeps the pull request from merging
+
+#### Scenario: The probe reads the forge and fails closed
+
+- **WHEN** the `awaiting` job runs `ateam review gate --awaiting` for a ready pull request
+- **THEN** it answers `awaiting=true` only for a code pull request with no `reviewed-by:` line and no review record comment by any agent, reading the forge when it runs so a rerun sees the current state; a documents-only pull request or one with a line or any record is judged in full, and a failed probe leaves no answer, so `Merge check` runs in full
 
 #### Scenario: Removing the line after an approval fails instead of keeping the pass
 
