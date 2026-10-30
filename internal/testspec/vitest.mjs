@@ -93,7 +93,7 @@ export function scanSource(file, source, root = process.cwd()) {
                 comments.unshift({ line: line(range.pos), text: source.slice(range.pos, range.end) });
                 nextStart = range.pos;
               }
-              records.push({ file, line: line(node), name, comments });
+              records.push({ file, line: line(node), end: line(node.getEnd()), name, comments });
             }
           }
         }
