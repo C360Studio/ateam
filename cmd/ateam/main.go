@@ -181,7 +181,7 @@ Subcommands:
   spec-queue   Show in-flight OpenSpec changes with their holds and caveats
   spec-check   Validate OpenSpec changes and fail on a Hold: outside every task
   sync         Sync issues and PRs from the configured forges
-  mode [mode]  Show or set the harness mode
+  mode [mode]  Show or set the Ponytail mode (on|off)
   herdr        herdr integration (on-event, open-pane)
 `
 

@@ -101,7 +101,7 @@ func TestCLISubcommands(t *testing.T) {
 	// Verify the recovery command advertised by stale forge-cache worktree output parses and succeeds through runState.
 	dirtyFalse := false
 	staleSt := &state.State{
-		Mode:          state.ModeFull,
+		Mode:          state.ModeOn,
 		BoardSyncedAt: time.Now().UTC().Add(-2 * time.Hour),
 		Git: state.GitStatus{
 			Branch:  "main",
@@ -161,7 +161,7 @@ func TestRecoveryCommandRefreshesSupplyingForge(t *testing.T) {
 	gtLive := state.ForgeConfig{Provider: state.ForgeGitea, BaseURL: srv.URL, Owner: "test", Repo: "repo"}
 	liveRoot := t.TempDir()
 	stLive := &state.State{
-		Mode:             state.ModeFull,
+		Mode:             state.ModeOn,
 		Forge:            gh,
 		Forges:           []state.ForgeConfig{gh, gtLive},
 		ForgesConfigured: true,
@@ -201,7 +201,7 @@ func TestRecoveryCommandRefreshesSupplyingForge(t *testing.T) {
 	failRoot := t.TempDir()
 	gtFail := state.ForgeConfig{Provider: state.ForgeGitea, BaseURL: "http://127.0.0.1:1", Owner: "test", Repo: "repo"}
 	stFail := &state.State{
-		Mode:             state.ModeFull,
+		Mode:             state.ModeOn,
 		Forge:            gh,
 		Forges:           []state.ForgeConfig{gh, gtFail},
 		ForgesConfigured: true,

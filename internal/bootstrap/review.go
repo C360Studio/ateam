@@ -141,6 +141,7 @@ func rejectReviewSymlinks(root, rel string) error {
 // configures no routes) and its review_record value.
 func reviewFiles(policy *review.Policy, record string) map[string]string {
 	files := map[string]string{
+		".agents/contracts/architect.md": architectContract,
 		".agents/contracts/developer.md": developerContract,
 		".agents/contracts/reviewer.md":  reviewerContractFor(record),
 	}

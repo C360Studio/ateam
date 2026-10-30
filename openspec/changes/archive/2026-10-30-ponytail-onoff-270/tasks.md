@@ -1,0 +1,21 @@
+## 1. Approval
+
+- [x] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` (#270). Evidence: the owner approved in Enjoy on 2026-10-30 (ruling recorded on #91–#94 and #270); Claude wrote the header at their request.
+
+## 2. State and hook
+
+- [x] 2.1 `DisciplineMode` keeps `ModeOn` and `ModeOff`, and `NormalizeMode` maps `on`, `""`, `full`, `lite`, `ultra` to on and `off`, `stop`, `normal` to off, unknown values to `(ModeOn, false)` (`internal/state/state.go:442-465`); the load fallback (`state.go:1528`), `defaultState`, and `internal/bench/bench.go:664` use `ModeOn`. Acceptance: a table test on `NormalizeMode` covers every alias, case and whitespace, and an unknown value; `task mutate:check` reports `detection` with the `lite`/`ultra` arms removed (#270). Evidence: `NormalizeMode` has one `on` arm carrying the aliases under a `// shortcut:` naming the removal release; `TestNormalizeModeOnOffAliases` covers 13 inputs and loads a legacy `{"mode":"ultra"}` state.json as `on`. `task mutate:check` reported `detection` with the `lite`/`ultra` arms removed (`NormalizeMode("lite") = ("on", false)`) and with unknown values accepted (`NormalizeMode("banana") = ("on", true)`); the SHA-256 of `state.go` was unchanged. The `bench.go` edit moved the evaluator digest, so the two synthetic report inputs had only `evaluator_sha256` and the run `sha256` rewritten and their outputs re-exported, recorded in `internal/bench/testdata/report/README.md`.
+- [x] 2.2 `modeCommandRe` accepts `on|full|lite|ultra|off` (`internal/hook/hook.go:61`), `LadderPrompt` loses its `switch` and emits one level line under `PONYTAIL MODE [on]` (`hook.go:434-449`), and `detectModeSwitch` falls back to `ModeOn` (`hook.go:430`). Acceptance: a test on `detectModeSwitch` and `LadderPrompt`; `TestBeforePromptInjectsLadderOnlyOnModeSwitch` sends `/ponytail ultra` and reads `[on]` (#270). Evidence: `TestDetectModeSwitchAndLadderPrompt` covers 11 prompts, including `/ponytail online` and `/ponytail banana` (no switch), and pins the `[on]` banner and an empty `off` ladder; `task mutate:check` reported `detection` with `on` dropped from the regex.
+
+## 3. Entry points, skill, and UI
+
+- [x] 3.1 The MCP prompt text (`internal/mcpserver/server.go:416`), CLI help (`cmd/ateam/main.go:184`), and bootstrap ponytail template (`internal/bootstrap/templates.go:436-437`) name on/off; the canonical skill `.agents/skills/ponytail/SKILL.md` and its Claude adapter follow and gain the effort-dial line. Acceptance: `ateam doctor --check` green with the MCP schema under 300 tokens (#270). Evidence: `ateam doctor --check` passed with `mcp_schema_tokens: 222`.
+- [x] 3.2 The board's discipline pill group becomes an on/off control with the same `/api/mode` body (`ui/src/routes/+page.svelte:1121-1134`); `ui/src/lib/board.test.ts` fixtures use `on`, and `internal/web/server_test.go` posts `ultra` and reads `on`. Acceptance: `task ui:check` and `task ui:test` pass (#270). Evidence: the pill group renders `on` and `off` with `aria-pressed`; `task ui:check` reported 0 errors and `task ui:test` 24 passed; `TestServerEndpoints` reads `"mode":"on"` after posting `ultra`.
+
+## 4. Docs and spec
+
+- [x] 4.1 `README.md` (4 mentions), `docs/hook-flow.md:59-63`, `docs/adoption.md:145`, `docs/mcp.md:100`, and `docs/daily-use.md:9,19,44` name on/off; `docs/hook-flow.md` says `lite`, `ultra`, and `full` are aliases of `on` for this release only. The spec delta rewrites the mode-switch scenario of the harness hook requirement (`openspec/specs/harness/spec.md:18-21`). Acceptance: `task spec:check` passes (#270). Evidence: `openspec validate --all --strict --no-interactive` passed 6 of 6, and `task spec:check` passed.
+
+## 5. Verify
+
+- [x] 5.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0; `ateam state mode lite` prints `on` and `ateam state mode banana` exits 1 (#270). Evidence: `task verify` exited 0 on a clean tree at `570c1ac`; `ateam doctor --check` passed and `ateam bench --selftest` reported `selftest_passed: true` (9 of 9 evaluated, `ui-datepicker` skipped); `ateam state mode lite` printed `{"mode": "on"}` and `ateam state mode banana` exited 1 with `invalid mode "banana"`.

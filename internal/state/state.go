@@ -439,30 +439,25 @@ func RegisterMCPProcess(root, buildLabel, fullCommit string) func() {
 	}
 }
 
-// DisciplineMode represents the active Ponytail decision-ladder level.
+// DisciplineMode represents whether the Ponytail decision-ladder reminder is on or off.
 type DisciplineMode string
 
 // Supported Ponytail discipline modes.
 const (
-	ModeLite  DisciplineMode = "lite"
-	ModeFull  DisciplineMode = "full"
-	ModeUltra DisciplineMode = "ultra"
-	ModeOff   DisciplineMode = "off"
+	ModeOn  DisciplineMode = "on"
+	ModeOff DisciplineMode = "off"
 )
 
 // NormalizeMode validates and normalizes a discipline mode string.
 func NormalizeMode(raw string) (DisciplineMode, bool) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "lite":
-		return ModeLite, true
-	case "full", "":
-		return ModeFull, true
-	case "ultra":
-		return ModeUltra, true
+	// shortcut: full, lite, and ultra alias on for one release (#270), drop them in the release after
+	case "on", "", "full", "lite", "ultra":
+		return ModeOn, true
 	case "off", "stop", "normal":
 		return ModeOff, true
 	default:
-		return ModeFull, false
+		return ModeOn, false
 	}
 }
 
@@ -1598,7 +1593,7 @@ func Load(root string) (*State, error) {
 	if mode, ok := NormalizeMode(string(st.Mode)); ok {
 		st.Mode = mode
 	} else {
-		st.Mode = ModeFull
+		st.Mode = ModeOn
 	}
 	if st.Cards == nil {
 		st.Cards = []BoardCard{}
@@ -1709,7 +1704,7 @@ func Update(root string, fn func(st *State) error) (*State, error) {
 
 func defaultState() *State {
 	return &State{
-		Mode:      ModeFull,
+		Mode:      ModeOn,
 		Cards:     []BoardCard{},
 		UpdatedAt: time.Now().UTC(),
 	}

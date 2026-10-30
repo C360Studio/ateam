@@ -38,6 +38,25 @@ the JSON output is empty. Init does not create a Taskfile.
 `.agents/rules-index.md` with ateam's text, copying yours first to `<name>.ateam-backup-<YYYYMMDD-HHMMSS>`. Client
 configuration is never replaced, so `--force` resolves none of the violations below.
 
+### Existing specialist contracts
+
+Your repository may already keep role contracts under `.agents/contracts/` with its own names (`go-developer.md`,
+`acme-reviewer.md`). Init adds the base `developer.md`, `reviewer.md` and `architect.md` beside them and touches none of
+yours. A subagent that reads only its specialist contract never sees the base rules, so link the two:
+
+- **Keep the base contracts as init wrote them.** `ateam doctor --check` and `ateam review setup` drift-check
+  `architect.md`, `developer.md` and `reviewer.md`: each must still contain every paragraph ateam generates. Add your
+  own paragraphs if you must; do not reword the generated ones.
+- **Open each specialist contract with one pointer sentence.** For example: "Read `.agents/contracts/reviewer.md`
+  first; this contract adds this repository's rules on top." Use `developer.md` or `architect.md` for those roles.
+- **Keep the record grammar in one place.** `reviewed-by: <agent> (<model>, <effort>)`, `Reviewed at <sha>` and
+  `Verdict:` live in [reviewer contract § Record](../.agents/contracts/reviewer.md#record). Delete any copy in a
+  specialist contract; a stale copy is how a record ends up with an effort the gate cannot compare.
+- **If your contract already has a base name**, such as your own `architect.md`, init leaves it in place, the
+  `/design` skill reads it as the architect contract, and doctor reports it as drifted until it contains ateam's
+  paragraphs. Copy the paragraphs of ateam's [architect contract](../.agents/contracts/architect.md) into yours
+  unchanged and keep your rules after them.
+
 ## 3. Resolve the doctor violations
 
 ```bash

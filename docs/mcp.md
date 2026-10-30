@@ -97,7 +97,7 @@ Expect initialization followed by exactly two tool definitions. EOF stops this t
 | `pickup` | `{"action":"pickup"}` returns a human-readable reconciliation summary including `build` and `synced` timestamps, the worktree list with PR status, and the handoffs recorded inside other worktrees. | Refreshes local state and attempts a bounded remote sync when stale. |
 | `read_handoff` | `{"action":"read_handoff","slot":"claude@main"}` returns that slot's five fields from this checkout's cache, then linked worktrees' caches (this checkout wins a duplicate), under a `STALE — <reasons>` banner when stale. A missing slot is a tool error listing the slots that exist. | None: no refresh, cache write, writer-lease change, persisted identity change, or forge call. Staleness uses live heads and the session from env or the lease, not `session_id`. |
 | `debt` | Returns scanned shortcuts as JSON text. | Limited to [supported extensions](adoption.md#feature-and-language-boundaries). |
-| `mode` | Without `mode`, reads current mode; with `"mode":"lite"`, `"full"`, `"ultra"`, or `"off"`, changes it and returns mode/ladder text. | Saves mode when supplied; does not change provider/model settings. |
+| `mode` | Without `mode`, reads current mode; with `"mode":"on"` or `"off"`, changes it and returns mode/ladder text. | Saves mode when supplied; does not change provider/model settings. |
 | `spec_queue` | Returns in-flight OpenSpec task/caveat summary. | Local refresh only. |
 | `spec_check` | Validates OpenSpec and reports tool error on invalid specs. | May invoke installed OpenSpec CLI. |
 | `board` | Returns board cards as JSON text. | Attempts a bounded remote forge sync when stale, falling back to cache on failure. |

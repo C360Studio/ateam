@@ -42,3 +42,9 @@ A third rewrite followed the grader fixes in `ef2f887` (Codex review at
 and the `propagate-limit` test rejects a nil sentinel. The procedure and the
 reviewed drift were the same: only the evaluator digest and dependent evidence
 digests changed.
+
+A fourth rewrite followed #270, which collapsed Ponytail modes to on/off: the
+`relay-openspec-hold` fixture in `bench.go` now seeds `state.ModeOn` and expects
+the `PONYTAIL MODE [on]` banner. The grader logic is unchanged. The procedure and
+the reviewed drift were the same: only the evaluator digest and dependent
+evidence digests changed.

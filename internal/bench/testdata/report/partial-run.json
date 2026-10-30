@@ -46,7 +46,7 @@
       "timeout_seconds": 5
     },
     "config_sha256": "6dfa27d356bb631dc3047f4a4381da40d9e953f80cfd0c3b628b0b23d0502491",
-    "evaluator_sha256": "39776fe30a0e1633eb9ab02f3f6609dcdafeca03b2770b1d4865ce269ac72eea",
+    "evaluator_sha256": "92c1cf830853d62be47704d5835e246320af350e4619e6a129eb86294df2a5b8",
     "command_files_sha256": {
       "/synthetic/not-executable": "1c94381c3359991b8855a03705afd3c7ccb70c23835e9f8570488658b07878a2"
     },
@@ -162,5 +162,5 @@
       }
     }
   ],
-  "sha256": "fabd10c34af06b32a018e14d4b3c30b003bbcdd5886d2eb8c8c7d67c01863c40"
+  "sha256": "5e1d43599cb8825e7d91a13a0033b4143bd1c633e39b22e121d0e164c351172b"
 }
