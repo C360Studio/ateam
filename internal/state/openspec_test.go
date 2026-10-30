@@ -405,15 +405,18 @@ func TestDesignLengthWarning(t *testing.T) {
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 func TestCheckOpenSpecFindsValidatorOnPATH(t *testing.T) {
 	const pass, fail = "exit 0\n", "echo strict-failed\nexit 1\n"
+	const versioned = "[ \"$1\" = --version ] && echo 1.7.0\nexit 0\n"
 	for _, tc := range []struct {
 		name, local, onPath string // "" means that validator is absent
 		wantCode            int
 		wantSkip            bool
+		wantOK              string // "local" or "path": which binary the success line names (#264)
+		wantVersion         string
 	}{
-		{"neither installed", "", "", 0, true},
-		{"PATH only, passes", "", pass, 0, false},
-		{"PATH only, fails", "", fail, 1, false},
-		{"local wins over PATH", pass, fail, 0, false},
+		{"neither installed", "", "", 0, true, "", ""},
+		{"PATH only, passes", "", versioned, 0, false, "path", "1.7.0"},
+		{"PATH only, fails", "", fail, 1, false, "", ""},
+		{"local wins over PATH", pass, fail, 0, false, "local", "version unknown"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -444,6 +447,19 @@ func TestCheckOpenSpecFindsValidatorOnPATH(t *testing.T) {
 			}
 			if got := strings.Contains(out, "strict validation skipped"); got != tc.wantSkip {
 				t.Errorf("skip notice = %v, want %v; output:\n%s", got, tc.wantSkip, out)
+			}
+			wantLine := ""
+			switch tc.wantOK {
+			case "path":
+				wantLine = "openspec: strict ok (" + filepath.Join(pathDir, "openspec") + ", " + tc.wantVersion + ", 0 changes)\n"
+			case "local":
+				wantLine = "openspec: strict ok (" + filepath.Join(dir, "node_modules", ".bin", "openspec") + ", " + tc.wantVersion + ", 0 changes)\n"
+			}
+			if wantLine != "" && !strings.Contains(out, wantLine) {
+				t.Errorf("success line missing, want %q; output:\n%s", wantLine, out)
+			}
+			if wantLine == "" && strings.Contains(out, "strict ok") {
+				t.Errorf("success line printed without a passing validator; output:\n%s", out)
 			}
 		})
 	}

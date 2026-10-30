@@ -448,6 +448,7 @@ func FormatOpenSpecQueue(changes []OpenSpecChange) (string, bool) {
 func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	// 1. Validate openspec/config.yaml and openspec/specs/*/spec.md exist if openspec/ is present.
 	strictSkipped := false
+	strictOK := "" // "<path>, <version>" once strict validation passed (#264)
 	openspecDir := filepath.Join(root, "openspec")
 	if info, err := os.Stat(openspecDir); err == nil && info.IsDir() {
 		cfgPath := filepath.Join(openspecDir, "config.yaml")
@@ -489,6 +490,14 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 			if out, err := cmd.CombinedOutput(); err != nil {
 				return string(out), 1, fmt.Errorf("openspec validate failed: %w", err)
 			}
+			// Name the binary and version that passed, so a real pass never reads like a silent skip (#264).
+			version := "version unknown"
+			if v, err := exec.CommandContext(cctx, bin, "--version").Output(); err == nil {
+				if first := strings.TrimSpace(strings.SplitN(string(v), "\n", 2)[0]); first != "" {
+					version = first
+				}
+			}
+			strictOK = bin + ", " + version
 		}
 	}
 
@@ -524,6 +533,9 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	}
 	if strictSkipped {
 		out.WriteString("openspec: strict validation skipped (openspec not found in node_modules/.bin or on PATH; run npm ci at the repository root or install @fission-ai/openspec)\n")
+	}
+	if strictOK != "" {
+		fmt.Fprintf(&out, "openspec: strict ok (%s, %d changes)\n", strictOK, len(changes))
 	}
 	fmt.Fprintf(&out, "holds: ok (%d tasks.md read)\n", readCount)
 	return out.String(), 0, nil

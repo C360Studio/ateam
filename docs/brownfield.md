@@ -135,7 +135,8 @@ summary, and `ateam state pickup` prints it on demand.
   on `Approved-by:` and Task 1's `Hold: OPEN-Q proposal awaits owner approval`; with your own config, copy
   `rules: design:` from ateam's `openspec/config.yaml` if you also invoke `openspec instructions design` alongside
   `/design`. `ateam state spec-check` uses
-  `node_modules/.bin/openspec` or `openspec` on `PATH` for strict validation and prints a skip notice when neither is
+  `node_modules/.bin/openspec` or `openspec` on `PATH` for strict validation, prints
+  `openspec: strict ok (<path>, <version>, <n> changes)` when it passes, and prints a skip notice when neither is
   installed.
 - **Verification.** Do not copy ateam's `Taskfile.yml`. Keep your own `task verify` or CI entry point and add the
   `ateam` binary to it: `ateam doctor --check` for parity, and `ateam review gate <pr>` for the merge gate (see
