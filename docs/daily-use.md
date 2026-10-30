@@ -6,7 +6,7 @@ This guide covers day-to-day work in a repository that uses default `ateam` sett
 
 | Phase | What you do | What `ateam` or the agent does |
 | --- | --- | --- |
-| Orient | Start your agent CLI or open `ateam serve`. | `ateam hook` injects branch, `HEAD`, `Hold:`, shortcut, and `full` mode state. |
+| Orient | Start your agent CLI or open `ateam serve`. | `ateam hook` injects branch, `HEAD`, `Hold:`, shortcut, and Ponytail mode state. |
 | Clarify | Confirm scope, pick `quick` or `design`, and sign `Approved-by:`. | The agent inspects the tree, drafts `proposal.md` + `tasks.md` (plus read-only `design.md` on `design`), and pauses on Task 1's `OPEN-Q` hold. |
 | Claim and build | Steer `/ponytail` mode; run parallel tasks in separate worktrees. | The agent claims `.worktrees/<agent>-<topic>`, opens a draft PR, writes code and tests, and tracks holds/shortcuts. |
 | Pause or switch | Run `/handoff` (or `ateam state handoff --goal "..."`) before stopping. | `ateam` saves `.ateam/state.json`, clears the writer lease, and comments on the open PR. |
@@ -16,7 +16,7 @@ This guide covers day-to-day work in a repository that uses default `ateam` sett
 ## 1. Start or resume a session
 
 1. Start Claude Code, Codex CLI, Gemini CLI, or Antigravity (`agy`) in your repository.
-2. On startup, `ateam hook` injects your branch, `HEAD`, `Hold:` count, shortcuts, and Ponytail `full` mode ([hook flow](hook-flow.md)).
+2. On startup, `ateam hook` injects your branch, `HEAD`, `Hold:` count, shortcuts, and the Ponytail ladder when its mode is `on` ([hook flow](hook-flow.md)).
 3. When you resume earlier work or switch agent CLIs, run `/pickup` ([pickup skill](../.agents/skills/pickup/SKILL.md)) or `ateam state pickup`.
 4. `ateam state pickup` reconciles live Git worktrees and GitHub or Gitea state against the last checkpoint.
 5. When you want a browser board for issues, holds, and shortcuts, run `ateam serve` and open `http://127.0.0.1:8420`.
@@ -43,7 +43,7 @@ This guide covers day-to-day work in a repository that uses default `ateam` sett
 For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>/<topic>` (`claude/…`, `codex/…`, or `gemini/…`) and opens a draft PR. Because `.ateam/writer.json` tracks one worktree at a time, you can run separate agents in parallel across separate worktrees.
 
 - If a second live session enters the same worktree, `ateam` prints a competing-writer warning; move to a separate worktree.
-- When you want lighter or stricter scope pushback, run `/ponytail lite`, `/ponytail full`, `/ponytail ultra`, or `/ponytail off` ([ponytail skill](../.agents/skills/ponytail/SKILL.md)).
+- To turn the Ponytail ladder reminder on or off, run `/ponytail on` or `/ponytail off` ([ponytail skill](../.agents/skills/ponytail/SKILL.md)). Effort is set by the OpenSpec quick/design track, not by Ponytail.
 - In Antigravity (`agy`), switch modes with `ateam state mode <level>` or `/ponytail` because `PreInvocation` stdin omits prompt text.
 - When an external blocker stops a task, the agent adds `Hold: <reason>` under that task in `tasks.md` (`ateam state spec-queue`).
 - When the agent defers an edge case in code, it adds `// shortcut: <limit>, <when to upgrade>` (`ateam state debt`).
@@ -96,7 +96,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 - **Fast hooks and small schemas:** `ateam hook` runs in under 10ms (100ms `--check` limit), and `ateam mcp` uses about 190 schema tokens ([MCP guide](mcp.md)).
 - **Explicit blind-spot lines:** At the end of each task conclusion and each handoff, the agent states what it skipped and what risk remains in one or two lines. Acknowledgements and progress updates skip this, but still name blockers, failed or unavailable checks, and changed risks.
 - **Advisory hooks versus hard CI gates:** `ateam hook` and Ponytail modes inject prompt guidance; they do not block edits, enforce obedience, or run tests automatically.
-- **OpenSpec track versus Ponytail mode:** `quick` versus `design` sets pre-code planning depth and OpenSpec artifacts; `/ponytail` (`lite`, `full`, `ultra`, `off`) adjusts injected code-scope reminders during implementation without changing OpenSpec requirements.
+- **OpenSpec track versus Ponytail mode:** `quick` versus `design` sets pre-code planning depth and OpenSpec artifacts; `/ponytail` (`on`, `off`) toggles the injected code-scope reminder during implementation without changing OpenSpec requirements.
 - **Local checks versus optional CI gates:** `task verify` and `ateam doctor --check` run locally; add `ateam review gate` in CI to block unreviewed code PRs.
 - **Commit-bound reviews:** Pushing a code commit after review invalidates `Reviewed at <sha>` and requires a fresh review comment.
 - **One red `Merge check` (when wired in CI):** Marking a PR ready runs it before `/review-pr` comments. The reviewer's `reviewed-by:` description edit reruns it where it runs on `edited` (ateam's `merge-check.yml`); otherwise the reviewer reruns it.

@@ -425,7 +425,7 @@ func listPrompts() []map[string]any {
 		{"name": "pickup", "description": "Reconcile live git/worktree, GitHub/Gitea, OpenSpec, and handoff state"},
 		{"name": "handoff", "description": "Checkpoint current work and emit the 5-field pickup prompt"},
 		{"name": "preflight", "description": "Select and run Taskfile verification gates for the current diff"},
-		{"name": "ponytail", "description": "Apply the Ponytail 6-step decision ladder (lite, full, ultra, off)"},
+		{"name": "ponytail", "description": "Apply the Ponytail 6-step decision ladder (on, off)"},
 	}
 }
 

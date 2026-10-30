@@ -27,25 +27,25 @@ func TestBeforePromptInjectsLadderOnlyOnModeSwitch(t *testing.T) {
 		t.Fatalf("expected empty AdditionalContext on normal prompt, got: %q", normalOut.AdditionalContext)
 	}
 
-	// Switch to ultra via Gemini BeforeAgent payload.
+	// The legacy ultra alias resolves to on via Gemini BeforeAgent payload (#270).
 	payload := `{"hook_event_name":"BeforeAgent","prompt":"Please run /ponytail ultra on this module"}`
 	out, err := Handle(dir, "", strings.NewReader(payload))
 	if err != nil {
 		t.Fatalf("Handle BeforeAgent: %v", err)
 	}
-	if !strings.Contains(out.AdditionalContext, "PONYTAIL MODE [ultra]") {
-		t.Errorf("expected ultra ladder in AdditionalContext, got: %q", out.AdditionalContext)
+	if !strings.Contains(out.AdditionalContext, "PONYTAIL MODE [on]") {
+		t.Errorf("expected on ladder in AdditionalContext, got: %q", out.AdditionalContext)
 	}
 
 	st, err := state.Load(dir)
 	if err != nil {
 		t.Fatalf("state.Load: %v", err)
 	}
-	if st.Mode != state.ModeUltra {
-		t.Errorf("persisted mode = %q, want %q", st.Mode, state.ModeUltra)
+	if st.Mode != state.ModeOn {
+		t.Errorf("persisted mode = %q, want %q", st.Mode, state.ModeOn)
 	}
 
-	// Subsequent ordinary prompt in ultra mode must also return empty output.
+	// Subsequent ordinary prompt in on mode must also return empty output.
 	nextOut, err := Handle(dir, "before-prompt", strings.NewReader(`{"hook_event_name":"BeforeAgent","prompt":"now add tests"}`))
 	if err != nil {
 		t.Fatalf("Handle subsequent prompt: %v", err)
@@ -62,6 +62,43 @@ func TestBeforePromptInjectsLadderOnlyOnModeSwitch(t *testing.T) {
 	}
 	if outOff.AdditionalContext != "" {
 		t.Errorf("expected empty AdditionalContext when off, got: %q", outOff.AdditionalContext)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
+func TestDetectModeSwitchAndLadderPrompt(t *testing.T) {
+	cases := []struct {
+		prompt      string
+		wantMode    state.DisciplineMode
+		wantChanged bool
+	}{
+		{"/ponytail on", state.ModeOn, true},
+		{"/mode off", state.ModeOff, true},
+		{"/ponytail lite", state.ModeOn, true},
+		{"/ponytail ultra", state.ModeOn, true},
+		{"/mode full", state.ModeOn, true},
+		{"please /PONYTAIL OFF now", state.ModeOff, true},
+		{"stop ponytail", state.ModeOff, true},
+		{"/ponytail banana", state.ModeOn, false},
+		{"/ponytail online", state.ModeOn, false},
+		{"turn the ponytail on", state.ModeOn, false},
+		{"implement handler", state.ModeOn, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.prompt, func(t *testing.T) {
+			mode, changed := detectModeSwitch(tc.prompt)
+			if mode != tc.wantMode || changed != tc.wantChanged {
+				t.Fatalf("detectModeSwitch(%q) = (%q, %v), want (%q, %v)", tc.prompt, mode, changed, tc.wantMode, tc.wantChanged)
+			}
+		})
+	}
+
+	on := LadderPrompt(state.ModeOn)
+	if !strings.HasPrefix(on, "PONYTAIL MODE [on] — Full discipline:") {
+		t.Fatalf("LadderPrompt(on) banner = %q", on)
+	}
+	if off := LadderPrompt(state.ModeOff); off != "" {
+		t.Fatalf("LadderPrompt(off) = %q, want empty", off)
 	}
 }
 
@@ -307,7 +344,7 @@ func TestSessionStartDetectsHeadDrift(t *testing.T) {
 	}
 
 	st := &state.State{
-		Mode: state.ModeFull,
+		Mode: state.ModeOn,
 		Git:  state.GitStatus{Branch: "main", HeadSHA: "148420d"},
 		LastHandoff: &state.Handoff{
 			Goal:          "Complete dual-forge webhook receiver",
@@ -453,7 +490,7 @@ func TestAntigravityHookContract(t *testing.T) {
 	if err := decStart.Decode(&parsedStart); err != nil {
 		t.Fatalf("agy session-start output violated strict protojson schema (%s): %v", string(rawStart), err)
 	}
-	if len(parsedStart.InjectSteps) != 1 || !strings.Contains(parsedStart.InjectSteps[0].SystemMessage.SystemMessage, "PONYTAIL MODE [full]") {
+	if len(parsedStart.InjectSteps) != 1 || !strings.Contains(parsedStart.InjectSteps[0].SystemMessage.SystemMessage, "PONYTAIL MODE [on]") {
 		t.Fatalf("expected agy injectSteps with Ponytail ladder, got: %s", string(rawStart))
 	}
 
@@ -730,7 +767,7 @@ func TestReview79HookPreCompactAndWorktreeBranchSwitch(t *testing.T) {
 	// Finding 1: SetHandoff followed by HEAD advance + intermediate state.Refresh or RefreshHandoffStaleness
 	// must still preserve the 5 semantic fields on same-session pre-compact.
 	st := &state.State{
-		Mode: state.ModeFull,
+		Mode: state.ModeOn,
 		Git: state.GitStatus{
 			Branch:  "main",
 			HeadSHA: "1111111",
@@ -855,7 +892,7 @@ func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
 	}
 	dirtyFalse := false
 	st := &state.State{
-		Mode:          state.ModeFull,
+		Mode:          state.ModeOn,
 		Forge:         state.ForgeConfig{Provider: state.ForgeGitHub, Owner: "c360", Repo: "ateam"},
 		BoardSyncedAt: time.Now().UTC().Add(-4 * time.Hour),
 		Git: state.GitStatus{
@@ -920,7 +957,7 @@ func TestPreCompactPreservesOwnHandoffBehindRemoteTip(t *testing.T) {
 		ChecksToRun: "go test ./internal/hook",
 	}
 	st := &state.State{
-		Mode: state.ModeFull,
+		Mode: state.ModeOn,
 		Git:  state.GitStatus{Branch: "main", HeadSHA: "1111111", DefaultRemoteRef: "origin/main", DefaultRemoteHead: "2222222"},
 	}
 	h := fields

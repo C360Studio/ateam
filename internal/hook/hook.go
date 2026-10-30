@@ -58,7 +58,7 @@ type SpecificOutput struct {
 	AdditionalContext string `json:"additionalContext,omitempty"`
 }
 
-var modeCommandRe = regexp.MustCompile(`(?i)(?:^|\s)/(?:ponytail|mode)\s+(lite|full|ultra|off)\b`)
+var modeCommandRe = regexp.MustCompile(`(?i)(?:^|\s)/(?:ponytail|mode)\s+(on|full|lite|ultra|off)\b`)
 
 // NormalizeEvent maps CLI-specific hook names (Claude, Codex, Gemini, Antigravity) to canonical event names.
 func NormalizeEvent(flagEvent, payloadEvent string) string {
@@ -427,25 +427,18 @@ func detectModeSwitch(prompt string) (state.DisciplineMode, bool) {
 			return mode, true
 		}
 	}
-	return state.ModeFull, false
+	return state.ModeOn, false
 }
 
-// LadderPrompt returns the compact (~110 token) Ponytail decision ladder for the active level.
+// LadderPrompt returns the compact (~110 token) Ponytail decision ladder, or "" when the mode is off.
 func LadderPrompt(mode state.DisciplineMode) string {
 	if mode == state.ModeOff {
 		return ""
 	}
-	levelLine := "Full discipline: smallest complete change; no unrequested features/wrappers."
-	switch mode {
-	case state.ModeLite:
-		levelLine = "Lite discipline: build what was asked; name the smaller option in one line."
-	case state.ModeUltra:
-		levelLine = "Ultra discipline: question any requirement not justified by the need before building."
-	}
-	return fmt.Sprintf("PONYTAIL MODE [%s] — %s\n"+
+	return fmt.Sprintf("PONYTAIL MODE [%s] — Full discipline: smallest complete change; no unrequested features/wrappers.\n"+
 		"Ladder: 1) Need to exist? 2) Already in codebase? 3) Stdlib/platform? 4) Existing dep? 5) Clear 1-liner? 6) Minimum complete change.\n"+
 		"Guardrails: Never cut trust-boundary validation, error handling, security, or tests on branches/parsers. Tag limits with `// shortcut: <limit>, <when to upgrade>`. End conclusions and handoffs with 1-2 lines: skipped/unchecked + residual risk.",
-		mode, levelLine)
+		mode)
 }
 
 func buildOutput(eventName, contextText string) Output {

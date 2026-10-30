@@ -17,8 +17,10 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 #### Scenario: Mode switch and Ponytail ladder injection
 
-- **WHEN** `ateam hook --event before-prompt` receives a prompt containing `/ponytail ultra` or `/mode ultra`
-- **THEN** it updates `.ateam/state.json` to mode `ultra` and returns `additionalContext` (or `injectSteps` when `--agent agy` is set) containing the Ponytail 6-step decision ladder at `ultra` level
+- **WHEN** `ateam hook --event before-prompt` receives a prompt containing `/ponytail on` or `/mode on`
+- **THEN** it updates `.ateam/state.json` to mode `on` and returns `additionalContext` (or `injectSteps` when `--agent agy` is set) containing the Ponytail 6-step decision ladder under the banner `PONYTAIL MODE [on]`
+- **AND** a prompt containing `/ponytail off` or `/mode off` updates the mode to `off` and returns no ladder
+- **AND** `lite`, `ultra`, and `full` are accepted in place of `on` and resolve to mode `on`
 
 #### Scenario: Ordinary prompt without mode switch
 

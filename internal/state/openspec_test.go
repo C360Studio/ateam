@@ -188,7 +188,7 @@ func TestHoldDisplaySinglePrefixAndWordBoundaryInPickup(t *testing.T) {
 	}
 
 	st := &State{
-		Mode: ModeFull,
+		Mode: ModeOn,
 		Holds: []HoldItem{
 			holds[0],
 			{
