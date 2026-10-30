@@ -88,7 +88,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 1. Once your checks pass and the review approves, squash-merge the PR (`gh pr merge --squash`) or merge on Gitea.
 2. When your repository enables branch protection and auto-merge, arm `gh pr merge --squash --auto` (or Gitea `merge_when_checks_succeed`) instead.
 3. To enforce review records, `main` rulesets, and `class:flake` blocks in CI, wire in `ateam review gate <pr-number>` ([merge gate setup](adoption.md#the-merge-gate-on-github-and-gitea)).
-4. After the PR merges, the claiming agent removes `.worktrees/<agent>-<topic>` and deletes the remote branch; `ateam state prune` does both for every merged, clean worktree on its prefix (`--dry-run` lists them first).
+4. After the PR merges, the claiming agent removes `.worktrees/<agent>-<topic>` and deletes the remote branch; `ateam state prune` does both for every merged, clean worktree on its prefix that no other session holds or handed off in the last 30 minutes (`--dry-run` lists them first).
 5. An agent MUST NOT delete a worktree that belongs to another agent or contains uncommitted or unpushed work.
 
 ## What to expect day to day

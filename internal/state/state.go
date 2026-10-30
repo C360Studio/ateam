@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -664,6 +665,9 @@ func HandoffSlotKey(agent, branch string) string {
 	return a + "@" + b
 }
 
+// writerLeaseTTL is how long a writer lease counts as active after its last_seen.
+const writerLeaseTTL = 10 * time.Minute
+
 func isCallerActiveWriterLease(lease *WriterLease, callerSessionID string) bool {
 	if lease == nil || strings.TrimSpace(lease.Agent) == "" {
 		return false
@@ -671,7 +675,7 @@ func isCallerActiveWriterLease(lease *WriterLease, callerSessionID string) bool 
 	if lease.PID > 0 && !IsProcessAlive(lease.PID) {
 		return false
 	}
-	if !lease.LastSeen.IsZero() && time.Since(lease.LastSeen) >= 10*time.Minute {
+	if !lease.LastSeen.IsZero() && time.Since(lease.LastSeen) >= writerLeaseTTL {
 		return false
 	}
 	callerSession := strings.TrimSpace(callerSessionID)
@@ -2807,7 +2811,7 @@ func BuildPickupSummary(st *State) string {
 		sameSession := curSession != "" && leaseSession == curSession
 		sameClientPID := curSession == "" && st.Writer.PID > 0 && (st.Writer.PID == ResolveClientPID() || st.Writer.PID == os.Getpid())
 		sameHerdrPane := os.Getenv("HERDR_ENV") == "1" && st.Writer.HerdrPaneID != "" && st.Writer.HerdrPaneID == strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
-		if time.Since(st.Writer.LastSeen) < 10*time.Minute && pidAlive && leaseSession != "" && !sameSession && !sameClientPID && !sameHerdrPane {
+		if time.Since(st.Writer.LastSeen) < writerLeaseTTL && pidAlive && leaseSession != "" && !sameSession && !sameClientPID && !sameHerdrPane {
 			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)%s\n",
 				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		}
@@ -3014,7 +3018,7 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 		} else if wt.Branch != "" && wt.Branch == st.Git.Branch && wt.Head != "" && SameCommitSHA(wt.Head, st.Git.HeadSHA) {
 			dirtyStr = fmt.Sprintf("%v", st.Git.Dirty)
 		}
-		if remove, _ := st.PruneVerdict(wt, st.CurrentAgent, ""); remove {
+		if remove, _ := st.PruneVerdict(wt, st.CurrentAgent, "", false); remove {
 			statuses[i] += ", prune candidate"
 		}
 		aheadStr := fmt.Sprintf("ahead=%d", wt.AheadCount)
@@ -3057,21 +3061,31 @@ func worktreeHandoffLines(st *State, wt Worktree) []string {
 // worktreeHandoffSlots returns the slots a linked worktree recorded for its own branch
 // that st does not already hold. A missing or unreadable worktree state yields none.
 func worktreeHandoffSlots(st *State, wt Worktree) map[string]*Handoff {
+	slots, _ := readWorktreeHandoffSlots(st, wt)
+	return slots
+}
+
+// readWorktreeHandoffSlots is worktreeHandoffSlots for a deletion guard: a missing cache
+// yields none, but an unreadable or malformed one is an error, so prune keeps the worktree (#263).
+func readWorktreeHandoffSlots(st *State, wt Worktree) (map[string]*Handoff, error) {
 	path := strings.TrimSpace(wt.Path)
 	// A branch is checked out in at most one worktree, so this one is the current checkout.
 	if path == "" || (wt.Branch != "" && wt.Branch == st.Git.Branch) {
-		return nil
+		return nil, nil
 	}
 	data, err := os.ReadFile(CacheFilePath(path))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var wtState struct {
 		Handoffs    map[string]*Handoff `json:"handoffs"`
 		LastHandoff *Handoff            `json:"last_handoff"`
 	}
-	if json.Unmarshal(data, &wtState) != nil {
-		return nil
+	if err := json.Unmarshal(data, &wtState); err != nil {
+		return nil, err
 	}
 	slots := wtState.Handoffs
 	if len(slots) == 0 && wtState.LastHandoff != nil {
@@ -3091,7 +3105,7 @@ func worktreeHandoffSlots(st *State, wt Worktree) map[string]*Handoff {
 		}
 		own[key] = h
 	}
-	return own
+	return own, nil
 }
 
 // ReadHandoff returns one slot's five fields without writing the state cache, touching the writer
