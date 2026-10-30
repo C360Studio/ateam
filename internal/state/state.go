@@ -699,6 +699,27 @@ func isCallerActiveWriterLease(lease *WriterLease, callerSessionID string) bool 
 	return leaseSession == ""
 }
 
+// ownsWriterLease reports whether a handoff by callerSessionID may release lease (#265). The lease must be the
+// caller's live lease and name the caller positively: an equal non-empty session, or, without a caller session,
+// the herdr pane or the client/own PID. A lease carrying no identity is never the caller's to release.
+func ownsWriterLease(lease *WriterLease, callerSessionID string) bool {
+	if !isCallerActiveWriterLease(lease, callerSessionID) {
+		return false
+	}
+	callerSession := strings.TrimSpace(callerSessionID)
+	if callerSession == "" {
+		callerSession = ResolveEnvSessionID()
+	}
+	if callerSession != "" {
+		// isCallerActiveWriterLease already required the lease session to equal it.
+		return true
+	}
+	if os.Getenv("HERDR_ENV") == "1" && lease.HerdrPaneID != "" && lease.HerdrPaneID == strings.TrimSpace(os.Getenv("HERDR_PANE_ID")) {
+		return true
+	}
+	return lease.PID > 0 && (lease.PID == ResolveClientPID() || lease.PID == os.Getpid())
+}
+
 // ResolveActiveAgent resolves the active agent name from an explicit flag/parameter, ATEAM_AGENT,
 // an active writer lease owned by the caller, the branch prefix (claude/*, codex/*, gemini/*, agy/*), or "agent".
 func ResolveActiveAgent(root, explicit, branch string, lease *WriterLease) string {
@@ -1361,13 +1382,57 @@ func ReadWriterLease(root string) (*WriterLease, error) {
 	return &wl, nil
 }
 
-// ClearWriterLease removes .ateam/writer.json when an agent hands off write ownership.
-func ClearWriterLease(root string) error {
-	err := os.Remove(WriterLeasePath(root))
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
+// AfterLeaseDecision is a test seam, nil in production: SaveHandoffReleasingLease calls it while holding the
+// state lock, after deciding lease ownership and before removing the lease.
+var AfterLeaseDecision func()
+
+// LeaseReleaseError reports a handoff that was saved while its writer lease could not be removed (#265).
+type LeaseReleaseError struct {
+	Err error
+}
+
+func (e *LeaseReleaseError) Error() string {
+	return "handoff saved; writer lease not released: " + e.Err.Error()
+}
+
+func (e *LeaseReleaseError) Unwrap() error { return e.Err }
+
+// SaveHandoffReleasingLease saves h through SetHandoffGuarded, applies mutate, and removes .ateam/writer.json only
+// when the caller owns it (#265), all under the state lock that WriteWriterLease also takes. It returns the lease
+// left in place (nil when there was none or it was released). A refused handoff saves and releases nothing; a
+// failed removal after the save returns *LeaseReleaseError.
+func SaveHandoffReleasingLease(root string, h Handoff, force bool, callerSessionID string, mutate func(*State)) (*WriterLease, error) {
+	var kept *WriterLease
+	err := WithLock(root, func() error {
+		st, err := Load(root)
+		if err != nil {
+			return err
+		}
+		if err := st.SetHandoffGuarded(h, force); err != nil {
+			return err
+		}
+		if mutate != nil {
+			mutate(st)
+		}
+		owned := ownsWriterLease(st.Writer, callerSessionID)
+		if owned {
+			st.Writer = nil
+		}
+		kept = st.Writer
+		if AfterLeaseDecision != nil {
+			AfterLeaseDecision()
+		}
+		if err := Save(root, st); err != nil {
+			return err
+		}
+		if owned {
+			if err := os.Remove(WriterLeasePath(root)); err != nil && !os.IsNotExist(err) {
+				return &LeaseReleaseError{Err: err}
+			}
+		}
+		return nil
+	})
+	return kept, err
 }
 
 // WriteWriterLease atomically writes the active writer lease to .ateam/writer.json.
@@ -1397,7 +1462,15 @@ func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
 		wl.HerdrPaneID = strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
 		wl.HerdrWorkspaceID = strings.TrimSpace(os.Getenv("HERDR_WORKSPACE_ID"))
 	}
-	return writeWriterLeaseStruct(dir, root, wl)
+	// The handoff decides ownership and removes the lease under this lock, so a lease written here cannot be
+	// deleted by a handoff that judged the previous one (#265).
+	var out *WriterLease
+	err := WithLock(root, func() error {
+		var err error
+		out, err = writeWriterLeaseStruct(dir, root, wl)
+		return err
+	})
+	return out, err
 }
 
 func mcpCheckedSessionsPath(root string) string {
@@ -1584,6 +1657,9 @@ func Save(root string, st *State) error {
 	return nil
 }
 
+// beforeFlock is a test seam, nil in production: WithLock calls it just before blocking on the lock.
+var beforeFlock func()
+
 // WithLock executes fn while holding an exclusive advisory file lock on .ateam/state.lock.
 func WithLock(root string, fn func() error) error {
 	dir := filepath.Join(root, ".ateam")
@@ -1599,6 +1675,9 @@ func WithLock(root string, fn func() error) error {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		_ = f.Close()
 	}()
+	if beforeFlock != nil {
+		beforeFlock()
+	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("acquire state lock: %w", err)
 	}
