@@ -15,7 +15,7 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
-// spec: openspec/changes/mcp-handoff-args-266/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
 func TestMCPHandoffRefusesInvalidArgumentsBeforeAnyWrite(t *testing.T) {
 	// #266: a blank or wrong-type goal must not replace a useful checkpoint, release the lease, or post.
 	dir := t.TempDir()
@@ -109,7 +109,7 @@ func TestMCPHandoffRefusesInvalidArgumentsBeforeAnyWrite(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/mcp-handoff-args-266/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
 func TestMCPTaskToolRefusesWrongTypeTarget(t *testing.T) {
 	dir := t.TempDir()
 	// A target that would leave a marker if task ran it.
@@ -130,7 +130,7 @@ func TestMCPTaskToolRefusesWrongTypeTarget(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/mcp-handoff-args-266/specs/harness/spec.md#Requirement: Two-tool MCP context budget
+// spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
 func TestMCPToolCallWithoutArgumentsStillWorks(t *testing.T) {
 	// Absent arguments decode to nothing, not an error, so the decode check must not reject them.
 	dir := t.TempDir()
