@@ -15,8 +15,8 @@ describe('suite', () => {
   test.skip.each([1, 2])('case %s', () => {});
 });`;
   assert.deepEqual(scanSource('a.test.ts', source), [
-    { file: 'a.test.ts', line: 5, name: 'first', comments: [{ line: 4, text: '// spec: first' }] },
-    { file: 'a.test.ts', line: 6, name: 'case %s', comments: [] }
+    { file: 'a.test.ts', line: 5, end: 5, name: 'first', comments: [{ line: 4, text: '// spec: first' }] },
+    { file: 'a.test.ts', line: 6, end: 6, name: 'case %s', comments: [] }
   ]);
 });
 
@@ -53,7 +53,7 @@ function helper(test) { test('unrelated'); }
 test('real', () => {
   // spec: body does not attribute declaration
 });`;
-  assert.deepEqual(scanSource('a.test.ts', source), [{ file: 'a.test.ts', line: 4, name: 'real', comments: [] }]);
+  assert.deepEqual(scanSource('a.test.ts', source), [{ file: 'a.test.ts', line: 4, end: 6, name: 'real', comments: [] }]);
 });
 
 // spec: openspec/specs/test-attribution/spec.md#Requirement: Attached test citations
@@ -68,8 +68,8 @@ test('none', () => {});
 // second line
 test('nearest', () => {});`;
   assert.deepEqual(scanSource('a.test.ts', source), [
-    { file: 'a.test.ts', line: 4, name: 'none', comments: [] },
-    { file: 'a.test.ts', line: 9, name: 'nearest', comments: [
+    { file: 'a.test.ts', line: 4, end: 4, name: 'none', comments: [] },
+    { file: 'a.test.ts', line: 9, end: 9, name: 'nearest', comments: [
       { line: 7, text: '// spec: attached' },
       { line: 8, text: '// second line' }
     ] }
