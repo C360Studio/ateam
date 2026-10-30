@@ -107,6 +107,12 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 - **WHEN** a change's `proposal.md` has 61 or more lines
 - **THEN** `ateam state spec-check` prints `warning: openspec/changes/<id>/proposal.md has <n> lines, over the one-page limit of 60` and still exits 0; at 60 lines it prints no warning
 
+#### Scenario: Strict validation names what passed
+
+- **WHEN** `ateam state spec-check` finds `node_modules/.bin/openspec` or `openspec` on `PATH` and `openspec validate --all --strict` exits 0
+- **THEN** it prints `openspec: strict ok (<resolved path>, <version>, <n> changes)`, where `<version>` is the first line of `openspec --version` or `version unknown`, and `<n>` counts the in-flight changes
+- **AND** when no validator is found it prints the skip notice and no `strict ok` line, and when validation fails it exits 1 with the validator's output and no `strict ok` line
+
 ### Requirement: Dual-forge GitHub and Gitea state sync
 
 `ateam` SHALL support both GitHub (`gh` CLI and REST API) and Gitea (`tea` CLI and `/api/v1` REST API) for listing issues, pull requests, and bootstrapping standard workflow labels (`type:epic`, `status:needs-decision`, `status:blocked`, `class:flake`).
