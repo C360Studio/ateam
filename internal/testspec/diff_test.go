@@ -31,6 +31,11 @@ it('legacy', () => {
 it('other', () => {});
 `
 
+const legacySpaced = "package p\n\nimport \"testing\"\n\nfunc TestSpaced(t *testing.T) {\n\t_ = 1\n}\n"
+
+// legacyPayload holds a raw string whose edited line can print as a +++ file header.
+const legacyPayload = "package p\n\nimport \"testing\"\n\nvar fixture = `\nold text\n`\n\nfunc TestPayload(t *testing.T) {\n\t_ = 1\n}\n"
+
 func git(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}, args...)...)
@@ -49,7 +54,8 @@ func brownfield(t *testing.T) string {
 	if err := os.Remove(filepath.Join(root, "sample_test.go")); err != nil {
 		t.Fatal(err)
 	}
-	writeFiles(t, root, map[string]string{"legacy_test.go": legacyGo, "ui/legacy.test.ts": legacyVitest, ".gitignore": "node_modules\n"})
+	writeFiles(t, root, map[string]string{"legacy_test.go": legacyGo, "ui/legacy.test.ts": legacyVitest, ".gitignore": "node_modules\n",
+		"some tests/legacy space_test.go": legacySpaced, "payload_test.go": legacyPayload})
 	git(t, root, "init", "-q", "-b", "main")
 	git(t, root, "add", ".")
 	git(t, root, "commit", "-q", "-m", "legacy")
@@ -99,6 +105,13 @@ func TestBaseScope(t *testing.T) {
 		{"edited Vitest legacy body fails only that test", func(t *testing.T, root string) {
 			writeFiles(t, root, map[string]string{"ui/legacy.test.ts": strings.Replace(legacyVitest, "const x = 1", "const x = 2", 1)})
 		}, "ui/legacy.test.ts:2: legacy: missing spec citation\n"},
+		{"edit in a path with spaces fails", func(t *testing.T, root string) {
+			writeFiles(t, root, map[string]string{"some tests/legacy space_test.go": strings.Replace(legacySpaced, "_ = 1", "_ = 2", 1)})
+		}, "some tests/legacy space_test.go:5: TestSpaced: missing spec citation\n"},
+		{"header-looking payload does not hide a later edit", func(t *testing.T, root string) {
+			edited := strings.Replace(strings.Replace(legacyPayload, "old text", "++ b/other_test.go", 1), "_ = 1", "_ = 2", 1)
+			writeFiles(t, root, map[string]string{"payload_test.go": edited})
+		}, "payload_test.go:9: TestPayload: missing spec citation\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := brownfield(t)
@@ -135,6 +148,7 @@ func TestBaseScope(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := "legacy_test.go:5: TestLegacyA: missing spec citation\nlegacy_test.go:9: TestLegacyB: missing spec citation\n" +
+			"payload_test.go:9: TestPayload: missing spec citation\nsome tests/legacy space_test.go:5: TestSpaced: missing spec citation\n" +
 			"ui/legacy.test.ts:2: legacy: missing spec citation\nui/legacy.test.ts:5: other: missing spec citation\n"
 		if got := Format(ds); got != want {
 			t.Fatalf("got %q want %q", got, want)
@@ -183,7 +197,21 @@ func TestParseHunks(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
+	// A hunk line that reads as a file header stays payload, and git's separator tab
+	// after a name containing a space is not part of the name.
+	payload := "diff --git a/p_test.go b/p_test.go\n--- a/p_test.go\n+++ b/p_test.go\n" +
+		"@@ -6 +6 @@\n-old text\n+++ b/other_test.go\n@@ -10 +10 @@\n-\t_ = 1\n+\t_ = 2\n" +
+		"diff --git a/q r_test.go b/q r_test.go\n--- a/q r_test.go\t\n+++ b/q r_test.go\t\n@@ -1 +1 @@\n-a\n+b\n"
+	got, err = parseHunks(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = map[string]lineSet{"p_test.go": {lines: map[int]bool{6: true, 10: true}}, "q r_test.go": {lines: map[int]bool{1: true}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("payload: got %v want %v", got, want)
+	}
 	for _, bad := range []string{
+		"+++ b/x_test.go\n@@ -1 +1 @@\n-a\n", // truncated body
 		"+++ b/x_test.go\n@@ -1 +x,2 @@\n",
 		"+++ b/x_test.go\n@@ -1\n",
 		"+++ \"b/tab\\tname_test.go\"\n",

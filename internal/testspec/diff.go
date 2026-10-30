@@ -80,13 +80,35 @@ func changedLines(ctx context.Context, root, base string) (map[string]lineSet, e
 
 // parseHunks reads the new-side line ranges of a -U0 unified diff. A deletion-only
 // hunk marks the line after the deletion point, so removing a citation counts.
+// Hunk bodies are consumed by their header counts, so payload that looks like a
+// file header (an added "++ b/x" line prints as "+++ b/x") cannot switch files.
 func parseHunks(patch string) (map[string]lineSet, error) {
 	changed := map[string]lineSet{}
 	file := ""
+	oldLeft, newLeft := 0, 0 // body lines still to consume in the current hunk
 	for _, line := range strings.Split(patch, "\n") {
+		if oldLeft > 0 || newLeft > 0 {
+			switch {
+			case strings.HasPrefix(line, "-") && oldLeft > 0:
+				oldLeft--
+			case strings.HasPrefix(line, "+") && newLeft > 0:
+				newLeft--
+			case strings.HasPrefix(line, " ") && oldLeft > 0 && newLeft > 0:
+				oldLeft--
+				newLeft--
+			case strings.HasPrefix(line, "\\"): // "\ No newline at end of file"
+			default:
+				return nil, fmt.Errorf("parse git diff: hunk body ended early at %q", line)
+			}
+			continue
+		}
 		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			file = ""
 		case strings.HasPrefix(line, "+++ "):
-			name := strings.TrimPrefix(line, "+++ ")
+			// git ends a ---/+++ name containing a space with a separator tab; a name
+			// with a real tab is quoted instead, so one trailing tab is never part of it.
+			name := strings.TrimSuffix(strings.TrimPrefix(line, "+++ "), "\t")
 			switch {
 			case name == "/dev/null":
 				file = ""
@@ -100,21 +122,18 @@ func parseHunks(patch string) (map[string]lineSet, error) {
 				return nil, fmt.Errorf("parse git diff: unsupported path %s", name)
 			}
 		case strings.HasPrefix(line, "@@ "):
+			fields := strings.Fields(line)
+			if len(fields) < 3 || !strings.HasPrefix(fields[1], "-") || !strings.HasPrefix(fields[2], "+") {
+				return nil, fmt.Errorf("parse git diff: malformed hunk header %q", line)
+			}
+			_, oldCount, okOld := hunkRange(fields[1])
+			start, count, okNew := hunkRange(fields[2])
+			if !okOld || !okNew {
+				return nil, fmt.Errorf("parse git diff: malformed hunk header %q", line)
+			}
+			oldLeft, newLeft = oldCount, count
 			if file == "" {
 				continue
-			}
-			fields := strings.Fields(line)
-			if len(fields) < 3 || !strings.HasPrefix(fields[2], "+") {
-				return nil, fmt.Errorf("parse git diff: malformed hunk header %q", line)
-			}
-			startText, countText, hasCount := strings.Cut(strings.TrimPrefix(fields[2], "+"), ",")
-			start, err := strconv.Atoi(startText)
-			count := 1
-			if err == nil && hasCount {
-				count, err = strconv.Atoi(countText)
-			}
-			if err != nil || start < 0 || count < 0 {
-				return nil, fmt.Errorf("parse git diff: malformed hunk header %q", line)
 			}
 			if count == 0 {
 				changed[file].lines[start+1] = true
@@ -124,5 +143,19 @@ func parseHunks(patch string) (map[string]lineSet, error) {
 			}
 		}
 	}
+	if oldLeft > 0 || newLeft > 0 {
+		return nil, fmt.Errorf("parse git diff: truncated hunk")
+	}
 	return changed, nil
+}
+
+// hunkRange parses "-a[,n]" or "+a[,n]"; a missing count means 1.
+func hunkRange(field string) (start, count int, ok bool) {
+	startText, countText, hasCount := strings.Cut(field[1:], ",")
+	start, err := strconv.Atoi(startText)
+	count = 1
+	if err == nil && hasCount {
+		count, err = strconv.Atoi(countText)
+	}
+	return start, count, err == nil && start >= 0 && count >= 0
 }
