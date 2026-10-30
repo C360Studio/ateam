@@ -116,6 +116,11 @@ ATeam SHALL install owner-approved model policy and portable role instructions o
 - **WHEN** a comment lacks valid creation/update timestamps, has unequal timestamps, or changes while validation runs
 - **THEN** the gate rejects it and requires a fresh comment, without claiming that timestamp equality proves body authorship
 
+#### Scenario: Architect contract drift
+
+- **WHEN** `.agents/contracts/architect.md` is missing a paragraph of the generated architect contract
+- **THEN** `ateam review setup` refuses before writing and doctor reports the path, while an architect contract that adds its own paragraphs to the generated ones remains valid
+
 ### Requirement: Read-only dashboard model routing
 
 The authenticated dashboard API SHALL expose configured developer and reviewer model IDs, providers and reasoning efforts separately from model strength, Ponytail discipline mode, runtime identity and PR approval. The UI SHALL render eligible, blocked, unconfigured, invalid and unavailable states with textual reasons.
@@ -218,3 +223,4 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 
 - **WHEN** the record's verdict is not `PASS`, `approval.md` is missing or holds no `implementation` row with the record's digest, the Reviewer value names no `claude`, `codex` or `gemini` run, or the Verdict section or one of its fields is missing or repeated (a blank duplicate counts), or the only Verdict section or approval row is inside a ``` or ~~~ code fence
 - **THEN** compare prints each finding and exits 1; an unreadable record exits 2, and giving both `--reviewer` and `--reviewer-record` exits 2
+
