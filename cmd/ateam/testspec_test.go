@@ -26,6 +26,15 @@ func TestTestSpecCLI(t *testing.T) {
 	if code := runTestSpec(filepath.Join(root, "absent"), nil); code != 2 {
 		t.Fatalf("scan failure: %d", code)
 	}
+	if code := runTestSpec(root, []string{"--base", "main", "extra"}); code != 2 {
+		t.Fatalf("positional argument after --base: %d", code)
+	}
+	if code := runTestSpec(root, []string{"--base"}); code != 2 {
+		t.Fatalf("--base without a ref: %d", code)
+	}
+	if code := runTestSpec(root, []string{"--base", "main"}); code != 2 {
+		t.Fatalf("--base outside a git work tree: %d", code)
+	}
 }
 
 // spec: openspec/specs/test-attribution/spec.md#Requirement: Deterministic discovery and verification

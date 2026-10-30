@@ -91,7 +91,7 @@ Commands:
   review <subcmd>     Configure model routes and validate commit-bound independent review
   doctor [--check]    Verify multi-agent parity, MCP schema token budget, and hook latency
   bench [flags]       Offline self-tests or paired experiments (run, rescore, compare, export)
-  test-spec          Check Go and Vitest test-to-spec citations offline
+  test-spec [--base <ref>]  Check Go and Vitest test-to-spec citations (--base: only tests changed since <ref>)
   mutate [flags]      Run non-destructive Go -overlay mutation check (-pkg, -test, -file, -mutant, -expect/-expect-text)
   serve [flags]       Start embedded SvelteKit PM Board HTTP server (default 127.0.0.1:8420)`)
 }
@@ -660,11 +660,16 @@ func findRepoRoot(start string) string {
 }
 
 func runTestSpec(root string, args []string) int {
-	if len(args) != 0 {
-		fmt.Fprintln(os.Stderr, "ateam test-spec: no arguments accepted")
+	fs := flag.NewFlagSet("test-spec", flag.ContinueOnError)
+	base := fs.String("base", "", "report missing citations only for tests changed since the merge base of this ref and HEAD (uncommitted and untracked included)")
+	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	ds, err := testspec.Check(context.Background(), root)
+	if fs.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "ateam test-spec: unexpected argument; usage: ateam test-spec [--base <ref>]")
+		return 2
+	}
+	ds, err := testspec.Check(context.Background(), root, *base)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ateam test-spec: %v\n", err)
 		return 2
