@@ -25,8 +25,8 @@ func TestHandoffPickupRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load empty dir: %v", err)
 	}
-	if st.Mode != ModeFull {
-		t.Fatalf("default mode = %q, want %q", st.Mode, ModeFull)
+	if st.Mode != ModeOn {
+		t.Fatalf("default mode = %q, want %q", st.Mode, ModeOn)
 	}
 	if len(st.Cards) != 0 {
 		t.Fatalf("fresh state Cards count = %d, want 0 (no fabricated board cards)", len(st.Cards))
@@ -44,7 +44,7 @@ func TestHandoffPickupRoundTrip(t *testing.T) {
 		UpdatedAt:     time.Now().UTC(),
 	}
 	st.LastHandoff = &h
-	st.Mode = ModeUltra
+	st.Mode = ModeOff
 	if err := Save(dir, st); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -53,8 +53,8 @@ func TestHandoffPickupRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load saved: %v", err)
 	}
-	if loaded.Mode != ModeUltra {
-		t.Fatalf("loaded mode = %q, want %q", loaded.Mode, ModeUltra)
+	if loaded.Mode != ModeOff {
+		t.Fatalf("loaded mode = %q, want %q", loaded.Mode, ModeOff)
 	}
 	if loaded.LastHandoff == nil || loaded.LastHandoff.Goal != h.Goal {
 		t.Fatalf("loaded handoff mismatch: %+v", loaded.LastHandoff)
@@ -175,7 +175,7 @@ func TestConcurrentUpdateAndCorruptCachePreservation(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		_, err := Update(dir, func(st *State) error {
-			st.Mode = ModeUltra
+			st.Mode = ModeOff
 			return nil
 		})
 		if err != nil {
@@ -188,8 +188,8 @@ func TestConcurrentUpdateAndCorruptCachePreservation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load after concurrent Update: %v", err)
 	}
-	if st.Mode != ModeUltra {
-		t.Fatalf("st.Mode = %q, want %q", st.Mode, ModeUltra)
+	if st.Mode != ModeOff {
+		t.Fatalf("st.Mode = %q, want %q", st.Mode, ModeOff)
 	}
 	if st.LastHandoff == nil || st.LastHandoff.Goal != "Preserve handoff across concurrent updates" {
 		t.Fatalf("LastHandoff lost after concurrent Update: %+v", st.LastHandoff)
@@ -423,7 +423,7 @@ func TestPickupWarningNamesHerdrPane(t *testing.T) {
 func TestHandoffStaleInvalidationAndRefreshWithBestEffortSync(t *testing.T) {
 	t.Setenv("ATEAM_SESSION_ID", "")
 	st := &State{
-		Mode: ModeFull,
+		Mode: ModeOn,
 		Git:  GitStatus{Branch: "main", HeadSHA: "9f11a42"},
 		Cards: []BoardCard{
 			{ID: "GH-PR-2", Number: 2, Title: "Merged Astra PR", Type: "pr", Column: "done", Forge: "github"},
@@ -1922,5 +1922,52 @@ func TestPickupShowsDefaultBranchBehindOrigin(t *testing.T) {
 	dirty, _ := summarize()
 	if line := lineWithPrefixIn(dirty, "[ateam]"); !strings.Contains(line, "| dirty=true (uncommitted changes) | behind=2 |") {
 		t.Fatalf("dirty main [ateam] line = %q, want dirty=true (uncommitted changes)", line)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Lifecycle hook normalization under 10ms
+func TestNormalizeModeOnOffAliases(t *testing.T) {
+	cases := []struct {
+		raw    string
+		want   DisciplineMode
+		wantOK bool
+	}{
+		{"on", ModeOn, true},
+		{"", ModeOn, true},
+		{"full", ModeOn, true},
+		{"lite", ModeOn, true},
+		{"ultra", ModeOn, true},
+		{"  ULTRA ", ModeOn, true},
+		{"Lite", ModeOn, true},
+		{"off", ModeOff, true},
+		{"stop", ModeOff, true},
+		{"normal", ModeOff, true},
+		{"OFF", ModeOff, true},
+		{"banana", ModeOn, false},
+		{"onn", ModeOn, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			got, ok := NormalizeMode(tc.raw)
+			if got != tc.want || ok != tc.wantOK {
+				t.Fatalf("NormalizeMode(%q) = (%q, %v), want (%q, %v)", tc.raw, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+
+	// A state.json written before #270 still carries a legacy level; Load resolves it to on.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(CacheFilePath(dir)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(CacheFilePath(dir), []byte(`{"mode":"ultra"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load legacy mode: %v", err)
+	}
+	if st.Mode != ModeOn {
+		t.Fatalf("legacy ultra loaded as %q, want %q", st.Mode, ModeOn)
 	}
 }

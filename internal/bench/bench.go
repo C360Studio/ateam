@@ -661,7 +661,7 @@ func checkContinuity(dir string, spec TaskSpec) (bool, error) {
 			return false, err
 		}
 		st := &state.State{
-			Mode: state.ModeFull,
+			Mode: state.ModeOn,
 			LastHandoff: &state.Handoff{
 				Goal:          "Finish Gitea sync",
 				Addresses:     "branch codex/gitea, SHA 9f8e7d6",
@@ -683,7 +683,7 @@ func checkContinuity(dir string, spec TaskSpec) (bool, error) {
 		passed =
 			strings.Contains(out.AdditionalContext, "Goal: Finish Gitea sync") &&
 				strings.Contains(out.AdditionalContext, "Hold: waiting on #48") &&
-				strings.Contains(out.AdditionalContext, "PONYTAIL MODE [full]")
+				strings.Contains(out.AdditionalContext, "PONYTAIL MODE [on]")
 
 	case "relay-precompact-recovery":
 		if err := os.WriteFile(filepath.Join(dir, "worker.go"), []byte("package main\n// shortcut: single worker goroutine, scale to pool when queue > 1000\n"), 0o644); err != nil {

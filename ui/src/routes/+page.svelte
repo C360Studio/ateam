@@ -1120,10 +1120,11 @@
 					<div class="settings-section">
 						<span class="settings-label">Agent Discipline Mode</span>
 						<div class="pill-group" role="group" aria-label="Agent discipline mode">
-							{#each ['lite', 'full', 'ultra', 'off'] as m}
+							{#each ['on', 'off'] as m}
 								<button
 									type="button"
 									class="mode-btn {payload.state.mode === m ? 'active' : ''}"
+									aria-pressed={payload.state.mode === m}
 									onclick={() => updateMode(m)}
 								>
 									{m}
@@ -1131,7 +1132,7 @@
 							{/each}
 						</div>
 						<span class="settings-hint">
-							Controls the decision-ladder and verification rigor injected by <code>ateam hook</code> (`lite`, `full`, `ultra`, or `off`).
+							Turns the Ponytail decision-ladder reminder injected by <code>ateam hook</code> on or off. Effort is set by the OpenSpec quick/design track.
 						</span>
 					</div>
 

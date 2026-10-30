@@ -125,7 +125,7 @@ describe('board helpers', () => {
 	// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
 	it('builds Current Ops items combining worktrees, agent claims, and PR numbers', () => {
 		const items = buildOpsItems({
-			mode: 'full',
+			mode: 'on',
 			forge: { provider: 'github', owner: 'C360Studio', repo: 'ateam' },
 			last_handoff: {
 				goal: 'Ship ATeam v0.1.0 universal harness',
@@ -182,7 +182,7 @@ describe('board helpers', () => {
 			scenarios: []
 		};
 		const state = {
-			mode: 'full',
+			mode: 'on',
 			forge: { provider: 'github' },
 			git: { branch: 'main', head_sha: 'abc', dirty: false },
 			cards: sampleCards,
@@ -207,7 +207,7 @@ describe('board helpers', () => {
 // spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
 it('attributes dirtiness only to the selected checkout and compares abbreviated checkpoints', () => {
 	const state = {
-		mode: 'full', forge: { provider: 'local' }, updated_at: '',
+		mode: 'on', forge: { provider: 'local' }, updated_at: '',
 		cards: [],
 		git: { branch: 'codex/feature', head_sha: 'abcdef12', dirty: true, worktrees: [
 			{ path: '/main', branch: 'main', head: '12345678' },
@@ -231,7 +231,7 @@ it('classifies worktree merge status across merged, open, closed-unmerged, post-
 	// Parse from JSON matching Go encoding/json omitempty output (false/0/"" fields omitted).
 	const apiState = JSON.parse(
 		JSON.stringify({
-			mode: 'full',
+			mode: 'on',
 			forge: { provider: 'github', owner: 'C360Studio', repo: 'ateam' },
 			board_synced_at: '2026-10-20T12:00:00Z',
 			git: {
@@ -371,7 +371,7 @@ it('classifies worktree merge status across merged, open, closed-unmerged, post-
 
 	// 7. Unavailable forge evidence (unsynced remote forge and no local ancestry) reports unknown, not merged.
 	const unsynced = buildOpsItems({
-		mode: 'full',
+		mode: 'on',
 		forge: { provider: 'github', owner: 'C360Studio', repo: 'ateam' },
 		git: {
 			branch: 'main',
