@@ -78,22 +78,33 @@ func changedLines(ctx context.Context, root, base string) (map[string]lineSet, e
 	return changed, nil
 }
 
-// parseHunks reads the new-side line ranges of a -U0 unified diff. A deletion-only
-// hunk marks the line after the deletion point, so removing a citation counts.
-// Hunk bodies are consumed by their header counts, so payload that looks like a
-// file header (an added "++ b/x" line prints as "+++ b/x") cannot switch files.
+// parseHunks reads the added lines of a unified diff from the hunk bodies, so
+// context lines (diff.interHunkContext can add them even under -U0) never count.
+// A removed line marks the line now at its position, so removing a citation counts.
+// Bodies are consumed by their header counts, so payload that looks like a file
+// header (an added "++ b/x" line prints as "+++ b/x") cannot switch files.
 func parseHunks(patch string) (map[string]lineSet, error) {
 	changed := map[string]lineSet{}
 	file := ""
 	oldLeft, newLeft := 0, 0 // body lines still to consume in the current hunk
+	cursor := 0              // new-side line number of the next body line
+	mark := func(line int) {
+		if file != "" {
+			changed[file].lines[line] = true
+		}
+	}
 	for _, line := range strings.Split(patch, "\n") {
 		if oldLeft > 0 || newLeft > 0 {
 			switch {
 			case strings.HasPrefix(line, "-") && oldLeft > 0:
+				mark(cursor)
 				oldLeft--
 			case strings.HasPrefix(line, "+") && newLeft > 0:
+				mark(cursor)
+				cursor++
 				newLeft--
 			case strings.HasPrefix(line, " ") && oldLeft > 0 && newLeft > 0:
+				cursor++
 				oldLeft--
 				newLeft--
 			case strings.HasPrefix(line, "\\"): // "\ No newline at end of file"
@@ -131,15 +142,9 @@ func parseHunks(patch string) (map[string]lineSet, error) {
 			if !okOld || !okNew {
 				return nil, fmt.Errorf("parse git diff: malformed hunk header %q", line)
 			}
-			oldLeft, newLeft = oldCount, count
-			if file == "" {
-				continue
-			}
+			oldLeft, newLeft, cursor = oldCount, count, start
 			if count == 0 {
-				changed[file].lines[start+1] = true
-			}
-			for n := start; n < start+count; n++ {
-				changed[file].lines[n] = true
+				cursor = start + 1 // git names the line before a pure deletion
 			}
 		}
 	}

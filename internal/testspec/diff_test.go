@@ -105,6 +105,12 @@ func TestBaseScope(t *testing.T) {
 		{"edited Vitest legacy body fails only that test", func(t *testing.T, root string) {
 			writeFiles(t, root, map[string]string{"ui/legacy.test.ts": strings.Replace(legacyVitest, "const x = 1", "const x = 2", 1)})
 		}, "ui/legacy.test.ts:2: legacy: missing spec citation\n"},
+		{"context coalesced by diff.interHunkContext stays out of scope", func(t *testing.T, root string) {
+			git(t, root, "config", "diff.interHunkContext", "10")
+			edited := strings.Replace(legacyGo, "_ = 1", "_ = 2", 1)
+			edited = strings.Replace(edited, "func TestLegacyC(t *testing.T) {}", "func TestLegacyC(t *testing.T) { _ = 3 }", 1)
+			writeFiles(t, root, map[string]string{"legacy_test.go": edited})
+		}, "legacy_test.go:5: TestLegacyA: missing spec citation\n"},
 		{"edit in a path with spaces fails", func(t *testing.T, root string) {
 			writeFiles(t, root, map[string]string{"some tests/legacy space_test.go": strings.Replace(legacySpaced, "_ = 1", "_ = 2", 1)})
 		}, "some tests/legacy space_test.go:5: TestSpaced: missing spec citation\n"},
@@ -202,11 +208,13 @@ func TestParseHunks(t *testing.T) {
 	payload := "diff --git a/p_test.go b/p_test.go\n--- a/p_test.go\n+++ b/p_test.go\n" +
 		"@@ -6 +6 @@\n-old text\n+++ b/other_test.go\n@@ -10 +10 @@\n-\t_ = 1\n+\t_ = 2\n" +
 		"diff --git a/q r_test.go b/q r_test.go\n--- a/q r_test.go\t\n+++ b/q r_test.go\t\n@@ -1 +1 @@\n-a\n+b\n"
+	payload += "diff --git a/c_test.go b/c_test.go\n--- a/c_test.go\n+++ b/c_test.go\n" +
+		"@@ -3,5 +3,5 @@\n-a\n+b\n \n c\n \n-d\n+e\n" // context lines between two edits are not changes
 	got, err = parseHunks(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = map[string]lineSet{"p_test.go": {lines: map[int]bool{6: true, 10: true}}, "q r_test.go": {lines: map[int]bool{1: true}}}
+	want = map[string]lineSet{"p_test.go": {lines: map[int]bool{6: true, 10: true}}, "q r_test.go": {lines: map[int]bool{1: true}}, "c_test.go": {lines: map[int]bool{3: true, 7: true}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("payload: got %v want %v", got, want)
 	}
