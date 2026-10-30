@@ -28,6 +28,8 @@ Goals: no failed `Merge check` while the record is awaited. A contract-only revi
 
 Adopter seam: none. Adopters do not copy ateam's workflows (`docs/adoption.md:77`), and repos that run `ateam review gate` in their own CI keep today's red. With A, a rerun of an "awaiting" run stays skipped, because it replays the old payload. The description edit is what starts the full check, which `review-pr` § 5 already orders: record first, then edit.
 
+**Amended after review (owner ruling 2026-10-30, option A on #277).** Codex's REQUEST CHANGES at `9deff83` found two defects in A. P1: removing the line after a pass at one head skipped under the awaiting name, so the earlier green stood. P2: a documents-only pull request, which the gate passes without review (`internal/review/gate.go:269-272`), never produced the required context. Expressions cannot classify files, so the guard is now a probe job: `awaiting` builds `ateam` from the base and runs `ateam review gate --awaiting <pr>` (`GateOptions.Awaiting`). It answers `awaiting=true` only for a code PR with no `reviewed-by:` line and no review record comment by any agent, reading the forge when it runs. `merge-check` `needs` it under `always()`, so a failed probe runs the full check. Cost: a second job (about 30s) and a `Merge check probe` row per event. Until this merges, the probe on this PR is built from `main`, which lacks `--awaiting`. It therefore fails and the full check runs, so the GitHub awaiting skip is proven live only after merge; the Gitea probe runs the candidate tree as the base.
+
 ### D2. Where the reviewer learns the description line and the refresh
 
 - **A (recommended). In § Record** of the base reviewer contract template and this repo's copy. A short paragraph says three things. After `Verdict: APPROVE`, the gate needs `reviewed-by: <agent> (<model>, <effort>)` in the PR description. After either verdict, refresh `Merge check` and confirm its result at the reviewed head. If you lack permission to edit or rerun, report that instead of claiming the check changed. See `review-pr` § 5. Cost: drift on upgrade. Every adopter's `.agents/contracts/reviewer.md` fails `ateam doctor` parity until it is refreshed, as with any contract change.
@@ -55,4 +57,4 @@ An initial rejection leaves no line, so the check stays skipped and the forge ke
 
 ## Open Questions
 
-Resolved by the owner on 2026-10-30: Q1 D1 A (payload expression), Q2 `Merge check (awaiting review record, skipped)`, Q3 yes, prove D3 live on #277.
+Resolved by the owner on 2026-10-30: Q1 D1 A (payload expression; amended to the probe job after review, see D1), Q2 `Merge check (awaiting review record, skipped)`, Q3 yes, prove D3 live on #277.

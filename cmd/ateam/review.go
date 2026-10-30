@@ -20,7 +20,7 @@ import (
 
 func runReview(root string, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... (--reviewer AGENT:MODEL:EFFORT | --reviewer-record FILE) | gate [PR]")
+		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... (--reviewer AGENT:MODEL:EFFORT | --reviewer-record FILE) | gate [--awaiting] [PR]")
 		return 2
 	}
 	var err error
@@ -169,12 +169,18 @@ func reviewGate(root string, args []string) int {
 		}
 		cfg.Token = token
 	}
+	// --awaiting is merge-check.yml's probe (#262): it decides whether the
+	// merge check is skipped while a code pull request awaits its review.
+	awaiting := len(args) > 0 && args[0] == "--awaiting"
+	if awaiting {
+		args = args[1:]
+	}
 	pr := ""
 	if len(args) > 0 {
 		pr = args[0]
 	}
 	opts := review.GateOptions{PR: pr, Actions: actions, Event: os.Getenv("GITHUB_EVENT_NAME"), PolicyPath: filepath.Join(root, ".agents", "review-policy.json"),
-		Checks: requiredChecks(os.Getenv("ATEAM_REQUIRED_CHECKS"))}
+		Checks: requiredChecks(os.Getenv("ATEAM_REQUIRED_CHECKS")), Awaiting: awaiting}
 	return review.Gate(ctx, os.Stdout, cfg, opts)
 }
 
