@@ -51,6 +51,8 @@ type gateWorld struct {
 	// GitHub fails a read of any other path; Gitea answers it 404.
 	proposals        map[string]string
 	proposalsMissing []string
+	// awaiting runs the awaiting probe (GateOptions.Awaiting, #262) instead.
+	awaiting bool
 }
 
 type worldCommit struct {
@@ -221,7 +223,7 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 		}
 	}
 	var out bytes.Buffer
-	code := Gate(context.Background(), &out, ForgeConfig{Provider: "github"}, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(dir, "no-policy.json"), Checks: w.checks})
+	code := Gate(context.Background(), &out, ForgeConfig{Provider: "github"}, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(dir, "no-policy.json"), Checks: w.checks, Awaiting: w.awaiting})
 	return code, out.String()
 }
 
@@ -377,7 +379,7 @@ func runGitea(t *testing.T, w gateWorld) (int, string) {
 	srv := giteaServer(t, w)
 	var out bytes.Buffer
 	cfg := ForgeConfig{Provider: "gitea", BaseURL: srv.URL, Owner: gateOwner, Repo: gateRepo, Token: gateToken}
-	code := Gate(context.Background(), &out, cfg, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(t.TempDir(), "no-policy.json"), Checks: w.giteaChecks})
+	code := Gate(context.Background(), &out, cfg, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(t.TempDir(), "no-policy.json"), Checks: w.giteaChecks, Awaiting: w.awaiting})
 	// Messages name API paths, never the forge host (owner ruling 6 on #143).
 	if host := strings.TrimPrefix(srv.URL, "http://"); strings.Contains(out.String(), host) {
 		t.Errorf("gitea output names the forge host %s\n%s", host, out.String())
@@ -388,6 +390,47 @@ func runGitea(t *testing.T, w gateWorld) (int, string) {
 type forgeWant struct {
 	code  int
 	lines []string
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge check runs on pull-request state events
+func TestGateAwaiting(t *testing.T) {
+	// #262: the probe answers awaiting=true only for a code pull request with no
+	// reviewed-by: line and no review record by any agent, the same on both forges.
+	approve := "reviewed-by: codex\nReviewed at " + shaA[:7] + "\nVerdict: APPROVE"
+	reject := "reviewed-by: codex\nReviewed at " + shaA[:7] + "\nVerdict: REQUEST CHANGES"
+	for _, tc := range []struct {
+		name  string
+		world func(w *gateWorld)
+		want  bool
+		line  string
+	}{
+		{"code, no line, no record", func(w *gateWorld) { w.body, w.comments = "implemented-by: claude (opus)\n", nil }, true, "awaiting its review"},
+		{"code, line present", func(w *gateWorld) { w.comments = nil }, false, "has a reviewed-by: line"},
+		{"code, CRLF line present", func(w *gateWorld) {
+			w.body, w.comments = "implemented-by: claude (opus)\r\nreviewed-by: codex (gpt-6)\r\n", nil
+		}, false, "has a reviewed-by: line"},
+		{"line removed after an approving record", func(w *gateWorld) { w.body, w.comments = "", []string{approve} }, false, "a review record comment exists"},
+		{"rejecting record, no line", func(w *gateWorld) { w.body, w.comments = "", []string{reject} }, false, "a review record comment exists"},
+		{"heading record, no line", func(w *gateWorld) {
+			w.body, w.comments = "", []string{"### Independent Cross-Agent Review\nReviewed at " + shaA[:7] + "\nVerdict: APPROVE"}
+		}, false, "a review record comment exists"},
+		{"only a fenced record, no line", func(w *gateWorld) { w.body, w.comments = "", []string{"```\n" + approve + "\n```"} }, true, "awaiting its review"},
+		{"handoff comment only, no line", func(w *gateWorld) { w.body, w.comments = "", []string{"Goal: PR ready; awaits a Codex review record"} }, true, "awaiting its review"},
+		{"documents only, no line, no record", func(w *gateWorld) { w.body, w.files, w.comments = "", []string{"docs/a.md"}, nil }, false, "is documents only"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := healthyWorld()
+			tc.world(&w)
+			w.awaiting = true
+			want := fmt.Sprintf("awaiting=%t\n", tc.want)
+			for forge, run := range map[string]func(*testing.T, gateWorld) (int, string){"github": runGitHub, "gitea": runGitea} {
+				code, out := run(t, w)
+				if code != 0 || !strings.HasSuffix(out, want) || !strings.Contains(out, tc.line) {
+					t.Errorf("%s: exit %d, want 0 ending %q and naming %q:\n%s", forge, code, want, tc.line, out)
+				}
+			}
+		})
+	}
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement

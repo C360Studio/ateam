@@ -21,12 +21,57 @@ permissions:
   contents: read
 
 jobs:
+  # The awaiting probe (#262): reads the pull request through the API with the
+  # ateam built from the base commit, as the merge check does, and answers
+  # awaiting=true only for a code pull request with no reviewed-by: line and no
+  # review record comment. It reads the forge when it runs, so a rerun sees the
+  # description and records of that moment.
+  awaiting:
+    name: Merge check probe
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      awaiting: ${{ steps.probe.outputs.awaiting }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - run: go build -o "$RUNNER_TEMP/ateam" ./cmd/ateam
+
+      - name: Is the pull request awaiting its review record
+        id: probe
+        env:
+          ATEAM: ${{ runner.temp }}/ateam
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          out=$("$ATEAM" review gate --awaiting "$PR_NUMBER")
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -xE 'awaiting=(true|false)' >> "$GITHUB_OUTPUT"
+
   # Up-to-date rule, review check and known-flake check (scripts/merge-check.sh).
   # Skipped and renamed on a draft, so a draft head carries no check run named
   # Merge check for GitHub to count as passing (#250).
   merge-check:
-    name: ${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || 'Merge check' }}
-    if: ${{ !github.event.pull_request.draft }}
+    # Also skipped and renamed while the probe finds a code pull request with no
+    # reviewed-by: line and no review record (#262): it is not yet judgeable, so
+    # the required context stays absent instead of failing. A failed probe
+    # leaves no answer, so the full check runs.
+    needs: awaiting
+    name: ${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || needs.awaiting.outputs.awaiting == 'true' && 'Merge check (awaiting review record, skipped)' || 'Merge check' }}
+    if: ${{ always() && !github.event.pull_request.draft && needs.awaiting.outputs.awaiting != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
