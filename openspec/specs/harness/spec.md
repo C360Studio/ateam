@@ -806,7 +806,7 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 #### Scenario: Pinned merge-check workflow
 
 - **WHEN** `.github/workflows/merge-check.yml` is evaluated against the merge-gate contract
-- **THEN** it triggers only on `pull_request` (`opened`, `synchronize`, `reopened`, `ready_for_review`, `edited`), runs one queued run per pull request (`concurrency.group` per pull request number, `cancel-in-progress: false`, so no cancelled `Merge check` sits beside a pass at one head), has the two jobs `awaiting` and `merge-check` on `ubuntu-24.04` with only `contents: read`, `issues: read`, and `pull-requests: read`, each built from the base commit; `awaiting` is named `Merge check probe`, skips drafts, and publishes `ateam review gate --awaiting "$PR_NUMBER"`'s `awaiting=` answer as its output; `merge-check` needs it and runs `scripts/merge-check.sh "$PR_NUMBER"` with `ATEAM_REQUIRED_CHECKS: Required,Merge check`, under `if: ${{ always() && !github.event.pull_request.draft && needs.awaiting.outputs.awaiting != 'true' }}` and named `Merge check (draft, skipped)` on a draft, `Merge check (awaiting review record, skipped)` while awaiting, and `Merge check` otherwise
+- **THEN** it triggers only on `pull_request` (`opened`, `synchronize`, `reopened`, `ready_for_review`, `edited`), runs one queued run per pull request (`concurrency.group` per pull request number, `cancel-in-progress: false`, so no cancelled `Merge check` sits beside a pass at one head), has the two jobs `awaiting` and `merge-check` on `ubuntu-24.04` with only `contents: read`, `issues: read`, and `pull-requests: read`, each built from the base commit; `awaiting` is named `Merge check probe`, skips drafts, and publishes `ateam review gate --awaiting "$PR_NUMBER"`'s `awaiting=` answer as its output; `merge-check` needs it and runs `scripts/merge-check.sh "$PR_NUMBER"` with `ATEAM_REQUIRED_CHECKS: Required,Merge check`, under `if: ${{ always() && !github.event.pull_request.draft && needs.awaiting.outputs.awaiting != 'true' }}` and a `name:` expression that yields `Merge check (draft, skipped)` on a draft, `Merge check (awaiting review record, skipped)` while awaiting, and `Merge check` otherwise, though GitHub shows a skipped job's raw expression instead
 
 #### Scenario: A draft pull request carries no Merge check
 
@@ -816,7 +816,7 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 #### Scenario: A ready pull request awaiting its review record carries no failed Merge check
 
 - **WHEN** a ready code pull request is opened, marked ready, pushed, or edited, its description has no `reviewed-by:` line, and it has no review record comment
-- **THEN** the merge-check job is skipped under `Merge check (awaiting review record, skipped)`, no failed `Merge check` is posted, and the absent required context keeps the pull request from merging
+- **THEN** the merge-check job is skipped under a name other than `Merge check` (on GitHub, the raw `name:` expression, because GitHub does not evaluate a skipped job's `name:`), no failed `Merge check` is posted, and the absent required context keeps the pull request from merging
 
 #### Scenario: The probe reads the forge and fails closed
 
