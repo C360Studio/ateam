@@ -67,6 +67,10 @@ func run(args []string) int {
 	case "serve":
 		return runServe(cwd, subArgs)
 	case "version", "--version", "-v":
+		if len(subArgs) == 1 && subArgs[0] == "--json" {
+			printJSON(state.ReadVersionInfo())
+			return 0
+		}
 		fmt.Println(state.VersionString())
 		return 0
 	default:
@@ -154,6 +158,8 @@ func runState(repoRoot string, args []string) int {
 		return runStatePrune(repoRoot, args[1:])
 	case "status", "board":
 		return runStateSnapshot(repoRoot, sub)
+	case "writer":
+		return runStateWriter(repoRoot, args[1:])
 	case "herdr":
 		return runStateHerdr(args[1:])
 	case "-h", "--help", "help":
@@ -182,6 +188,8 @@ Subcommands:
   spec-check   Validate OpenSpec changes and fail on a Hold: outside every task
   sync         Sync issues and PRs from the configured forges
   mode [mode]  Show or set the Ponytail mode (on|off)
+  writer --json
+               Print the writer state (none, live, stale, unknown) and lease as JSON
   herdr        herdr integration (on-event, open-pane)
 `
 
@@ -250,6 +258,20 @@ func runStatePickup(repoRoot string, args []string) int {
 	st.CurrentAgent = state.ResolveActiveAgentForSession(repoRoot, *agent, st.CurrentSessionID, st.Git.Branch, st.Writer)
 	state.ReconcilePickup(repoRoot, st, *agent, st.CurrentSessionID)
 	fmt.Println(state.BuildPickupSummary(st))
+	return 0
+}
+
+func runStateWriter(repoRoot string, args []string) int {
+	fs := flag.NewFlagSet("state writer", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print the writer lease as JSON (required)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if !*asJSON || fs.NArg() > 0 {
+		fmt.Fprintln(os.Stderr, "usage: ateam state writer --json")
+		return 2
+	}
+	printJSON(state.ReadWriterStatus(repoRoot))
 	return 0
 }
 

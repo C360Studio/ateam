@@ -595,6 +595,9 @@ type WriterLease struct {
 	// live pane, unlike the short-lived hook PID.
 	HerdrPaneID      string `json:"herdr_pane_id,omitempty"`
 	HerdrWorkspaceID string `json:"herdr_workspace_id,omitempty"`
+	// Host and PIDNamespace say where PID means anything; a PID check from anywhere else proves nothing (#284).
+	Host         string `json:"host,omitempty"`
+	PIDNamespace string `json:"pid_ns,omitempty"`
 }
 
 // State is the cached local state stored in gitignored .ateam/state.json.
@@ -606,6 +609,8 @@ type State struct {
 	LastHandoff      *Handoff                    `json:"last_handoff,omitempty"`
 	Handoffs         map[string]*Handoff         `json:"handoffs,omitempty"`
 	Writer           *WriterLease                `json:"writer,omitempty"`
+	TaskLease        *TaskLease                  `json:"-"`
+	TaskLeaseError   string                      `json:"-"`
 	CurrentAgent     string                      `json:"-"`
 	CurrentSessionID string                      `json:"-"`
 	MCPBuild         string                      `json:"-"`
@@ -1457,6 +1462,7 @@ func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
 		PID:       ResolveClientPID(),
 		LastSeen:  time.Now().UTC(),
 	}
+	wl.Host, wl.PIDNamespace = processPlace()
 	if os.Getenv("HERDR_ENV") == "1" {
 		wl.HerdrPaneID = strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
 		wl.HerdrWorkspaceID = strings.TrimSpace(os.Getenv("HERDR_WORKSPACE_ID"))
@@ -1586,6 +1592,7 @@ func Load(root string) (*State, error) {
 			if wl, err := ReadWriterLease(root); err == nil && wl != nil {
 				st.Writer = wl
 			}
+			st.loadTaskLease(root)
 			return st, nil
 		}
 		return nil, fmt.Errorf("read state cache: %w", err)
@@ -1614,6 +1621,7 @@ func Load(root string) (*State, error) {
 	if wl, err := ReadWriterLease(root); err == nil && wl != nil {
 		st.Writer = wl
 	}
+	st.loadTaskLease(root)
 	if st.Handoffs == nil && st.LastHandoff != nil {
 		lastBr := strings.TrimSpace(st.LastHandoff.Branch)
 		curBr := strings.TrimSpace(st.Git.Branch)
@@ -2816,6 +2824,7 @@ func BuildPickupSummary(st *State) string {
 				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		}
 	}
+	writePickupTaskLease(&b, st)
 	writePickupWorktrees(&b, st)
 	var inFlightChanges, completedChanges []OpenSpecChange
 	for _, ch := range st.OpenSpecQueue {
