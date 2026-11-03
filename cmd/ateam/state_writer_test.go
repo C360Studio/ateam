@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,53 +22,56 @@ func writeRawWriterLease(t *testing.T, root, content string) {
 	}
 }
 
-// spec: openspec/specs/harness/spec.md#Requirement: Machine-readable writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Machine-readable writer state
 func TestStateWriterJSON(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339)
-	t.Run("foreign live lease", func(t *testing.T) {
-		// The daemon's own session differs from the lease's: it must still read live (#284).
-		t.Setenv("ATEAM_SESSION_ID", "daemon")
-		dir := t.TempDir()
-		writeRawWriterLease(t, dir, `{"agent":"codex","session_id":"foreign","pid":`+strconv.Itoa(os.Getppid())+`,"last_seen":"`+now+`","herdr_pane_id":"p1"}`)
-		code, out := captureStdout(t, func() int { return runState(dir, []string{"writer", "--json"}) })
-		if code != 0 {
-			t.Fatalf("exit %d", code)
-		}
-		var got map[string]any
-		if err := json.Unmarshal([]byte(out), &got); err != nil {
-			t.Fatalf("%v: %s", err, out)
-		}
-		if got["live"] != true || got["exited"] != false {
-			t.Fatalf("live/exited = %v/%v, want true/false: %s", got["live"], got["exited"], out)
-		}
-		if got["agent"] != "codex" || got["session_id"] != "foreign" || got["herdr_pane_id"] != "p1" || got["last_seen"] != now {
-			t.Fatalf("stored fields not printed: %s", out)
-		}
-	})
-	t.Run("exited pid", func(t *testing.T) {
-		dir := t.TempDir()
-		writeRawWriterLease(t, dir, `{"agent":"codex","session_id":"s","pid":999999,"last_seen":"`+now+`"}`)
+	writerJSON := func(t *testing.T, dir string) map[string]any {
+		t.Helper()
 		code, out := captureStdout(t, func() int { return runState(dir, []string{"writer", "--json"}) })
 		var got map[string]any
 		if err := json.Unmarshal([]byte(out), &got); err != nil || code != 0 {
 			t.Fatalf("exit %d, %v: %s", code, err, out)
 		}
-		if got["live"] != false || got["exited"] != true {
-			t.Fatalf("live/exited = %v/%v, want false/true: %s", got["live"], got["exited"], out)
+		return got
+	}
+	t.Run("foreign live lease written by this binary", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HERDR_ENV", "1")
+		t.Setenv("HERDR_PANE_ID", "p1")
+		lease, err := state.WriteWriterLease(dir, "codex", "foreign")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The caller's own session differs from the lease's: it must still read live (#284).
+		t.Setenv("ATEAM_SESSION_ID", "daemon")
+		got := writerJSON(t, dir)
+		if got["state"] != "live" || got["reason"] != "" {
+			t.Fatalf("state/reason = %v/%v, want live and empty", got["state"], got["reason"])
+		}
+		if got["agent"] != "codex" || got["session_id"] != "foreign" || got["herdr_pane_id"] != "p1" || got["host"] != lease.Host {
+			t.Fatalf("stored fields not printed: %v", got)
+		}
+	})
+	t.Run("lease from another host", func(t *testing.T) {
+		dir := t.TempDir()
+		writeRawWriterLease(t, dir, `{"agent":"codex","session_id":"s","pid":999999,"host":"elsewhere.invalid","last_seen":"`+now+`"}`)
+		got := writerJSON(t, dir)
+		if got["state"] != "unknown" || got["reason"] != "other host" || got["host"] != "elsewhere.invalid" {
+			t.Fatalf("got %v, want unknown/other host", got)
 		}
 	})
 	t.Run("no lease", func(t *testing.T) {
-		code, out := captureStdout(t, func() int { return runState(t.TempDir(), []string{"writer", "--json"}) })
-		if code != 0 || strings.TrimSpace(out) != "null" {
-			t.Fatalf("exit %d, output %q; want 0 and null", code, out)
+		got := writerJSON(t, t.TempDir())
+		if got["state"] != "none" || got["reason"] != "" || len(got) != 2 {
+			t.Fatalf("got %v, want only state none and empty reason", got)
 		}
 	})
-	t.Run("corrupt lease is not null", func(t *testing.T) {
+	t.Run("corrupt lease exits 0 as unknown", func(t *testing.T) {
 		dir := t.TempDir()
 		writeRawWriterLease(t, dir, "{")
-		code, stderr := captureBenchError(t, func() int { return runState(dir, []string{"writer", "--json"}) })
-		if code != 1 || !strings.Contains(stderr, "ateam state writer:") {
-			t.Fatalf("exit %d, stderr %q; want 1", code, stderr)
+		got := writerJSON(t, dir)
+		if got["state"] != "unknown" || got["reason"] != "lease unreadable" {
+			t.Fatalf("got %v, want unknown/lease unreadable", got)
 		}
 	})
 	for _, args := range [][]string{{"writer"}, {"writer", "--json", "extra"}, {"writer", "--nope"}} {
@@ -78,6 +81,29 @@ func TestStateWriterJSON(t *testing.T) {
 				t.Fatalf("exit %d, want 2", code)
 			}
 		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Machine-readable version and capabilities
+func TestVersionJSON(t *testing.T) {
+	code, out := captureStdout(t, func() int { return run([]string{"version", "--json"}) })
+	var got struct {
+		Version      string   `json:"version"`
+		Commit       string   `json:"commit"`
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || code != 0 {
+		t.Fatalf("exit %d, %v: %s", code, err, out)
+	}
+	if got.Version == "" || got.Commit == "" {
+		t.Fatalf("missing version or commit: %s", out)
+	}
+	if !slices.Contains(got.Capabilities, "state-writer-json") || !slices.Contains(got.Capabilities, "task-lease-file") {
+		t.Fatalf("capabilities = %v", got.Capabilities)
+	}
+	code, out = captureStdout(t, func() int { return run([]string{"version"}) })
+	if code != 0 || !strings.HasPrefix(out, "ateam ") || json.Valid([]byte(out)) {
+		t.Fatalf("plain version changed: exit %d, %q", code, out)
 	}
 }
 

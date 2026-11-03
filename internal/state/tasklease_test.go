@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 const validTaskLease = `{"id":"abc","issue":284,"holder":"worker-1","expires_at":"2099-01-02T03:04:05Z","source":"factory","extra":1}`
@@ -188,32 +187,5 @@ func TestTaskLeaseStaysOutOfTheStateCache(t *testing.T) {
 	}
 	if strings.Contains(string(data), "abc") || strings.Contains(string(data), "reason") {
 		t.Fatalf("task lease persisted: %s", data)
-	}
-}
-
-// spec: openspec/specs/harness/spec.md#Requirement: Machine-readable writer lease
-func TestWriterLeaseLive(t *testing.T) {
-	// Oracle: the requirement. Identity never matters; a foreign session's lease on a live PID is live (#284).
-	clearAgentSessionEnv(t)
-	now := time.Now()
-	alive := os.Getppid()
-	for _, tc := range []struct {
-		name  string
-		lease *WriterLease
-		want  bool
-	}{
-		{"nil", nil, false},
-		{"no agent", &WriterLease{PID: alive, LastSeen: now}, false},
-		{"foreign live", &WriterLease{Agent: "codex", SessionID: "foreign", PID: alive, LastSeen: now}, true},
-		{"exited pid", &WriterLease{Agent: "codex", PID: 999999, LastSeen: now}, false},
-		{"past ttl", &WriterLease{Agent: "codex", PID: alive, LastSeen: now.Add(-writerLeaseTTL)}, false},
-		{"within ttl", &WriterLease{Agent: "codex", PID: alive, LastSeen: now.Add(-writerLeaseTTL + time.Minute)}, true},
-		{"no pid, no last_seen", &WriterLease{Agent: "codex"}, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := writerLeaseLive(tc.lease); got != tc.want {
-				t.Fatalf("writerLeaseLive = %v, want %v", got, tc.want)
-			}
-		})
 	}
 }

@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves the revised `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Question 1 (#284). Earlier approval of the first draft: 2026-11-03; the owner directed this revision the same day after the adopter's feedback. Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves the revised `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Question 1 (#284). Evidence: the owner approved the first draft and, after the adopter's feedback, this revision in Enjoy on 2026-11-03, selecting \"Approve as revised (live PID past TTL is `unknown`)\"; Claude wrote the header at their request.
 
 ## 2. Task lease
 
@@ -10,11 +10,11 @@
 
 ## 3. Writer state
 
-- [ ] 3.1 Remove the draft's `writerLeaseLive`, restoring `isCallerActiveWriterLease` (`state.go:671`). `WriteWriterLease` (`:1465`) records `host` and `pid_ns` (D8). Acceptance: `TestWriterLeaseHerdrIdentity` and every `assertLeaseKept` caller pass; `ateam doctor` hook latency reported before and after (#284).
-- [ ] 3.2 `runStateWriter` (`cmd/ateam/main.go`) prints the D6 object from the D7 table. Acceptance: a CLI test per table row with the expected `state` and `reason` taken from the table, plus bad usage; `task mutate:check` reports `detection` with each of the host, `pid_ns`, TTL, and PID checks removed (#284).
-- [ ] 3.3 `ateam version --json` (D9, `main.go:69`). Acceptance: tests for the JSON form and for plain `version` text unchanged (#284).
+- [x] 3.1 Remove the draft's `writerLeaseLive`, restoring `isCallerActiveWriterLease` (`state.go:671`). `WriteWriterLease` (`:1465`) records `host` and `pid_ns` (D8). Acceptance: `TestWriterLeaseHerdrIdentity` and every `assertLeaseKept` caller pass; `ateam doctor` hook latency reported before and after (#284). Evidence: `writerLeaseLive` removed, `processPlace`; lease tests pass; `ateam doctor` hook latency 6647us on the v0.3.5 binary and 3794us on this one, both inside the 10000us target (one run each, so noise, not a speedup).
+- [x] 3.2 `runStateWriter` (`cmd/ateam/main.go`) prints the D6 object from the D7 table. Acceptance: a CLI test per table row with the expected `state` and `reason` taken from the table, plus bad usage; `task mutate:check` reports `detection` with each of the host, `pid_ns`, TTL, and PID checks removed (#284). Evidence: `internal/state/writerstatus.go`, `classifyWriterLease`, `ReadWriterStatus`, `runStateWriter`; `TestClassifyWriterLease` (16 rows from the table), `TestWriteWriterLeaseRecordsPlaceAndReadsLive`, `TestStateWriterJSON`. `go run ./cmd/ateam mutate` reports `detection` with the no-host, other-host, `pid_ns`, TTL, no-PID, and PID checks each disabled, the past-TTL branch for a lease from elsewhere inverted, and the long-turn row changed to `stale`.
+- [x] 3.3 `ateam version --json` (D9, `main.go:69`). Acceptance: tests for the JSON form and for plain `version` text unchanged (#284). Evidence: `ReadVersionInfo`, `TestVersionJSON`; `detection` with the flag branch disabled.
 
 ## 4. Docs and verify
 
-- [ ] 4.1 `docs/hook-flow.md` names the file and the override; `docs/adoption.md` gives the D1 seam, the D7 table, the D9 check, and the D10 advisory rule, naming no adopter (#284). Acceptance: `ateam doctor --check` and `task spec:check` pass.
+- [x] 4.1 `docs/hook-flow.md` names the file and the override; `docs/adoption.md` gives the D1 seam, the D7 table, the D9 check, and the D10 advisory rule, naming no adopter (#284). Acceptance: `ateam doctor --check` and `task spec:check` pass. Evidence: `docs/hook-flow.md`; `docs/adoption.md` § Optional external task lease.
 - [ ] 4.2 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#284).

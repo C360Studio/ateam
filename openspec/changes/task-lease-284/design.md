@@ -95,4 +95,4 @@ Absent file means today's pickup output. Leases written by an older ATeam read `
 
 ## Open Questions
 
-1. **Owner ruling needed:** D7's "PID alive, past TTL" reads `unknown`. The earlier summary to the owner said past TTL is `stale` on any host. On the same host that is wrong for a long turn, because `last_seen` is frozen while the writer runs, and `stale` invites the daemon to assign into an occupied checkout. Cost of `unknown`: an idle session left open blocks assignment until it exits.
+1. Resolved 2026-11-03: the owner approved `unknown`. D7's "PID alive, past TTL" reads `unknown`. The earlier summary to the owner said past TTL is `stale` on any host. On the same host that is wrong for a long turn, because `last_seen` is frozen while the writer runs, and `stale` invites the daemon to assign into an occupied checkout. Cost of `unknown`: an idle session left open blocks assignment until it exits.

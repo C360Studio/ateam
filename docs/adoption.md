@@ -101,7 +101,20 @@ All five fields are required and unknown fields are ignored. `issue` is a positi
 
 A handoff can name its lease in `Addresses` as `aip-lease:<id>`. The prefix is case-insensitive, and the token reads `A-Z`, `a-z`, `0-9`, `_`, and `-`, so keep the `id` to those. On a different `id`, pickup prints `handoff lease <id> is not the current task lease <id2>`. Only the first token is compared.
 
-Before assigning a task, run `ateam state writer --json` in the checkout. It prints the stored writer lease plus `live` and `exited`, or `null` with exit 0 when there is none; an unparsable lease exits 1. `live` holds whichever session owns the lease. It depends on PID liveness, so run the command in the same PID namespace as the sessions it asks about: from another namespace a running writer reads `exited: true`.
+Before assigning a task, run `ateam state writer --json` in the checkout. It prints one object with `state`, a fixed-text `reason`, and, when a lease was read, the stored `agent`, `session_id`, `pid`, `last_seen`, `herdr_pane_id`, `herdr_workspace_id`, `host`, and `pid_ns`. All four states exit 0; a non-zero exit means the command failed, and bad usage exits 2. Treat `unknown` as occupied.
+
+| `state` | Meaning |
+| --- | --- |
+| `none` | No lease file. |
+| `live` | Same host and PID namespace, live PID, within the 10-minute TTL. |
+| `stale` | Same host and namespace with an exited PID, or a lease from elsewhere (or with no host) past the TTL. |
+| `unknown` | A lease from elsewhere within the TTL, a live PID past the TTL on the same host, or an unreadable or incomplete lease. An idle session left open reads this until it exits. |
+
+Limits: `last_seen` changes only at session start, each prompt, and turn end, so a turn longer than ten minutes on another host reads `stale`. Off Linux there is no `pid_ns`, so two containers sharing a hostname compare as one place. `stale` across hosts assumes clocks roughly agree.
+
+The check is advisory. ATeam is not the final authority: only `session-start` checks for another writer, and `before-prompt` and `turn-end` overwrite the lease without a check, so a second session takes it at its first prompt and the last writer wins. Nothing blocks edits, and a session yields only if its agent acts on the warning. A session can also take the lease between your check and your assignment. Give each task its own worktree, because that is what keeps writers apart.
+
+To tell whether the command exists, run `ateam version --json`, which prints `version`, `commit`, and a `capabilities` list containing `state-writer-json` and `task-lease-file`. Older versions ignore the flag and print plain text with exit 0, so output that does not parse as JSON means an older ATeam.
 
 ## Optional herdr adapter
 

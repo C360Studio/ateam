@@ -595,6 +595,9 @@ type WriterLease struct {
 	// live pane, unlike the short-lived hook PID.
 	HerdrPaneID      string `json:"herdr_pane_id,omitempty"`
 	HerdrWorkspaceID string `json:"herdr_workspace_id,omitempty"`
+	// Host and PIDNamespace say where PID means anything; a PID check from anywhere else proves nothing (#284).
+	Host         string `json:"host,omitempty"`
+	PIDNamespace string `json:"pid_ns,omitempty"`
 }
 
 // State is the cached local state stored in gitignored .ateam/state.json.
@@ -670,19 +673,14 @@ func HandoffSlotKey(agent, branch string) string {
 // writerLeaseTTL is how long a writer lease counts as active after its last_seen.
 const writerLeaseTTL = 10 * time.Minute
 
-// writerLeaseLive reports whether a lease is live for anyone, whatever the caller's identity.
-func writerLeaseLive(lease *WriterLease) bool {
+func isCallerActiveWriterLease(lease *WriterLease, callerSessionID string) bool {
 	if lease == nil || strings.TrimSpace(lease.Agent) == "" {
 		return false
 	}
 	if lease.PID > 0 && !IsProcessAlive(lease.PID) {
 		return false
 	}
-	return lease.LastSeen.IsZero() || time.Since(lease.LastSeen) < writerLeaseTTL
-}
-
-func isCallerActiveWriterLease(lease *WriterLease, callerSessionID string) bool {
-	if !writerLeaseLive(lease) {
+	if !lease.LastSeen.IsZero() && time.Since(lease.LastSeen) >= writerLeaseTTL {
 		return false
 	}
 	callerSession := strings.TrimSpace(callerSessionID)
@@ -1388,26 +1386,6 @@ func ReadWriterLease(root string) (*WriterLease, error) {
 	return &wl, nil
 }
 
-// WriterLeaseStatus is the stored writer lease plus its computed liveness, for `ateam state writer --json`.
-type WriterLeaseStatus struct {
-	*WriterLease
-	Live   bool `json:"live"`
-	Exited bool `json:"exited"`
-}
-
-// ReadWriterLeaseStatus returns nil, nil when no lease exists.
-func ReadWriterLeaseStatus(root string) (*WriterLeaseStatus, error) {
-	lease, err := ReadWriterLease(root)
-	if err != nil || lease == nil {
-		return nil, err
-	}
-	return &WriterLeaseStatus{
-		WriterLease: lease,
-		Live:        writerLeaseLive(lease),
-		Exited:      lease.PID > 0 && !IsProcessAlive(lease.PID),
-	}, nil
-}
-
 // AfterLeaseDecision is a test seam, nil in production: SaveHandoffReleasingLease calls it while holding the
 // state lock, after deciding lease ownership and before removing the lease.
 var AfterLeaseDecision func()
@@ -1484,6 +1462,7 @@ func WriteWriterLease(root, agent, sessionID string) (*WriterLease, error) {
 		PID:       ResolveClientPID(),
 		LastSeen:  time.Now().UTC(),
 	}
+	wl.Host, wl.PIDNamespace = processPlace()
 	if os.Getenv("HERDR_ENV") == "1" {
 		wl.HerdrPaneID = strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
 		wl.HerdrWorkspaceID = strings.TrimSpace(os.Getenv("HERDR_WORKSPACE_ID"))

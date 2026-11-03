@@ -67,6 +67,10 @@ func run(args []string) int {
 	case "serve":
 		return runServe(cwd, subArgs)
 	case "version", "--version", "-v":
+		if len(subArgs) == 1 && subArgs[0] == "--json" {
+			printJSON(state.ReadVersionInfo())
+			return 0
+		}
 		fmt.Println(state.VersionString())
 		return 0
 	default:
@@ -185,7 +189,7 @@ Subcommands:
   sync         Sync issues and PRs from the configured forges
   mode [mode]  Show or set the Ponytail mode (on|off)
   writer --json
-               Print the writer lease with computed live and exited, or null
+               Print the writer state (none, live, stale, unknown) and lease as JSON
   herdr        herdr integration (on-event, open-pane)
 `
 
@@ -267,12 +271,7 @@ func runStateWriter(repoRoot string, args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: ateam state writer --json")
 		return 2
 	}
-	status, err := state.ReadWriterLeaseStatus(repoRoot)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ateam state writer: %v\n", err)
-		return 1
-	}
-	printJSON(status)
+	printJSON(state.ReadWriterStatus(repoRoot))
 	return 0
 }
 
