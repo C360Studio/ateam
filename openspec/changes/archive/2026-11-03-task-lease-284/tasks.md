@@ -17,4 +17,4 @@
 ## 4. Docs and verify
 
 - [x] 4.1 `docs/hook-flow.md` names the file and the override; `docs/adoption.md` gives the D1 seam, the D7 table, the D9 check, and the D10 advisory rule, naming no adopter (#284). Acceptance: `ateam doctor --check` and `task spec:check` pass. Evidence: `docs/hook-flow.md`; `docs/adoption.md` § Optional external task lease.
-- [ ] 4.2 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#284).
+- [x] 4.2 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#284). Evidence: `task verify` green on a clean tree at c9dbd1a; `ateam doctor --check` and `ateam bench --selftest` exit 0.
