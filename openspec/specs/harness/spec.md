@@ -816,7 +816,7 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 #### Scenario: A ready pull request awaiting its review record carries no failed Merge check
 
 - **WHEN** a ready code pull request is opened, marked ready, pushed, or edited, its description has no `reviewed-by:` line, and it has no review record comment
-- **THEN** the merge-check job is skipped under `Merge check (awaiting review record, skipped)`, no failed `Merge check` is posted, and the absent required context keeps the pull request from merging
+- **THEN** the merge-check job is skipped under a name other than `Merge check` (on GitHub, the raw `name:` expression, because GitHub does not evaluate a skipped job's `name:`), no failed `Merge check` is posted, and the absent required context keeps the pull request from merging
 
 #### Scenario: The probe reads the forge and fails closed
 
