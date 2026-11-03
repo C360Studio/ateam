@@ -938,9 +938,9 @@ When the current handoff's `Addresses` carries `aip-lease:<id>`, with a case-ins
 - **WHEN** a lease from this host and PID namespace is past the TTL and its PID is alive
 - **THEN** `state` is `unknown`
 
-#### Scenario: Foreign live lease
-- **WHEN** another session on this host and PID namespace holds a lease within the TTL with a live PID
-- **THEN** `state` is `live` and the output names its session and host
+#### Scenario: Live writer
+- **WHEN** a lease from this host and PID namespace is within the TTL and its PID is alive, whichever session holds it, including the caller or none
+- **THEN** `state` is `live`
 
 ### Requirement: Machine-readable version and capabilities
 `ateam version --json` SHALL print the version, the commit, and a `capabilities` list naming `state-writer-json` and `task-lease-file`. `ateam version` without the flag SHALL print its existing text.

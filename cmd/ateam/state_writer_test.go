@@ -52,6 +52,22 @@ func TestStateWriterJSON(t *testing.T) {
 			t.Fatalf("stored fields not printed: %v", got)
 		}
 	})
+	t.Run("live whichever session holds it", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("ATEAM_SESSION_ID", "mine")
+		if _, err := state.WriteWriterLease(dir, "codex", "mine"); err != nil {
+			t.Fatal(err)
+		}
+		if got := writerJSON(t, dir); got["state"] != "live" {
+			t.Fatalf("own session: got %v, want live", got)
+		}
+		if _, err := state.WriteWriterLease(dir, "codex", ""); err != nil {
+			t.Fatal(err)
+		}
+		if got := writerJSON(t, dir); got["state"] != "live" {
+			t.Fatalf("no session: got %v, want live", got)
+		}
+	})
 	t.Run("lease from another host", func(t *testing.T) {
 		dir := t.TempDir()
 		writeRawWriterLease(t, dir, `{"agent":"codex","session_id":"s","pid":999999,"host":"elsewhere.invalid","last_seen":"`+now+`"}`)
