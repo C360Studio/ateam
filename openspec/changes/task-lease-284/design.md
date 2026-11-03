@@ -64,4 +64,4 @@ None. Absent file and no `writer` call mean today's behaviour byte for byte.
 
 ## Open Questions
 
-1. **Owner ruling needed:** D7 A, `live` as a liveness-only rule rather than the function named in the ruling? The two recommended D2 and D4 additions go beyond the ruling's text too; approving this file accepts them.
+1. Resolved 2026-11-03: the owner approved D7 A, `live` as a liveness-only rule. Approval also accepts the D2 and D4 additions.
