@@ -1046,3 +1046,50 @@ func TestProbeIgnoresEnvSessionAndWritesNoLease(t *testing.T) {
 		t.Fatalf("Handle with an env session should write the writer lease: %v", err)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Optional external task lease display
+func TestSessionStartTaskLeaseTextCannotGateWriterLease(t *testing.T) {
+	// A holder holding the warning's text must not stop session-start writing the lease (#284).
+	t.Setenv("ATEAM_TASK_LEASE_FILE", "")
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lease := `{"id":"abc","issue":1,"holder":"WARNING: another writer may be active","expires_at":"2099-01-02T03:04:05Z","source":"s"}`
+	if err := os.WriteFile(filepath.Join(dir, ".ateam", "task-lease.json"), []byte(lease), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-mine"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.AdditionalContext, "Task lease: issue #1") {
+		t.Fatalf("session-start missing the task lease line: %+v", out)
+	}
+	got, err := state.ReadWriterLease(dir)
+	if err != nil || got == nil || got.SessionID != "sess-mine" {
+		t.Fatalf("writer lease = %+v, %v; want session sess-mine", got, err)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Optional external task lease display
+func TestSessionStartMalformedTaskLeaseStillSucceeds(t *testing.T) {
+	t.Setenv("ATEAM_TASK_LEASE_FILE", "")
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".ateam", "task-lease.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-mine"}`))
+	if err != nil {
+		t.Fatalf("malformed file must not fail the hook: %v", err)
+	}
+	if !strings.Contains(out.AdditionalContext, "WARNING: task lease file unreadable (invalid JSON or field type)") {
+		t.Fatalf("session-start missing the warning: %+v", out)
+	}
+	if got, err := state.ReadWriterLease(dir); err != nil || got == nil {
+		t.Fatalf("writer lease = %+v, %v; want written", got, err)
+	}
+}

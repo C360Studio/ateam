@@ -69,6 +69,8 @@ The writer record contains agent, session ID (`session_id` or Antigravity `conve
 
 Pickup warns when a different nonempty session ID with a live PID was seen within ten minutes. It does not acquire exclusive edit ownership. `before-prompt` and `turn-end` replace the record; the latter deliberately keeps evidence of recent activity. Explicit handoff attempts to clear it. Separate worktrees and agent cooperation remain necessary.
 
+`Load` also reads an external task lease from `.ateam/task-lease.json`, or the absolute or root-relative path in `ATEAM_TASK_LEASE_FILE`, so `session-start` and pickup print one `Task lease:` line. A missing file prints nothing; a malformed one prints one `WARNING: task lease file unreadable (<reason>)` line. Hooks never write the file or decide ownership from it. See [the adoption guide](adoption.md#optional-external-task-lease).
+
 ## Automatic work versus explicit work
 
 The [shared protocol](../.agents/protocol.md) asks agents to clarify, claim, verify, and hand off. Its rules are instructions unless backed by a specific tool or CI check:

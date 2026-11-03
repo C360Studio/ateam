@@ -606,6 +606,8 @@ type State struct {
 	LastHandoff      *Handoff                    `json:"last_handoff,omitempty"`
 	Handoffs         map[string]*Handoff         `json:"handoffs,omitempty"`
 	Writer           *WriterLease                `json:"writer,omitempty"`
+	TaskLease        *TaskLease                  `json:"-"`
+	TaskLeaseError   string                      `json:"-"`
 	CurrentAgent     string                      `json:"-"`
 	CurrentSessionID string                      `json:"-"`
 	MCPBuild         string                      `json:"-"`
@@ -668,14 +670,19 @@ func HandoffSlotKey(agent, branch string) string {
 // writerLeaseTTL is how long a writer lease counts as active after its last_seen.
 const writerLeaseTTL = 10 * time.Minute
 
-func isCallerActiveWriterLease(lease *WriterLease, callerSessionID string) bool {
+// writerLeaseLive reports whether a lease is live for anyone, whatever the caller's identity.
+func writerLeaseLive(lease *WriterLease) bool {
 	if lease == nil || strings.TrimSpace(lease.Agent) == "" {
 		return false
 	}
 	if lease.PID > 0 && !IsProcessAlive(lease.PID) {
 		return false
 	}
-	if !lease.LastSeen.IsZero() && time.Since(lease.LastSeen) >= writerLeaseTTL {
+	return lease.LastSeen.IsZero() || time.Since(lease.LastSeen) < writerLeaseTTL
+}
+
+func isCallerActiveWriterLease(lease *WriterLease, callerSessionID string) bool {
+	if !writerLeaseLive(lease) {
 		return false
 	}
 	callerSession := strings.TrimSpace(callerSessionID)
@@ -1381,6 +1388,26 @@ func ReadWriterLease(root string) (*WriterLease, error) {
 	return &wl, nil
 }
 
+// WriterLeaseStatus is the stored writer lease plus its computed liveness, for `ateam state writer --json`.
+type WriterLeaseStatus struct {
+	*WriterLease
+	Live   bool `json:"live"`
+	Exited bool `json:"exited"`
+}
+
+// ReadWriterLeaseStatus returns nil, nil when no lease exists.
+func ReadWriterLeaseStatus(root string) (*WriterLeaseStatus, error) {
+	lease, err := ReadWriterLease(root)
+	if err != nil || lease == nil {
+		return nil, err
+	}
+	return &WriterLeaseStatus{
+		WriterLease: lease,
+		Live:        writerLeaseLive(lease),
+		Exited:      lease.PID > 0 && !IsProcessAlive(lease.PID),
+	}, nil
+}
+
 // AfterLeaseDecision is a test seam, nil in production: SaveHandoffReleasingLease calls it while holding the
 // state lock, after deciding lease ownership and before removing the lease.
 var AfterLeaseDecision func()
@@ -1586,6 +1613,7 @@ func Load(root string) (*State, error) {
 			if wl, err := ReadWriterLease(root); err == nil && wl != nil {
 				st.Writer = wl
 			}
+			st.loadTaskLease(root)
 			return st, nil
 		}
 		return nil, fmt.Errorf("read state cache: %w", err)
@@ -1614,6 +1642,7 @@ func Load(root string) (*State, error) {
 	if wl, err := ReadWriterLease(root); err == nil && wl != nil {
 		st.Writer = wl
 	}
+	st.loadTaskLease(root)
 	if st.Handoffs == nil && st.LastHandoff != nil {
 		lastBr := strings.TrimSpace(st.LastHandoff.Branch)
 		curBr := strings.TrimSpace(st.Git.Branch)
@@ -2816,6 +2845,7 @@ func BuildPickupSummary(st *State) string {
 				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		}
 	}
+	writePickupTaskLease(&b, st)
 	writePickupWorktrees(&b, st)
 	var inFlightChanges, completedChanges []OpenSpecChange
 	for _, ch := range st.OpenSpecQueue {

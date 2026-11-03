@@ -140,7 +140,8 @@ func handle(root, flagEvent, flagAgent string, stdin io.Reader, envSessionID str
 		st.HoldScanError = strings.Join(scanErrs, "; ")
 		reconcileSessionStartHandoffs(root, flagAgent, br, sha, wtHeadChanged, st)
 		ctxText := state.BuildPickupSummary(st)
-		if sessionID != "" && !strings.Contains(ctxText, "WARNING: another writer may be active") {
+		// Line start only: task lease values can hold this text but no newline, and must not gate the lease (#284).
+		if sessionID != "" && !strings.Contains(ctxText, "\nWARNING: another writer may be active") {
 			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
 		}
 		if buildWarning := checkSessionBuildProvenance(root, sha); buildWarning != "" {

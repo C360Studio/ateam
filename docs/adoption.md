@@ -87,6 +87,22 @@ Call the released binary from your own CI or `task verify`; do not copy ateam's 
 
 Local forge selection: an exported `GITEA_URL` takes priority over a github.com `origin` (unless `ATEAM_FORGE=github`), so unset it when working on a GitHub repository. Forge transport errors print the full request URL, host included, so do not paste gate output from a private Gitea instance into a public place.
 
+## Optional external task lease
+
+A daemon that assigns tasks to checkouts can show its own lease to agents through one file. ATeam reads the file and never writes, refreshes, or clears it, makes no call to the daemon, and takes no ownership decision from it: the writer lease, the handoff slot, and prune ignore it. If the daemon writes nothing, nothing changes.
+
+Write `.ateam/task-lease.json` atomically (temp file plus rename), or point `ATEAM_TASK_LEASE_FILE` at an absolute or root-relative path:
+
+```json
+{"id":"0f3a","issue":284,"holder":"worker-1","expires_at":"2026-11-03T12:00:00Z","source":"factory"}
+```
+
+All five fields are required and unknown fields are ignored. `issue` is a positive integer, `expires_at` is RFC 3339, and each string is at most 256 bytes with no control characters. The file is at most 64 KiB. Pickup and `session-start` print `Task lease: issue #284 holder=worker-1 expires=2026-11-03T12:00:00Z (source factory)`, with `expired` appended once `expires_at` passes. A file that breaks these rules prints one `WARNING: task lease file unreadable (<reason>)` line and pickup continues.
+
+A handoff can name its lease in `Addresses` as `aip-lease:<id>`. The prefix is case-insensitive, and the token reads `A-Z`, `a-z`, `0-9`, `_`, and `-`, so keep the `id` to those. On a different `id`, pickup prints `handoff lease <id> is not the current task lease <id2>`. Only the first token is compared.
+
+Before assigning a task, run `ateam state writer --json` in the checkout. It prints the stored writer lease plus `live` and `exited`, or `null` with exit 0 when there is none; an unparsable lease exits 1. `live` holds whichever session owns the lease. It depends on PID liveness, so run the command in the same PID namespace as the sessions it asks about: from another namespace a running writer reads `exited: true`.
+
 ## Optional herdr adapter
 
 When agents run inside [herdr](https://herdr.dev) panes, ATeam delegates three things and keeps the rest local:
