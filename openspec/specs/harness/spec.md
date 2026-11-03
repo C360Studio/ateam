@@ -868,20 +868,25 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 - **THEN** the CLI exits 1 and MCP returns an error, each saying that the handoff was saved and the writer lease was not released
 
 ### Requirement: Optional external task lease display
-When `.ateam/task-lease.json` or the path in `ATEAM_TASK_LEASE_FILE` (absolute or root-relative) exists, pickup and session-start SHALL print one line naming its issue, holder, expiry, and source, with `expired` appended when `expires_at` is past. ateam SHALL NOT write, refresh, or clear the file, and the file SHALL NOT affect the writer lease, the handoff slot, or prune. When the file is absent, output SHALL be byte-for-byte unchanged. A file that is not a regular file, is oversized, is not valid JSON, lacks a required field, carries a control character in a value, or has an unparsable `expires_at` SHALL produce one `WARNING: task lease file unreadable (<reason>)` line, with a reason that does not echo file content, and SHALL NOT fail pickup or the hook.
+When `.ateam/task-lease.json` or the path in `ATEAM_TASK_LEASE_FILE` exists, pickup and session-start SHALL print one line naming its issue, holder, expiry, and source. ateam SHALL NOT write, refresh, or clear the file, and the file SHALL NOT affect the writer lease, the handoff slot, or prune. A missing file SHALL change no output. A malformed file SHALL produce one warning and SHALL NOT fail pickup or the hook.
 
 #### Scenario: Fresh and expired lease
 - **WHEN** the file is valid
 - **THEN** pickup prints `Task lease: issue #<n> holder=<holder> expires=<rfc3339> (source <source>)`
 - **AND** the line ends with `expired` only when `expires_at` is past
 
+#### Scenario: Path override
+- **WHEN** `ATEAM_TASK_LEASE_FILE` holds an absolute or root-relative path
+- **THEN** pickup reads that path instead of `.ateam/task-lease.json`
+
 #### Scenario: No lease file
 - **WHEN** the file does not exist
-- **THEN** pickup prints no task lease line and no warning
+- **THEN** pickup output is byte-for-byte what it would be without this feature
 
 #### Scenario: Malformed lease file
-- **WHEN** the file is malformed
-- **THEN** pickup prints one warning line and exits as it would without the file
+- **WHEN** the file is not a regular file, is oversized, is not valid JSON, lacks a required field, carries a control character in a value, or has an unparsable `expires_at`
+- **THEN** pickup prints one `WARNING: task lease file unreadable (<reason>)` line whose reason does not echo file content
+- **AND** pickup exits as it would without the file
 
 #### Scenario: Lease values cannot gate the writer lease
 - **WHEN** a valid file's `holder` is the text of the different-writer warning
@@ -899,31 +904,43 @@ When the current handoff's `Addresses` carries `aip-lease:<id>`, with a case-ins
 - **THEN** pickup prints no mismatch line
 
 ### Requirement: Machine-readable writer state
-`ateam state writer --json` SHALL print one object with `state` (`none`, `live`, `stale`, or `unknown`), a fixed-text `reason`, and the stored writer fields when a lease was read, and SHALL exit 0 for every state. A PID check SHALL count only when the lease's non-empty `host` and its `pid_ns` equal the caller's. `live` SHALL require a live PID within the writer lease TTL. `stale` SHALL mean past the TTL without a PID check saying otherwise, or an exited PID. Every other lease, including an unreadable one, a live PID past the TTL, or another host or PID namespace within the TTL, SHALL be `unknown`. The result is advisory and SHALL NOT claim or change ownership.
+`ateam state writer --json` SHALL print one object with `state` (`none`, `live`, `stale`, or `unknown`), a fixed-text `reason`, and any stored writer fields, and SHALL exit 0 for every state. The first scenario below that matches a lease, in the order written, SHALL decide `state`. A PID check SHALL count only when the lease's non-empty `host` and its `pid_ns` equal the caller's. The result is advisory and SHALL NOT claim or change ownership.
 
 #### Scenario: No lease
 - **WHEN** no writer lease exists
-- **THEN** `state` is `none` and the command exits 0
+- **THEN** `state` is `none`
 
-#### Scenario: Foreign live lease
-- **WHEN** another session on this host and PID namespace holds a recent lease with a live PID
-- **THEN** `state` is `live` and the output names its session and host
+#### Scenario: Unreadable lease
+- **WHEN** the lease file cannot be parsed
+- **THEN** `state` is `unknown`
+
+#### Scenario: Incomplete lease
+- **WHEN** the lease has no agent or no `last_seen`
+- **THEN** `state` is `unknown` at any age
+
+#### Scenario: Writer elsewhere within the TTL
+- **WHEN** a lease within the writer lease TTL names another host, another PID namespace, or no host
+- **THEN** `state` is `unknown` whatever the PID's status here
+
+#### Scenario: Writer elsewhere past the TTL
+- **WHEN** a lease past the writer lease TTL names another host, another PID namespace, or no host
+- **THEN** `state` is `stale`
+
+#### Scenario: No PID recorded
+- **WHEN** a lease from this host and PID namespace has no PID
+- **THEN** `state` is `unknown` at any age
 
 #### Scenario: Exited writer
 - **WHEN** a lease from this host and PID namespace names an exited PID
 - **THEN** `state` is `stale`
 
-#### Scenario: Writer elsewhere
-- **WHEN** a recent lease names another host, another PID namespace, or no host
-- **THEN** `state` is `unknown` whatever the PID's status here
-
 #### Scenario: Long turn
 - **WHEN** a lease from this host and PID namespace is past the TTL and its PID is alive
 - **THEN** `state` is `unknown`
 
-#### Scenario: Unreadable lease
-- **WHEN** the lease file cannot be parsed
-- **THEN** `state` is `unknown` and the command exits 0
+#### Scenario: Foreign live lease
+- **WHEN** another session on this host and PID namespace holds a lease within the TTL with a live PID
+- **THEN** `state` is `live` and the output names its session and host
 
 ### Requirement: Machine-readable version and capabilities
 `ateam version --json` SHALL print the version, the commit, and a `capabilities` list naming `state-writer-json` and `task-lease-file`. `ateam version` without the flag SHALL print its existing text.
@@ -931,4 +948,3 @@ When the current handoff's `Addresses` carries `aip-lease:<id>`, with a case-ins
 #### Scenario: Capability list
 - **WHEN** a client runs `ateam version --json`
 - **THEN** the output parses as JSON and `capabilities` contains `state-writer-json`
-
