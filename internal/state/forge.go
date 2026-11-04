@@ -104,11 +104,16 @@ func ParseGitRemote(remoteURL string) (host, owner, repo string) {
 	if err != nil || u.Host == "" {
 		return "", "", ""
 	}
+	host = u.Host
+	// An ssh:// port is the SSH port, not the web port the API URL is built from (#291).
+	if u.Scheme == "ssh" && u.Port() != "" {
+		host = strings.TrimSuffix(host, ":"+u.Port())
+	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(parts) < 2 {
-		return u.Host, "", ""
+		return host, "", ""
 	}
-	return u.Host, parts[len(parts)-2], strings.TrimSuffix(parts[len(parts)-1], ".git")
+	return host, parts[len(parts)-2], strings.TrimSuffix(parts[len(parts)-1], ".git")
 }
 
 // MergeConfiguredForges combines the primary detected forge with any saved forge configs without duplicating providers.

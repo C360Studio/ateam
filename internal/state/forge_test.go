@@ -18,6 +18,36 @@ import (
 )
 
 // spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+func TestForgeURLFromRemotePort(t *testing.T) {
+	// Oracle: an ssh:// port is the SSH port and never reaches the API URL; an http(s) port is the web port (#291).
+	t.Setenv("GITEA_URL", "")
+	t.Setenv("ATEAM_FORGE", "")
+	for _, tc := range []struct{ remote, wantBase string }{
+		{"ssh://git@forge.example.test:2222/o/r.git", "https://forge.example.test"},
+		{"ssh://git@gitea.example.test:2222/o/r.git", "https://gitea.example.test"},
+		{"ssh://deploy@forge.example.test:2222/o/r.git", "https://forge.example.test"},
+		{"SSH://git@forge.example.test:2222/o/r.git", "https://forge.example.test"},
+		{"ssh://git@[fd00::1]:2222/o/r.git", "https://[fd00::1]"},
+		{"ssh://git@forge.example.test/o/r.git", "https://forge.example.test"},
+		{"git@forge.example.test:o/r.git", "https://forge.example.test"},
+		{"https://forge.example.test:3000/o/r.git", "https://forge.example.test:3000"},
+		{"http://forge.example.test:3000/o/r.git", "https://forge.example.test:3000"},
+	} {
+		t.Run(tc.remote, func(t *testing.T) {
+			cfg := DetectForge(context.Background(), "", tc.remote)
+			if cfg.Provider != ForgeGitea || cfg.BaseURL != tc.wantBase || cfg.Owner != "o" || cfg.Repo != "r" {
+				t.Fatalf("DetectForge = %+v, want gitea %s o/r", cfg, tc.wantBase)
+			}
+		})
+	}
+	// GITEA_URL stays the way to name a web port an SSH remote cannot reveal.
+	t.Setenv("GITEA_URL", "https://forge.example.test:8443")
+	if cfg := DetectForge(context.Background(), "", "ssh://git@forge.example.test:2222/o/r.git"); cfg.BaseURL != "https://forge.example.test:8443" {
+		t.Fatalf("GITEA_URL ignored: %+v", cfg)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
 func TestForgeGitHubAndGitea(t *testing.T) {
 	host, owner, repo := ParseGitRemote("ssh://git@github.com/C360Studio/ateam.git")
 	if host != "github.com" || owner != "C360Studio" || repo != "ateam" {
