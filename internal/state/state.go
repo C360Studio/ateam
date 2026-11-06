@@ -3028,6 +3028,9 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 		if remove, _ := st.PruneVerdict(wt, st.CurrentAgent, "", false); remove {
 			statuses[i] += ", prune candidate"
 		}
+		if owner := worktreeHostOwner(st, wt); owner != "" {
+			statuses[i] += ", " + owner
+		}
 		aheadStr := fmt.Sprintf("ahead=%d", wt.AheadCount)
 		if n := st.Git.DefaultBehindRemote; n > 0 && wt.Branch != "" && wt.Branch == strings.TrimPrefix(st.Git.DefaultRemoteRef, "origin/") {
 			aheadStr += fmt.Sprintf(", behind=%d", n)
@@ -3037,6 +3040,40 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 			fmt.Fprintf(b, "    handoff: %s\n", line)
 		}
 	}
+}
+
+// worktreeHostOwner names who works in a worktree whose branch carries no agent prefix, as on a
+// branch a host created (T3 Code's t3/<topic>, #296): the newest handoff for the branch, else the
+// worktree's writer lease, else "owner unknown". It returns "" for a prefixed, default, or detached branch.
+func worktreeHostOwner(st *State, wt Worktree) string {
+	branch := strings.TrimSpace(wt.Branch)
+	if branch == "" || branch == "HEAD" || branch == "detached" || branch == "main" || branch == "master" ||
+		branch == strings.TrimPrefix(st.Git.DefaultRemoteRef, "origin/") || inferAgentFromBranch(branch) != "" {
+		return ""
+	}
+	var newest *Handoff
+	consider := func(h *Handoff) {
+		if h != nil && normalizeAgentKey(h.Agent) != "" && strings.TrimSpace(h.Branch) == branch &&
+			(newest == nil || h.UpdatedAt.After(newest.UpdatedAt)) {
+			newest = h
+		}
+	}
+	for _, h := range st.Handoffs {
+		consider(h)
+	}
+	// Read every slot the worktree holds, not the display set that drops slots st also holds:
+	// the worktree's copy of a shared slot may be the newer one (PR #297 review).
+	slots, _ := readWorktreeHandoffSlots(&State{Git: st.Git}, wt)
+	for _, h := range slots {
+		consider(h)
+	}
+	if newest != nil {
+		return "owner " + normalizeAgentKey(newest.Agent)
+	}
+	if lease, _ := ReadWriterLease(wt.Path); lease != nil && normalizeAgentKey(lease.Agent) != "" {
+		return "owner " + normalizeAgentKey(lease.Agent)
+	}
+	return "owner unknown"
 }
 
 // worktreeHandoffLines reads the handoffs a linked worktree recorded in its own

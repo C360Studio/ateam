@@ -44,7 +44,7 @@ func (st *State) PruneVerdict(wt Worktree, agent, currentPath string, force bool
 		reviewPR, _ = strconv.Atoi(m[2])
 	}
 	if owner == "" {
-		return false, "no agent prefix"
+		return false, "no agent prefix (host-created branch)"
 	}
 	if agent = strings.ToLower(strings.TrimSpace(agent)); owner != agent {
 		return false, "owned by " + owner
