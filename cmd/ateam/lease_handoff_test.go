@@ -121,7 +121,20 @@ func TestStateHandoffRecordsClaudeCodeSession(t *testing.T) {
 	// /handoff from Claude Code's Bash tool passes no --session; the export must still name the session (#293).
 	dir := t.TempDir()
 	writeLiveLease(t, dir, "claude", "cc-sess")
-	t.Setenv("ATEAM_CLIENT_PID", "")
+	// Reproduce the shell gap: the lease names a live process that is neither this process nor the resolved
+	// client, so only the env export can name the session.
+	leasePID := os.Getppid()
+	t.Setenv("ATEAM_CLIENT_PID", strconv.Itoa(os.Getpid()))
+	if leasePID == os.Getpid() || leasePID == state.ResolveClientPID() || !state.IsProcessAlive(leasePID) {
+		t.Fatalf("lease PID %d must be live and differ from pid %d and client pid %d", leasePID, os.Getpid(), state.ResolveClientPID())
+	}
+	data, err := json.Marshal(state.WriterLease{Agent: "claude", SessionID: "cc-sess", PID: leasePID, LastSeen: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.WriterLeasePath(dir), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "cc-sess")
 	code, stderr := captureBenchError(t, func() int {
 		return runStateHandoff(dir, []string{"--agent", "claude", "--goal", "goal", "--no-post"})
