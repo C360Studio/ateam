@@ -568,26 +568,26 @@ type GitStatus struct {
 
 // BoardCard represents an issue, PR claim, or OpenSpec item on the PM board.
 type BoardCard struct {
-	ID         string    `json:"id"`
-	Number     int       `json:"number,omitempty"`
-	Title      string    `json:"title"`
-	Column     string    `json:"column"` // needs-decision, backlog, in-progress, in-review, blocked, done
-	Type       string    `json:"type"`   // issue, epic, pr, spec
-	Merged     bool      `json:"merged,omitempty"`
-	HeadSHA    string    `json:"head_sha,omitempty"`
-	Labels     []string  `json:"labels,omitempty"`
-	Agent      string    `json:"agent,omitempty"`
-	Branch     string    `json:"branch,omitempty"`
-	Spec       string    `json:"spec,omitempty"`
-	Milestone  string    `json:"milestone,omitempty"`
-	HoldReason string    `json:"hold_reason,omitempty"`
-	Decision   string    `json:"decision,omitempty"`
+	ID         string   `json:"id"`
+	Number     int      `json:"number,omitempty"`
+	Title      string   `json:"title"`
+	Column     string   `json:"column"` // needs-decision, backlog, in-progress, in-review, blocked, done
+	Type       string   `json:"type"`   // issue, epic, pr, spec
+	Merged     bool     `json:"merged,omitempty"`
+	HeadSHA    string   `json:"head_sha,omitempty"`
+	Labels     []string `json:"labels,omitempty"`
+	Agent      string   `json:"agent,omitempty"`
+	Branch     string   `json:"branch,omitempty"`
+	Spec       string   `json:"spec,omitempty"`
+	Milestone  string   `json:"milestone,omitempty"`
+	HoldReason string   `json:"hold_reason,omitempty"`
+	Decision   string   `json:"decision,omitempty"`
 	// Review is the newest review record comment on an open PR whose branch has
 	// a local worktree, as the last sync read it (#295).
-	Review *review.RecordComment `json:"review,omitempty"`
-	Forge  string                `json:"forge,omitempty"` // github, gitea, local
-	URL        string    `json:"url,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Review    *review.RecordComment `json:"review,omitempty"`
+	Forge     string                `json:"forge,omitempty"` // github, gitea, local
+	URL       string                `json:"url,omitempty"`
+	UpdatedAt time.Time             `json:"updated_at"`
 }
 
 // WriterLease tracks the most recent active agent writer in .ateam/writer.json.
