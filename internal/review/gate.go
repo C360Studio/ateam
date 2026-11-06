@@ -135,19 +135,9 @@ type gateSource interface {
 // Gate runs the merge check against cfg's forge and returns the exit status:
 // 0 pass, 1 fail, 2 unavailable.
 func Gate(ctx context.Context, out io.Writer, cfg ForgeConfig, opts GateOptions) int {
-	var src gateSource
-	switch cfg.Provider {
-	case "github":
-		src = ghSource{}
-	case "gitea":
-		root, err := forgeRoot(cfg)
-		if err != nil {
-			fmt.Fprintf(out, "merge-check: unavailable: %v\n", err)
-			return 2
-		}
-		src = &giteaSource{cfg: cfg, root: root}
-	default:
-		fmt.Fprintf(out, "merge-check: unavailable: unsupported forge %q\n", cfg.Provider)
+	src, err := gateSourceFor(cfg)
+	if err != nil {
+		fmt.Fprintf(out, "merge-check: unavailable: %v\n", err)
 		return 2
 	}
 	if opts.PolicyPath == "" {
@@ -158,7 +148,7 @@ func Gate(ctx context.Context, out io.Writer, cfg ForgeConfig, opts GateOptions)
 		actions = "Gitea Actions"
 	}
 	g := &gateRun{out: out, src: src, opts: opts, actions: actions}
-	err := g.run(ctx)
+	err = g.run(ctx)
 	var exit *gateExit
 	switch {
 	case err == nil:
@@ -170,6 +160,61 @@ func Gate(ctx context.Context, out io.Writer, cfg ForgeConfig, opts GateOptions)
 		fmt.Fprintln(out, "merge-check: unavailable: "+err.Error())
 		return 2
 	}
+}
+
+func gateSourceFor(cfg ForgeConfig) (gateSource, error) {
+	switch cfg.Provider {
+	case "github":
+		return ghSource{}, nil
+	case "gitea":
+		root, err := forgeRoot(cfg)
+		if err != nil {
+			return nil, err
+		}
+		return &giteaSource{cfg: cfg, root: root}, nil
+	}
+	return nil, fmt.Errorf("unsupported forge %q", cfg.Provider)
+}
+
+// ReadPullBody reads a pull request's description and head commit through the
+// merge check's forge reads (#295).
+func ReadPullBody(ctx context.Context, cfg ForgeConfig, pr int) (body, head string, err error) {
+	src, err := gateSourceFor(cfg)
+	if err != nil {
+		return "", "", err
+	}
+	pull, err := src.pullRequest(ctx, pr)
+	if err != nil {
+		return "", "", err
+	}
+	return pull.Body, pull.Head, nil
+}
+
+// Implementers reads the implementing runs from a pull request description's
+// one implemented-by: line, as the merge check does.
+func Implementers(body string) ([]Run, error) {
+	var lines []string
+	for _, l := range strings.Split(body, "\n") {
+		if l = strings.TrimSuffix(l, "\r"); strings.HasPrefix(l, "implemented-by:") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 1 {
+		return nil, fmt.Errorf("the description has %d implemented-by: lines; exactly one names the implementing runs", len(lines))
+	}
+	specs := gateRuns(strings.TrimPrefix(lines[0], "implemented-by:"))
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("the implemented-by: line holds no <agent> (<model>, <effort>) group")
+	}
+	runs := make([]Run, 0, len(specs))
+	for _, spec := range specs {
+		r, err := ParseRunSpec(spec)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, r)
+	}
+	return runs, nil
 }
 
 type gateRun struct {

@@ -20,7 +20,7 @@ import (
 
 func runReview(root string, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... (--reviewer AGENT:MODEL:EFFORT | --reviewer-record FILE) | gate [--awaiting] [PR]")
+		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... (--reviewer AGENT:MODEL:EFFORT | --reviewer-record FILE) | gate [--awaiting] [PR] | request [--implementer AGENT:MODEL:EFFORT]... [--reviewer AGENT:MODEL:EFFORT] [--return-to ID] [--dry-run] PR | notify --record FILE [--return-to ID] PR")
 		return 2
 	}
 	var err error
@@ -29,6 +29,13 @@ func runReview(root string, args []string) int {
 		return reviewCompare(root, args[1:])
 	case "gate":
 		return reviewGate(root, args[1:])
+	case "request", "notify":
+		ctx, cancel := reviewLaunchContext()
+		defer cancel()
+		if args[0] == "notify" {
+			return reviewNotify(ctx, root, args[1:], os.Getenv, os.Stdout, execLaunch)
+		}
+		return reviewRequest(ctx, root, args[1:], os.Getenv, os.Stdout, execLaunch)
 	case "setup":
 		err = reviewSetup(root, args[1:])
 	case "route":

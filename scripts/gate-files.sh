@@ -16,7 +16,7 @@
 set -uo pipefail
 
 readonly approval=gate-change-approved
-readonly gate='^(\.agents/review-policy\.json|scripts/merge-check\.sh|scripts/gate-files\.sh|\.github/workflows/|\.gitea/workflows/|internal/review/)'
+readonly gate='^(\.agents/review-policy\.json|scripts/merge-check\.sh|scripts/gate-files\.sh|\.github/workflows/|\.gitea/workflows/|internal/review/|\.agents/hosts/)'
 
 pr=${1:-}
 case "$pr" in
