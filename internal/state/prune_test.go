@@ -45,7 +45,7 @@ func TestPruneVerdict(t *testing.T) {
 		{"closed without merge", Worktree{Path: "/r/e", Branch: "claude/closed", Head: "eeeeeee", Dirty: &clean, AheadCount: 1}, false, "closed without merge (#5)"},
 		{"no PR", Worktree{Path: "/r/f", Branch: "claude/wip", Head: "4444444", Dirty: &clean, AheadCount: 1}, false, "no PR"},
 		{"another agent", Worktree{Path: "/r/h", Branch: "codex/merged", Head: "ddddddd", Dirty: &clean, AheadCount: 1}, false, "owned by codex"},
-		{"no agent prefix", Worktree{Path: "/r/i", Branch: "feature/x", Head: "fffffff", Dirty: &clean, AheadCount: 1}, false, "no agent prefix"},
+		{"no agent prefix", Worktree{Path: "/r/i", Branch: "feature/x", Head: "fffffff", Dirty: &clean, AheadCount: 1}, false, "no agent prefix (host-created branch)"},
 		{"current checkout", Worktree{Path: "/r/j", Branch: "claude/here", Head: "9999999", Dirty: &clean, AheadCount: 1}, false, "current checkout"},
 		{"current checkout by path", Worktree{Path: "/r/me", Branch: "claude/merged", Head: "aaaaaaa", Dirty: &clean, AheadCount: 1}, false, "current checkout"},
 		{"default branch", Worktree{Path: "/r", Branch: "main", Head: "9999999", Dirty: &clean}, false, "default branch"},

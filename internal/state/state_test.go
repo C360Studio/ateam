@@ -1683,6 +1683,62 @@ func TestPickupShowsHandoffsRecordedInsideWorktrees(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Prune finished worktrees the caller owns
+func TestPickupNamesOwnerOfHostCreatedBranch(t *testing.T) {
+	// #296: T3 Code creates t3/<topic> branches, which carry no agent. The worktree's handoff
+	// names the owner first, then its writer lease, else the line says the owner is unknown.
+	handoff := func(dir, agent, branch string) {
+		wt := defaultState()
+		wt.Git.Branch = branch
+		wt.SetHandoff(Handoff{Goal: "g", Agent: agent, Branch: branch, UpdatedAt: time.Now().UTC()})
+		if err := Save(dir, wt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lease := func(dir, agent string) {
+		if err := os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		data := fmt.Sprintf(`{"agent":%q,"session_id":"s-%s","pid":1,"last_seen":%q}`, agent, agent, time.Now().UTC().Format(time.RFC3339))
+		if err := os.WriteFile(WriterLeasePath(dir), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	byHandoff, byLease, both, neither, prefixed := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	handoff(byHandoff, "codex", "t3/handoff")
+	lease(byLease, "gemini")
+	handoff(both, "codex", "t3/both")
+	lease(both, "gemini")
+	lease(prefixed, "codex")
+
+	st := defaultState()
+	st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
+	st.Git.Worktrees = []Worktree{
+		{Path: t.TempDir(), Branch: "main", Head: "1111111"},
+		{Path: byHandoff, Branch: "t3/handoff", Head: "aaaaaaa"},
+		{Path: byLease, Branch: "t3/lease", Head: "bbbbbbb"},
+		{Path: both, Branch: "t3/both", Head: "ccccccc"},
+		{Path: neither, Branch: "t3/neither", Head: "ddddddd"},
+		{Path: prefixed, Branch: "claude/x", Head: "eeeeeee"},
+	}
+	summary := BuildPickupSummary(st)
+	for prefix, want := range map[string]string{
+		"  - t3/handoff (": ", owner codex)",
+		"  - t3/lease (":   ", owner gemini)",
+		"  - t3/both (":    ", owner codex)",
+		"  - t3/neither (": ", owner unknown)",
+	} {
+		if line := lineWithPrefixIn(summary, prefix); !strings.HasSuffix(line, want) {
+			t.Errorf("line %q: want suffix %q\n%s", line, want, summary)
+		}
+	}
+	for _, prefix := range []string{"  - main (", "  - claude/x ("} {
+		if line := lineWithPrefixIn(summary, prefix); line == "" || strings.Contains(line, "owner ") {
+			t.Errorf("line %q: want present without an owner label\n%s", line, summary)
+		}
+	}
+}
+
 func lineWithPrefixIn(text, prefix string) string {
 	for _, line := range strings.Split(text, "\n") {
 		if strings.HasPrefix(line, prefix) {

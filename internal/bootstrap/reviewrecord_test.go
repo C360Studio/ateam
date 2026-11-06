@@ -165,3 +165,22 @@ func TestInitReviewRecordAIPHasNoPRWorkflow(t *testing.T) {
 	}
 	requireViolation(t, CheckParity(root), ".agents/skills/review-pr/SKILL.md")
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
+func TestInitClaimNamesHostCreatedWorktrees(t *testing.T) {
+	// #296: T3 Code creates the worktree and a t3/<topic> branch, so the Claim exemption names it
+	// in both record modes, and the swap from the default sentence to the AIP one still applies.
+	_, none := initWithPolicy(t, "")
+	_, aip := initWithPolicy(t, `{"version":1,"review_record":"aip",`+recordTiers+`}`)
+	for mode, files := range map[string]map[string]string{"default": none, "aip": aip} {
+		protocol := files[".agents/protocol.md"]
+		for _, want := range []string{"`move_to_worktree`" + `, herdr, T3 Code)`, "T3 Code names its own `t3/<topic>`"} {
+			if !strings.Contains(protocol, want) {
+				t.Errorf("%s protocol missing %q", mode, want)
+			}
+		}
+	}
+	if strings.Contains(aip[".agents/protocol.md"], "backed by a draft PR on GitHub or Gitea.") {
+		t.Error("aip protocol kept the default Claim sentence")
+	}
+}

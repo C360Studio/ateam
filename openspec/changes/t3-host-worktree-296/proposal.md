@@ -1,6 +1,6 @@
 # Change Proposal: `t3-host-worktree-296`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-06)
 
 ## Why
 
