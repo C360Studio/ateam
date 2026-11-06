@@ -992,3 +992,7 @@ When `.agents/hosts/<host>.toml` exists for the detected host, ateam SHALL read 
 #### Scenario: No record or budget exhausted
 - **WHEN** the PR has no record comment, or the comment fetch exceeded the budget
 - **THEN** the worktree line is byte-for-byte today's and sync does not fail
+
+#### Scenario: Model or effort the policy does not list
+- **WHEN** the record's model is not in the checkout's `.agents/review-policy.json` `model_tiers` for its agent, or its effort is not in that agent's `effort_bands`
+- **THEN** the cache and the worktree line carry `unlisted` in its place, and a listed value is carried in the policy's spelling

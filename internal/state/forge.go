@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -183,14 +184,32 @@ var forgePathComponent = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // SyncForgeBoard fetches issues and PR claims from GitHub or Gitea and converts them into BoardCards.
 func SyncForgeBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
+	var cards []BoardCard
+	var err error
 	switch cfg.Provider {
 	case ForgeGitea:
-		return syncGiteaBoard(ctx, root, cfg)
+		cards, err = syncGiteaBoard(ctx, root, cfg)
 	case ForgeGitHub:
-		return syncGitHubBoard(ctx, root, cfg)
+		cards, err = syncGitHubBoard(ctx, root, cfg)
 	default:
 		return nil, nil
 	}
+	// A record's model and effort reach pickup and session-start, so only the
+	// checkout's policy spelling of them is cached (#295); without a readable
+	// policy they are all unlisted.
+	var policy review.Policy
+	if data, readErr := os.ReadFile(filepath.Join(root, ".agents", "review-policy.json")); readErr == nil {
+		if p, parseErr := review.ParsePolicy(data); parseErr == nil {
+			policy = p
+		}
+	}
+	for i := range cards {
+		if cards[i].Review != nil {
+			rec := policy.Canonical(*cards[i].Review)
+			cards[i].Review = &rec
+		}
+	}
+	return cards, err
 }
 
 type forgeIssuePayload struct {
