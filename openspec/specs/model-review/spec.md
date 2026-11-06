@@ -263,7 +263,7 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 - **THEN** the command exits 2 with the reason, runs no command and prints no tool text
 
 ### Requirement: Review notify text
-`ateam review notify` SHALL send only the fixed text `review record for PR #<n> landed at <sha>; run ateam state pickup` to the `return_to` of the launch spec through the host manifest's `notify` command, SHALL print the host tool to call when the host has no `notify`, and SHALL send nothing on the `cli` host. The record body SHALL NOT enter the message.
+`ateam review notify` SHALL send only the fixed text `review record for PR #<n> landed at <sha>; run ateam state sync, then ateam state pickup` to the `return_to` of the launch spec through the host manifest's `notify` command, SHALL print the host tool to call when the host has no `notify`, and SHALL send nothing on the `cli` host. The record body SHALL NOT enter the message.
 
 #### Scenario: Hostile record body
 - **WHEN** the review record comment carries shell text and the different-writer warning line

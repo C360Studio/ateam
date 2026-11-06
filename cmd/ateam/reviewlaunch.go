@@ -260,9 +260,10 @@ func chooseReviewer(p review.Policy, implementers, override []review.Run, eligib
 
 // notifyText is the whole wake message (design D6): it enters the implementing
 // session as a prompt, so nothing from the record body, which is model output,
-// is ever part of it.
+// is ever part of it. It asks for a sync because each checkout caches in its
+// own .ateam/state.json and pickup skips the fetch while that cache is fresh.
 func notifyText(pr int, sha string) string {
-	return fmt.Sprintf("review record for PR #%d landed at %s; run ateam state pickup", pr, sha)
+	return fmt.Sprintf("review record for PR #%d landed at %s; run ateam state sync, then ateam state pickup", pr, sha)
 }
 
 // reviewNotify tells the implementing session that the review record landed,
