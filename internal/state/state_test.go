@@ -1737,6 +1737,27 @@ func TestPickupNamesOwnerOfHostCreatedBranch(t *testing.T) {
 			t.Errorf("line %q: want present without an owner label\n%s", line, summary)
 		}
 	}
+
+	// The worktree's own copy of a slot this cache also holds can be the newest handoff (PR #297 review):
+	// claude@ here at 10:00 and codex@ at 11:00, claude@ in the worktree at 12:00, so claude owns it.
+	shared := t.TempDir()
+	at := func(h int) time.Time { return time.Date(2026, 11, 6, h, 0, 0, 0, time.UTC) }
+	wtState := defaultState()
+	wtState.Git.Branch = "t3/shared"
+	wtState.SetHandoff(Handoff{Goal: "g", Agent: "claude", Branch: "t3/shared", UpdatedAt: at(12)})
+	if err := Save(shared, wtState); err != nil {
+		t.Fatal(err)
+	}
+	dup := defaultState()
+	dup.Git.Branch, dup.Git.HeadSHA = "main", "1111111"
+	dup.Handoffs = map[string]*Handoff{
+		HandoffSlotKey("claude", "t3/shared"): {Goal: "g", Agent: "claude", Branch: "t3/shared", UpdatedAt: at(10)},
+		HandoffSlotKey("codex", "t3/shared"):  {Goal: "g", Agent: "codex", Branch: "t3/shared", UpdatedAt: at(11)},
+	}
+	dup.Git.Worktrees = []Worktree{{Path: shared, Branch: "t3/shared", Head: "aaaaaaa"}}
+	if got := worktreeHostOwner(dup, dup.Git.Worktrees[0]); got != "owner claude" {
+		t.Errorf("newest handoff is the worktree's claude slot: got %q", got)
+	}
 }
 
 func lineWithPrefixIn(text, prefix string) string {

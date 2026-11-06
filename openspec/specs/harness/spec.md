@@ -954,4 +954,3 @@ When the current handoff's `Addresses` carries `aip-lease:<id>`, with a case-ins
 #### Scenario: Capability list
 - **WHEN** a client runs `ateam version --json`
 - **THEN** the output parses as JSON and `capabilities` contains `state-writer-json`
-

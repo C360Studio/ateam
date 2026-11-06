@@ -3061,7 +3061,10 @@ func worktreeHostOwner(st *State, wt Worktree) string {
 	for _, h := range st.Handoffs {
 		consider(h)
 	}
-	for _, h := range worktreeHandoffSlots(st, wt) {
+	// Read every slot the worktree holds, not the display set that drops slots st also holds:
+	// the worktree's copy of a shared slot may be the newer one (PR #297 review).
+	slots, _ := readWorktreeHandoffSlots(&State{Git: st.Git}, wt)
+	for _, h := range slots {
 		consider(h)
 	}
 	if newest != nil {
