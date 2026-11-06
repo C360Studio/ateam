@@ -924,6 +924,7 @@ func TestPerAgentBranchHandoffSlots(t *testing.T) {
 	t.Setenv("ATEAM_AGENT", "")
 	t.Setenv("ATEAM_SESSION_ID", "")
 	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("CODEX_SESSION_ID", "")
 	t.Setenv("GEMINI_SESSION_ID", "")
 	t.Setenv("CLAUDECODE", "")
@@ -1060,6 +1061,7 @@ func FuzzPerAgentHandoffSlotHistory(f *testing.F) {
 		t.Setenv("ATEAM_AGENT", "")
 		t.Setenv("ATEAM_SESSION_ID", "")
 		t.Setenv("CLAUDE_SESSION_ID", "")
+		t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 		t.Setenv("CODEX_SESSION_ID", "")
 		t.Setenv("GEMINI_SESSION_ID", "")
 		t.Setenv("CLAUDECODE", "")
@@ -1219,6 +1221,7 @@ func TestReview79HandoffPRLabelAndRefreshPreservation(t *testing.T) {
 	t.Setenv("ATEAM_AGENT", "")
 	t.Setenv("ATEAM_SESSION_ID", "")
 	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("CODEX_SESSION_ID", "")
 	t.Setenv("GEMINI_SESSION_ID", "")
 	t.Setenv("CLAUDECODE", "")
@@ -1331,6 +1334,7 @@ func TestReview79CodexPickupLockLeaseAndLegacyMigration(t *testing.T) {
 	t.Setenv("ATEAM_AGENT", "")
 	t.Setenv("ATEAM_SESSION_ID", "")
 	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("CODEX_SESSION_ID", "")
 	t.Setenv("GEMINI_SESSION_ID", "")
 	t.Setenv("CLAUDECODE", "")
@@ -1433,6 +1437,7 @@ func TestReview79LegacyMigrationWithoutAgentField(t *testing.T) {
 	t.Setenv("ATEAM_AGENT", "")
 	t.Setenv("ATEAM_SESSION_ID", "")
 	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("CODEX_SESSION_ID", "")
 	t.Setenv("GEMINI_SESSION_ID", "")
 	t.Setenv("CLAUDECODE", "")
@@ -1810,7 +1815,7 @@ func TestHandoffGuardJudgesDefaultBranchAgainstRemoteTip(t *testing.T) {
 func TestRemoteTipRuleExemptsHoldersOwnSession(t *testing.T) {
 	// #210 review: the holder cannot carry its checkpoint to a tip it has not pulled, so only
 	// another session sees remote-tip drift; that session's refresh drops the handoff.
-	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
+	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
 		t.Setenv(k, "")
 	}
 	st := defaultState()

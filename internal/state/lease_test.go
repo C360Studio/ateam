@@ -14,7 +14,7 @@ import (
 // clearLeaseIdentityEnv pins the caller identity sources so a developer's session env cannot decide ownership.
 func clearLeaseIdentityEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "HERDR_ENV", "HERDR_PANE_ID"} {
+	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "HERDR_ENV", "HERDR_PANE_ID"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("ATEAM_CLIENT_PID", strconv.Itoa(os.Getpid()))
@@ -191,5 +191,23 @@ func blockLeaseRemoval(t *testing.T, root string) {
 	}
 	if err := os.MkdirAll(filepath.Join(WriterLeasePath(root), "x"), 0o755); err != nil {
 		t.Error(err)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestResolveSessionFromClaudeCodeEnv(t *testing.T) {
+	// Claude Code exports CLAUDE_CODE_SESSION_ID to its Bash tool and no CLAUDE_SESSION_ID (#293).
+	clearAgentSessionEnv(t)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "cc-sess")
+	if got := ResolveActiveSessionID(t.TempDir(), ""); got != "cc-sess" {
+		t.Fatalf("ResolveActiveSessionID = %q, want cc-sess", got)
+	}
+	if got := ResolveActiveSessionID(t.TempDir(), "explicit"); got != "explicit" {
+		t.Fatalf("explicit session = %q, want explicit", got)
+	}
+	// An operator's explicit override still outranks the host's export.
+	t.Setenv("CLAUDE_SESSION_ID", "override")
+	if got := ResolveEnvSessionID(); got != "override" {
+		t.Fatalf("ResolveEnvSessionID = %q, want override", got)
 	}
 }

@@ -12,7 +12,7 @@ import (
 
 func clearAgentSessionEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"ATEAM_AGENT", "ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDECODE", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
+	for _, k := range []string{"ATEAM_AGENT", "ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CLAUDECODE", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
 		t.Setenv(k, "")
 	}
 }

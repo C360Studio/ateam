@@ -18,7 +18,7 @@ import (
 // writeLiveLease writes session A's lease, using this test process as A's live process.
 func writeLiveLease(t *testing.T, root, agent, session string) []byte {
 	t.Helper()
-	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "HERDR_ENV"} {
+	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "HERDR_ENV"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("ATEAM_CLIENT_PID", strconv.Itoa(os.Getpid()))

@@ -133,12 +133,7 @@ func Serve(ctx context.Context, root string, in io.Reader, out io.Writer) error 
 }
 
 func resolveEnvSessionID() string {
-	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
-		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
-			return v
-		}
-	}
-	return ""
+	return state.ResolveEnvSessionID()
 }
 
 func extractInitSessionID(raw json.RawMessage) string {

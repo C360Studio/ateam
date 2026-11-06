@@ -17,7 +17,7 @@ import (
 // writeLiveLease writes session A's lease, using this test process as A's live process.
 func writeLiveLease(t *testing.T, root, agent, session string) []byte {
 	t.Helper()
-	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "HERDR_ENV"} {
+	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "HERDR_ENV"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("ATEAM_CLIENT_PID", strconv.Itoa(os.Getpid()))
@@ -113,5 +113,30 @@ func TestStateHandoffReportsUnreleasedLease(t *testing.T) {
 	}
 	if st, _ := state.Load(dir); st.Handoffs["claude@main"] == nil || st.Handoffs["claude@main"].Goal != "goal B" {
 		t.Fatalf("handoff slot = %+v, want goal B saved", st.Handoffs["claude@main"])
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestStateHandoffRecordsClaudeCodeSession(t *testing.T) {
+	// /handoff from Claude Code's Bash tool passes no --session; the export must still name the session (#293).
+	dir := t.TempDir()
+	writeLiveLease(t, dir, "claude", "cc-sess")
+	t.Setenv("ATEAM_CLIENT_PID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "cc-sess")
+	code, stderr := captureBenchError(t, func() int {
+		return runStateHandoff(dir, []string{"--agent", "claude", "--goal", "goal", "--no-post"})
+	})
+	if code != 0 || strings.Contains(stderr, "session") {
+		t.Fatalf("handoff = %d, stderr %q; want 0 and no session warning", code, stderr)
+	}
+	st, err := state.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := st.Handoffs["claude@main"]; h == nil || h.SessionID != "cc-sess" {
+		t.Fatalf("handoff slot = %+v, want session cc-sess", h)
+	}
+	if _, err := os.Stat(state.WriterLeasePath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("own lease not released (stat err %v)", err)
 	}
 }
