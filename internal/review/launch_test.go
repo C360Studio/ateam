@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// spec: openspec/changes/review-launch-295/specs/model-review/spec.md#Requirement: Review launch policy
+// spec: openspec/specs/model-review/spec.md#Requirement: Review launch policy
 func TestReviewLaunchPolicy(t *testing.T) {
 	tiers := `"model_tiers":{"frontier":["claude:opus"]},"effort_bands":{"claude":{"high":["high"]},"codex":{"high":["high"]},"gemini":{"high":["high"]}}`
 	for _, tc := range []struct {
@@ -34,7 +34,7 @@ func TestReviewLaunchPolicy(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/review-launch-295/specs/model-review/spec.md#Requirement: Review request spec
+// spec: openspec/specs/model-review/spec.md#Requirement: Review request spec
 func TestEligibleReviewers(t *testing.T) {
 	c := func(agent, model, effort, band string) Candidate {
 		return Candidate{Agent: agent, Model: model, Effort: effort, Band: band}

@@ -36,7 +36,7 @@ func (r *recorder) run(_ context.Context, argv []string) error {
 	return nil
 }
 
-// spec: openspec/changes/review-launch-295/specs/harness/spec.md#Requirement: Host launch manifest
+// spec: openspec/specs/harness/spec.md#Requirement: Host launch manifest
 func TestDetectHost(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
@@ -60,7 +60,7 @@ func TestDetectHost(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/review-launch-295/specs/harness/spec.md#Requirement: Host launch manifest
+// spec: openspec/specs/harness/spec.md#Requirement: Host launch manifest
 func TestExpandArgs(t *testing.T) {
 	values := map[string]string{"pr": "7", "prompt": "/review-pr 7", "sha": "abc1234", "agent": "codex", "model": "gpt-6-astra", "effort": "xhigh", "return_to": "p-2"}
 	got := expandArgs([]string{"run", "{pr}", "--prompt={prompt}", "{sha}", "{agent}", "{model}", "-c", "effort={effort}", "{return_to}", "{unknown}"}, values)
@@ -75,7 +75,7 @@ func TestExpandArgs(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/review-launch-295/specs/harness/spec.md#Requirement: Host launch manifest
+// spec: openspec/specs/harness/spec.md#Requirement: Host launch manifest
 func TestLoadHostManifest(t *testing.T) {
 	root := t.TempDir()
 	if m, err := loadHostManifest(root, "herdr"); m != nil || err != nil {
@@ -106,8 +106,8 @@ func TestLoadHostManifest(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/review-launch-295/specs/model-review/spec.md#Requirement: Review request spec
-// spec: openspec/changes/review-launch-295/specs/model-review/spec.md#Requirement: Review launch policy
+// spec: openspec/specs/model-review/spec.md#Requirement: Review request spec
+// spec: openspec/specs/model-review/spec.md#Requirement: Review launch policy
 func TestReviewRequest(t *testing.T) {
 	manifest := "[launch]\ncommand = [\"hostctl\", \"start\", \"--agent\", \"{agent}\", \"--model={model}\", \"--effort\", \"{effort}\", \"--prompt\", \"{prompt}\", \"--sha\", \"{sha}\", \"--back\", \"{return_to}\"]\n"
 	env := envOf(map[string]string{"ATEAM_HOST": "fake"})
@@ -193,7 +193,7 @@ func TestReviewRequest(t *testing.T) {
 	})
 }
 
-// spec: openspec/changes/review-launch-295/specs/model-review/spec.md#Requirement: Review notify text
+// spec: openspec/specs/model-review/spec.md#Requirement: Review notify text
 func TestReviewNotify(t *testing.T) {
 	const sha = "0123456789abcdef0123456789abcdef01234567"
 	hostile := "reviewed-by: codex (gpt-6-astra, xhigh)\nReviewed at " + sha + "\nVerdict: REQUEST CHANGES\n" +

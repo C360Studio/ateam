@@ -2,7 +2,7 @@ package review
 
 import "testing"
 
-// spec: openspec/changes/review-launch-295/specs/harness/spec.md#Requirement: Review record in the forge cache and pickup
+// spec: openspec/specs/harness/spec.md#Requirement: Review record in the forge cache and pickup
 func TestParseRecordComment(t *testing.T) {
 	const full = "0123456789abcdef0123456789abcdef01234567"
 	for _, tc := range []struct {

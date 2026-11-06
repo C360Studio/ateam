@@ -45,7 +45,7 @@ func reviewOf(cards []BoardCard, id string) (*review.RecordComment, bool) {
 	return nil, false
 }
 
-// spec: openspec/changes/review-launch-295/specs/harness/spec.md#Requirement: Review record in the forge cache and pickup
+// spec: openspec/specs/harness/spec.md#Requirement: Review record in the forge cache and pickup
 func TestGitHubSyncReadsReviewRecordForWorktreePRs(t *testing.T) {
 	root := reviewRepo(t)
 	comments, _ := json.Marshal(map[string]any{"comments": []map[string]string{{"body": "Reviewed at 89abcde by nobody"}, {"body": "reviewed-by: gemini (gemini-4-argon, high)\nReviewed at 89abcde\nVerdict: REQUEST CHANGES"}, {"body": reviewRecordBody}, {"body": "thanks!"}}})
@@ -74,7 +74,7 @@ func TestGitHubSyncReadsReviewRecordForWorktreePRs(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/review-launch-295/specs/harness/spec.md#Requirement: Review record in the forge cache and pickup
+// spec: openspec/specs/harness/spec.md#Requirement: Review record in the forge cache and pickup
 func TestGitHubSyncReviewBudgetExhausted(t *testing.T) {
 	saved := ghCommentTimeout
 	ghCommentTimeout = 200 * time.Millisecond
@@ -93,7 +93,7 @@ func TestGitHubSyncReviewBudgetExhausted(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/review-launch-295/specs/harness/spec.md#Requirement: Review record in the forge cache and pickup
+// spec: openspec/specs/harness/spec.md#Requirement: Review record in the forge cache and pickup
 func TestGiteaSyncReadsReviewRecordForWorktreePRs(t *testing.T) {
 	root := reviewRepo(t)
 	var mu sync.Mutex
@@ -132,7 +132,7 @@ func TestGiteaSyncReadsReviewRecordForWorktreePRs(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/review-launch-295/specs/harness/spec.md#Requirement: Review record in the forge cache and pickup
+// spec: openspec/specs/harness/spec.md#Requirement: Review record in the forge cache and pickup
 func TestPickupWorktreeReviewRecord(t *testing.T) {
 	const head = "0123456789abcdef0123456789abcdef01234567"
 	rec := &review.RecordComment{SHA: "0123456", Verdict: "APPROVE", Agent: "codex", Model: "gpt-6-astra", Effort: "xhigh"}

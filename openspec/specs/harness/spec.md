@@ -3,7 +3,9 @@
 ## Purpose
 
 Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks across Claude Code, Codex CLI, and Gemini CLI, the 2-tool low-tax MCP server (`ateam_state`, `ateam_task`), OpenSpec queue and `Hold:` validation (`spec:queue` and `spec:check`), dual-forge state synchronization (**GitHub** and **Gitea**), `// shortcut:` debt scanning, and the agentic benchmark suite (`ateam bench`).
+
 ## Requirements
+
 ### Requirement: Lifecycle hook normalization under 10ms
 
 `ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 10ms using cached `.ateam/state.json`.
@@ -466,7 +468,7 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 
 #### Scenario: Gate-file changes wait for the owner
 
-- **WHEN** a pull request's changed files, or a rename's previous path, include `.agents/review-policy.json`, `scripts/merge-check.sh`, `scripts/gate-files.sh`, anything under `.github/workflows/` or `.gitea/workflows/`, or anything under `internal/review/`
+- **WHEN** a pull request's changed files, or a rename's previous path, include `.agents/review-policy.json`, `scripts/merge-check.sh`, `scripts/gate-files.sh`, anything under `.github/workflows/` or `.gitea/workflows/`, anything under `internal/review/`, or anything under `.agents/hosts/`
 - **THEN** the `Gate files` check (`.github/workflows/gate-files.yml` on `pull_request_target`, running `scripts/gate-files.sh` from the base branch with read-only permissions and never checking out or running pull request code) fails until the pull request carries the label `gate-change-approved`, and passes for a pull request that touches no gate file
 - **AND** a failed read, a file list that is not a list of file objects, or one shorter than the pull request's `changed_files` (the listing stops at 3,000 files) exits 2 naming the read, never counted as no gate file
 - **AND** the same holds on Gitea for `.gitea/workflows/gate-files.yml`, which runs `scripts/gate-files.sh` with `ATEAM_FORGE=gitea` to read Gitea's API with `curl`, every file page until an empty one, and the labels from the pull request
@@ -948,3 +950,45 @@ When the current handoff's `Addresses` carries `aip-lease:<id>`, with a case-ins
 #### Scenario: Capability list
 - **WHEN** a client runs `ateam version --json`
 - **THEN** the output parses as JSON and `capabilities` contains `state-writer-json`
+
+### Requirement: Host launch manifest
+When `.agents/hosts/<host>.toml` exists for the detected host, ateam SHALL read its `launch` and `notify` argument arrays and substitute the launch placeholders inside each argument; an action may instead hold `tool` text, expanded the same way and printed, never run, for a host with no one-command form. A missing manifest SHALL change no output other than `launch: printed`; a malformed one SHALL fail with fixed text that does not echo the file.
+
+#### Scenario: Detection order
+- **WHEN** no `ATEAM_HOST` is set
+- **THEN** the host is `t3code` when `T3CODE_THREAD_ID` is set, else `herdr` when `HERDR_ENV=1`, else `enjoy` when `ENJOY_MCP_ENDPOINT` is set, else `cli`
+
+#### Scenario: Placeholders
+- **WHEN** an argument holds `{pr}`, `{prompt}`, `{sha}`, `{agent}`, `{model}`, `{effort}`, or `{return_to}`
+- **THEN** each is replaced by the launch spec's value
+
+#### Scenario: Override wins
+- **WHEN** `ATEAM_HOST=herdr` and `T3CODE_THREAD_ID` are both set
+- **THEN** the detected host is `herdr`
+
+#### Scenario: Placeholder inside an argument
+- **WHEN** a `launch` argument is `--prompt={prompt}`
+- **THEN** the argument becomes `--prompt=/review-pr <n>` as one argument, with no shell splitting
+
+#### Scenario: Malformed manifest
+- **WHEN** the manifest is not valid TOML or `launch` is not an array of strings
+- **THEN** `ateam review request` exits non-zero with a fixed-text reason
+
+### Requirement: Review record in the forge cache and pickup
+`ateam state sync` SHALL fetch the comments of open pull requests whose head branch has a local worktree, inside the existing comment budget, and keep the newest review record's sha, verdict, agent, model and effort on the PR card. Pickup and session-start SHALL print that record on the worktree's line from the cache alone, with no network call.
+
+#### Scenario: Record line
+- **WHEN** the cache holds a record for the worktree's PR
+- **THEN** the worktree line ends with `review record at <sha>, <verdict>, <agent> (<model>, <effort>)`
+
+#### Scenario: Record present
+- **WHEN** the cache holds a record whose sha equals the worktree head
+- **THEN** the worktree line ends with the record and no `stale`
+
+#### Scenario: Record stale
+- **WHEN** the worktree head is not the record's sha
+- **THEN** the worktree line ends with the record and `stale`
+
+#### Scenario: No record or budget exhausted
+- **WHEN** the PR has no record comment, or the comment fetch exceeded the budget
+- **THEN** the worktree line is byte-for-byte today's and sync does not fail
