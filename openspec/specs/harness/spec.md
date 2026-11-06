@@ -744,6 +744,7 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 
 - **WHEN** a linked worktree is dirty, has an unknown dirty state, is labelled `ahead of merged`, `open PR`, `no PR`, or `no commits yet`, is on another agent's prefix or no agent prefix, is the current checkout, or is on the default branch
 - **THEN** it is listed as `kept <branch>: <reason>` and nothing about it changes
+- **AND** a worktree on a branch with no agent prefix is kept as `no agent prefix (host-created branch)`
 
 #### Scenario: A detached review checkout of a closed PR is removed
 
@@ -764,6 +765,11 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 - **AND** a lease or handoff from the caller's own session does not keep it, while with no resolvable caller session every lease and handoff does
 - **AND** a writer lease or `.ateam/state.json` that exists but cannot be read or parsed keeps it as `writer lease unreadable: <err>` or `handoff cache unreadable: <err>`, while a missing one keeps nothing
 - **AND WHEN** `--force` is passed, the worktree is removed as if neither rule applied (with `--dry-run`, listed as `would remove`), and every other keep reason still holds
+
+#### Scenario: Pickup names the owner of a host-created branch
+
+- **WHEN** pickup renders a linked worktree whose branch has no agent prefix (a host such as T3 Code created it on `t3/<topic>`)
+- **THEN** its line names the agent from that worktree's handoff slot for the branch, else from its writer lease, else `owner unknown`
 
 ### Requirement: Build provenance names the binary the hooks run
 
@@ -948,3 +954,4 @@ When the current handoff's `Addresses` carries `aip-lease:<id>`, with a case-ins
 #### Scenario: Capability list
 - **WHEN** a client runs `ateam version --json`
 - **THEN** the output parses as JSON and `capabilities` contains `state-writer-json`
+

@@ -9,5 +9,5 @@
 - [x] 2.3 Prune keeps an unprefixed branch as `no agent prefix (host-created branch)` (#296). Evidence: `internal/state/prune.go:47`; `TestPruneVerdict` row `no agent prefix`.
 - [x] 2.4 `docs/adoption.md` T3 Code paragraph, including the open question on prefix configurability (#296). Evidence: `docs/adoption.md` § T3 Code hosts.
 - [x] 2.5 Spec scenarios on the Requirement "Prune finished worktrees the caller owns" (#296). Evidence: `specs/harness/spec.md` in this change.
-- [ ] 2.6 `task verify` green on a clean tree, `ateam doctor` parity green, `ateam bench --selftest` green.
-- [ ] 2.7 Archive the change before marking the PR ready (#296).
+- [x] 2.6 `task verify` green on a clean tree, `ateam doctor` parity green, `ateam bench --selftest` green. Evidence: `task verify` exit 0 on a clean tree at `ec3ddff` (`test-spec: all discovered supported tests have valid citations`, `selftest_passed: true`); `ateam doctor --check` `passed: true`, `violations: null`.
+- [x] 2.7 Archive the change before marking the PR ready (#296). Evidence: archived to `openspec/changes/archive/2026-11-06-t3-host-worktree-296/`.
