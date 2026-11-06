@@ -1,6 +1,6 @@
 # Change Proposal: `review-launch-295`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-06)
 
 ## Why
 

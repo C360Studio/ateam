@@ -57,6 +57,6 @@ No key, no manifest, no record: output is byte-for-byte today's, apart from the 
 
 ## Open Questions
 
-1. **Owner ruling:** this repository's own `review_launch`. The shipped default is `manual`; this repository has worked as `agent` since 2026-10-30. Recommendation: `agent` here, `manual` for adopters.
-2. **Owner ruling:** list `.agents/hosts/` in `scripts/gate-files.sh`, so a change to what `agent` mode executes needs `gate-change-approved`. Recommendation: yes; cost is one label per manifest edit.
+1. **Owner ruling:** this repository's own `review_launch`. The shipped default is `manual`; this repository has worked as `agent` since 2026-10-30. Recommendation: `agent` here, `manual` for adopters. **Ruled 2026-11-06: `agent` here.**
+2. **Owner ruling:** list `.agents/hosts/` in `scripts/gate-files.sh`, so a change to what `agent` mode executes needs `gate-change-approved`. Recommendation: yes; cost is one label per manifest edit. **Ruled 2026-11-06: yes.**
 3. Resolved by D5: comment fetch scope is worktree-backed open PRs only.
