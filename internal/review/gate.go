@@ -581,7 +581,7 @@ func (g *gateRun) record(ctx context.Context, pull gatePull, files []gateFile, r
 	}
 	idx, recBody := -1, ""
 	for _, b := range bodies {
-		if !gateIsRecord(b, reviewer) {
+		if rec, ok := ParseRecordComment(b); !ok || (rec.Agent != "" && rec.Agent != reviewer) {
 			continue
 		}
 		if idxs := gateDesignated(b, commits); len(idxs) == 1 {
@@ -807,6 +807,15 @@ func gateRuns(rest string) []string {
 // reviewed-by: agent and has an Independent Cross-Agent Review heading naming
 // no agent or only reviewer.
 func gateIsRecord(body, reviewer string) bool {
+	agent, ok := recordAgent(body)
+	return ok && (agent == "" || agent == reviewer)
+}
+
+// recordAgent returns the one agent a record body names outside code fences:
+// its reviewed-by: agents when it has any, else the agents on its Independent
+// Cross-Agent Review headings, "" for a heading naming none. It is not a record
+// when it names several agents or has neither form.
+func recordAgent(body string) (string, bool) {
 	body = strings.Join(unfencedLines(body), "\n")
 	var by []string
 	for _, m := range gateByRe.FindAllStringSubmatchIndex(body, -1) {
@@ -817,7 +826,7 @@ func gateIsRecord(body, reviewer string) bool {
 	slices.Sort(by)
 	by = slices.Compact(by)
 	if len(by) > 0 {
-		return slices.Equal(by, []string{reviewer})
+		return by[0], len(by) == 1
 	}
 	headings := 0
 	var named []string
@@ -832,13 +841,43 @@ func gateIsRecord(body, reviewer string) bool {
 	}
 	slices.Sort(named)
 	named = slices.Compact(named)
-	return headings > 0 && (len(named) == 0 || slices.Equal(named, []string{reviewer}))
+	switch {
+	case headings == 0 || len(named) > 1:
+		return "", false
+	case len(named) == 1:
+		return named[0], true
+	}
+	return "", true
 }
 
 // gateDesignated returns the indices of the commits body designates as
 // reviewed outside code fences, or none when any designated SHA does not name
 // exactly one commit.
 func gateDesignated(body string, commits []gateCommit) []int {
+	toks := gateDesignatedTokens(body)
+	if len(toks) == 0 {
+		return nil
+	}
+	var idxs []int
+	for _, t := range toks {
+		var hits []int
+		for i, c := range commits {
+			if strings.HasPrefix(strings.ToLower(c.SHA), t) {
+				hits = append(hits, i)
+			}
+		}
+		if len(hits) != 1 {
+			return nil
+		}
+		idxs = append(idxs, hits[0])
+	}
+	slices.Sort(idxs)
+	return slices.Compact(idxs)
+}
+
+// gateDesignatedTokens returns the lower-case SHAs body designates as reviewed
+// outside code fences, sorted and once each.
+func gateDesignatedTokens(body string) []string {
 	body = strings.Join(unfencedLines(body), "\n")
 	var toks []string
 	for i, re := range gateDesignators {
@@ -864,37 +903,13 @@ func gateDesignated(body string, commits []gateCommit) []int {
 		}
 	}
 	slices.Sort(toks)
-	toks = slices.Compact(toks)
-	if len(toks) == 0 {
-		return nil
-	}
-	var idxs []int
-	for _, t := range toks {
-		var hits []int
-		for i, c := range commits {
-			if strings.HasPrefix(strings.ToLower(c.SHA), t) {
-				hits = append(hits, i)
-			}
-		}
-		if len(hits) != 1 {
-			return nil
-		}
-		idxs = append(idxs, hits[0])
-	}
-	slices.Sort(idxs)
-	return slices.Compact(idxs)
+	return slices.Compact(toks)
 }
 
 // gateVerdict describes why a record body does not approve, or returns "" when
 // it carries exactly one unfenced Verdict: line and that line says APPROVE.
 func gateVerdict(body string) string {
-	var verdicts []string
-	for _, l := range unfencedLines(body) {
-		t := strings.TrimSpace(l)
-		if len(t) >= len("Verdict:") && strings.EqualFold(t[:len("Verdict:")], "Verdict:") {
-			verdicts = append(verdicts, strings.TrimSpace(t[len("Verdict:"):]))
-		}
-	}
+	verdicts := recordVerdicts(body)
 	switch {
 	case len(verdicts) == 0:
 		return "has no Verdict: line"
@@ -904,4 +919,16 @@ func gateVerdict(body string) string {
 		return "says Verdict: " + verdicts[0]
 	}
 	return ""
+}
+
+// recordVerdicts returns the values of body's Verdict: lines outside code fences.
+func recordVerdicts(body string) []string {
+	var verdicts []string
+	for _, l := range unfencedLines(body) {
+		t := strings.TrimSpace(l)
+		if len(t) >= len("Verdict:") && strings.EqualFold(t[:len("Verdict:")], "Verdict:") {
+			verdicts = append(verdicts, strings.TrimSpace(t[len("Verdict:"):]))
+		}
+	}
+	return verdicts
 }

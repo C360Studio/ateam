@@ -16,7 +16,7 @@
 
 ## 4. Record in the cache and pickup
 
-- [ ] 4.1 `review.ParseRecordComment` and the gate (`internal/review/gate.go:421-441`) using it (#295). Acceptance: gate tests unchanged and green; parser tests for a valid record, missing sha, missing verdict, two records.
+- [x] 4.1 `review.ParseRecordComment` and the gate (`internal/review/gate.go:421-441`) using it (#295). Acceptance: gate tests unchanged and green; parser tests for a valid record, missing sha, missing verdict, two records. Premise corrected: `:421-441` parses the PR body's `implemented-by:`/`reviewed-by:` lines; the comment grammar is `record()` (`:567`) over `gateIsRecord`/`gateDesignated`/`gateVerdict`. `record()` now recognises records through `ParseRecordComment`, and `gateIsRecord`, `gateDesignated` and `gateVerdict` share its `recordAgent`, `gateDesignatedTokens` and `recordVerdicts`; gate tests unchanged and green. Implemented before 3.1 because `review notify` reads the record's sha through it.
 - [ ] 4.2 `sync` fetches comments for worktree-backed open PRs under `ghCommentBudget` (`internal/state/forge.go:501`, Gitea `:316`) and fills `BoardCard.Review` (#295). Acceptance: GitHub and Gitea fixture tests; a budget-exhausted test leaves `Review` empty and sync still exits 0.
 - [ ] 4.3 Pickup worktree line (`internal/state/state.go:2124`, `:2998`) prints the record and `stale` (#295). Acceptance: tests for present, absent, stale; `detection` with the stale comparison inverted; `ateam doctor` hook latency before and after.
 
