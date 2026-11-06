@@ -133,9 +133,10 @@ func (p Policy) isModel(provider, s string) bool {
 	return ok
 }
 
-func (p Policy) band(r Run) (int, bool) {
+// bandsOf returns the provider's effort bands, lowest first.
+func (p Policy) bandsOf(provider string) [][]string {
 	var bands Bands
-	switch r.Provider {
+	switch provider {
 	case "claude":
 		bands = p.EffortBands.Claude
 	case "codex":
@@ -143,7 +144,11 @@ func (p Policy) band(r Run) (int, bool) {
 	case "gemini":
 		bands = p.EffortBands.Gemini
 	}
-	for rank, values := range [][]string{bands.Low, bands.Mid, bands.High} {
+	return [][]string{bands.Low, bands.Mid, bands.High}
+}
+
+func (p Policy) band(r Run) (int, bool) {
+	for rank, values := range p.bandsOf(r.Provider) {
 		for _, value := range values {
 			if strings.EqualFold(value, strings.TrimSpace(r.Effort)) {
 				return rank, true
@@ -151,4 +156,60 @@ func (p Policy) band(r Run) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// Candidate is a reviewer run the policy would pass against every implementer:
+// Effort is the provider's first native value in Band.
+type Candidate struct {
+	Agent  string `json:"agent"`
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
+	Band   string `json:"band"`
+}
+
+// EligibleReviewers lists the model_tiers entries not below any implementer's
+// tier, strongest tier first, at the highest implementer band (#295). Under
+// cross_provider an implementer's provider is left out. It lists by policy,
+// not availability, and is empty when an implementer's model is unranked.
+func (p Policy) EligibleReviewers(implementers []Run) []Candidate {
+	minTier, band := 0, 0
+	excluded := map[string]bool{}
+	for _, dev := range implementers {
+		t, ok := p.tier(dev)
+		if !ok {
+			return nil
+		}
+		minTier = max(minTier, t)
+		if b, ok := p.band(dev); ok {
+			band = max(band, b)
+		}
+		if p.CrossProvider {
+			excluded[dev.Provider] = true
+		}
+	}
+	var out []Candidate
+	tiers := [][]string{p.ModelTiers.Light, p.ModelTiers.Workhorse, p.ModelTiers.Frontier}
+	for rank := len(tiers) - 1; rank >= 0; rank-- {
+		if rank < minTier {
+			break
+		}
+		for _, entry := range tiers[rank] {
+			provider, model, _ := strings.Cut(entry, ":")
+			if excluded[provider] {
+				continue
+			}
+			if effort := p.bandValue(provider, band); effort != "" {
+				out = append(out, Candidate{Agent: provider, Model: model, Effort: effort, Band: bandNames[band]})
+			}
+		}
+	}
+	return out
+}
+
+// bandValue returns the provider's first native effort value in band, or "".
+func (p Policy) bandValue(provider string, band int) string {
+	if values := p.bandsOf(provider)[band]; len(values) > 0 {
+		return values[0]
+	}
+	return ""
 }

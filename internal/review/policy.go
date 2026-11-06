@@ -24,7 +24,17 @@ type Policy struct {
 	// ReviewRecord names where the review record lives: RecordPRComment (the
 	// default when absent) or RecordAIP (owner ruling on #130).
 	ReviewRecord string `json:"review_record,omitempty"`
+	// ReviewLaunch says who starts the reviewer: LaunchManual (the default when
+	// absent), a person or scheduled workflow, or LaunchAgent, the implementing
+	// session through its host manifest (#295). It does not change CrossProvider.
+	ReviewLaunch string `json:"review_launch,omitempty"`
 }
+
+// Review launch modes for ateam review request.
+const (
+	LaunchManual = "manual"
+	LaunchAgent  = "agent"
+)
 
 // Review record modes. Under RecordAIP the record is an archived REVIEW-002
 // review-implementation.md with a matching approval.md, not a PR comment.
@@ -121,6 +131,11 @@ func ValidatePolicy(p Policy) error {
 	case "", RecordPRComment, RecordAIP:
 	default:
 		return fmt.Errorf("review_record %q must be %q or %q", p.ReviewRecord, RecordPRComment, RecordAIP)
+	}
+	switch p.ReviewLaunch {
+	case "", LaunchManual, LaunchAgent:
+	default:
+		return fmt.Errorf("review_launch %q must be %q or %q", p.ReviewLaunch, LaunchManual, LaunchAgent)
 	}
 	// Supplied tiers or bands are validated together, with or without models.
 	if p.HasTiers() || p.HasBands() {
