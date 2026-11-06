@@ -15,7 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/c360studio/ateam/internal/state"
+	"github.com/c360studio/ateam/internal/testspec"
 )
 
 // The merge check (openspec spec harness, "Merge gate and CI workflow
@@ -414,7 +414,7 @@ func (g *gateRun) approvalNotes(ctx context.Context, head string, files []gateFi
 			g.say("note: %s was not read, so its Approved-by is unchecked: %v", path, err)
 			continue
 		}
-		if approved, _ := state.ParseProposal(data); approved == "" {
+		if testspec.ApprovedBy(string(data)) == "" {
 			g.say("note: OpenSpec change %s has no Approved-by; the spec was not human-reviewed", dir[strings.LastIndex(dir, "/")+1:])
 		}
 	}

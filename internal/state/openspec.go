@@ -66,16 +66,7 @@ func ParseProposal(data []byte) (approvedBy string, lines int) {
 	if !strings.HasSuffix(text, "\n") {
 		lines++
 	}
-	found := false
-	testspec.EachUnfencedLine(text, func(line string) {
-		if found {
-			return
-		}
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "Approved-by:"); ok {
-			approvedBy, found = strings.TrimSpace(v), true
-		}
-	})
-	return approvedBy, lines
+	return testspec.ApprovedBy(text), lines
 }
 
 // IsCompletedUnarchived reports whether all tasks in the change are done and no caveats remain.

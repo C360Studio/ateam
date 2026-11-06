@@ -304,6 +304,22 @@ func readSpec(root, path string) (string, error) {
 	return string(data), nil
 }
 
+// ApprovedBy returns the first `Approved-by:` header value outside code fences in an OpenSpec
+// proposal, or "". It lives here, beside the fence rule, so both internal/state and the merge
+// check in internal/review read it without either importing the other.
+func ApprovedBy(text string) string {
+	approvedBy, found := "", false
+	EachUnfencedLine(text, func(line string) {
+		if found {
+			return
+		}
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "Approved-by:"); ok {
+			approvedBy, found = strings.TrimSpace(v), true
+		}
+	})
+	return approvedBy
+}
+
 // EachUnfencedLine calls fn for every line of data outside Markdown code fences. A fence closes
 // only on the opener's character, at least its length, with nothing after it.
 func EachUnfencedLine(data string, fn func(line string)) {

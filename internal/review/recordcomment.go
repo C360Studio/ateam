@@ -1,6 +1,13 @@
 package review
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+// recordToken bounds the model and effort a record names: they reach the
+// implementing session's pickup line, so free text from the comment never does.
+var recordToken = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$`)
 
 // RecordComment is what a review record PR comment says, read with the merge
 // check's grammar (#295). Its text is untrusted model output: only these
@@ -8,8 +15,9 @@ import "strings"
 type RecordComment struct {
 	// SHA is the reviewed commit as written, lower case; it may be abbreviated.
 	SHA string `json:"sha"`
-	// Verdict is the one unfenced Verdict: line's value, or "" when the record
-	// has none or several, which never approves.
+	// Verdict is APPROVE or REQUEST CHANGES from the one unfenced Verdict:
+	// line, "other" for any other value, or "" when the record has none or
+	// several, which never approves.
 	Verdict string `json:"verdict,omitempty"`
 	// Agent is "" for an Independent Cross-Agent Review heading naming none.
 	Agent  string `json:"agent,omitempty"`
@@ -43,7 +51,12 @@ func ParseRecordComment(body string) (RecordComment, bool) {
 	}
 	rec := RecordComment{SHA: sha, Agent: agent}
 	if verdicts := recordVerdicts(body); len(verdicts) == 1 {
-		rec.Verdict = verdicts[0]
+		switch v := strings.ToUpper(verdicts[0]); v {
+		case "APPROVE", "REQUEST CHANGES":
+			rec.Verdict = v
+		default:
+			rec.Verdict = "other"
+		}
 	}
 	// The model and effort come from the first unfenced line that starts with
 	// reviewed-by: naming the record's agent.
@@ -53,7 +66,7 @@ func ParseRecordComment(body string) (RecordComment, bool) {
 			continue
 		}
 		if runs := gateRuns(t[len("reviewed-by:"):]); len(runs) > 0 {
-			if r, err := ParseRunSpec(runs[0]); err == nil && r.Provider == agent {
+			if r, err := ParseRunSpec(runs[0]); err == nil && r.Provider == agent && recordToken.MatchString(r.Model) && (r.Effort == "" || recordToken.MatchString(r.Effort)) {
 				rec.Model, rec.Effort = r.Model, r.Effort
 				break
 			}
