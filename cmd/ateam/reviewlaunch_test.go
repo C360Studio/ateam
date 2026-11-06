@@ -156,6 +156,27 @@ func TestReviewRequest(t *testing.T) {
 			}
 		})
 	}
+	// A reviewer the gate would reject is refused before any launch command runs or tool text prints.
+	for _, tc := range []struct{ name, policy, impl, reviewer string }{
+		{"same-provider-under-cross", `"cross_provider":true,`, "claude:opus:high", "claude:opus:high"},
+		{"weaker-reviewer", "", "codex:gpt-6-astra:xhigh", "codex:gpt-6-sol:medium"},
+		{"no-eligible-candidate", `"cross_provider":true,`, "claude:mystery:high", ""},
+	} {
+		t.Run("refuse-"+tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"review_launch":"agent",`+tc.policy+launchTiers+`}`)
+			writeLaunchFile(t, root, ".agents/hosts/fake.toml", manifest+"tool = \"start {agent} {model} {effort}\"\n")
+			args := []string{"--implementer", tc.impl}
+			if tc.reviewer != "" {
+				args = append(args, "--reviewer", tc.reviewer)
+			}
+			var out bytes.Buffer
+			rec := &recorder{}
+			if code := reviewRequest(context.Background(), root, append(args, "42"), env, &out, rec.run); code != 2 || len(rec.calls) != 0 || out.Len() != 0 {
+				t.Fatalf("exit %d, runner calls %q, output %q; want 2, none and nothing printed", code, rec.calls, out.String())
+			}
+		})
+	}
 	t.Run("agent-without-manifest-prints", func(t *testing.T) {
 		root := t.TempDir()
 		writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"review_launch":"agent",`+launchTiers+`}`)

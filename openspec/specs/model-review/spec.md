@@ -258,6 +258,10 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 - **WHEN** no `--implementer` flag is given and the PR body cannot be fetched
 - **THEN** the command exits 2 naming the flag
 
+#### Scenario: Reviewer the gate would reject
+- **WHEN** a host manifest exists and the `--reviewer` run, or the first eligible run when none is given, shares an implementer's provider under `cross_provider`, fails the comparison against an implementer, or does not exist
+- **THEN** the command exits 2 with the reason, runs no command and prints no tool text
+
 ### Requirement: Review notify text
 `ateam review notify` SHALL send only the fixed text `review record for PR #<n> landed at <sha>; run ateam state pickup` to the `return_to` of the launch spec through the host manifest's `notify` command, SHALL print the host tool to call when the host has no `notify`, and SHALL send nothing on the `cli` host. The record body SHALL NOT enter the message.
 

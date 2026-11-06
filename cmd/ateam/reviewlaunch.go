@@ -200,12 +200,13 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 		return 2
 	}
 	if manifest != nil {
-		values := map[string]string{"pr": strconv.Itoa(pr), "prompt": spec.Prompt, "sha": head, "return_to": spec.ReturnTo}
-		if len(reviewers) == 1 {
-			values["agent"], values["model"], values["effort"] = reviewers[0].Provider, reviewers[0].Model, reviewers[0].Effort
-		} else if len(spec.Eligible) > 0 {
-			values["agent"], values["model"], values["effort"] = spec.Eligible[0].Agent, spec.Eligible[0].Model, spec.Eligible[0].Effort
+		reviewer, err := chooseReviewer(policy, implementers, reviewers, spec.Eligible)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ateam review: %v\n", err)
+			return 2
 		}
+		values := map[string]string{"pr": strconv.Itoa(pr), "prompt": spec.Prompt, "sha": head, "return_to": spec.ReturnTo,
+			"agent": reviewer.Provider, "model": reviewer.Model, "effort": reviewer.Effort}
 		if len(manifest.Launch.Command) > 0 {
 			spec.Command = expandArgs(manifest.Launch.Command, values)
 		}
@@ -231,6 +232,30 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 		return 1
 	}
 	return 0
+}
+
+// chooseReviewer is the --reviewer run, else the first eligible one, refused
+// when the merge gate would reject it, so a launch never spends a review run the
+// gate discards or leaves the reviewer to the host's defaults.
+func chooseReviewer(p review.Policy, implementers, override []review.Run, eligible []review.Candidate) (review.Run, error) {
+	var r review.Run
+	switch {
+	case len(override) == 1:
+		r = override[0]
+	case len(eligible) > 0:
+		r = review.Run{Provider: eligible[0].Agent, Model: eligible[0].Model, Effort: eligible[0].Effort}
+	default:
+		return r, errors.New("no reviewer in model_tiers is eligible for these implementers; pass --reviewer agent:model:effort")
+	}
+	for _, dev := range implementers {
+		if p.CrossProvider && dev.Provider == r.Provider {
+			return r, fmt.Errorf("cross_provider: reviewer %s:%s is the same agent as an implementer", r.Provider, r.Model)
+		}
+	}
+	if findings, _ := p.Compare(implementers, r); len(findings) > 0 {
+		return r, fmt.Errorf("reviewer %s:%s:%s would fail the merge gate: %s", r.Provider, r.Model, r.Effort, strings.Join(findings, "; "))
+	}
+	return r, nil
 }
 
 // notifyText is the whole wake message (design D6): it enters the implementing
