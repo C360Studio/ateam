@@ -37,7 +37,7 @@ func TestMCPHandoffRefusesInvalidArgumentsBeforeAnyWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	for k, v := range map[string]string{"ATEAM_AGENT": "claude", "ATEAM_SESSION_ID": "sess-266", "CLAUDE_SESSION_ID": "", "CODEX_SESSION_ID": "", "GEMINI_SESSION_ID": "", "ATEAM_FORGE": "", "GITEA_URL": ""} {
+	for k, v := range map[string]string{"ATEAM_AGENT": "claude", "ATEAM_SESSION_ID": "sess-266", "CLAUDE_CODE_SESSION_ID": "", "CLAUDE_SESSION_ID": "", "CODEX_SESSION_ID": "", "GEMINI_SESSION_ID": "", "ATEAM_FORGE": "", "GITEA_URL": ""} {
 		t.Setenv(k, v)
 	}
 	if _, err := state.Update(dir, func(cur *state.State) error {

@@ -340,7 +340,7 @@ func TestStateHandoffBehindOriginMainDoesNotHoldSlot(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Default-branch handoff freshness follows the remote tip
 func TestStateHandoffWarnsWithoutSessionID(t *testing.T) {
-	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
+	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
 		t.Setenv(k, "")
 	}
 	const warning = "warning: handoff written without a session id; it will hold slot claude@main against every session"

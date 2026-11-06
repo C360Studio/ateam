@@ -745,6 +745,7 @@ func TestReview79HookPreCompactAndWorktreeBranchSwitch(t *testing.T) {
 	t.Setenv("ATEAM_AGENT", "")
 	t.Setenv("ATEAM_SESSION_ID", "")
 	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("CODEX_SESSION_ID", "")
 	t.Setenv("GEMINI_SESSION_ID", "")
 	t.Setenv("CLAUDECODE", "")
@@ -935,7 +936,7 @@ func TestSessionStartStaleForgeCacheWorktreeLabels(t *testing.T) {
 func TestPreCompactPreservesOwnHandoffBehindRemoteTip(t *testing.T) {
 	// #210 review: local main unpulled, origin/main ahead. The holder's pre-compact keeps its five
 	// fields and its next session-start shows them; another session's write still replaces it.
-	for _, k := range []string{"ATEAM_AGENT", "ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "CLAUDECODE"} {
+	for _, k := range []string{"ATEAM_AGENT", "ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "CLAUDECODE"} {
 		t.Setenv(k, "")
 	}
 	dir := t.TempDir()

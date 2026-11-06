@@ -23,7 +23,7 @@ func TestStateReadHandoffIsReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	for k, v := range map[string]string{"ATEAM_AGENT": "codex", "CODEX_SESSION_ID": "codex-sess", "ATEAM_SESSION_ID": "", "CLAUDE_SESSION_ID": "", "CLAUDECODE": "", "GEMINI_SESSION_ID": ""} {
+	for k, v := range map[string]string{"ATEAM_AGENT": "codex", "CODEX_SESSION_ID": "codex-sess", "CLAUDE_CODE_SESSION_ID": "", "ATEAM_SESSION_ID": "", "CLAUDE_SESSION_ID": "", "CLAUDECODE": "", "GEMINI_SESSION_ID": ""} {
 		t.Setenv(k, v)
 	}
 	if _, err := state.Update(dir, func(cur *state.State) error {

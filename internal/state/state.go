@@ -1325,8 +1325,9 @@ func ResolveClientPID() int {
 }
 
 // ResolveEnvSessionID returns the first non-empty session identifier configured in process environment variables.
+// Claude Code exports CLAUDE_CODE_SESSION_ID to its tools' shells, the same id it gives hooks on stdin (#293).
 func ResolveEnvSessionID() string {
-	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
+	for _, k := range []string{"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID"} {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
 			return v
 		}
@@ -2810,10 +2811,7 @@ func BuildPickupSummary(st *State) string {
 			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, pidSuffix, age, pane)
 		curSession := strings.TrimSpace(st.CurrentSessionID)
 		if curSession == "" {
-			curSession = strings.TrimSpace(os.Getenv("ATEAM_SESSION_ID"))
-		}
-		if curSession == "" {
-			curSession = strings.TrimSpace(os.Getenv("CLAUDE_SESSION_ID"))
+			curSession = ResolveEnvSessionID()
 		}
 		leaseSession := strings.TrimSpace(st.Writer.SessionID)
 		sameSession := curSession != "" && leaseSession == curSession
