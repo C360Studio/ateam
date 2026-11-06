@@ -130,7 +130,18 @@ Link the plugin once with `herdr plugin link "$PWD/.agents/herdr"`; `ateam` must
 
 ## T3 Code hosts
 
-[T3 Code](https://github.com/pingdotgg/t3code) in worktree-per-thread mode creates each thread's worktree under T3's own home directory, not `.worktrees/`, on a `t3/<topic>` branch, and sets `T3CODE_THREAD_ID` in the agent's process. Claude runs there through the Agent SDK with user, project, and local setting sources, so ATeam's hooks and skills load unchanged. The Claim gate exempts the host-created worktree and branch; the agent still opens the draft PR and the OpenSpec change. Pickup lists the worktree through `git worktree list`, and because `t3/` names no agent, its line names the owner from the worktree's handoff, else its writer lease, else `owner unknown`. `ateam state prune` keeps it as `no agent prefix (host-created branch)`; remove it from T3 or with `git worktree remove`. Put `npm ci` or `ateam doctor` in the repository's `t3.json` `runOnWorktreeCreate` script. Verified against T3 Code main @ 6577c6b6 on 2026-11-06; whether the branch prefix is configurable per project is unverified.
+[T3 Code](https://github.com/pingdotgg/t3code) in worktree-per-thread mode creates each thread's worktree under T3's own home directory, not `.worktrees/`, on a `t3/<topic>` branch. The Claim gate exempts the host-created worktree and branch; the agent still opens the draft PR and the OpenSpec change. Pickup lists the worktree through `git worktree list`, and because `t3/` names no agent, its line names the owner from the worktree's handoff, else its writer lease, else `owner unknown`. `ateam state prune` keeps it as `no agent prefix (host-created branch)`; remove it from T3 or with `git worktree remove`. Put `npm ci` or `ateam doctor` in the repository's `t3.json` `runOnWorktreeCreate` script. The prefix is a per-project setting (`branchNamePrefix`, default `t3`, with `branchNamingMode` `static`, `semantic`, or `custom`), so a project run by one agent can set it to that agent's name and get ordinary agent-branch ownership.
+
+Whether ATeam's hooks fire depends on the provider. Read from T3 Code's source at main @ 6577c6b6 on 2026-11-06; no live session was run for any provider:
+
+| Provider | How T3 runs it | Hooks, skills, `T3CODE_THREAD_ID` |
+| --- | --- | --- |
+| Claude | Agent SDK with no `settingSources`, which defaults to every source | hooks and skills load; the thread id is in the process env |
+| Codex | one shared `codex app-server`, the thread's cwd per thread | project hooks run once `.codex/hooks.json` is trusted in Codex (T3 does not bypass hook trust); `AGENTS.md` and skills load; the thread id reaches only the shells Codex runs |
+| Antigravity | T3's own ACP runtime with a private `GEMINI_HOME` that isolates hooks | no ATeam hooks and no thread id: run `ateam state pickup` at the start and `/handoff` at the end by hand; `.agents/skills` is probably visible |
+| Gemini CLI | no built-in driver, only through T3's remote ACP registry | unverified |
+
+T3 also names threads and branches with short `codex exec` runs in the thread's cwd that leave hooks enabled, so with Codex as T3's text-generation model those runs may fire the session-start hook. Unverified: whether a T3 worktree outside the repository inherits Codex's hook trust, and whether Codex's hook processes see the thread id.
 
 ## Optional review launch hosts
 
@@ -141,14 +152,14 @@ The host-specific part is an optional data file, `.agents/hosts/<host>.toml`, wi
 | Host | Detected by | `return_to` |
 | --- | --- | --- |
 | override | `ATEAM_HOST=<host>`, checked first | per host |
-| T3 Code | `T3CODE_THREAD_ID` | the thread id |
+| T3 Code | `T3CODE_THREAD_ID` (Claude's process and Codex's shells; never Antigravity) | the thread id |
 | herdr | `HERDR_ENV=1` | `HERDR_PANE_ID` |
 | Enjoy | `ENJOY_MCP_ENDPOINT` | none in env: pass `--return-to <conversation id>` |
 | terminal | none of the above (`cli`) | none: a terminal reviewer such as `codex exec` runs synchronously |
 
 The reviewer finishes with `ateam review notify --record <file> --return-to <id> <pr>`. Notify sends only `review record for PR #<n> landed at <sha>; run ateam state sync, then ateam state pickup` through the manifest's `notify` command, as its last argument. On a host with only a notify tool it prints the tool to call. On `cli` it sends nothing. The record body never enters the message. `ateam state sync` fetches comments only for open PRs whose branch has a local worktree, within the existing comment budget, and pickup appends `; review record at <sha>, <verdict>, <agent> (<model>, <effort>)` to that worktree's line, with `, stale` once the head moves past the sha. A fetch that fails or runs out of budget leaves the line as it was. Each checkout caches in its own `.ateam/state.json`, so the reviewer's sync never reaches the developer: the record arrives when the developer's checkout syncs. `ateam state pickup` skips the fetch while that cache is under 30 seconds old and session-start never fetches, which is why the notify message asks for `ateam state sync` first.
 
-This repository ships `enjoy.toml` and `herdr.toml` as references. Enjoy is MCP-only (`start_conversation`; `queue_message` within a project, `message_project_conversation` across projects). herdr 0.9.5 starts an agent only in an existing pane and takes the prompt afterwards, so its launch is `tool` text while its notify is the command `herdr agent prompt {return_to}`.
+This repository ships `enjoy.toml`, `herdr.toml`, and `t3code.toml` as references. Enjoy is MCP-only (`start_conversation`; `queue_message` within a project, `message_project_conversation` across projects). herdr 0.9.5 starts an agent only in an existing pane and takes the prompt afterwards, so its launch is `tool` text while its notify is the command `herdr agent prompt {return_to}`; herdr's manifest has not been run live (#299). T3 Code's `t3` CLI has `t3 thread start <project> <message> --provider --model` and `t3 thread send <thread> <message>`, which queues the message without interrupting a busy thread. Its launch is `tool` text for the in-thread MCP tool `t3_thread_launch`, whose `modelSelection.options` sets effort before the first turn (`effort` for `claudeAgent`, `reasoningEffort` for `codex`); `t3 thread start` takes no effort and starts at the model's default, which the merge gate can reject. Its notify is the command `t3 thread send {return_to}`. Not run live.
 
 ## Optional model review
 
