@@ -132,6 +132,24 @@ Link the plugin once with `herdr plugin link "$PWD/.agents/herdr"`; `ateam` must
 
 [T3 Code](https://github.com/pingdotgg/t3code) in worktree-per-thread mode creates each thread's worktree under T3's own home directory, not `.worktrees/`, on a `t3/<topic>` branch, and sets `T3CODE_THREAD_ID` in the agent's process. Claude runs there through the Agent SDK with user, project, and local setting sources, so ATeam's hooks and skills load unchanged. The Claim gate exempts the host-created worktree and branch; the agent still opens the draft PR and the OpenSpec change. Pickup lists the worktree through `git worktree list`, and because `t3/` names no agent, its line names the owner from the worktree's handoff, else its writer lease, else `owner unknown`. `ateam state prune` keeps it as `no agent prefix (host-created branch)`; remove it from T3 or with `git worktree remove`. Put `npm ci` or `ateam doctor` in the repository's `t3.json` `runOnWorktreeCreate` script. Verified against T3 Code main @ 6577c6b6 on 2026-11-06; whether the branch prefix is configurable per project is unverified.
 
+## Optional review launch hosts
+
+The review policy's `review_launch` says who starts a cross-agent reviewer: `manual` (the default) or `agent` ([ADR 0002](adr/0002-model-tiers-and-effort-bands.md#addendum-review-launch-owner-ruling-on-295-2026-11-06)). `ateam review request <pr>` prints one JSON object naming the eligible reviewer runs, the prompt `/review-pr <n>`, the head sha the record must bind to, the detected host and `return_to`. With no `--implementer` flags it reads the PR's `implemented-by:` line from the forge and exits 2 when it cannot. Under `manual` it never runs anything.
+
+The host-specific part is an optional data file, `.agents/hosts/<host>.toml`, with a `[launch]` and a `[notify]` table. Each holds `command`, an argument array run without a shell, or `tool`, text printed for the agent to follow where the host has no one-command form. Placeholders `{pr}`, `{prompt}`, `{sha}`, `{agent}`, `{model}`, `{effort}` and `{return_to}` are replaced inside each argument in one pass. `{agent}`, `{model}` and `{effort}` come from `--reviewer` or the first eligible run. A missing manifest means print only. A malformed one fails with fixed text that does not echo the file. Manifests decide what `agent` mode executes, so this repository lists `.agents/hosts/` with its gate files.
+
+| Host | Detected by | `return_to` |
+| --- | --- | --- |
+| override | `ATEAM_HOST=<host>`, checked first | per host |
+| T3 Code | `T3CODE_THREAD_ID` | the thread id |
+| herdr | `HERDR_ENV=1` | `HERDR_PANE_ID` |
+| Enjoy | `ENJOY_MCP_ENDPOINT` | none in env: pass `--return-to <conversation id>` |
+| terminal | none of the above (`cli`) | none: a terminal reviewer such as `codex exec` runs synchronously |
+
+The reviewer finishes with `ateam review notify --record <file> --return-to <id> <pr>`. Notify sends only `review record for PR #<n> landed at <sha>; run ateam state sync, then ateam state pickup` through the manifest's `notify` command, as its last argument. On a host with only a notify tool it prints the tool to call. On `cli` it sends nothing. The record body never enters the message. `ateam state sync` fetches comments only for open PRs whose branch has a local worktree, within the existing comment budget, and pickup appends `; review record at <sha>, <verdict>, <agent> (<model>, <effort>)` to that worktree's line, with `, stale` once the head moves past the sha. A fetch that fails or runs out of budget leaves the line as it was. Each checkout caches in its own `.ateam/state.json`, so the reviewer's sync never reaches the developer: the record arrives when the developer's checkout syncs. `ateam state pickup` skips the fetch while that cache is under 30 seconds old and session-start never fetches, which is why the notify message asks for `ateam state sync` first.
+
+This repository ships `enjoy.toml` and `herdr.toml` as references. Enjoy is MCP-only (`start_conversation`; `queue_message` within a project, `message_project_conversation` across projects). herdr 0.9.5 starts an agent only in an existing pane and takes the prompt afterwards, so its launch is `tool` text while its notify is the command `herdr agent prompt {return_to}`.
+
 ## Optional model review
 
 Initialization installs canonical architect, developer, and reviewer contracts (`.agents/contracts/{architect,developer,reviewer}.md`) but leaves model policy unconfigured (`.agents/review-policy.json` routes only `developer` and `reviewer`; this repository's role catalog and default tiers live in [ADR 0003](adr/0003-roles-and-routes.md)). To adopt the stronger-reviewer gate:

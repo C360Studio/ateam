@@ -36,3 +36,5 @@ Checks to run: <Reconciliation commands and remaining validation>
 ```
 
 End by instructing the next session to run `/pickup` (`ateam state pickup`).
+
+At a code PR's ready-for-review under the review policy's `review_launch: manual` (the default), this handoff is the stop: name the PR and the reviewer runs `ateam review request <n>` prints in `Done when`, so a person or a scheduled workflow can start the reviewer.

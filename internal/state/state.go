@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/c360studio/ateam/internal/review"
 )
 
 // BuildCommit can be stamped at link time via -ldflags "-X github.com/c360studio/ateam/internal/state.BuildCommit=<sha>".
@@ -566,23 +568,26 @@ type GitStatus struct {
 
 // BoardCard represents an issue, PR claim, or OpenSpec item on the PM board.
 type BoardCard struct {
-	ID         string    `json:"id"`
-	Number     int       `json:"number,omitempty"`
-	Title      string    `json:"title"`
-	Column     string    `json:"column"` // needs-decision, backlog, in-progress, in-review, blocked, done
-	Type       string    `json:"type"`   // issue, epic, pr, spec
-	Merged     bool      `json:"merged,omitempty"`
-	HeadSHA    string    `json:"head_sha,omitempty"`
-	Labels     []string  `json:"labels,omitempty"`
-	Agent      string    `json:"agent,omitempty"`
-	Branch     string    `json:"branch,omitempty"`
-	Spec       string    `json:"spec,omitempty"`
-	Milestone  string    `json:"milestone,omitempty"`
-	HoldReason string    `json:"hold_reason,omitempty"`
-	Decision   string    `json:"decision,omitempty"`
-	Forge      string    `json:"forge,omitempty"` // github, gitea, local
-	URL        string    `json:"url,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID         string   `json:"id"`
+	Number     int      `json:"number,omitempty"`
+	Title      string   `json:"title"`
+	Column     string   `json:"column"` // needs-decision, backlog, in-progress, in-review, blocked, done
+	Type       string   `json:"type"`   // issue, epic, pr, spec
+	Merged     bool     `json:"merged,omitempty"`
+	HeadSHA    string   `json:"head_sha,omitempty"`
+	Labels     []string `json:"labels,omitempty"`
+	Agent      string   `json:"agent,omitempty"`
+	Branch     string   `json:"branch,omitempty"`
+	Spec       string   `json:"spec,omitempty"`
+	Milestone  string   `json:"milestone,omitempty"`
+	HoldReason string   `json:"hold_reason,omitempty"`
+	Decision   string   `json:"decision,omitempty"`
+	// Review is the newest review record comment on an open PR whose branch has
+	// a local worktree, as the last sync read it (#295).
+	Review    *review.RecordComment `json:"review,omitempty"`
+	Forge     string                `json:"forge,omitempty"` // github, gitea, local
+	URL       string                `json:"url,omitempty"`
+	UpdatedAt time.Time             `json:"updated_at"`
 }
 
 // WriterLease tracks the most recent active agent writer in .ateam/writer.json.
@@ -3035,11 +3040,48 @@ func writePickupWorktrees(b *strings.Builder, st *State) {
 		if n := st.Git.DefaultBehindRemote; n > 0 && wt.Branch != "" && wt.Branch == strings.TrimPrefix(st.Git.DefaultRemoteRef, "origin/") {
 			aheadStr += fmt.Sprintf(", behind=%d", n)
 		}
-		fmt.Fprintf(b, "  - %s (head=%s, dirty=%s, %s, %s)\n", branch, wt.Head, dirtyStr, aheadStr, statuses[i])
+		fmt.Fprintf(b, "  - %s (head=%s, dirty=%s, %s, %s)%s\n", branch, wt.Head, dirtyStr, aheadStr, statuses[i], st.worktreeReviewSuffix(wt))
 		for _, line := range worktreeHandoffLines(st, wt) {
 			fmt.Fprintf(b, "    handoff: %s\n", line)
 		}
 	}
+}
+
+// worktreeReviewSuffix is "; review record at <sha>, <verdict>, <agent> (<model>, <effort>)" for the cached record
+// on the worktree's open PR, with ", stale" when the worktree head is not the reviewed commit, or "" (#295). It
+// reads the cache only, so session-start stays inside the hook budget.
+func (st *State) worktreeReviewSuffix(wt Worktree) string {
+	branch := strings.TrimSpace(wt.Branch)
+	if st == nil || branch == "" {
+		return ""
+	}
+	for _, c := range st.Cards {
+		if !isPRCard(c) || c.Branch != branch || c.Column == "done" || c.Review == nil {
+			continue
+		}
+		r := c.Review
+		verdict := r.Verdict
+		if verdict == "" {
+			verdict = "no verdict"
+		}
+		who := r.Agent
+		if who == "" {
+			who = "unnamed agent"
+		}
+		if r.Model != "" {
+			who += " (" + r.Model
+			if r.Effort != "" {
+				who += ", " + r.Effort
+			}
+			who += ")"
+		}
+		line := fmt.Sprintf("; review record at %s, %s, %s", r.SHA, verdict, who)
+		if !SameCommitSHA(wt.Head, r.SHA) {
+			line += ", stale"
+		}
+		return line
+	}
+	return ""
 }
 
 // worktreeHostOwner names who works in a worktree whose branch carries no agent prefix, as on a

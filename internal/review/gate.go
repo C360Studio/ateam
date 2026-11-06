@@ -15,7 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/c360studio/ateam/internal/state"
+	"github.com/c360studio/ateam/internal/testspec"
 )
 
 // The merge check (openspec spec harness, "Merge gate and CI workflow
@@ -135,19 +135,9 @@ type gateSource interface {
 // Gate runs the merge check against cfg's forge and returns the exit status:
 // 0 pass, 1 fail, 2 unavailable.
 func Gate(ctx context.Context, out io.Writer, cfg ForgeConfig, opts GateOptions) int {
-	var src gateSource
-	switch cfg.Provider {
-	case "github":
-		src = ghSource{}
-	case "gitea":
-		root, err := forgeRoot(cfg)
-		if err != nil {
-			fmt.Fprintf(out, "merge-check: unavailable: %v\n", err)
-			return 2
-		}
-		src = &giteaSource{cfg: cfg, root: root}
-	default:
-		fmt.Fprintf(out, "merge-check: unavailable: unsupported forge %q\n", cfg.Provider)
+	src, err := gateSourceFor(cfg)
+	if err != nil {
+		fmt.Fprintf(out, "merge-check: unavailable: %v\n", err)
 		return 2
 	}
 	if opts.PolicyPath == "" {
@@ -158,7 +148,7 @@ func Gate(ctx context.Context, out io.Writer, cfg ForgeConfig, opts GateOptions)
 		actions = "Gitea Actions"
 	}
 	g := &gateRun{out: out, src: src, opts: opts, actions: actions}
-	err := g.run(ctx)
+	err = g.run(ctx)
 	var exit *gateExit
 	switch {
 	case err == nil:
@@ -170,6 +160,61 @@ func Gate(ctx context.Context, out io.Writer, cfg ForgeConfig, opts GateOptions)
 		fmt.Fprintln(out, "merge-check: unavailable: "+err.Error())
 		return 2
 	}
+}
+
+func gateSourceFor(cfg ForgeConfig) (gateSource, error) {
+	switch cfg.Provider {
+	case "github":
+		return ghSource{}, nil
+	case "gitea":
+		root, err := forgeRoot(cfg)
+		if err != nil {
+			return nil, err
+		}
+		return &giteaSource{cfg: cfg, root: root}, nil
+	}
+	return nil, fmt.Errorf("unsupported forge %q", cfg.Provider)
+}
+
+// ReadPullBody reads a pull request's description and head commit through the
+// merge check's forge reads (#295).
+func ReadPullBody(ctx context.Context, cfg ForgeConfig, pr int) (body, head string, err error) {
+	src, err := gateSourceFor(cfg)
+	if err != nil {
+		return "", "", err
+	}
+	pull, err := src.pullRequest(ctx, pr)
+	if err != nil {
+		return "", "", err
+	}
+	return pull.Body, pull.Head, nil
+}
+
+// Implementers reads the implementing runs from a pull request description's
+// one implemented-by: line, as the merge check does.
+func Implementers(body string) ([]Run, error) {
+	var lines []string
+	for _, l := range strings.Split(body, "\n") {
+		if l = strings.TrimSuffix(l, "\r"); strings.HasPrefix(l, "implemented-by:") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 1 {
+		return nil, fmt.Errorf("the description has %d implemented-by: lines; exactly one names the implementing runs", len(lines))
+	}
+	specs := gateRuns(strings.TrimPrefix(lines[0], "implemented-by:"))
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("the implemented-by: line holds no <agent> (<model>, <effort>) group")
+	}
+	runs := make([]Run, 0, len(specs))
+	for _, spec := range specs {
+		r, err := ParseRunSpec(spec)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, r)
+	}
+	return runs, nil
 }
 
 type gateRun struct {
@@ -369,7 +414,7 @@ func (g *gateRun) approvalNotes(ctx context.Context, head string, files []gateFi
 			g.say("note: %s was not read, so its Approved-by is unchecked: %v", path, err)
 			continue
 		}
-		if approved, _ := state.ParseProposal(data); approved == "" {
+		if testspec.ApprovedBy(string(data)) == "" {
 			g.say("note: OpenSpec change %s has no Approved-by; the spec was not human-reviewed", dir[strings.LastIndex(dir, "/")+1:])
 		}
 	}
@@ -581,7 +626,7 @@ func (g *gateRun) record(ctx context.Context, pull gatePull, files []gateFile, r
 	}
 	idx, recBody := -1, ""
 	for _, b := range bodies {
-		if !gateIsRecord(b, reviewer) {
+		if rec, ok := ParseRecordComment(b); !ok || (rec.Agent != "" && rec.Agent != reviewer) {
 			continue
 		}
 		if idxs := gateDesignated(b, commits); len(idxs) == 1 {
@@ -807,6 +852,15 @@ func gateRuns(rest string) []string {
 // reviewed-by: agent and has an Independent Cross-Agent Review heading naming
 // no agent or only reviewer.
 func gateIsRecord(body, reviewer string) bool {
+	agent, ok := recordAgent(body)
+	return ok && (agent == "" || agent == reviewer)
+}
+
+// recordAgent returns the one agent a record body names outside code fences:
+// its reviewed-by: agents when it has any, else the agents on its Independent
+// Cross-Agent Review headings, "" for a heading naming none. It is not a record
+// when it names several agents or has neither form.
+func recordAgent(body string) (string, bool) {
 	body = strings.Join(unfencedLines(body), "\n")
 	var by []string
 	for _, m := range gateByRe.FindAllStringSubmatchIndex(body, -1) {
@@ -817,7 +871,7 @@ func gateIsRecord(body, reviewer string) bool {
 	slices.Sort(by)
 	by = slices.Compact(by)
 	if len(by) > 0 {
-		return slices.Equal(by, []string{reviewer})
+		return by[0], len(by) == 1
 	}
 	headings := 0
 	var named []string
@@ -832,13 +886,43 @@ func gateIsRecord(body, reviewer string) bool {
 	}
 	slices.Sort(named)
 	named = slices.Compact(named)
-	return headings > 0 && (len(named) == 0 || slices.Equal(named, []string{reviewer}))
+	switch {
+	case headings == 0 || len(named) > 1:
+		return "", false
+	case len(named) == 1:
+		return named[0], true
+	}
+	return "", true
 }
 
 // gateDesignated returns the indices of the commits body designates as
 // reviewed outside code fences, or none when any designated SHA does not name
 // exactly one commit.
 func gateDesignated(body string, commits []gateCommit) []int {
+	toks := gateDesignatedTokens(body)
+	if len(toks) == 0 {
+		return nil
+	}
+	var idxs []int
+	for _, t := range toks {
+		var hits []int
+		for i, c := range commits {
+			if strings.HasPrefix(strings.ToLower(c.SHA), t) {
+				hits = append(hits, i)
+			}
+		}
+		if len(hits) != 1 {
+			return nil
+		}
+		idxs = append(idxs, hits[0])
+	}
+	slices.Sort(idxs)
+	return slices.Compact(idxs)
+}
+
+// gateDesignatedTokens returns the lower-case SHAs body designates as reviewed
+// outside code fences, sorted and once each.
+func gateDesignatedTokens(body string) []string {
 	body = strings.Join(unfencedLines(body), "\n")
 	var toks []string
 	for i, re := range gateDesignators {
@@ -864,37 +948,13 @@ func gateDesignated(body string, commits []gateCommit) []int {
 		}
 	}
 	slices.Sort(toks)
-	toks = slices.Compact(toks)
-	if len(toks) == 0 {
-		return nil
-	}
-	var idxs []int
-	for _, t := range toks {
-		var hits []int
-		for i, c := range commits {
-			if strings.HasPrefix(strings.ToLower(c.SHA), t) {
-				hits = append(hits, i)
-			}
-		}
-		if len(hits) != 1 {
-			return nil
-		}
-		idxs = append(idxs, hits[0])
-	}
-	slices.Sort(idxs)
-	return slices.Compact(idxs)
+	return slices.Compact(toks)
 }
 
 // gateVerdict describes why a record body does not approve, or returns "" when
 // it carries exactly one unfenced Verdict: line and that line says APPROVE.
 func gateVerdict(body string) string {
-	var verdicts []string
-	for _, l := range unfencedLines(body) {
-		t := strings.TrimSpace(l)
-		if len(t) >= len("Verdict:") && strings.EqualFold(t[:len("Verdict:")], "Verdict:") {
-			verdicts = append(verdicts, strings.TrimSpace(t[len("Verdict:"):]))
-		}
-	}
+	verdicts := recordVerdicts(body)
 	switch {
 	case len(verdicts) == 0:
 		return "has no Verdict: line"
@@ -904,4 +964,16 @@ func gateVerdict(body string) string {
 		return "says Verdict: " + verdicts[0]
 	}
 	return ""
+}
+
+// recordVerdicts returns the values of body's Verdict: lines outside code fences.
+func recordVerdicts(body string) []string {
+	var verdicts []string
+	for _, l := range unfencedLines(body) {
+		t := strings.TrimSpace(l)
+		if len(t) >= len("Verdict:") && strings.EqualFold(t[:len("Verdict:")], "Verdict:") {
+			verdicts = append(verdicts, strings.TrimSpace(t[len("Verdict:"):]))
+		}
+	}
+	return verdicts
 }

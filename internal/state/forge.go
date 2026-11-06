@@ -10,11 +10,14 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/c360studio/ateam/internal/review"
 )
 
 // ForgeProvider identifies the issue/PR hosting provider.
@@ -181,14 +184,32 @@ var forgePathComponent = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // SyncForgeBoard fetches issues and PR claims from GitHub or Gitea and converts them into BoardCards.
 func SyncForgeBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
+	var cards []BoardCard
+	var err error
 	switch cfg.Provider {
 	case ForgeGitea:
-		return syncGiteaBoard(ctx, root, cfg)
+		cards, err = syncGiteaBoard(ctx, root, cfg)
 	case ForgeGitHub:
-		return syncGitHubBoard(ctx, root, cfg)
+		cards, err = syncGitHubBoard(ctx, root, cfg)
 	default:
 		return nil, nil
 	}
+	// A record's model and effort reach pickup and session-start, so only the
+	// checkout's policy spelling of them is cached (#295); without a readable
+	// policy they are all unlisted.
+	var policy review.Policy
+	if data, readErr := os.ReadFile(filepath.Join(root, ".agents", "review-policy.json")); readErr == nil {
+		if p, parseErr := review.ParsePolicy(data); parseErr == nil {
+			policy = p
+		}
+	}
+	for i := range cards {
+		if cards[i].Review != nil {
+			rec := policy.Canonical(*cards[i].Review)
+			cards[i].Review = &rec
+		}
+	}
+	return cards, err
 }
 
 type forgeIssuePayload struct {
@@ -220,6 +241,32 @@ type forgeIssuePayload struct {
 	} `json:"head,omitempty"`
 	Comments      json.RawMessage `json:"comments,omitempty"`
 	CommentBodies []string        `json:"-"`
+	// Review is filled only for an open PR whose branch has a local worktree.
+	Review *review.RecordComment `json:"-"`
+}
+
+// worktreeBranches lists the branches checked out in root's worktrees: the PRs
+// whose review record a sync fetches, so the cost follows this machine's open
+// work, not the repository's (#295).
+func worktreeBranches(ctx context.Context, root string) map[string]bool {
+	branches := map[string]bool{}
+	for _, wt := range parseWorktrees(runGitOutput(ctx, root, "worktree", "list", "--porcelain")) {
+		if b := strings.TrimSpace(wt.Branch); b != "" {
+			branches[b] = true
+		}
+	}
+	return branches
+}
+
+// latestReview returns the newest review record among comment bodies, oldest
+// first, as the merge check keeps the latest; nil when none is a record.
+func latestReview(bodies []string) *review.RecordComment {
+	for i := len(bodies) - 1; i >= 0; i-- {
+		if rec, ok := review.ParseRecordComment(bodies[i]); ok {
+			return &rec
+		}
+	}
+	return nil
 }
 
 func parseIssueComments(raw json.RawMessage) ([]string, int) {
@@ -252,7 +299,7 @@ func syncGiteaBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardC
 		if err != nil {
 			return nil, err
 		}
-		return fetchGiteaRESTCards(ctx, validated)
+		return fetchGiteaRESTCards(ctx, root, validated)
 	}
 	// Fallback to tea CLI if installed.
 	// shortcut: the tea fallback lists only tea's default --limit (30) of issues and PRs; page it like the REST path if tea-only setups need older open work.
@@ -262,7 +309,7 @@ func syncGiteaBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardC
 	return nil, fmt.Errorf("gitea sync unavailable for %s/%s", cfg.Owner, cfg.Repo)
 }
 
-func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, error) {
+func fetchGiteaRESTCards(ctx context.Context, root string, cfg ForgeConfig) ([]BoardCard, error) {
 	client := &http.Client{Timeout: 3 * time.Second}
 	token := giteaToken(ReadToken())
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
@@ -303,9 +350,23 @@ func fetchGiteaRESTCards(ctx context.Context, cfg ForgeConfig) ([]BoardCard, err
 	merged := make([][]forgeIssuePayload, len(endpoints))
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, giteaCommentFetchLimit)
+	branches := worktreeBranches(ctx, root)
 	for i, endpoint := range endpoints {
 		merged[i] = mergeOpenClosed(opens[i], closeds[i])
 		if endpoint.isPR {
+			// Gitea serves a pull request's comments on the issue comments URL.
+			for j := range merged[i] {
+				item := &merged[i][j]
+				if !strings.EqualFold(item.State, "open") || item.Head == nil || !branches[item.Head.Ref] {
+					continue
+				}
+				commentsURL := fmt.Sprintf("%s/issues/%d/comments", repoAPI, item.Number)
+				wg.Go(func() {
+					slots <- struct{}{}
+					defer func() { <-slots }()
+					item.Review = latestReview(fetchGiteaIssueComments(ctx, client, token, commentsURL))
+				})
+			}
 			continue
 		}
 		for j := range merged[i] {
@@ -597,6 +658,40 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 	if err != nil {
 		return nil, err
 	}
+	// Review records: one comments call per open PR with a local worktree, each under the comment budget; a call
+	// that fails or runs out of budget leaves that card without a record until the next sync.
+	branches := worktreeBranches(ctx, root)
+	commentTimeout := ghCommentBudget(ctx)
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, giteaCommentFetchLimit)
+	for i := range openPRs {
+		pr := &openPRs[i]
+		if !branches[pr.HeadRef] {
+			continue
+		}
+		wg.Go(func() {
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			out, err := ghList(ctx, commentTimeout, "pr", "view", strconv.Itoa(pr.Number), "--json", "comments")
+			if err != nil {
+				return
+			}
+			var view struct {
+				Comments []struct {
+					Body string `json:"body"`
+				} `json:"comments"`
+			}
+			if json.Unmarshal(out, &view) != nil {
+				return
+			}
+			bodies := make([]string, 0, len(view.Comments))
+			for _, c := range view.Comments {
+				bodies = append(bodies, c.Body)
+			}
+			pr.Review = latestReview(bodies)
+		})
+	}
+	wg.Wait()
 	for _, it := range mergeOpenClosed(openIssues, closedIssues) {
 		cards = append(cards, mapForgeItemToCard(it, false, "github"))
 	}
@@ -669,6 +764,7 @@ func mapForgeItemToCard(it forgeIssuePayload, isPR bool, forgeName string) Board
 		Branch:    branch,
 		Milestone: ms,
 		Decision:  extractDecisionSummary(it, labels),
+		Review:    it.Review,
 		Forge:     forgeName,
 		URL:       u,
 		UpdatedAt: time.Now().UTC(),

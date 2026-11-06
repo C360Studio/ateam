@@ -10,5 +10,6 @@
     "codex": {"low": ["none", "minimal", "low"], "mid": ["medium"], "high": ["high", "xhigh", "max"]},
     "gemini": {"low": ["minimal", "low"], "mid": ["medium"], "high": ["high"]}
   },
-  "cross_provider": true
+  "cross_provider": true,
+  "review_launch": "agent"
 }

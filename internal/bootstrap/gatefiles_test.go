@@ -78,6 +78,7 @@ func TestGateFilesCheck(t *testing.T) {
 		{name: "workflow without label", files: names(".github/workflows/ci.yml"), reported: -1, wantCode: 1, wantOut: ".github/workflows/ci.yml"},
 		{name: "gitea workflow without label", files: names(".gitea/workflows/ci.yml"), reported: -1, wantCode: 1, wantOut: ".gitea/workflows/ci.yml"},
 		{name: "review package without label", files: names("internal/review/compare.go"), reported: -1, wantCode: 1, wantOut: "internal/review/compare.go"},
+		{name: "host manifest without label", files: names(".agents/hosts/herdr.toml"), reported: -1, wantCode: 1, wantOut: ".agents/hosts/herdr.toml"},
 		{name: "this script without label", files: names("scripts/gate-files.sh"), reported: -1, wantCode: 1, wantOut: "scripts/gate-files.sh"},
 		{name: "renamed away from a gate path", files: []gateFile{{Filename: "scripts/old-check.sh", PreviousFilename: "scripts/merge-check.sh"}}, reported: -1, wantCode: 1, wantOut: "scripts/merge-check.sh"},
 		{name: "gate file on a later page", files: many, reported: -1, wantCode: 1, wantOut: "scripts/merge-check.sh"},
