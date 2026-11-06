@@ -170,7 +170,8 @@ type Candidate struct {
 // EligibleReviewers lists the model_tiers entries not below any implementer's
 // tier, strongest tier first, at the highest implementer band (#295). Under
 // cross_provider an implementer's provider is left out. It lists by policy,
-// not availability, and is empty when an implementer's model is unranked.
+// not availability, and is empty when an implementer's model is unranked or its
+// effort is missing or not in effort_bands, which Compare would reject.
 func (p Policy) EligibleReviewers(implementers []Run) []Candidate {
 	minTier, band := 0, 0
 	excluded := map[string]bool{}
@@ -180,9 +181,11 @@ func (p Policy) EligibleReviewers(implementers []Run) []Candidate {
 			return nil
 		}
 		minTier = max(minTier, t)
-		if b, ok := p.band(dev); ok {
-			band = max(band, b)
+		b, ok := p.band(dev)
+		if !ok {
+			return nil
 		}
+		band = max(band, b)
 		if p.CrossProvider {
 			excluded[dev.Provider] = true
 		}

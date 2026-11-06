@@ -54,6 +54,10 @@ func TestEligibleReviewers(t *testing.T) {
 		{"same-provider-allowed", false, []string{"codex:gpt-6-astra:xhigh"},
 			[]Candidate{c("claude", "opus", "high", "high"), c("claude", "claude-opus-5-5", "high", "high"), c("claude", "fable", "high", "high"), c("claude", "claude-fable-5-1", "high", "high"), c("codex", "gpt-6-astra", "high", "high"), c("gemini", "gemini-4-argon", "high", "high")}},
 		{"unranked-implementer", true, []string{"claude:mystery:high"}, nil},
+		{"missing-effort", true, []string{"claude:opus:"}, nil},
+		{"placeholder-effort", true, []string{"claude:opus:unknown"}, nil},
+		{"unmapped-effort", true, []string{"claude:opus:unmapped"}, nil},
+		{"one-unmapped-of-two", true, []string{"claude:opus:high", "codex:gpt-6-astra:turbo"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := adrPolicy()
