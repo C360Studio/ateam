@@ -99,7 +99,7 @@ func TestServerEndpoints(t *testing.T) {
 	}
 
 	// 5. POST /api/mode
-	modeBody, _ := json.Marshal(map[string]string{"mode": "ultra"})
+	modeBody, _ := json.Marshal(map[string]string{"mode": "on"})
 	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(modeBody))
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("Content-Type", "application/json")
@@ -108,9 +108,8 @@ func TestServerEndpoints(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/mode status = %d: %s", rec.Code, rec.Body.String())
 	}
-	// The legacy ultra level is an alias of on for one release (#270).
 	if !strings.Contains(rec.Body.String(), `"mode":"on"`) {
-		t.Fatalf("POST /api/mode ultra body = %s, want mode on", rec.Body.String())
+		t.Fatalf("POST /api/mode on body = %s, want mode on", rec.Body.String())
 	}
 
 	// 6. POST /api/forges (configure Gitea forge)
@@ -310,5 +309,25 @@ func TestReadAuthAndLoopbackEnforcement(t *testing.T) {
 	h.ServeHTTP(recWithTok, reqWithTok)
 	if recWithTok.Code != http.StatusOK {
 		t.Fatalf("GET /api/state with valid X-ATeam-Token status = %d, want 200", recWithTok.Code)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
+func TestModeAPIRejectsLegacyLevels(t *testing.T) {
+	srv, err := NewServer(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	// The levels before #270 are rejected since #275, like any unknown mode.
+	for _, mode := range []string{"full", "lite", "ultra", "banana"} {
+		body, _ := json.Marshal(map[string]string{"mode": mode})
+		req := httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(body))
+		req.RemoteAddr = "127.0.0.1:12345"
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("POST /api/mode %s status = %d, want 400: %s", mode, rec.Code, rec.Body.String())
+		}
 	}
 }

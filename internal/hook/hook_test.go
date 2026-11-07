@@ -27,8 +27,8 @@ func TestBeforePromptInjectsLadderOnlyOnModeSwitch(t *testing.T) {
 		t.Fatalf("expected empty AdditionalContext on normal prompt, got: %q", normalOut.AdditionalContext)
 	}
 
-	// The legacy ultra alias resolves to on via Gemini BeforeAgent payload (#270).
-	payload := `{"hook_event_name":"BeforeAgent","prompt":"Please run /ponytail ultra on this module"}`
+	// /ponytail on via a Gemini BeforeAgent payload injects the ladder.
+	payload := `{"hook_event_name":"BeforeAgent","prompt":"Please run /ponytail on for this module"}`
 	out, err := Handle(dir, "", strings.NewReader(payload))
 	if err != nil {
 		t.Fatalf("Handle BeforeAgent: %v", err)
@@ -74,9 +74,9 @@ func TestDetectModeSwitchAndLadderPrompt(t *testing.T) {
 	}{
 		{"/ponytail on", state.ModeOn, true},
 		{"/mode off", state.ModeOff, true},
-		{"/ponytail lite", state.ModeOn, true},
-		{"/ponytail ultra", state.ModeOn, true},
-		{"/mode full", state.ModeOn, true},
+		{"/ponytail lite", state.ModeOn, false},
+		{"/ponytail ultra", state.ModeOn, false},
+		{"/mode full", state.ModeOn, false},
 		{"please /PONYTAIL OFF now", state.ModeOff, true},
 		{"stop ponytail", state.ModeOff, true},
 		{"/ponytail banana", state.ModeOn, false},

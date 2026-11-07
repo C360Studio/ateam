@@ -454,8 +454,7 @@ const (
 // NormalizeMode validates and normalizes a discipline mode string.
 func NormalizeMode(raw string) (DisciplineMode, bool) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	// shortcut: full, lite, and ultra alias on for one release (#270), drop them in the release after
-	case "on", "", "full", "lite", "ultra":
+	case "on", "":
 		return ModeOn, true
 	case "off", "stop", "normal":
 		return ModeOff, true

@@ -2016,11 +2016,11 @@ func TestNormalizeModeOnOffAliases(t *testing.T) {
 	}{
 		{"on", ModeOn, true},
 		{"", ModeOn, true},
-		{"full", ModeOn, true},
-		{"lite", ModeOn, true},
-		{"ultra", ModeOn, true},
-		{"  ULTRA ", ModeOn, true},
-		{"Lite", ModeOn, true},
+		{"  ON ", ModeOn, true},
+		// The levels before #270 were aliases of on for one release; #275 rejects them like any unknown word.
+		{"full", ModeOn, false},
+		{"lite", ModeOn, false},
+		{"ultra", ModeOn, false},
 		{"off", ModeOff, true},
 		{"stop", ModeOff, true},
 		{"normal", ModeOff, true},
@@ -2037,7 +2037,7 @@ func TestNormalizeModeOnOffAliases(t *testing.T) {
 		})
 	}
 
-	// A state.json written before #270 still carries a legacy level; Load resolves it to on.
+	// A state.json written before #270 still carries a legacy level; Load falls back to on for an unknown mode.
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Dir(CacheFilePath(dir)), 0o755); err != nil {
 		t.Fatal(err)

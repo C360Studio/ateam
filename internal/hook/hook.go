@@ -58,7 +58,7 @@ type SpecificOutput struct {
 	AdditionalContext string `json:"additionalContext,omitempty"`
 }
 
-var modeCommandRe = regexp.MustCompile(`(?i)(?:^|\s)/(?:ponytail|mode)\s+(on|full|lite|ultra|off)\b`)
+var modeCommandRe = regexp.MustCompile(`(?i)(?:^|\s)/(?:ponytail|mode)\s+(on|off)\b`)
 
 // NormalizeEvent maps CLI-specific hook names (Claude, Codex, Gemini, Antigravity) to canonical event names.
 func NormalizeEvent(flagEvent, payloadEvent string) string {
