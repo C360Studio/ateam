@@ -9,4 +9,4 @@
 
 ## 3. Verify
 
-- [ ] 3.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#306).
+- [x] 3.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#306). Evidence: all three exit 0 at 8bf42c0 after the archive.
