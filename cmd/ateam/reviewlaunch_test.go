@@ -183,13 +183,13 @@ func TestReviewRequest(t *testing.T) {
 		args           []string
 		env            map[string]string
 		code           int
-		ran            bool
+		ran, warn      bool
 	}{
-		{"command-without-return-to", manifest, nil, map[string]string{"ATEAM_HOST": "fake"}, 2, false},
-		{"tool-without-return-to", "[launch]\ntool = \"start {agent} back to {return_to}\"\n", nil, map[string]string{"ATEAM_HOST": "fake"}, 2, false},
-		{"dry-run-warns", manifest, []string{"--dry-run"}, map[string]string{"ATEAM_HOST": "fake"}, 0, false},
-		{"host-env-id", manifest, nil, map[string]string{"ATEAM_HOST": "herdr", "HERDR_PANE_ID": "p-7"}, 0, true},
-		{"manifest-without-placeholder", "[launch]\ncommand = [\"hostctl\", \"{pr}\"]\n", nil, map[string]string{"ATEAM_HOST": "fake"}, 0, true},
+		{"command-without-return-to", manifest, nil, map[string]string{"ATEAM_HOST": "fake"}, 2, false, true},
+		{"tool-without-return-to", "[launch]\ntool = \"start {agent} back to {return_to}\"\n", nil, map[string]string{"ATEAM_HOST": "fake"}, 2, false, true},
+		{"dry-run-warns", manifest, []string{"--dry-run"}, map[string]string{"ATEAM_HOST": "fake"}, 0, false, true},
+		{"host-env-id", manifest, nil, map[string]string{"ATEAM_HOST": "herdr", "HERDR_PANE_ID": "p-7"}, 0, true, false},
+		{"manifest-without-placeholder", "[launch]\ncommand = [\"hostctl\", \"{pr}\"]\n", nil, map[string]string{"ATEAM_HOST": "fake"}, 0, true, false},
 	} {
 		t.Run("return-to-"+tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -199,9 +199,16 @@ func TestReviewRequest(t *testing.T) {
 			var out bytes.Buffer
 			rec := &recorder{}
 			args := append([]string{"--implementer", "claude:opus:high"}, tc.args...)
-			code := reviewRequest(context.Background(), root, append(args, "42"), envOf(tc.env), &out, rec.run)
+			code, stderr := captureBenchError(t, func() int {
+				return reviewRequest(context.Background(), root, append(args, "42"), envOf(tc.env), &out, rec.run)
+			})
 			if code != tc.code || tc.ran != (len(rec.calls) == 1) || (tc.code == 2) != (out.Len() == 0) {
 				t.Fatalf("exit %d, runner calls %q, output %q; want exit %d, ran=%t, output only on success", code, rec.calls, out.String(), tc.code, tc.ran)
+			}
+			// The refusal and the dry-run warning name the host and the flag; a resolved destination prints neither.
+			want := "host " + host + " needs --return-to"
+			if tc.warn != strings.Contains(stderr, want) {
+				t.Fatalf("stderr %q; want %q present=%t", stderr, want, tc.warn)
 			}
 		})
 	}
