@@ -584,10 +584,14 @@ type BoardCard struct {
 	Decision   string   `json:"decision,omitempty"`
 	// Review is the newest review record comment on an open PR whose branch has
 	// a local worktree, as the last sync read it (#295).
-	Review    *review.RecordComment `json:"review,omitempty"`
-	Forge     string                `json:"forge,omitempty"` // github, gitea, local
-	URL       string                `json:"url,omitempty"`
-	UpdatedAt time.Time             `json:"updated_at"`
+	Review *review.RecordComment `json:"review,omitempty"`
+	// ReviewURL and HandoffURL link the newest record and handoff-block comments the last sync read; they feed
+	// commit status target URLs only and are never cached (#302).
+	ReviewURL  string    `json:"-"`
+	HandoffURL string    `json:"-"`
+	Forge      string    `json:"forge,omitempty"` // github, gitea, local
+	URL        string    `json:"url,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // WriterLease tracks the most recent active agent writer in .ateam/writer.json.
@@ -627,12 +631,15 @@ type State struct {
 	ForgeSyncedAt    map[ForgeProvider]time.Time `json:"forge_synced_at,omitempty"`
 	ForgeSyncTarget  map[ForgeProvider]string    `json:"forge_sync_target,omitempty"`
 	BoardSyncError   string                      `json:"board_sync_error,omitempty"`
-	Shortcuts        []ShortcutItem              `json:"shortcuts,omitempty"`
-	Holds            []HoldItem                  `json:"holds,omitempty"`
-	HoldScanError    string                      `json:"hold_scan_error,omitempty"`
-	OpenSpecQueue    []OpenSpecChange            `json:"openspec_queue,omitempty"`
-	OpenSpecSpecs    []OpenSpecSpec              `json:"openspec_specs,omitempty"`
-	UpdatedAt        time.Time                   `json:"updated_at"`
+	// StatusWriteError is the last commit status error in this checkout, cleared by a clean publication; it names
+	// the context, sha and HTTP or gh exit code only, never a body or token (#302).
+	StatusWriteError string           `json:"status_write_error,omitempty"`
+	Shortcuts        []ShortcutItem   `json:"shortcuts,omitempty"`
+	Holds            []HoldItem       `json:"holds,omitempty"`
+	HoldScanError    string           `json:"hold_scan_error,omitempty"`
+	OpenSpecQueue    []OpenSpecChange `json:"openspec_queue,omitempty"`
+	OpenSpecSpecs    []OpenSpecSpec   `json:"openspec_specs,omitempty"`
+	UpdatedAt        time.Time        `json:"updated_at"`
 }
 
 func normalizeAgentKey(raw string) string {

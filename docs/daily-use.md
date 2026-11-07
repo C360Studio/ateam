@@ -64,8 +64,8 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
    ```
 
 2. The CLI requires `--goal` and accepts `--addresses` (defaults to branch and SHA), `--constraints`, `--done-when`, and `--checks` (defaults to `task verify`).
-3. `ateam state handoff` writes those five fields to `.ateam/state.json`, clears `.ateam/writer.json`, and posts the checkpoint to the open PR.
-4. When you have no open PR or want a local checkpoint only, add `--no-post` to `ateam state handoff`.
+3. `ateam state handoff` writes those five fields to `.ateam/state.json`, clears `.ateam/writer.json`, posts the checkpoint to the open PR, and sets the informational `ateam/proposal`, `ateam/handoff`, and `ateam/review-record` commit statuses on the PR head ([table](adoption.md#informational-commit-statuses)). `ateam state sync` refreshes them for every open PR with a worktree here. None is a required check; `ATEAM_COMMIT_STATUSES=0` turns them off.
+4. When you have no open PR or want a local checkpoint only, add `--no-post` to `ateam state handoff`; it skips the comment and the statuses.
 5. In Claude Code, Codex CLI, and Gemini CLI, `ateam init` sets ~500k auto-compaction so `pre-compact` saves local state.
 6. Antigravity (`agy`) has no compaction threshold setting; run `/compact` or `/handoff` manually during long sessions.
 

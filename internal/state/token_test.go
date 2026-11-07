@@ -90,8 +90,8 @@ func TestGiteaForgeTokenRoles(t *testing.T) {
 				t.Errorf("sync GET credentials = %v, want only %q", keys(syncGets), tc.wantGet)
 			}
 
-			if posted, err := PostPRHandoffComment(context.Background(), t.TempDir(), cfg, "claude/x", "handoff"); err != nil || !posted {
-				t.Fatalf("comment: posted=%v err=%v", posted, err)
+			if post, err := PostPRHandoffComment(context.Background(), t.TempDir(), cfg, "claude/x", "handoff"); err != nil || !post.Posted {
+				t.Fatalf("comment: posted=%v err=%v", post.Posted, err)
 			}
 			if _, err := BootstrapForgeLabels(context.Background(), t.TempDir(), cfg); err != nil {
 				t.Fatalf("labels: %v", err)
@@ -124,8 +124,8 @@ func TestGitHubForgeTokenRoles(t *testing.T) {
 			if _, err := SyncForgeBoard(context.Background(), t.TempDir(), cfg); err != nil {
 				t.Fatalf("sync: %v", err)
 			}
-			if posted, err := PostPRHandoffComment(context.Background(), t.TempDir(), cfg, "claude/x", "handoff"); err != nil || !posted {
-				t.Fatalf("comment: posted=%v err=%v", posted, err)
+			if post, err := PostPRHandoffComment(context.Background(), t.TempDir(), cfg, "claude/x", "handoff"); err != nil || !post.Posted {
+				t.Fatalf("comment: posted=%v err=%v", post.Posted, err)
 			}
 			if _, err := BootstrapForgeLabels(context.Background(), t.TempDir(), cfg); err != nil {
 				t.Fatalf("labels: %v", err)

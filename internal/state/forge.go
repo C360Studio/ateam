@@ -241,8 +241,42 @@ type forgeIssuePayload struct {
 	} `json:"head,omitempty"`
 	Comments      json.RawMessage `json:"comments,omitempty"`
 	CommentBodies []string        `json:"-"`
-	// Review is filled only for an open PR whose branch has a local worktree.
-	Review *review.RecordComment `json:"-"`
+	// Review, ReviewURL and HandoffURL are filled only for an open PR whose branch has a local worktree.
+	Review     *review.RecordComment `json:"-"`
+	ReviewURL  string                `json:"-"`
+	HandoffURL string                `json:"-"`
+}
+
+// forgeComment is one issue or PR comment: gh names its link url, Gitea html_url.
+type forgeComment struct {
+	Body    string `json:"body"`
+	URL     string `json:"url"`
+	HTMLURL string `json:"html_url"`
+}
+
+func (c forgeComment) link() string {
+	if c.HTMLURL != "" {
+		return c.HTMLURL
+	}
+	return c.URL
+}
+
+// setPRComments fills the review record and the record and handoff-block comment links from a PR's comments,
+// oldest first.
+func (it *forgeIssuePayload) setPRComments(comments []forgeComment) {
+	it.Review, it.ReviewURL = latestReview(comments)
+	for i := len(comments) - 1; i >= 0; i-- {
+		if isHandoffComment(comments[i].Body) {
+			it.HandoffURL = comments[i].link()
+			return
+		}
+	}
+}
+
+// isHandoffComment reports whether a comment body is a FormatFiveFieldPrompt block.
+func isHandoffComment(body string) bool {
+	body = strings.ReplaceAll(strings.TrimSpace(body), "\r\n", "\n")
+	return strings.HasPrefix(body, "Goal: ") && strings.Contains(body, "\nChecks to run: ")
 }
 
 // worktreeBranches lists the branches checked out in root's worktrees: the PRs
@@ -258,15 +292,15 @@ func worktreeBranches(ctx context.Context, root string) map[string]bool {
 	return branches
 }
 
-// latestReview returns the newest review record among comment bodies, oldest
-// first, as the merge check keeps the latest; nil when none is a record.
-func latestReview(bodies []string) *review.RecordComment {
-	for i := len(bodies) - 1; i >= 0; i-- {
-		if rec, ok := review.ParseRecordComment(bodies[i]); ok {
-			return &rec
+// latestReview returns the newest review record among comments, oldest
+// first, as the merge check keeps the latest, and its link; nil when none is a record.
+func latestReview(comments []forgeComment) (*review.RecordComment, string) {
+	for i := len(comments) - 1; i >= 0; i-- {
+		if rec, ok := review.ParseRecordComment(comments[i].Body); ok {
+			return &rec, comments[i].link()
 		}
 	}
-	return nil
+	return nil, ""
 }
 
 func parseIssueComments(raw json.RawMessage) ([]string, int) {
@@ -364,7 +398,7 @@ func fetchGiteaRESTCards(ctx context.Context, root string, cfg ForgeConfig) ([]B
 				wg.Go(func() {
 					slots <- struct{}{}
 					defer func() { <-slots }()
-					item.Review = latestReview(fetchGiteaIssueComments(ctx, client, token, commentsURL))
+					item.setPRComments(fetchGiteaIssueComments(ctx, client, token, commentsURL))
 				})
 			}
 			continue
@@ -378,7 +412,9 @@ func fetchGiteaRESTCards(ctx context.Context, root string, cfg ForgeConfig) ([]B
 			wg.Go(func() {
 				slots <- struct{}{}
 				defer func() { <-slots }()
-				item.CommentBodies = fetchGiteaIssueComments(ctx, client, token, commentsURL)
+				for _, c := range fetchGiteaIssueComments(ctx, client, token, commentsURL) {
+					item.CommentBodies = append(item.CommentBodies, c.Body)
+				}
 			})
 		}
 	}
@@ -499,7 +535,7 @@ func fetchGiteaPage(ctx context.Context, client *http.Client, token, path string
 	return items, nil
 }
 
-func fetchGiteaIssueComments(ctx context.Context, client *http.Client, token, commentsURL string) []string {
+func fetchGiteaIssueComments(ctx context.Context, client *http.Client, token, commentsURL string) []forgeComment {
 	cctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, http.MethodGet, commentsURL, nil)
@@ -518,8 +554,11 @@ func fetchGiteaIssueComments(ctx context.Context, client *http.Client, token, co
 	if resp.StatusCode >= 300 {
 		return nil
 	}
-	bodies, _ := parseIssueComments(raw)
-	return bodies
+	var comments []forgeComment
+	if json.Unmarshal(raw, &comments) != nil {
+		return nil
+	}
+	return comments
 }
 
 func fetchTeaCLICards(ctx context.Context, root string) ([]BoardCard, error) {
@@ -677,18 +716,12 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 				return
 			}
 			var view struct {
-				Comments []struct {
-					Body string `json:"body"`
-				} `json:"comments"`
+				Comments []forgeComment `json:"comments"`
 			}
 			if json.Unmarshal(out, &view) != nil {
 				return
 			}
-			bodies := make([]string, 0, len(view.Comments))
-			for _, c := range view.Comments {
-				bodies = append(bodies, c.Body)
-			}
-			pr.Review = latestReview(bodies)
+			pr.setPRComments(view.Comments)
 		})
 	}
 	wg.Wait()
@@ -752,22 +785,24 @@ func mapForgeItemToCard(it forgeIssuePayload, isPR bool, forgeName string) Board
 		prefix += "-PR"
 	}
 	return BoardCard{
-		ID:        fmt.Sprintf("%s-%d", prefix, it.Number),
-		Number:    it.Number,
-		Title:     it.Title,
-		Column:    col,
-		Type:      cardType,
-		Merged:    merged,
-		HeadSHA:   headSHA,
-		Labels:    labels,
-		Agent:     inferAgentFromBranch(branch),
-		Branch:    branch,
-		Milestone: ms,
-		Decision:  extractDecisionSummary(it, labels),
-		Review:    it.Review,
-		Forge:     forgeName,
-		URL:       u,
-		UpdatedAt: time.Now().UTC(),
+		ID:         fmt.Sprintf("%s-%d", prefix, it.Number),
+		Number:     it.Number,
+		Title:      it.Title,
+		Column:     col,
+		Type:       cardType,
+		Merged:     merged,
+		HeadSHA:    headSHA,
+		Labels:     labels,
+		Agent:      inferAgentFromBranch(branch),
+		Branch:     branch,
+		Milestone:  ms,
+		Decision:   extractDecisionSummary(it, labels),
+		Review:     it.Review,
+		ReviewURL:  it.ReviewURL,
+		HandoffURL: it.HandoffURL,
+		Forge:      forgeName,
+		URL:        u,
+		UpdatedAt:  time.Now().UTC(),
 	}
 }
 
@@ -825,57 +860,90 @@ func classifyCardColumn(stateStr string, isPR, draft bool, labels []string) stri
 	return "backlog"
 }
 
+// HandoffPost is what posting a handoff comment learned about the branch's open PR; the PR fields feed its commit
+// statuses (#302) and are empty when the forge did not say.
+type HandoffPost struct {
+	Posted     bool
+	Number     int
+	HeadSHA    string
+	PRURL      string
+	CommentURL string
+}
+
 // PostPRHandoffComment posts the 5-field handoff block to the open PR for branch on GitHub or Gitea.
-func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, branch, body string) (bool, error) {
+func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, branch, body string) (HandoffPost, error) {
+	var post HandoffPost
 	branch = strings.TrimSpace(branch)
 	body = strings.TrimSpace(body)
 	if branch == "" || body == "" {
-		return false, nil
+		return post, nil
 	}
 	switch cfg.Provider {
 	case ForgeGitHub:
 		if _, err := exec.LookPath("gh"); err != nil {
-			return false, fmt.Errorf("gh CLI not found")
+			return post, fmt.Errorf("gh CLI not found")
 		}
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		cmd := ghCommand(cctx, WriteToken(), "pr", "comment", branch, "--body", body)
 		cmd.Dir = root
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return false, fmt.Errorf("gh pr comment %s: %w (%s)", branch, err, strings.TrimSpace(string(out)))
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			return post, fmt.Errorf("gh pr comment %s: %w (%s)", branch, err, strings.TrimSpace(stderr.String()))
 		}
-		return true, nil
+		post.Posted = true
+		// gh pr comment prints the new comment's URL on stdout.
+		if lines := strings.Fields(string(out)); len(lines) > 0 && strings.HasPrefix(lines[len(lines)-1], "https://") {
+			post.CommentURL = lines[len(lines)-1]
+		}
+		view := ghCommand(cctx, ReadToken(), "pr", "view", branch, "--json", "number,headRefOid,url")
+		view.Dir = root
+		if viewOut, err := view.Output(); err == nil {
+			var pr struct {
+				Number     int    `json:"number"`
+				HeadRefOid string `json:"headRefOid"`
+				URL        string `json:"url"`
+			}
+			if json.Unmarshal(viewOut, &pr) == nil {
+				post.Number, post.HeadSHA, post.PRURL = pr.Number, pr.HeadRefOid, pr.URL
+			}
+		}
+		return post, nil
 
 	case ForgeGitea:
 		if cfg.BaseURL == "" || cfg.Owner == "" || cfg.Repo == "" {
-			return false, fmt.Errorf("gitea PR comment requires BaseURL, Owner, and Repo")
+			return post, fmt.Errorf("gitea PR comment requires BaseURL, Owner, and Repo")
 		}
 		client := &http.Client{Timeout: 5 * time.Second}
 		token := giteaToken(WriteToken())
 		pullsURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls?state=open", strings.TrimRight(cfg.BaseURL, "/"), cfg.Owner, cfg.Repo)
 		prs, err := fetchGiteaPages(ctx, client, token, pullsURL)
 		if err != nil {
-			return false, fmt.Errorf("gitea pulls: %w", err)
+			return post, fmt.Errorf("gitea pulls: %w", err)
 		}
-		prNum := 0
 		for _, pr := range prs {
 			ref := pr.HeadRef
 			if ref == "" && pr.Head != nil {
 				ref = pr.Head.Ref
 			}
 			if ref == branch {
-				prNum = pr.Number
+				post.Number, post.PRURL = pr.Number, pr.HTMLURL
+				if pr.Head != nil {
+					post.HeadSHA = pr.Head.SHA
+				}
 				break
 			}
 		}
-		if prNum == 0 {
-			return false, nil
+		if post.Number == 0 {
+			return HandoffPost{}, nil
 		}
-		commentURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%d/comments", strings.TrimRight(cfg.BaseURL, "/"), cfg.Owner, cfg.Repo, prNum)
+		commentURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%d/comments", strings.TrimRight(cfg.BaseURL, "/"), cfg.Owner, cfg.Repo, post.Number)
 		payload, _ := json.Marshal(map[string]string{"body": body})
 		postReq, err := http.NewRequestWithContext(ctx, http.MethodPost, commentURL, bytes.NewReader(payload))
 		if err != nil {
-			return false, err
+			return HandoffPost{}, err
 		}
 		postReq.Header.Set("Content-Type", "application/json")
 		if token != "" {
@@ -883,16 +951,21 @@ func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, bra
 		}
 		postResp, err := client.Do(postReq)
 		if err != nil {
-			return false, err
+			return HandoffPost{}, err
 		}
-		postResp.Body.Close()
+		defer postResp.Body.Close()
 		if postResp.StatusCode >= 300 {
-			return false, fmt.Errorf("gitea post comment returned %d", postResp.StatusCode)
+			return HandoffPost{}, fmt.Errorf("gitea post comment returned %d", postResp.StatusCode)
 		}
-		return true, nil
+		post.Posted = true
+		var created forgeComment
+		if raw, err := io.ReadAll(io.LimitReader(postResp.Body, 1<<20)); err == nil && json.Unmarshal(raw, &created) == nil {
+			post.CommentURL = created.link()
+		}
+		return post, nil
 
 	default:
-		return false, nil
+		return post, nil
 	}
 }
 

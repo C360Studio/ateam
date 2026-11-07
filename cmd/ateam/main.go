@@ -384,8 +384,15 @@ func runStateHandoff(repoRoot string, args []string) int {
 	}
 	prompt := state.FormatFiveFieldPrompt(ho)
 	if !*noPost && st.Forge.Provider != state.ForgeLocal {
-		if _, err := state.PostPRHandoffComment(context.Background(), repoRoot, st.Forge, ho.Branch, prompt); err != nil {
+		ctx := context.Background()
+		post, err := state.PostPRHandoffComment(ctx, repoRoot, st.Forge, ho.Branch, prompt)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "ateam state handoff: forge PR comment skipped: %v\n", err)
+		} else if state.CommitStatusesEnabled() && post.HeadSHA != "" {
+			// A status error is one warning line and never changes the exit code (#302).
+			if _, err := state.HandoffCommitStatuses(ctx, repoRoot, st, post, ho); err != nil {
+				fmt.Fprintf(os.Stderr, "ateam state handoff: warning: commit statuses: %v\n", err)
+			}
 		}
 	}
 	fmt.Print(prompt)
@@ -453,7 +460,17 @@ func runStateSync(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam state sync: %v\n", err)
 		return 1
 	}
-	printJSON(map[string]any{"synced": len(cards), "forge": cfg})
+	out := map[string]any{"synced": len(cards), "forge": cfg}
+	// Only this command and posting handoffs write commit statuses; pickup, prune, board, MCP and UI syncs never do.
+	if (cfg.Provider == state.ForgeGitHub || cfg.Provider == state.ForgeGitea) && state.CommitStatusesEnabled() {
+		res, err := state.SyncCommitStatuses(ctx, repoRoot, cfg, st.Git.DefaultRemoteRef, cards)
+		if err != nil {
+			// A status error is one warning line and never changes the exit code (#302).
+			fmt.Fprintf(os.Stderr, "ateam state sync: warning: commit statuses: %v (%s)\n", err, res)
+		}
+		out["statuses"] = res
+	}
+	printJSON(out)
 	return 0
 }
 
@@ -593,6 +610,7 @@ func runDoctor(repoRoot string, args []string) int {
 	hookBinary, hookBinaryWarnings := bootstrap.HookBinaryStatus(context.Background(), repoRoot, diskBuild)
 	warnings = append(warnings, hookBinaryWarnings...)
 	warnings = append(warnings, forgeTokenWarnings()...)
+	warnings = append(warnings, statusWriteWarnings(repoRoot)...)
 
 	adopterSkills, skillAliases := bootstrap.SkillInventory(repoRoot)
 
