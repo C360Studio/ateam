@@ -1,6 +1,6 @@
 # Change Proposal: `review-head-sha-313`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-07)
 
 ## Why
 
