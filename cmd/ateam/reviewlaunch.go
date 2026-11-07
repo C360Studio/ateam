@@ -205,6 +205,13 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 			fmt.Fprintf(os.Stderr, "ateam review: %v\n", err)
 			return 2
 		}
+		// A launch that names {return_to} with none known starts a reviewer that can never notify back (#306).
+		if spec.ReturnTo == "" && strings.Contains(manifest.Launch.Tool+strings.Join(manifest.Launch.Command, " "), "{return_to}") {
+			fmt.Fprintf(os.Stderr, "ateam review: request: host %s needs --return-to <your session id>; the reviewer cannot notify you otherwise\n", host)
+			if !*dryRun {
+				return 2
+			}
+		}
 		values := map[string]string{"pr": strconv.Itoa(pr), "prompt": spec.Prompt, "sha": head, "return_to": spec.ReturnTo,
 			"agent": reviewer.Provider, "model": reviewer.Model, "effort": reviewer.Effort}
 		if len(manifest.Launch.Command) > 0 {
