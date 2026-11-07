@@ -81,6 +81,9 @@ Additive. No cache migration; `StatusWriteError` is `omitempty`. Rollback is `AT
 
 ## Open Questions
 
+Ruled 2026-11-07 by the owner: 1 → D2 C, 2 → D5 A, 3 → D7 A. Question 4 was not ruled; the `Dirty` row stays.
+
+
 1. **Owner ruling (changes spec and task 2.2):** D2 C (no status without a touched change) or B (copy the rule; `error` on code PRs without one). A needs `gate-change-approved`.
 2. **Owner ruling:** D5 default on (A) or off (B).
 3. **Owner ruling (changes the spec scenario and task 2.7):** D7 outcome warning (A) or a scope probe (B).

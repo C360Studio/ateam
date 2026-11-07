@@ -1,7 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1-3 (#302).
-  Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1-3 (#302). Evidence: the owner approved in Enjoy on 2026-11-07 with the recommended rulings: OQ1 D2 C (no `ateam/proposal` status without a touched change), OQ2 D5 A (on by default, `ATEAM_COMMIT_STATUSES=0` turns off), OQ3 D7 A (doctor warns from the cached write error, no network); OQ4 unruled, so the D3 `Dirty` row stays. Claude wrote the header at their request.
 
 ## 2. Statuses
 
