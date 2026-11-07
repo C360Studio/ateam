@@ -66,7 +66,7 @@ For non-Go mutation evidence, the shared protocol describes a manual backup/chec
 
 ## Forge tokens
 
-Forge reads (board, sync, pickup, review evidence, the merge check) and writes (PR handoff comments, label bootstrap) can use separate tokens: `ATEAM_TOKEN_READ` for reads and `ATEAM_TOKEN_WRITE` for writes. Either one alone serves both roles. When neither is set, `ateam doctor` warns that reads and writes share one token, in CI too; the warning is intended and does not fail `--check`. The merge check treats the variables differently on each forge:
+Forge reads (board, sync, pickup, review evidence, the merge check) and writes (PR handoff comments, commit statuses, label bootstrap) can use separate tokens: `ATEAM_TOKEN_READ` for reads and `ATEAM_TOKEN_WRITE` for writes. Either one alone serves both roles. When neither is set, `ateam doctor` warns that reads and writes share one token, in CI too; the warning is intended and does not fail `--check`. The merge check treats the variables differently on each forge:
 
 - **Gitea:** `ateam review gate` and `ateam review check` resolve `ATEAM_TOKEN_READ`, then `ATEAM_TOKEN_WRITE`, then `GITEA_TOKEN`, then `ATEAM_GITEA_TOKEN`.
 - **GitHub:** the merge check ignores the role variables and uses `gh`'s own resolution (`GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth`). `ateam review check` does honor them first.
@@ -86,6 +86,26 @@ Call the released binary from your own CI or `task verify`; do not copy ateam's 
 | Draft pull requests | Every job is skipped on a draft and renamed off its required name, so a draft reports no result. `Gate files` still runs when a label is removed. | A `WIP:` title marks a draft. Jobs are skipped on it and renamed off their required names, so rerunning a WIP run cannot pass a required check; `edited` (leaving `WIP:`, or any other edit) starts a fresh run. Needs **Gitea 28.x**: older Gitea evaluates neither the job-name expression nor the compound `always()` on `Required`, so keep the pre-#257 workflows there. |
 
 Local forge selection: an exported `GITEA_URL` takes priority over a github.com `origin` (unless `ATEAM_FORGE=github`), so unset it when working on a GitHub repository. Without it, the API URL comes from the `origin` host: an `ssh://` remote's port is dropped because it is the SSH port, and an `http(s)://` remote's port is kept. A forge serving HTTPS on a non-default port behind an SSH remote needs `GITEA_URL`. Forge transport errors print the full request URL, host included, so do not paste gate output from a private Gitea instance into a public place.
+
+## Informational commit statuses
+
+`ateam state sync` and a posting handoff (`ateam state handoff` without `--no-post`, or the MCP `ateam_state` handoff without `post: false`) set three commit statuses on the open PR head, so GitHub, Gitea, and any client that shows a PR's checks list shows them too. Sync covers each open PR whose branch has a worktree on this machine; a handoff covers its own branch's PR. They describe the PR; no gate reads them, none is a required check, and `task merge:check` is unchanged. Hooks, pickup, prune, board, the MCP pickup, and the UI never write them.
+
+| Context | Condition (first match wins) | State and description |
+| --- | --- | --- |
+| `ateam/proposal` | the PR touches no `openspec/changes/` directory | not posted |
+| `ateam/proposal` | a touched change has an empty `Approved-by:` or an open `OPEN-Q` hold at the head | `pending` `awaiting owner approval (OPEN-Q): <id>` |
+| `ateam/proposal` | every touched change is approved | `success` `approved by <Approved-by>: <id>` |
+| `ateam/handoff` | no handoff on the branch | not posted |
+| `ateam/handoff` | the handoff checkpoint is not the PR head | `pending` `handoff stale: at <sha7>, head <sha7>` |
+| `ateam/handoff` | the handoff tree was dirty | `pending` `handoff at <sha7> has uncommitted changes` |
+| `ateam/handoff` | otherwise | `success` `handoff at <sha7>, <time UTC>` |
+| `ateam/review-record` | no review record | not posted |
+| `ateam/review-record` | the record names another commit | `pending` `record at <sha7> is behind head <sha7>` |
+| `ateam/review-record` | `APPROVE` or `REQUEST CHANGES` | `success` or `failure` `<verdict> by <agent> (<model>, <effort>) at <sha7>` |
+| `ateam/review-record` | any other verdict, or none | `pending` `record at <sha7> has no single verdict` |
+
+A context is written only when its state or description differs from the latest status with that context on the head, so a repeated sync posts nothing. Writes use the write token (`ATEAM_TOKEN_WRITE`, see above), which needs permission to set commit statuses. A rejected write prints one warning and never changes an exit code; `ateam doctor` then warns from the cache, naming the context and HTTP or `gh` exit code but never the token, and `--check` still passes. `REQUEST CHANGES` shows as a red check although nothing requires it. Statuses refresh only on sync and posting handoffs, so they lag a bare `git push` until the next one. Set `ATEAM_COMMIT_STATUSES=0` to turn all of this off.
 
 ## Optional external task lease
 

@@ -337,13 +337,22 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 			if st.Forge.Provider == state.ForgeLocal {
 				statusLine = "PR comment: skipped (local forge)"
 			} else {
-				posted, postErr := state.PostPRHandoffComment(ctx, root, st.Forge, h.Branch, prompt)
+				post, postErr := state.PostPRHandoffComment(ctx, root, st.Forge, h.Branch, prompt)
 				if postErr != nil {
 					statusLine = fmt.Sprintf("PR comment: skipped (%v)", postErr)
-				} else if !posted {
+				} else if !post.Posted {
 					statusLine = "PR comment: skipped (no open PR for branch)"
 				} else {
 					statusLine = "PR comment: posted"
+					if state.CommitStatusesEnabled() && post.HeadSHA != "" {
+						// A status error is reported here and never fails the handoff (#302).
+						res, statusErr := state.HandoffCommitStatuses(ctx, root, st, post, h)
+						if statusErr != nil {
+							statusLine += fmt.Sprintf("\ncommit statuses: error (%v; %s)", statusErr, res)
+						} else {
+							statusLine += "\ncommit statuses: " + res.String()
+						}
+					}
 				}
 			}
 		}

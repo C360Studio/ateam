@@ -481,3 +481,14 @@ func forgeTokenWarnings() []string {
 	}
 	return []string{"forge reads and writes share one token; set ATEAM_TOKEN_READ and ATEAM_TOKEN_WRITE to separate tokens scoped to each role"}
 }
+
+// statusWriteWarnings reports the last commit status error this checkout's cache recorded (D7 A, #302). It reads the
+// cache only, with no network call, so CI's doctor --check is unchanged; the recorded text names a context, sha and
+// HTTP or gh exit code, never a token. A warning only: commit statuses are informational.
+func statusWriteWarnings(repoRoot string) []string {
+	st, err := state.Load(repoRoot)
+	if err != nil || strings.TrimSpace(st.StatusWriteError) == "" {
+		return nil
+	}
+	return []string{"last commit status write failed (" + strings.TrimSpace(st.StatusWriteError) + "); check that the write token (ATEAM_TOKEN_WRITE) can set commit statuses, or set ATEAM_COMMIT_STATUSES=0"}
+}

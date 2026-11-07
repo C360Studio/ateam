@@ -314,8 +314,8 @@ func TestPostPRHandoffCommentAndDecisionsInPickup(t *testing.T) {
 		ChecksToRun: "task verify",
 	}
 	wantPrompt := strings.TrimSpace(FormatFiveFieldPrompt(h))
-	posted, err := PostPRHandoffComment(context.Background(), t.TempDir(), cfg, "gemini/hardening", wantPrompt)
-	if err != nil || !posted {
+	post, err := PostPRHandoffComment(context.Background(), t.TempDir(), cfg, "gemini/hardening", wantPrompt)
+	if posted := post.Posted; err != nil || !posted {
 		t.Fatalf("PostPRHandoffComment = (%v, %v), want (true, nil)", posted, err)
 	}
 	if strings.TrimSpace(postedComment) != wantPrompt {
