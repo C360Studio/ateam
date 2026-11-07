@@ -3,9 +3,7 @@
 ## Purpose
 
 Define explicit project model routing, stronger independent review, scoped owner exceptions and current evidence validation across GitHub and Gitea.
-
 ## Requirements
-
 ### Requirement: Stronger independent reviewer
 
 On the dormant `review route` / `review check` path, ATeam SHALL require a reviewer run that contributed no implementation and whose actual model is explicitly approved as stronger than every implementation model in the governing project policy. Reasoning effort SHALL be recorded separately and SHALL NOT substitute for model superiority. Same-provider review SHALL be permitted by default; configured cross-provider review SHALL be an additional constraint.
@@ -267,9 +265,15 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 - **THEN** the command exits 2 naming `--return-to`, runs no command and prints no tool text
 - **AND** with `--dry-run` it prints the same line as a warning and exits 0
 
+#### Scenario: Head from the PR
+- **WHEN** `--implementer` is given and the command runs from a checkout whose `HEAD` is not the PR's head
+- **THEN** `head_sha` is the PR's head read from the forge
+- **AND** when the PR cannot be read the command exits 2 naming its head and prints nothing
+
 ### Requirement: Review notify text
 `ateam review notify` SHALL send only the fixed text `review record for PR #<n> landed at <sha>; run ateam state sync, then ateam state pickup` to the `return_to` of the launch spec through the host manifest's `notify` command, SHALL print the host tool to call when the host has no `notify`, and SHALL send nothing on the `cli` host. The record body SHALL NOT enter the message.
 
 #### Scenario: Hostile record body
 - **WHEN** the review record comment carries shell text and the different-writer warning line
 - **THEN** the message sent is the fixed text and nothing from the comment
+
