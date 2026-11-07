@@ -9,4 +9,4 @@
 
 ## 3. Verify
 
-- [ ] 3.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#275).
+- [x] 3.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#275). Evidence: all three exit 0 at b2d7197; the first `task verify` run failed lint (revive function-length, 85 of 80 statements in `TestServerEndpoints`), fixed by moving the legacy-mode check into `TestModeAPIRejectsLegacyLevels`. `ateam state mode lite` exits 1 with `invalid mode "lite"`, and `ateam state debt` no longer lists the #270 shortcut.
