@@ -99,16 +99,6 @@ func TestServerEndpoints(t *testing.T) {
 	}
 
 	// 5. POST /api/mode
-	// The levels before #270 are rejected since #275.
-	legacyBody, _ := json.Marshal(map[string]string{"mode": "ultra"})
-	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(legacyBody))
-	req.RemoteAddr = "127.0.0.1:12345"
-	req.Header.Set("Content-Type", "application/json")
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("POST /api/mode ultra status = %d, want 400: %s", rec.Code, rec.Body.String())
-	}
 	modeBody, _ := json.Marshal(map[string]string{"mode": "on"})
 	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(modeBody))
 	req.RemoteAddr = "127.0.0.1:12345"
@@ -319,5 +309,25 @@ func TestReadAuthAndLoopbackEnforcement(t *testing.T) {
 	h.ServeHTTP(recWithTok, reqWithTok)
 	if recWithTok.Code != http.StatusOK {
 		t.Fatalf("GET /api/state with valid X-ATeam-Token status = %d, want 200", recWithTok.Code)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
+func TestModeAPIRejectsLegacyLevels(t *testing.T) {
+	srv, err := NewServer(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	// The levels before #270 are rejected since #275, like any unknown mode.
+	for _, mode := range []string{"full", "lite", "ultra", "banana"} {
+		body, _ := json.Marshal(map[string]string{"mode": mode})
+		req := httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(body))
+		req.RemoteAddr = "127.0.0.1:12345"
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("POST /api/mode %s status = %d, want 400: %s", mode, rec.Code, rec.Body.String())
+		}
 	}
 }
