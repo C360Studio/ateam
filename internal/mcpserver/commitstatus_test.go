@@ -53,7 +53,7 @@ func mcpStatusRepo(t *testing.T) (root, head, log string) {
 	return root, head, log
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestMCPHandoffReportsStatusWriteError(t *testing.T) {
 	root, head, log := mcpStatusRepo(t)
 	text, isErr := execStateTool(context.Background(), root, json.RawMessage(`{"action":"handoff","agent":"claude","session_id":"S","goal":"g"}`), "", "test")

@@ -111,7 +111,7 @@ func syncJSON(t *testing.T, root string) (int, map[string]any, string) {
 	return code, decoded, stderr
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestStateSyncCommitStatuses(t *testing.T) {
 	at := time.Date(2026, 11, 7, 18, 42, 0, 0, time.UTC)
 	handoffDesc := func(f statusFixture) string { return "handoff at " + f.head[:7] + ", 2026-11-07T18:42Z" }
@@ -197,7 +197,7 @@ func TestStateSyncCommitStatuses(t *testing.T) {
 	})
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestStateHandoffCommitStatuses(t *testing.T) {
 	t.Run("write error keeps exit 0", func(t *testing.T) {
 		f := newStatusFixture(t, `{"statuses":[]}`)
@@ -250,7 +250,7 @@ func TestStateHandoffCommitStatuses(t *testing.T) {
 	})
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestDoctorStatusWriteWarningOnly(t *testing.T) {
 	dir := t.TempDir()
 	gitRun(t, dir, "init", "-q", "-b", "main")

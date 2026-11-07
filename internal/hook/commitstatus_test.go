@@ -14,7 +14,7 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestSessionStartMakesNoForgeCall(t *testing.T) {
 	// Commit statuses are never written from a hook: a session-start with a stale forge cache and an open worktree
 	// PR on both forges must not run gh or reach the Gitea API.

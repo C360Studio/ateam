@@ -34,7 +34,7 @@ func statusesFor(all []CommitStatus, ctx string) []CommitStatus {
 	return out
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestChooseStatusesD3Table(t *testing.T) {
 	// Each row is one row of the D3 table in design.md; expected states and descriptions are copied from it.
 	at := time.Date(2026, 11, 7, 10, 42, 59, 0, time.FixedZone("PST", -8*3600)) // 18:42 UTC
@@ -103,7 +103,7 @@ func TestChooseStatusesD3Table(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestCleanDescription(t *testing.T) {
 	long := strings.Repeat("a", 139) + "é" // 141 bytes: the é straddles byte 140
 	for _, tc := range []struct{ name, in, want string }{
@@ -149,7 +149,7 @@ const (
 	openQTasks       = "## 1. Approval\n\n- [ ] 1.1 Owner approves (#1). Hold: OPEN-Q proposal awaits owner approval\n"
 )
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestTouchedChangesAtHead(t *testing.T) {
 	repo := t.TempDir()
 	gitIn(t, repo, "init", "-q", "-b", "main")
@@ -269,7 +269,7 @@ const latestStatuses = `{"state":"pending","statuses":[` +
 	`{"context":"ateam/proposal","state":"success","description":"approved by Ann: feat-old"},` +
 	`{"context":"ci/build","state":"success","description":"ok"}]}`
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 // spec: openspec/specs/harness/spec.md#Requirement: Forge token roles
 func TestPublishCommitStatusesGitHub(t *testing.T) {
 	t.Setenv("ATEAM_TOKEN_READ", "fake-read")
@@ -311,7 +311,7 @@ func TestPublishCommitStatusesGitHub(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestPublishCommitStatusesGitHubWriteError(t *testing.T) {
 	t.Setenv("ATEAM_TOKEN_WRITE", "fake-write-secret")
 	t.Setenv("FAKE_POST_EXIT", "4")
@@ -326,7 +326,7 @@ func TestPublishCommitStatusesGitHubWriteError(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 // spec: openspec/specs/harness/spec.md#Requirement: Forge token roles
 func TestPublishCommitStatusesGitea(t *testing.T) {
 	t.Setenv("ATEAM_TOKEN_READ", "fake-read")
@@ -401,7 +401,7 @@ func statusRepo(t *testing.T) (root, wt, head string) {
 	return root, wt, gitIn(t, wt, "rev-parse", "HEAD")
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestSyncCommitStatusesWorktreePRsOnly(t *testing.T) {
 	t.Setenv("ATEAM_TOKEN_READ", "")
 	t.Setenv("ATEAM_TOKEN_WRITE", "")
@@ -438,7 +438,7 @@ func TestSyncCommitStatusesWorktreePRsOnly(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestStatusWriteErrorRecordedAndCleared(t *testing.T) {
 	root, wt, head := statusRepo(t)
 	if err := Save(wt, &State{Handoffs: map[string]*Handoff{"claude@claude/pr-7": {Branch: "claude/pr-7", CheckpointSHA: head}}}); err != nil {
@@ -474,7 +474,7 @@ func TestStatusWriteErrorRecordedAndCleared(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestBestEffortSyncWritesNoStatus(t *testing.T) {
 	// Pickup, prune, board, MCP and the UI all sync through RefreshWithBestEffortSync; none may write a status.
 	root, wt, head := statusRepo(t)
@@ -499,7 +499,7 @@ func TestBestEffortSyncWritesNoStatus(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestSyncKeepsCommentURLsOffCache(t *testing.T) {
 	// A record and a handoff block reach the card with their links; the cached state.json never holds them.
 	handoffBody := strings.TrimSpace(FormatFiveFieldPrompt(Handoff{Goal: "g", ChecksToRun: "task verify"}))
@@ -581,7 +581,7 @@ func TestSyncKeepsCommentURLsOffCache(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/commit-statuses-302/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestPostPRHandoffCommentReturnsPRHead(t *testing.T) {
 	t.Run("github", func(t *testing.T) {
 		installForgeCLI(t, "gh", "case \"$*\" in\n"+
