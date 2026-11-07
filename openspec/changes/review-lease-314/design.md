@@ -46,5 +46,5 @@ None. The hooks change takes effect for new sessions once the binary is rebuilt 
 
 ## Open Questions
 
-1. **(verify, no ruling)** What is T3's `existing_worktree` path field, and does T3 accept a detached checkout? Checked in one live T3 Codex review before the gate label. If T3 refuses, this returns to the owner.
-2. **(owner)** Should D1 A also guard the session-start stale-MCP marker for a reviewer? Recommended: no. The marker is per session and harmless.
+1. **(verify, no ruling)** The path field is `worktreePath`, with `branch` optional. This comes from `OrchestrationV2ThreadLaunchWorkspaceStrategy` in the installed T3 Code (Beta) `app.asar`, read in this session. Still unverified: whether T3 accepts a detached checkout. That is checked in one live T3 Codex review before the gate label; if T3 refuses, this returns to the owner.
+2. **(ruled 2026-11-07: no, as recommended)** Should D1 A also guard the session-start stale-MCP marker for a reviewer? Recommended: no. The marker is per session and harmless.

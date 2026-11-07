@@ -1094,3 +1094,81 @@ func TestSessionStartMalformedTaskLeaseStillSucceeds(t *testing.T) {
 		t.Fatalf("writer lease = %+v, %v; want written", got, err)
 	}
 }
+
+// spec: openspec/changes/review-lease-314/specs/harness/spec.md#Requirement: Read-only review session writes no writer lease
+func TestReviewRoleWritesNoWriterLease(t *testing.T) {
+	newRepo := func(t *testing.T) string {
+		dir := t.TempDir()
+		headsDir := filepath.Join(dir, ".git", "refs", "heads")
+		if err := os.MkdirAll(headsDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(headsDir, "main"), []byte("990e19c000000000000000000000000000000000\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	origInspect := inspectClientMCP
+	inspectClientMCP = func(context.Context, string, string, int) ([]state.MCPProcess, []string) { return nil, nil }
+	t.Cleanup(func() { inspectClientMCP = origInspect })
+	t.Setenv("ATEAM_SESSION_ID", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	events := []string{"session-start", "before-prompt", "turn-end"}
+	run := func(t *testing.T, dir, ev string) {
+		t.Helper()
+		if _, err := Handle(dir, ev, strings.NewReader(`{"session_id":"reviewer"}`)); err != nil {
+			t.Fatalf("Handle %s: %v", ev, err)
+		}
+	}
+
+	t.Run("each event keeps another writer's lease", func(t *testing.T) {
+		t.Setenv("ATEAM_ROLE", "review")
+		for _, ev := range events {
+			dir := newRepo(t)
+			if _, err := state.WriteWriterLease(dir, "claude", "writer"); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(state.WriterLeasePath(dir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			run(t, dir, ev)
+			after, err := os.ReadFile(state.WriterLeasePath(dir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Fatalf("%s under ATEAM_ROLE=review rewrote the lease:\nbefore %s\nafter  %s", ev, before, after)
+			}
+		}
+	})
+
+	t.Run("each event takes no lease in an empty checkout", func(t *testing.T) {
+		t.Setenv("ATEAM_ROLE", "review")
+		for _, ev := range events {
+			dir := newRepo(t)
+			run(t, dir, ev)
+			if _, err := os.Stat(state.WriterLeasePath(dir)); !os.IsNotExist(err) {
+				t.Fatalf("%s under ATEAM_ROLE=review wrote a lease (stat err=%v)", ev, err)
+			}
+		}
+	})
+
+	// The same events without the exact role do take the lease, so the fixture reaches every write.
+	for _, role := range []string{"", "Review", "reviewer"} {
+		t.Run("role "+strconv.Quote(role)+" writes the lease", func(t *testing.T) {
+			t.Setenv("ATEAM_ROLE", role)
+			for _, ev := range events {
+				dir := newRepo(t)
+				run(t, dir, ev)
+				lease, err := state.ReadWriterLease(dir)
+				if err != nil || lease == nil || lease.SessionID != "reviewer" {
+					t.Fatalf("%s with ATEAM_ROLE=%q: lease %+v, err %v; want session reviewer", ev, role, lease, err)
+				}
+			}
+		})
+	}
+}

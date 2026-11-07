@@ -19,7 +19,7 @@ Read the PR description and the issue it closes or addresses. State the problem 
 
 ## 3. Review
 
-Check out the PR head detached at `.worktrees/<agent>-review-pr-<n>` (`git worktree add --detach .worktrees/<agent>-review-pr-<n> <head-sha>`), never in the author's worktree. Read the complete base-to-head diff and the callers, tests, fixtures, and configuration it touches. Compare it with your approach: a difference is a finding only when the PR's choice is worse. Pragmatic, idiomatic, simple yet thorough code beats complex or clever code (the Ponytail ladder). For each finding, try to refute it, then report the failure mechanism, location, minimal correction, and how to verify. On a code PR, run `task verify` in the checkout and record the result verbatim.
+Check out the PR head detached at `.worktrees/<agent>-review-pr-<n>` (`git worktree add --detach .worktrees/<agent>-review-pr-<n> <head-sha>`), never in the author's worktree. When a host launch already started you in that checkout at the head, use it. Read the complete base-to-head diff and the callers, tests, fixtures, and configuration it touches. Compare it with your approach: a difference is a finding only when the PR's choice is worse. Pragmatic, idiomatic, simple yet thorough code beats complex or clever code (the Ponytail ladder). For each finding, try to refute it, then report the failure mechanism, location, minimal correction, and how to verify. On a code PR, run `task verify` in the checkout and record the result verbatim.
 
 ## 4. Post the Record
 

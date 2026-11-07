@@ -1,6 +1,6 @@
 # Change Proposal: `review-lease-314`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-07)
 
 ## Why
 
