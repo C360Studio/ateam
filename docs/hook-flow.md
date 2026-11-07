@@ -61,7 +61,7 @@ The sub-10ms hook budget is a design target. `ateam doctor` times `session-start
 - `on` (default): inject the ladder reminder (smallest complete change; no unrequested features or wrappers).
 - `off`: suppress ladder injection. Pickup context, writer updates, Hold scans, and compaction bookkeeping still run. Written `AGENTS.md` rules also remain in effect.
 
-`lite`, `ultra`, and `full`, the levels before #270, are aliases of `on` in this release, in prompts, `ateam state mode`, MCP, the board API (`/api/mode`), and a saved `.ateam/state.json`; they will be removed in the next release. The OpenSpec quick/design track is the effort dial; Ponytail is on or off.
+`lite`, `ultra`, and `full`, the levels before #270, are rejected since #275 like any unknown mode in prompts, `ateam state mode`, MCP, and the board API (`/api/mode`); a saved `.ateam/state.json` carrying one loads as `on`. The OpenSpec quick/design track is the effort dial; Ponytail is on or off.
 
 Mode is stored per checkout's local state, not privately per session. It can also be changed through the state CLI, MCP, or board; those changes do not themselves inject a new prompt into an already-running agent. Modes do not select a model or adjust provider settings.
 

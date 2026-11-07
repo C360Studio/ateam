@@ -99,7 +99,17 @@ func TestServerEndpoints(t *testing.T) {
 	}
 
 	// 5. POST /api/mode
-	modeBody, _ := json.Marshal(map[string]string{"mode": "ultra"})
+	// The levels before #270 are rejected since #275.
+	legacyBody, _ := json.Marshal(map[string]string{"mode": "ultra"})
+	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(legacyBody))
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/mode ultra status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	modeBody, _ := json.Marshal(map[string]string{"mode": "on"})
 	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(modeBody))
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("Content-Type", "application/json")
@@ -108,9 +118,8 @@ func TestServerEndpoints(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/mode status = %d: %s", rec.Code, rec.Body.String())
 	}
-	// The legacy ultra level is an alias of on for one release (#270).
 	if !strings.Contains(rec.Body.String(), `"mode":"on"`) {
-		t.Fatalf("POST /api/mode ultra body = %s, want mode on", rec.Body.String())
+		t.Fatalf("POST /api/mode on body = %s, want mode on", rec.Body.String())
 	}
 
 	// 6. POST /api/forges (configure Gitea forge)

@@ -41,7 +41,7 @@ The OpenSpec quick/design track is the effort dial; Ponytail is on or off.
 
 | Level / Action | Behavior |
 | --- | --- |
-| **on** | Apply the full 6-step ladder and guardrails above (default). `lite`, `ultra`, and `full` are accepted as aliases of `on` for this release only. |
+| **on** | Apply the full 6-step ladder and guardrails above (default). |
 | **off** | The hook stops injecting the ladder reminder; the rules in `AGENTS.md` still apply. |
 | **review** | Inspect the current diff and its untouched callers for bugs, trust-boundary gaps, missing tests, and removable bloat. |
 | **audit** | Map repo entrypoints and data flow; rank top architectural/reliability risks with concrete fixes. |
