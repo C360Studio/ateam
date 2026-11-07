@@ -177,6 +177,34 @@ func TestReviewRequest(t *testing.T) {
 			}
 		})
 	}
+	// A manifest naming {return_to} with no --return-to and no host id refuses the launch; --dry-run only warns (#306).
+	for _, tc := range []struct {
+		name, manifest string
+		args           []string
+		env            map[string]string
+		code           int
+		ran            bool
+	}{
+		{"command-without-return-to", manifest, nil, map[string]string{"ATEAM_HOST": "fake"}, 2, false},
+		{"tool-without-return-to", "[launch]\ntool = \"start {agent} back to {return_to}\"\n", nil, map[string]string{"ATEAM_HOST": "fake"}, 2, false},
+		{"dry-run-warns", manifest, []string{"--dry-run"}, map[string]string{"ATEAM_HOST": "fake"}, 0, false},
+		{"host-env-id", manifest, nil, map[string]string{"ATEAM_HOST": "herdr", "HERDR_PANE_ID": "p-7"}, 0, true},
+		{"manifest-without-placeholder", "[launch]\ncommand = [\"hostctl\", \"{pr}\"]\n", nil, map[string]string{"ATEAM_HOST": "fake"}, 0, true},
+	} {
+		t.Run("return-to-"+tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"cross_provider":true,"review_launch":"agent",`+launchTiers+`}`)
+			host := tc.env["ATEAM_HOST"]
+			writeLaunchFile(t, root, ".agents/hosts/"+host+".toml", tc.manifest)
+			var out bytes.Buffer
+			rec := &recorder{}
+			args := append([]string{"--implementer", "claude:opus:high"}, tc.args...)
+			code := reviewRequest(context.Background(), root, append(args, "42"), envOf(tc.env), &out, rec.run)
+			if code != tc.code || tc.ran != (len(rec.calls) == 1) || (tc.code == 2) != (out.Len() == 0) {
+				t.Fatalf("exit %d, runner calls %q, output %q; want exit %d, ran=%t, output only on success", code, rec.calls, out.String(), tc.code, tc.ran)
+			}
+		})
+	}
 	t.Run("agent-without-manifest-prints", func(t *testing.T) {
 		root := t.TempDir()
 		writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"review_launch":"agent",`+launchTiers+`}`)
