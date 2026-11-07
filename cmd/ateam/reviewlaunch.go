@@ -171,9 +171,13 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 			return 2
 		}
 	}
-	head := ""
+	// The head always comes from the PR: the local checkout may sit on another commit (#313).
+	body, head, err := readPullBody(ctx, root, pr)
+	if err != nil && len(implementers) > 0 {
+		fmt.Fprintf(os.Stderr, "ateam review: request could not read PR #%d's head (%v)\n", pr, err)
+		return 2
+	}
 	if len(implementers) == 0 {
-		body, h, err := readPullBody(ctx, root, pr)
 		if err == nil {
 			implementers, err = review.Implementers(body)
 		}
@@ -181,9 +185,6 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 			fmt.Fprintf(os.Stderr, "ateam review: request could not read PR #%d's implemented-by: line (%v); pass --implementer agent:model:effort\n", pr, err)
 			return 2
 		}
-		head = h
-	} else if out, err := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "HEAD").Output(); err == nil {
-		head = strings.TrimSpace(string(out))
 	}
 	host, envReturn := detectHost(getenv)
 	spec := launchSpec{PR: pr, HeadSHA: head, Prompt: fmt.Sprintf("/review-pr %d", pr), Implementers: implementers,

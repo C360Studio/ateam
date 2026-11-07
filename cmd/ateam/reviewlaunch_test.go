@@ -109,6 +109,10 @@ func TestLoadHostManifest(t *testing.T) {
 // spec: openspec/specs/model-review/spec.md#Requirement: Review request spec
 // spec: openspec/specs/model-review/spec.md#Requirement: Review launch policy
 func TestReviewRequest(t *testing.T) {
+	const prHead = "fedcba9876543210fedcba9876543210fedcba98"
+	prev := readPullBody
+	readPullBody = func(context.Context, string, int) (string, string, error) { return "", prHead, nil }
+	defer func() { readPullBody = prev }()
 	manifest := "[launch]\ncommand = [\"hostctl\", \"start\", \"--agent\", \"{agent}\", \"--model={model}\", \"--effort\", \"{effort}\", \"--prompt\", \"{prompt}\", \"--sha\", \"{sha}\", \"--back\", \"{return_to}\"]\n"
 	env := envOf(map[string]string{"ATEAM_HOST": "fake"})
 	for _, tc := range []struct {
@@ -219,6 +223,30 @@ func TestReviewRequest(t *testing.T) {
 		rec := &recorder{}
 		if code := reviewRequest(context.Background(), root, []string{"--implementer", "claude:opus:high", "5"}, envOf(nil), &out, rec.run); code != 0 || len(rec.calls) != 0 || !strings.Contains(out.String(), `"launch": "printed"`) || !strings.Contains(out.String(), `"host": "cli"`) {
 			t.Fatalf("exit %d, calls %q, output %s", code, rec.calls, out.String())
+		}
+	})
+	t.Run("implementer-flag-takes-pr-head", func(t *testing.T) {
+		// The temp root is no git checkout, so only the PR's head can fill head_sha (#313).
+		var out bytes.Buffer
+		if code := reviewRequest(context.Background(), t.TempDir(), []string{"--implementer", "claude:opus:high", "5"}, envOf(nil), &out, (&recorder{}).run); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+		var spec launchSpec
+		if err := json.Unmarshal(out.Bytes(), &spec); err != nil || spec.HeadSHA != prHead {
+			t.Fatalf("head_sha = %q, %v; want the PR head %s", spec.HeadSHA, err, prHead)
+		}
+	})
+	t.Run("offline-with-implementer-flag", func(t *testing.T) {
+		prev := readPullBody
+		readPullBody = func(context.Context, string, int) (string, string, error) { return "", "", errors.New("offline") }
+		defer func() { readPullBody = prev }()
+		rec := &recorder{}
+		var out bytes.Buffer
+		code, stderr := captureBenchError(t, func() int {
+			return reviewRequest(context.Background(), t.TempDir(), []string{"--implementer", "claude:opus:high", "5"}, envOf(nil), &out, rec.run)
+		})
+		if code != 2 || len(rec.calls) != 0 || out.Len() != 0 || !strings.Contains(stderr, "could not read PR #5's head") {
+			t.Fatalf("exit %d, calls %q, output %q, stderr %q; want 2, nothing run or printed, the head named", code, rec.calls, out.String(), stderr)
 		}
 	})
 	t.Run("offline-without-flags", func(t *testing.T) {
