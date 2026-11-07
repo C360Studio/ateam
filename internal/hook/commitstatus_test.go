@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,19 +19,35 @@ import (
 func TestSessionStartMakesNoForgeCall(t *testing.T) {
 	// Commit statuses are never written from a hook: a session-start with a stale forge cache and an open worktree
 	// PR on both forges must not run gh or reach the Gitea API.
+	// Only requests for this test's own repository count: under full-suite load another test process can reach this
+	// port after its own server closed and the port was reused (#317). Every request is kept to name it on failure.
+	const owner, repo = "hook-317-owner", "hook-317-repo"
+	repoPath := "/api/v1/repos/" + owner + "/" + repo
 	var requests atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		if strings.HasPrefix(r.URL.Path, repoPath) {
+			requests.Add(1)
+		}
 		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer srv.Close()
-	// Activation: the counter sees a request that does reach the server.
-	if resp, err := http.Get(srv.URL); err == nil {
-		resp.Body.Close()
+	// Activation: the counter sees a request for the repository and ignores one for another.
+	for _, path := range []string{repoPath + "/statuses/abc1234", "/api/v1/repos/o/r/statuses/abc1234"} {
+		if resp, err := http.Get(srv.URL + path); err == nil {
+			resp.Body.Close()
+		}
 	}
 	if requests.Swap(0) != 1 {
-		t.Fatal("fake Gitea did not count a request")
+		t.Fatal("fake Gitea did not count exactly the repository's request")
 	}
+	mu.Lock()
+	seen = nil
+	mu.Unlock()
 
 	bin, marker := t.TempDir(), filepath.Join(t.TempDir(), "gh-ran")
 	fake := filepath.Join(bin, "gh")
@@ -53,8 +70,8 @@ func TestSessionStartMakesNoForgeCall(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/claude/pr-7\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	gh := state.ForgeConfig{Provider: state.ForgeGitHub, Owner: "o", Repo: "r"}
-	gt := state.ForgeConfig{Provider: state.ForgeGitea, BaseURL: srv.URL, Owner: "o", Repo: "r"}
+	gh := state.ForgeConfig{Provider: state.ForgeGitHub, Owner: owner, Repo: repo}
+	gt := state.ForgeConfig{Provider: state.ForgeGitea, BaseURL: srv.URL, Owner: owner, Repo: repo}
 	old := time.Now().Add(-24 * time.Hour)
 	if err := state.Save(dir, &state.State{
 		Mode: state.ModeOn, Forge: gh, Forges: []state.ForgeConfig{gh, gt}, ForgesConfigured: true,
@@ -75,6 +92,8 @@ func TestSessionStartMakesNoForgeCall(t *testing.T) {
 		t.Fatalf("session-start ran gh: %s", data)
 	}
 	if n := requests.Load(); n != 0 {
-		t.Fatalf("session-start made %d Gitea requests, want 0", n)
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("session-start made %d Gitea requests for %s, want 0; all requests: %q", n, repoPath, seen)
 	}
 }
