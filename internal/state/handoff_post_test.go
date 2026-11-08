@@ -114,41 +114,82 @@ func TestPostPRHandoffCommentReportsATimedOutSendAsUncertain(t *testing.T) {
 	handoffPostTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { handoffPostTimeout = old })
 
-	for _, tc := range []struct {
+	// Only a send that started and then ran out of time is uncertain; a deadline or cancel that stopped the
+	// send from starting sent nothing (#330 review).
+	cases := []struct {
 		name      string
-		gh        string // the fake's answer to pr comment
+		parent    string // "", "expired", "cancelled", or "deadline" (300ms, spent by a hanging comment read)
+		readHang  bool
+		sendHang  bool
+		rejected  bool
 		uncertain bool
+		sent      bool
 	}{
-		{name: "send outlives the deadline", gh: "exec sleep 5", uncertain: true},
-		{name: "send rejected", gh: "echo 'HTTP 422' >&2; exit 1"},
-	} {
-		t.Run("github/"+tc.name, func(t *testing.T) {
-			installForgeCLI(t, "gh", "case \"$*\" in\n'pr comment'*) "+tc.gh+";;\n*) exit 1;;\nesac\n")
-			_, err := PostPRHandoffComment(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub}, "claude/x", handoffPostBody)
-			if err == nil || errors.Is(err, ErrPostUncertain) != tc.uncertain {
-				t.Fatalf("err = %v, want an error with uncertain=%v", err, tc.uncertain)
-			}
-		})
+		{name: "send outlives the deadline", sendHang: true, uncertain: true, sent: true},
+		{name: "send rejected", rejected: true, sent: true},
+		{name: "parent already expired", parent: "expired"},
+		{name: "parent already cancelled", parent: "cancelled"},
+		{name: "parent deadline spent by the comment read", parent: "deadline", readHang: true},
 	}
-	for _, tc := range []struct {
-		name      string
-		hang      bool
-		uncertain bool
-	}{
-		{name: "send outlives the deadline", hang: true, uncertain: true},
-		{name: "send rejected"},
-	} {
+	parentCtx := func(t *testing.T, kind string) context.Context {
+		t.Helper()
+		switch kind {
+		case "expired":
+			ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			t.Cleanup(cancel)
+			return ctx
+		case "cancelled":
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			return ctx
+		case "deadline":
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			t.Cleanup(cancel)
+			return ctx
+		}
+		return context.Background()
+	}
+	check := func(t *testing.T, err error, sent bool, uncertain, wantSent bool) {
+		t.Helper()
+		if err == nil || errors.Is(err, ErrPostUncertain) != uncertain || sent != wantSent {
+			t.Fatalf("err = %v, sent = %v; want an error with uncertain=%v, sent=%v", err, sent, uncertain, wantSent)
+		}
+	}
+	for _, tc := range cases {
+		t.Run("github/"+tc.name, func(t *testing.T) {
+			read, send := "exit 1", "printf '%s\\n' https://forge.example/new"
+			if tc.readHang {
+				read = "exec sleep 5"
+			}
+			if tc.sendHang {
+				send = "exec sleep 5"
+			}
+			if tc.rejected {
+				send = "echo 'HTTP 422' >&2; exit 1"
+			}
+			log := installForgeCLI(t, "gh", "case \"$*\" in\n'pr view claude/x --json comments') "+read+";;\n'pr comment'*) "+send+";;\n*) exit 1;;\nesac\n")
+			_, err := PostPRHandoffComment(parentCtx(t, tc.parent), t.TempDir(), ForgeConfig{Provider: ForgeGitHub}, "claude/x", handoffPostBody)
+			data, _ := os.ReadFile(log)
+			check(t, err, strings.Contains(string(data), "pr comment claude/x"), tc.uncertain, tc.sent)
+		})
 		t.Run("gitea/"+tc.name, func(t *testing.T) {
+			var sent atomic.Bool
+			hang := func(r *http.Request) {
+				select {
+				case <-r.Context().Done():
+				case <-time.After(5 * time.Second):
+				}
+			}
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {
 				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/o/r/pulls" && r.URL.Query().Get("page") == "1":
 					_, _ = w.Write([]byte(`[{"number":7,"state":"open","head":{"ref":"claude/x","sha":"` + headFull + `"}}]`))
+				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/o/r/issues/7/comments" && tc.readHang:
+					hang(r)
 				case r.Method == http.MethodPost:
-					if tc.hang {
-						select {
-						case <-r.Context().Done():
-						case <-time.After(5 * time.Second):
-						}
+					sent.Store(true)
+					if tc.sendHang {
+						hang(r)
 						return
 					}
 					w.WriteHeader(http.StatusUnprocessableEntity)
@@ -157,10 +198,8 @@ func TestPostPRHandoffCommentReportsATimedOutSendAsUncertain(t *testing.T) {
 				}
 			}))
 			defer srv.Close()
-			_, err := PostPRHandoffComment(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "o", Repo: "r"}, "claude/x", handoffPostBody)
-			if err == nil || errors.Is(err, ErrPostUncertain) != tc.uncertain {
-				t.Fatalf("err = %v, want an error with uncertain=%v", err, tc.uncertain)
-			}
+			_, err := PostPRHandoffComment(parentCtx(t, tc.parent), t.TempDir(), ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "o", Repo: "r"}, "claude/x", handoffPostBody)
+			check(t, err, sent.Load(), tc.uncertain, tc.sent)
 		})
 	}
 }

@@ -942,7 +942,8 @@ func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, bra
 			cmd.Stderr = &stderr
 			out, err := cmd.Output()
 			if err != nil {
-				if errors.Is(cctx.Err(), context.DeadlineExceeded) {
+				// A deadline that stopped gh from starting sent nothing; only a started send is uncertain.
+				if cmd.Process != nil && errors.Is(cctx.Err(), context.DeadlineExceeded) {
 					return post, fmt.Errorf("gh pr comment %s timed out: %w", branch, ErrPostUncertain)
 				}
 				return post, fmt.Errorf("gh pr comment %s: %w (%s)", branch, err, strings.TrimSpace(stderr.String()))
@@ -1008,6 +1009,10 @@ func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, bra
 		postReq.Header.Set("Content-Type", "application/json")
 		if token != "" {
 			postReq.Header.Set("Authorization", "token "+token)
+		}
+		// A context already done here sends nothing, so its error is not a timed-out send.
+		if err := ctx.Err(); err != nil {
+			return HandoffPost{}, fmt.Errorf("gitea post comment not sent: %w", err)
 		}
 		postResp, err := client.Do(postReq)
 		if err != nil {
