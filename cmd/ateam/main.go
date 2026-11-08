@@ -553,7 +553,7 @@ func runInit(repoRoot string, args []string) int {
 		}
 		return 1
 	}
-	printJSON(map[string]any{"dir": *dir, "written": res.Written, "backed_up": res.BackedUp, "next_steps": "Existing client configuration is preserved, even with --force; replaced hand-written harness documents are listed under backed_up. Run ateam doctor --check and follow https://github.com/C360Studio/ateam/blob/main/docs/mcp.md to merge missing registration and verify client discovery."})
+	printJSON(map[string]any{"dir": *dir, "written": res.Written, "backed_up": res.BackedUp, "next_steps": "Existing client configuration is preserved, even with --force; replaced hand-written harness documents are listed under backed_up. Run ateam doctor --check and follow https://github.com/C360Studio/ateam/blob/main/docs/mcp.md to merge missing registration and verify client discovery. Codex runs project hooks only after you run codex in each checkout or worktree and approve them; ateam doctor warns until you do."})
 	return 0
 }
 
@@ -618,6 +618,8 @@ func runDoctor(repoRoot string, args []string) int {
 	violations = append(violations, pinViolations...)
 	warnings = append(warnings, forgeTokenWarnings()...)
 	warnings = append(warnings, statusWriteWarnings(repoRoot)...)
+	codexTrust, codexTrustWarnings := bootstrap.CodexHookTrust(repoRoot)
+	warnings = append(warnings, codexTrustWarnings...)
 
 	adopterSkills, skillAliases := bootstrap.SkillInventory(repoRoot)
 
@@ -634,6 +636,7 @@ func runDoctor(repoRoot string, args []string) int {
 		"adopter_skills":         adopterSkills,
 		"skill_aliases":          skillAliases,
 		"hook_sources":           bootstrap.HookSources(repoRoot),
+		"codex_hook_trust":       codexTrust,
 		"warnings":               warnings,
 		"mcp_schema_tokens":      tokens,
 		"mcp_connection_checked": false,
