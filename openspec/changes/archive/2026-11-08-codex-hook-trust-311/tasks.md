@@ -12,4 +12,4 @@
 
 ## 4. Verify
 
-- [ ] 4.1 `task verify` is green on a clean tree, `ateam doctor --check` and `ateam bench --selftest` exit 0, and the change is archived before ready (#311).
+- [x] 4.1 `task verify` is green on a clean tree, `ateam doctor --check` and `ateam bench --selftest` exit 0, and the change is archived before ready (#311). Evidence: `task verify`, `ateam doctor --check`, and `ateam bench --selftest` exit 0 at 80fd533. This worktree's doctor reports `codex_hook_trust: untrusted` as a warning, and `passed` stays true.
