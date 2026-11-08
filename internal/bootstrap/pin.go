@@ -44,24 +44,39 @@ func PinStatus(root, running string, hook HookBinary) (pin string, violations []
 	return pin, violations
 }
 
-// isReleaseTag reports whether s is v<major>.<minor>.<patch> with an optional -<pre-release> suffix.
+// isReleaseTag reports whether s is a semver release tag: v<major>.<minor>.<patch> without leading zeros, with an
+// optional -<pre-release> of dot-separated [0-9A-Za-z-] identifiers whose numeric ones carry no leading zero either.
 func isReleaseTag(s string) bool {
 	core, ok := strings.CutPrefix(s, "v")
 	if !ok {
 		return false
 	}
 	core, pre, hasPre := strings.Cut(core, "-")
-	if hasPre && (pre == "" || strings.ContainsAny(pre, " \t\r\n")) {
-		return false
-	}
 	parts := strings.Split(core, ".")
 	if len(parts) != 3 {
 		return false
 	}
 	for _, p := range parts {
-		if p == "" || strings.Trim(p, "0123456789") != "" {
+		if !isNumericIdent(p) {
+			return false
+		}
+	}
+	if !hasPre {
+		return true
+	}
+	for _, id := range strings.Split(pre, ".") {
+		if strings.Trim(id, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-") != "" {
+			return false
+		}
+		// All digits, or empty: an empty identifier fails here too.
+		if strings.Trim(id, "0123456789") == "" && !isNumericIdent(id) {
 			return false
 		}
 	}
 	return true
+}
+
+// isNumericIdent reports whether s is a semver numeric identifier: digits, and no leading zero unless it is "0".
+func isNumericIdent(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == "" && (s == "0" || s[0] != '0')
 }
