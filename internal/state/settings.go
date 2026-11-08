@@ -34,6 +34,7 @@ type Settings struct {
 	DefaultBranch  string        `json:"default_branch,omitempty"`
 	CommitStatuses *bool         `json:"commit_statuses,omitempty"`
 	Forges         []ForgeConfig `json:"forges,omitempty"`
+	AteamVersion   string        `json:"ateam_version,omitempty"`
 }
 
 // branchNameRe bounds default_branch to plain ref characters, so it can never read as a git option or a range.
@@ -84,6 +85,9 @@ func parseSettings(data []byte) (Settings, error) {
 	}
 	if b := s.DefaultBranch; b != "" && (!branchNameRe.MatchString(b) || strings.Contains(b, "..") || strings.HasSuffix(b, "/") || strings.HasSuffix(b, ".lock")) {
 		return Settings{}, fmt.Errorf("default_branch %q is not a branch name", b)
+	}
+	if v := s.AteamVersion; v != "" && !IsReleaseTag(v) {
+		return Settings{}, fmt.Errorf("ateam_version is %q, not one release such as v0.3.9", v)
 	}
 	if s.Forges != nil && len(s.Forges) == 0 {
 		return Settings{}, fmt.Errorf("forges is an empty list; omit the key to auto-detect the forge")

@@ -1056,7 +1056,7 @@ When `ATEAM_ROLE=review` is set in its environment, `ateam hook` SHALL NOT write
 - **THEN** the three events write the lease as before
 
 ### Requirement: Committed team settings file
-`ateam` SHALL read optional team settings (`merge_method`, `default_branch`, `commit_statuses`, `forges`) from the committed, non-gate, strictly decoded version-1 file `.agents/ateam.json`. A missing file SHALL change no behaviour and no `ateam init` output. The file SHALL NOT accept keys that can weaken a merge gate.
+`ateam` SHALL read optional team settings (`merge_method`, `default_branch`, `commit_statuses`, `forges`, `ateam_version`) from the committed, non-gate, strictly decoded version-1 file `.agents/ateam.json`. A missing file SHALL change no behaviour and no `ateam init` output. The file SHALL NOT accept keys that can weaken a merge gate.
 
 #### Scenario: Missing file
 - **WHEN** `.agents/ateam.json` does not exist
@@ -1098,7 +1098,7 @@ When `ATEAM_ROLE=review` is set in its environment, `ateam hook` SHALL NOT write
 
 ### Requirement: Doctor checks a declared ateam pin
 
-Outside the ateam checkout, when `.agents/ateam-version` exists, `ateam doctor` SHALL report the pin. It SHALL add a violation when the running binary's release, or the release of the binary the Claude hook command resolves to, differs from the pin by exact string. It SHALL also add a violation when the file does not hold one `v<major>.<minor>.<patch>` release. A hook binary that does not resolve SHALL be reported without a violation. Without the file, doctor's output SHALL be unchanged.
+Outside the ateam checkout, when `ateam_version` in `.agents/ateam.json` or the deprecated `.agents/ateam-version` declares a pin, `ateam doctor` SHALL report it, preferring the key. It SHALL add a violation when the running binary's release, or the release of the binary the Claude hook command resolves to, differs from it by exact string. It SHALL also add a violation when the pin is not one `v<major>.<minor>.<patch>` release. Without a pin, doctor's output SHALL be unchanged.
 
 #### Scenario: Dev build against a release pin
 
@@ -1117,8 +1117,13 @@ Outside the ateam checkout, when `.agents/ateam-version` exists, `ateam doctor` 
 
 #### Scenario: No pin declared
 
-- **WHEN** `.agents/ateam-version` does not exist
+- **WHEN** neither `ateam_version` nor `.agents/ateam-version` exists
 - **THEN** doctor's output carries no pin field and no pin finding
+
+#### Scenario: Key and file disagree
+
+- **WHEN** `ateam_version` is `v0.4.0` and `.agents/ateam-version` holds `v0.3.9`
+- **THEN** doctor checks against `v0.4.0` and warns that the key wins over the file
 
 ### Requirement: Doctor reports Codex project hook trust
 When `.codex/hooks.json` satisfies doctor's Codex hook check, `ateam doctor` SHALL read the Codex config (`$CODEX_HOME/config.toml`, else `~/.codex/config.toml`) and report `codex_hook_trust` in its JSON output as `trusted`, `untrusted`, or `not checked: <reason>`. It SHALL add a warning, never a violation, when any required Codex hook event lacks a `hooks.state` entry keyed by this checkout's absolute `.codex/hooks.json` path.
@@ -1134,4 +1139,3 @@ When `.codex/hooks.json` satisfies doctor's Codex hook check, `ateam doctor` SHA
 #### Scenario: Trust not checkable
 - **WHEN** the Codex config is missing or is not valid TOML, or the Codex hooks were satisfied by `~/.codex/hooks.json` or failed doctor's hook check
 - **THEN** doctor reports `codex_hook_trust: not checked: <reason>` and adds no Codex trust warning
-

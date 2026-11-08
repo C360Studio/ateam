@@ -78,9 +78,63 @@ func TestPinStatus(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			pin, got := PinStatus(root, tc.running, tc.hook)
-			if pin != tc.wantPin || !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("PinStatus = %q, %q; want %q, %q", pin, got, tc.wantPin, tc.want)
+			pin, got, warnings := PinStatus(root, tc.running, tc.hook)
+			if pin != tc.wantPin || !reflect.DeepEqual(got, tc.want) || warnings != nil {
+				t.Fatalf("PinStatus = %q, %q, %q; want %q, %q, no warnings", pin, got, warnings, tc.wantPin, tc.want)
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Doctor checks a declared ateam pin
+func TestPinStatusKeyAndFile(t *testing.T) {
+	const hookPath = "/repo/.tools/bin/ateam"
+	at := func(v string) HookBinary { return HookBinary{Path: hookPath, Version: v, Build: "module"} }
+	for _, tc := range []struct {
+		name         string
+		settings     string // "" means no .agents/ateam.json
+		file         *string
+		running      string
+		hook         string // hook binary version; "" means the expected pin
+		wantPin      string
+		wantViolates []string
+		wantWarns    []string
+	}{
+		{name: "neither", running: "v0.3.9"},
+		{name: "settings without the key", settings: `{"version":1}`, running: "v0.3.9"},
+		{name: "key only, at the pin", settings: `{"version":1,"ateam_version":"v0.4.0"}`, running: "v0.4.0", wantPin: "v0.4.0"},
+		{name: "key only, running differs", settings: `{"version":1,"ateam_version":"v0.4.0"}`, running: "v0.3.9", hook: "v0.4.0-dev", wantPin: "v0.4.0",
+			wantViolates: []string{
+				"running ateam is v0.3.9, not the .agents/ateam.json ateam_version pin v0.4.0",
+				"hook binary /repo/.tools/bin/ateam is v0.4.0-dev, not the .agents/ateam.json ateam_version pin v0.4.0"}},
+		{name: "file only", file: ptr("v0.3.9\n"), running: "v0.3.9", wantPin: "v0.3.9"},
+		{name: "both agree", settings: `{"version":1,"ateam_version":"v0.3.9"}`, file: ptr("v0.3.9\n"), running: "v0.3.9", wantPin: "v0.3.9"},
+		{name: "both disagree, key wins", settings: `{"version":1,"ateam_version":"v0.4.0"}`, file: ptr("v0.3.9\n"), running: "v0.4.0", wantPin: "v0.4.0",
+			wantWarns: []string{`.agents/ateam-version holds "v0.3.9" but .agents/ateam.json ateam_version is v0.4.0; the key wins, so delete .agents/ateam-version`}},
+		{name: "invalid settings falls back to the file", settings: `{"version":1,"ateam_version":"v0.4"}`, file: ptr("v0.3.9\n"), running: "v0.3.9", wantPin: "v0.3.9"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if tc.settings != "" {
+				if err := os.WriteFile(filepath.Join(root, ".agents", "ateam.json"), []byte(tc.settings), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.file != nil {
+				if err := os.WriteFile(filepath.Join(root, ".agents", "ateam-version"), []byte(*tc.file), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			hook := at(tc.wantPin)
+			if tc.hook != "" {
+				hook = at(tc.hook)
+			}
+			pin, violations, warnings := PinStatus(root, tc.running, hook)
+			if pin != tc.wantPin || !reflect.DeepEqual(violations, tc.wantViolates) || !reflect.DeepEqual(warnings, tc.wantWarns) {
+				t.Fatalf("PinStatus = %q, %q, %q; want %q, %q, %q", pin, violations, warnings, tc.wantPin, tc.wantViolates, tc.wantWarns)
 			}
 		})
 	}
