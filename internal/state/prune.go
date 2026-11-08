@@ -74,6 +74,11 @@ func (st *State) PruneVerdict(wt Worktree, agent, currentPath string, force bool
 		if !headMatched {
 			return false, fmt.Sprintf("head is not PR #%d's head in the forge cache", reviewPR)
 		}
+		if !force {
+			if why := st.occupiedBy(wt); why != "" {
+				return false, why
+			}
+		}
 		return true, fmt.Sprintf("review of closed PR #%d", reviewPR)
 	}
 	if strings.HasPrefix(label, "merged via ") || label == "merged (ancestor of main)" {
