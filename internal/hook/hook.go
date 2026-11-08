@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -87,17 +88,26 @@ func Handle(root, flagEvent string, stdin io.Reader) (Output, error) {
 
 // HandleWithAgent processes a hook event with an optional explicit agent identity (--agent claude|codex|gemini|agy).
 func HandleWithAgent(root, flagEvent, flagAgent string, stdin io.Reader) (Output, error) {
-	return handle(root, flagEvent, flagAgent, stdin, state.ResolveEnvSessionID())
+	// A review launch sets ATEAM_ROLE=review so a read-only reviewer never takes the lease of the checkout it
+	// starts in (#315); any other value is a writer.
+	return handle(root, flagEvent, flagAgent, stdin, state.ResolveEnvSessionID(), os.Getenv("ATEAM_ROLE") == "review")
 }
 
 // Probe runs a hook event as no session. For session-start that means it writes neither the writer lease nor
 // the MCP-checked marker, so ateam doctor times it without stealing a live session's lease (#204); other events
 // carry no such guarantee.
 func Probe(root, flagEvent string) (Output, error) {
-	return handle(root, flagEvent, "", strings.NewReader(`{}`), "")
+	return handle(root, flagEvent, "", strings.NewReader(`{}`), "", false)
 }
 
-func handle(root, flagEvent, flagAgent string, stdin io.Reader, envSessionID string) (Output, error) {
+// refreshWriterLease is best-effort: a lease write never fails a hook. A read-only session writes none (#315).
+func refreshWriterLease(root, agent, sessionID string, readOnly bool) {
+	if !readOnly {
+		_, _ = state.WriteWriterLease(root, agent, sessionID)
+	}
+}
+
+func handle(root, flagEvent, flagAgent string, stdin io.Reader, envSessionID string, readOnly bool) (Output, error) {
 	var in Input
 	if stdin != nil {
 		if data, err := io.ReadAll(io.LimitReader(stdin, 1<<20)); err == nil && len(strings.TrimSpace(string(data))) > 0 {
@@ -141,7 +151,7 @@ func handle(root, flagEvent, flagAgent string, stdin io.Reader, envSessionID str
 		reconcileSessionStartHandoffs(root, flagAgent, br, sha, wtHeadChanged, st)
 		ctxText := state.BuildPickupSummary(st)
 		// Line start only: task lease values can hold this text but no newline, and must not gate the lease (#284).
-		if sessionID != "" && !strings.Contains(ctxText, "\nWARNING: another writer may be active") {
+		if !readOnly && sessionID != "" && !strings.Contains(ctxText, "\nWARNING: another writer may be active") {
 			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
 		}
 		if buildWarning := checkSessionBuildProvenance(root, sha); buildWarning != "" {
@@ -156,7 +166,7 @@ func handle(root, flagEvent, flagAgent string, stdin io.Reader, envSessionID str
 		return buildOutputForAgent(flagAgent, "SessionStart", ctxText), nil
 
 	case "before-prompt":
-		_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
+		refreshWriterLease(root, flagAgent, sessionID, readOnly)
 		mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha)
 		// shortcut: Antigravity PreInvocation stdin omits prompt text, switch Ponytail mode via ateam state mode or /ponytail skill in agy
 		promptText := firstNonEmpty(in.Prompt, in.UserPrompt)
@@ -274,7 +284,7 @@ func handle(root, flagEvent, flagAgent string, stdin io.Reader, envSessionID str
 		return buildOutputForAgent(flagAgent, "PreCompact", "Auto-handoff checkpoint saved before compaction:\n"+state.FormatFiveFieldPrompt(*updated.LastHandoff)), nil
 
 	case "turn-end":
-		_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
+		refreshWriterLease(root, flagAgent, sessionID, readOnly)
 		holds, holdErr := state.ScanHolds(root)
 		if _, err := state.Update(root, func(cur *state.State) error {
 			if holdErr == nil {
