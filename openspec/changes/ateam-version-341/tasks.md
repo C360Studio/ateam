@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` by filling in `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit (#341). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit (#341). Evidence: the owner approved in Enjoy on 2026-11-08 ("Approved — write Approved-by for me"); Claude wrote the header at their request.
 
 ## 2. Key and read order
 
