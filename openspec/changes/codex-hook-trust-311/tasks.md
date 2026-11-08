@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 The owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)`, ruling on design Open Questions 1–2, and removing this hold in the same edit (#311). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 The owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)`, ruling on design Open Questions 1–2, and removing this hold in the same edit (#311). Evidence: the owner approved in Enjoy on 2026-11-08 ("Approve, go ahead") with both Open Questions as recommended: OQ1 a warning, OQ2 a symlinked checkout may read `untrusted`. Claude wrote the header at their request.
 
 ## 2. Trust check
 
