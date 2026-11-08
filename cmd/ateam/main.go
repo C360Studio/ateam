@@ -393,7 +393,7 @@ func runStateHandoff(repoRoot string, args []string) int {
 		} else if post.Existing {
 			fmt.Fprintf(os.Stderr, "ateam state handoff: forge PR comment posted (already on PR)\n")
 		}
-		if err == nil && state.CommitStatusesEnabled() && post.HeadSHA != "" {
+		if err == nil && state.CommitStatusesEnabled(repoRoot) && post.HeadSHA != "" {
 			// A status error is one warning line and never changes the exit code (#302).
 			if _, err := state.HandoffCommitStatuses(ctx, repoRoot, st, post, ho); err != nil {
 				fmt.Fprintf(os.Stderr, "ateam state handoff: warning: commit statuses: %v\n", err)
@@ -467,7 +467,7 @@ func runStateSync(repoRoot string, args []string) int {
 	}
 	out := map[string]any{"synced": len(cards), "forge": cfg}
 	// Only this command and posting handoffs write commit statuses; pickup, prune, board, MCP and UI syncs never do.
-	if (cfg.Provider == state.ForgeGitHub || cfg.Provider == state.ForgeGitea) && state.CommitStatusesEnabled() {
+	if (cfg.Provider == state.ForgeGitHub || cfg.Provider == state.ForgeGitea) && state.CommitStatusesEnabled(repoRoot) {
 		res, err := state.SyncCommitStatuses(ctx, repoRoot, cfg, st.Git.DefaultRemoteRef, cards)
 		if err != nil {
 			// A status error is one warning line and never changes the exit code (#302).

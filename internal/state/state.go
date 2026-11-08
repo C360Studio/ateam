@@ -2323,7 +2323,8 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 	}
 	gs := SnapshotGit(ctx, root)
 	detectedForge := DetectForge(ctx, root, gs.RemoteURL)
-	cached.refreshForgeConfig(detectedForge)
+	committedForges := settingsOrDefault(root).Forges
+	cached.refreshForgeConfig(detectedForge, committedForges)
 	forgeCfg := cached.Forge
 	shortcuts, err := ScanShortcuts(root)
 	if err != nil {
@@ -2351,7 +2352,7 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 	}
 	return Update(root, func(st *State) error {
 		st.Git = gs
-		st.refreshForgeConfig(detectedForge)
+		st.refreshForgeConfig(detectedForge, committedForges)
 		st.Shortcuts = shortcuts
 		st.Holds = holds
 		st.HoldScanError = ""
@@ -2435,8 +2436,24 @@ func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Dur
 	return updated, nil
 }
 
-// refreshForgeConfig seeds automatic detection until the user explicitly edits settings.
-func (st *State) refreshForgeConfig(detected ForgeConfig) {
+// refreshForgeConfig seeds automatic detection until the user explicitly edits settings. A forges list
+// committed in .agents/ateam.json is authoritative over both: detection then only picks which of its
+// entries is active (#333 D4 A).
+func (st *State) refreshForgeConfig(detected ForgeConfig, committed []ForgeConfig) {
+	if len(committed) > 0 {
+		st.preserveActiveForgeSync()
+		st.Forges = append([]ForgeConfig(nil), committed...)
+		st.ForgesConfigured = true
+		st.Forge = committed[0]
+		for _, cfg := range committed {
+			if cfg.Provider == detected.Provider {
+				st.Forge = cfg
+				break
+			}
+		}
+		st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
+		return
+	}
 	if st.ForgesConfigured {
 		return
 	}

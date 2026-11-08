@@ -57,9 +57,20 @@ func (r *StatusResult) add(o StatusResult) {
 	r.Errors += o.Errors
 }
 
-// CommitStatusesEnabled reports whether commit statuses are on: they are unless ATEAM_COMMIT_STATUSES is "0" (D5 A).
-func CommitStatusesEnabled() bool {
-	return strings.TrimSpace(os.Getenv("ATEAM_COMMIT_STATUSES")) != "0"
+// CommitStatusesEnabled reports whether commit statuses are on for root. ATEAM_COMMIT_STATUSES "0" or "1"
+// overrides on this machine; otherwise commit_statuses in .agents/ateam.json decides, and an absent key or
+// an invalid file leaves them on (#333 D4).
+func CommitStatusesEnabled(root string) bool {
+	switch strings.TrimSpace(os.Getenv("ATEAM_COMMIT_STATUSES")) {
+	case "0":
+		return false
+	case "1":
+		return true
+	}
+	if on := settingsOrDefault(root).CommitStatuses; on != nil {
+		return *on
+	}
+	return true
 }
 
 // touchedChange is one OpenSpec change directory a PR touches, read at the PR head.

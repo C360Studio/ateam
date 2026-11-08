@@ -30,13 +30,15 @@
 
 ## 4. Moved keys
 
-- [ ] 4.1 `CommitStatusesEnabled(root)` (`commitstatus.go:61-62`; callers `cmd/ateam/main.go:396,470` and `internal/mcpserver/server.go:353`) follows the D4 precedence.
+- [x] 4.1 `CommitStatusesEnabled(root)` (`commitstatus.go:61-62`; callers `cmd/ateam/main.go:396,470` and `internal/mcpserver/server.go:353`) follows the D4 precedence.
   - Acceptance: a test runs env {unset, `0`, `1`, `yes`} × file {absent, true, false} against an independent truth table.
   - Mutations that flip the env-first order or the default are detected.
-- [ ] 4.2 A committed `forges` list is authoritative in `Refresh` and `refreshForgeConfig` (`state.go:2319-2324`, `:2438-2453`), and the board API returns 409 (`internal/web/server.go:433-436`).
+  - Evidence: `TestCommitStatusesEnabledPrecedence` (env {unset, `0`, `1`, `yes`} × file {absent, true, false, invalid}, a hand-written table) passes with `-race`; the three callers pass the repo root. `task mutate:check`: `detection` for reading the file before the env and for flipping the final default to `false`.
+- [x] 4.2 A committed `forges` list is authoritative in `Refresh` and `refreshForgeConfig` (`state.go:2319-2324`, `:2438-2453`), and the board API returns 409 (`internal/web/server.go:433-436`).
   - Acceptance: a state test shows a committed list beating detection and `ATEAM_FORGE`, and no list keeping today's behaviour.
   - A web test covers the 409, and a UI check confirms the error is shown (OQ4).
   - Mutation that drops the committed-list branch is detected.
+  - Evidence: `TestCommittedForgesAuthoritative` (committed list beats detection, `ATEAM_FORGE`/`GITEA_URL` and a prior board edit; detection only picks the active entry; no file, no key and an invalid file keep detection) and `TestForgesAPIRefusesCommittedList` (409 naming the file for a committed list and for an invalid file, cache untouched; 200 otherwise) pass with `-race`. `task mutate:check`: `detection` for dropping the committed branch in `refreshForgeConfig` and for dropping the 409 in `handleForges`. OQ4 by code read, not a browser run: `ui/src/routes/+page.svelte` `saveForgeConfig`/`removeForgeConfig` throw `data.error` into `errorMsg`, which the settings modal (`{#if showSettingsModal}`, `+page.svelte:1001-1004`) renders as a `role="alert"` banner.
 
 ## 5. default_branch
 
