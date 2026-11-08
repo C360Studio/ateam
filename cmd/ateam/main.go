@@ -614,13 +614,15 @@ func runDoctor(repoRoot string, args []string) int {
 	warnings = append(warnings, diskWarnings...)
 	hookBinary, hookBinaryWarnings := bootstrap.HookBinaryStatus(context.Background(), repoRoot, diskBuild)
 	warnings = append(warnings, hookBinaryWarnings...)
+	pin, pinViolations := bootstrap.PinStatus(repoRoot, state.ReleaseVersion(), hookBinary)
+	violations = append(violations, pinViolations...)
 	warnings = append(warnings, forgeTokenWarnings()...)
 	warnings = append(warnings, statusWriteWarnings(repoRoot)...)
 
 	adopterSkills, skillAliases := bootstrap.SkillInventory(repoRoot)
 
 	passed := len(violations) == 0
-	printJSON(map[string]any{
+	report := map[string]any{
 		"passed":                 passed,
 		"build_commit":           state.BuildLabel(),
 		"build_provenance":       buildProvenance,
@@ -639,7 +641,11 @@ func runDoctor(repoRoot string, args []string) int {
 		"hook_latency_us":        hookUs,
 		"hook_latency_budget_us": hookLatencyBudgetUs,
 		"violations":             violations,
-	})
+	}
+	if pin != "" {
+		report["pin"] = pin
+	}
+	printJSON(report)
 	if !passed {
 		return 1
 	}
