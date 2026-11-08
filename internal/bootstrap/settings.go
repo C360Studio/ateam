@@ -40,3 +40,25 @@ func CheckMergeMethodDocs(root string) []string {
 	}
 	return []string{fmt.Sprintf(".agents/protocol.md does not name `%s` for merge_method %q in %s; run `ateam init --force` or edit its Close step", want, s.MergeMethod, state.SettingsPath)}
 }
+
+// The squash wording in closeRuleRow and protocolCloseStep that merge_method rewrites; a test holds each to
+// exactly one occurrence so wording drift cannot make a swap silently match nothing.
+const (
+	squashGHFlag    = "gh pr merge --squash --auto"
+	squashGiteaDo   = `{"do":"squash",`
+	squashCloseRule = "squash auto-merge"
+)
+
+// mergeMethodReplacer rewrites the squash Close text for method, merge or rebase (D2 A). Gitea's `do` takes
+// the same word as the `gh` flag.
+func mergeMethodReplacer(method string) *strings.Replacer {
+	rule := method + " auto-merge"
+	if method == state.MergeMerge {
+		rule = "merge-commit auto-merge"
+	}
+	return strings.NewReplacer(
+		squashGHFlag, "gh pr merge --"+method+" --auto",
+		squashGiteaDo, `{"do":"`+method+`",`,
+		squashCloseRule, rule,
+	)
+}

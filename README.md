@@ -282,7 +282,7 @@ A PR that touches a gate file (`.agents/review-policy.json`, the merge-check scr
 
 ### 8. Archive, merge, and clean up (`Close` gate)
 
-Archive first: move the completed change in a commit on the branch, so the merged head has no completed unarchived change (`ateam doctor` warns about one). Then mark the PR ready and arm auto-merge, which fires when the required check is green on an up-to-date branch:
+Archive first: move the completed change in a commit on the branch, so the merged head has no completed unarchived change (`ateam doctor` warns about one). Then mark the PR ready and arm auto-merge with the configured method (`squash` by default; `merge_method` in [`.agents/ateam.json`](docs/adoption.md#team-settings)), which fires when the required check is green on an up-to-date branch:
 
 ```bash
 git mv openspec/changes/my-change openspec/changes/archive/$(date +%F)-my-change
@@ -291,7 +291,7 @@ gh pr ready
 gh pr merge --squash --auto
 ```
 
-On Gitea, arm it with `POST /repos/{owner}/{repo}/pulls/{n}/merge` and `{"do":"squash","merge_when_checks_succeed":true}`. After the merge lands, the agent that claimed the branch removes its worktree and deletes the remote branch with `ateam state prune` (`--dry-run` first lists what it would remove), or by hand with `git worktree remove <path>` and `git push origin --delete <branch>`; never one that is dirty, unpushed, or not yours.
+With `merge_method` set, use `--merge` or `--rebase` in place of `--squash`. On Gitea, arm it with `POST /repos/{owner}/{repo}/pulls/{n}/merge` and `{"do":"squash","merge_when_checks_succeed":true}`, with `do` set to the configured method. After the merge lands, the agent that claimed the branch removes its worktree and deletes the remote branch with `ateam state prune` (`--dry-run` first lists what it would remove), or by hand with `git worktree remove <path>` and `git push origin --delete <branch>`; never one that is dirty, unpushed, or not yours.
 
 ---
 

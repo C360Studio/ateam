@@ -18,13 +18,15 @@
 
 ## 3. merge_method
 
-- [ ] 3.1 Replacer in `templateFiles` (`reviewrecord.go:68-89`) over `templates.go:637,643` (D2 A).
+- [x] 3.1 Replacer in `templateFiles` (`reviewrecord.go:68-89`) over `templates.go:637,643` (D2 A).
   - Acceptance: with no file, and with `squash`, output is byte-identical to `defaultTemplateFiles()`.
   - `merge` yields `--merge --auto` / `"do":"merge"`, and `rebase` yields `--rebase --auto` / `"do":"rebase"`, in AGENTS.md, rules-index and protocol.
   - `review_record: aip` output is unaffected.
   - Each substring appears in the constants exactly once.
   - Mutation that swaps the `gh`/Gitea mapping is detected.
-- [ ] 3.2 Hand edits to `README.md:270,273`, `docs/daily-use.md:88-89`, and `docs/adoption.md` (the file, its keys, precedence). Acceptance: `task spec:check` passes, and a reviewer reads the edits.
+  - Evidence: `TestInitMergeMethod` (no file, no key, squash: byte-identical to `defaultTemplateFiles()`; merge, rebase: rule and protocol text, no `squash` left, no doctor warning), `TestInitMergeMethodAIPUnaffected`, `TestInitInvalidSettingsFails`, and `TestMergeMethodSwapTextsAppearOnce` pass with `-race`. `task mutate:check`: `detection` for swapping the `gh`/Gitea replacements (`TestInitMergeMethod/merge`).
+- [x] 3.2 Hand edits to `README.md:270,273`, `docs/daily-use.md:88-89`, and `docs/adoption.md` (the file, its keys, precedence). Acceptance: `task spec:check` passes, and a reviewer reads the edits.
+  - Evidence: README § 8 (now at `:285,294`), `docs/daily-use.md:88-89`, and a new `docs/adoption.md` "Team settings" section plus the commit-statuses override line; `task spec:check` prints `openspec: strict ok` and `holds: ok`. Reviewer read pending.
 
 ## 4. Moved keys
 
