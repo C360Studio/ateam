@@ -4,15 +4,17 @@
 
 ## 2. Settings file
 
-- [ ] 2.1 `internal/state/settings.go` `LoadSettings` (D1 A).
+- [x] 2.1 `internal/state/settings.go` `LoadSettings` (D1 A).
   - Premise: no settings reader exists. The strict-decode precedent is `internal/review/json.go:84-86`, and forge validation uses `normalizeForgeConfig` (`state.go:2459`).
   - Acceptance: table tests (`// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file`) cover these cases:
     - a missing file returns defaults with `ok=false`;
     - an unknown key, version 2, a bad `merge_method`, trailing data, a file over 64 KiB, and an invalid forge each return an error.
   - `task mutate:check` reports `detection` when `DisallowUnknownFields` is removed, when the version check is removed, and when an enum case is added.
-- [ ] 2.2 Doctor: `CheckParity` (`internal/bootstrap/bootstrap.go:229-238`) fails on an invalid file and warns when `protocol.md` names a different merge command (D2).
+  - Evidence: `TestLoadSettingsMissingFile` and `TestLoadSettings` (21 cases) pass with `-race`. `task mutate:check` verdicts: `detection` for dropping `DisallowUnknownFields` (`TestLoadSettings/unknown_key`), dropping the version check (`TestLoadSettings/version_2`), and adding `"rebase-merge"` to the enum (`TestLoadSettings/bad_merge_method`).
+- [x] 2.2 Doctor: `CheckParity` (`internal/bootstrap/bootstrap.go:229-238`) fails on an invalid file and warns when `protocol.md` names a different merge command (D2).
   - Acceptance: one doctor test for each case, and none when the file is absent.
   - Mutation that removes the mismatch check is detected.
+  - Evidence: `TestDoctorTeamSettings` (absent, invalid, valid, mismatch, match) passes with `-race`; the warning is `bootstrap.CheckMergeMethodDocs`, appended in `runDoctor`. `task mutate:check`: `detection` for forcing the mismatch check off (`.../protocol_naming_another_method_warns`) and for dropping `checkTeamSettings` from `CheckParity` (`.../invalid_file_fails_the_check`).
 
 ## 3. merge_method
 
