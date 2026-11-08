@@ -9,17 +9,19 @@ Every output below was recorded on the v0.3.2 candidate (`eeda39d`, the commit t
 checks from #158, #159 and #152 are in it) against a scratch repository: a hand-written `AGENTS.md` and `CLAUDE.md`, a
 `.claude/settings.json` with one permission and one `SessionStart` hook, and a one-task `Taskfile.yml`.
 
-## 1. Build the binary
+## 1. Install the binary
 
-Releases carry no binary assets yet, so build from source as in the
-[README](../README.md#prerequisites-and-installation) (released adopters: `git checkout v0.3.2`; reviewing before that tag exists: build `main` at or after `eeda39d`. Do not
-build `v0.3.1`: it predates the adopter checks this guide describes), put `bin/ateam` on the PATH of your agents, and check it:
+Releases carry no binary assets yet. Install a tag with Go alone, as in the
+[README](../README.md#install-a-release-adopters), put the binary on the PATH of your agents, and check it:
 
 ```bash
-ateam version   # ateam v0.3.2 (<commit>)
+go install github.com/c360studio/ateam/cmd/ateam@v0.3.9
+ateam version   # ateam v0.3.9 (module)
 ```
 
-The release part comes from the build, not from the source. `task build` stamps `git describe`, so a tag checkout prints the tag and a later commit prints `<tag>-<n>-g<commit>`. A plain `go build` prints the version Go embeds from git, which can be the parent checkout's inside a linked worktree, or `dev` without git data. Use `task build`. A smoke pass qualifies a release candidate only when `ateam doctor` shows `hook_binary`, `disk_build`, and `head_commit` at the candidate commit, because the hooks run the `ateam` on `PATH`, not `./bin/ateam`.
+Do not install `v0.3.1` or earlier: they predate the adopter checks this guide describes. `(module)` means a `go install` of a tag; such a binary has every command and hook but an empty board UI, so build from source as in the [README](../README.md#build-from-source) if you need `ateam serve`'s board. When this repository pins a different release from another one on the same machine, install into a repository-local `GOBIN` and point the hook commands at it, as the README describes; `ateam init` writes a bare `ateam`, which runs the one on `PATH`.
+
+A source build takes its release from the build, not from the source. `task build` stamps `git describe`, so a tag checkout prints the tag and a later commit prints `<tag>-<n>-g<commit>`. A plain `go build` prints the version Go embeds from git, which can be the parent checkout's inside a linked worktree, or `dev` without git data. Use `task build`. A smoke pass qualifies a release candidate only when `ateam doctor` shows `hook_binary`, `disk_build`, and `head_commit` at the candidate commit, because the hooks run the `ateam` their hook command names (a bare `ateam` resolves on `PATH`), not `./bin/ateam`.
 
 ## 2. Run init without `--force`
 

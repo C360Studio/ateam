@@ -41,8 +41,9 @@ A single compiled executable does not mean every command works without external 
 
 | Operation | Requirements |
 | --- | --- |
+| Install a release | Go only: `go install github.com/c360studio/ateam/cmd/ateam@<tag>` (no Node or Task). The board UI is not embedded in a module install. |
 | Build ATeam from source | Go at the version in `go.mod` (currently 1.26.4), Node/npm for the embedded UI, and Task if following the Taskfile build path. Install UI dependencies first with `npm ci` in `ui/`. |
-| Run hooks | The `ateam` executable on the agent's PATH, readable repository files, and writable local state for events that save it. No subprocesses or network calls in the hook handler. |
+| Run hooks | The `ateam` executable the hook command names (a bare `ateam`, as `init` writes it, resolves on the agent's PATH), readable repository files, and writable local state for events that save it. No subprocesses or network calls in the hook handler. |
 | Inspect live Git/worktree state | Git and a repository. Some hook paths read Git metadata directly; full reconciliation invokes Git. |
 | Execute project tasks | Task plus the tools used by those tasks. Go is not required merely because a project task runs a Python or JavaScript test command. |
 | Test-to-spec attribution | Go-only scanning uses the compiled binary; Vitest scanning also needs Node and TypeScript at the target repository’s `ui/node_modules/typescript`. Supported test filenames and wrapper limitations are in the protocol. |
