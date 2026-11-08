@@ -10,4 +10,4 @@
 
 ## 3. Verify
 
-- [ ] 3.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#320).
+- [x] 3.1 `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0 (#320). Evidence: all three exit 0 at ececb0a.
