@@ -234,6 +234,7 @@ func CheckParity(root string) []string {
 	out = append(out, checkHookConfigs(root)...)
 	out = append(out, checkMCPConfigs(root)...)
 	out = append(out, checkReviewSetup(root)...)
+	out = append(out, checkTeamSettings(root)...)
 	return out
 }
 
