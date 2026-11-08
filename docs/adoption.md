@@ -118,6 +118,7 @@ A team can commit settings it chooses in `.agents/ateam.json`. The file is optio
   "merge_method": "rebase",
   "default_branch": "trunk",
   "commit_statuses": false,
+  "ateam_version": "v0.3.9",
   "forges": [{"provider": "gitea", "base_url": "https://git.example", "owner": "team", "repo": "app"}]
 }
 ```
@@ -128,6 +129,7 @@ A team can commit settings it chooses in `.agents/ateam.json`. The file is optio
 | `merge_method` | `squash` (default), `merge`, or `rebase` | `ateam init` writes `gh pr merge --<method> --auto` and Gitea `"do":"<method>"` into the Close rule and the protocol Close step. Under `review_record: aip` it has no effect, since no PR is merged. |
 | `default_branch` | a branch name; unset keeps both `main` and `master` as the default branch | Only this branch counts as the default branch for worktree labels, prune, handoff freshness, and ahead/behind counts, which are measured against it. |
 | `commit_statuses` | `true` (default) or `false` | Turns [commit statuses](#informational-commit-statuses) on or off. `ATEAM_COMMIT_STATUSES` set to `0` or `1` overrides it on one machine; any other value is ignored. |
+| `ateam_version` | one release such as `v0.3.9`; unset declares no pin | [`ateam doctor`](../README.md#install-a-release-adopters) fails when the running binary or the hook binary is not exactly this release. It replaces the deprecated `.agents/ateam-version` file, which is read only when the key is absent; when both are set and differ, the key wins and doctor warns. |
 | `forges` | a non-empty list of `{provider, base_url, owner, repo}`, at most one per provider; unset keeps auto-detection, and an empty list is an error (omit the key instead) | The committed list replaces forge detection, `ATEAM_FORGE`, and any list edited in the board. The board's forge settings then refuse edits with a 409 that names this file. Tokens never go in this file. |
 
 The file is decoded strictly: an unknown key, a wrong type, an out-of-range value, trailing data, or a file over 64 KiB is an error. `ateam doctor --check` fails on it and names the file, and `ateam init` returns the error. Hooks and state refresh fall back to the defaults so a session is never blocked, so a broken file shows only in doctor. An older ateam rejects a key it does not know, so a new key arrives with a version bump.

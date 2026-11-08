@@ -615,8 +615,9 @@ func runDoctor(repoRoot string, args []string) int {
 	warnings = append(warnings, diskWarnings...)
 	hookBinary, hookBinaryWarnings := bootstrap.HookBinaryStatus(context.Background(), repoRoot, diskBuild)
 	warnings = append(warnings, hookBinaryWarnings...)
-	pin, pinViolations := bootstrap.PinStatus(repoRoot, state.ReleaseVersion(), hookBinary)
+	pin, pinViolations, pinWarnings := bootstrap.PinStatus(repoRoot, state.ReleaseVersion(), hookBinary)
 	violations = append(violations, pinViolations...)
+	warnings = append(warnings, pinWarnings...)
 	warnings = append(warnings, forgeTokenWarnings()...)
 	warnings = append(warnings, statusWriteWarnings(repoRoot)...)
 
