@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1-3 (#333). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1-3 (#333). Evidence: the owner approved in Enjoy on 2026-11-08 and took the recommended option on each: OQ1 A (unconfigured keeps `{main, master}`), OQ2 A (the board refuses with 409 and names the file), OQ3 no (no row in the generated adopter AGENTS.md). Claude wrote the header at their request.
 
 ## 2. Settings file
 

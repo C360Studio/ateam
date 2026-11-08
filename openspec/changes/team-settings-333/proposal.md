@@ -1,6 +1,6 @@
 # Change Proposal: `team-settings-333`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-08)
 
 ## Why
 

@@ -85,7 +85,7 @@ No migration is required: no file means no change. A team that wants a non-defau
 
 ## Open Questions
 
-1. **(owner ruling)** D3: when nothing is configured, keep today's `{main, master}` set (A, recommended, honours ruling 1), or use only the detected name (B, the literal reading of ruling 3)?
-2. **(owner ruling)** D4 forges: should the UI refuse with 409 once the list is committed (A, recommended), or write `ateam.json` (B)?
-3. **(owner ruling)** Should the generated adopter AGENTS.md also get a settings-home row? Recommended: no, since `docs/adoption.md` and doctor cover it.
+1. **(ruled 2026-11-08: A)** D3: when nothing is configured, keep today's `{main, master}` set (A, recommended, honours ruling 1), or use only the detected name (B, the literal reading of ruling 3)?
+2. **(ruled 2026-11-08: A)** D4 forges: should the UI refuse with 409 once the list is committed (A, recommended), or write `ateam.json` (B)?
+3. **(ruled 2026-11-08: no)** Should the generated adopter AGENTS.md also get a settings-home row? Recommended: no, since `docs/adoption.md` and doctor cover it.
 4. **(verify, no ruling)** Does the board UI render a 409 body? Checked in task 4.2.
