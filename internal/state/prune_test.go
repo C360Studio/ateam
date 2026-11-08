@@ -482,3 +482,60 @@ func TestPruneKeepsWorktreeAnotherSessionOccupies(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Prune finished worktrees the caller owns
+func TestPruneKeepsReviewCheckoutAnotherSessionOccupies(t *testing.T) {
+	// #321: a closed PR's review checkout skipped the occupancy check, so one Claude session's prune removed
+	// the review checkout another, idle session was still standing in.
+	clearAgentSessionEnv(t)
+	now := time.Now()
+	cases := []struct {
+		name    string
+		lease   string // session of a live writer lease in the checkout
+		handoff string // session of a 5m-old handoff recorded on HEAD in the checkout
+		force   bool
+		remove  bool
+		reason  string
+	}{
+		{name: "nothing recorded", remove: true, reason: "review of closed PR #6"},
+		{name: "another session's live lease", lease: "other", reason: "session other holds the lease (1m ago)"},
+		{name: "another session's fresh handoff", handoff: "other", reason: "session other handed off 5m ago; prune after 30m or pass --force"},
+		{name: "caller's own live lease", lease: "me", remove: true, reason: "review of closed PR #6"},
+		{name: "force past another session's lease", lease: "other", force: true, remove: true, reason: "review of closed PR #6"},
+	}
+	clean := false
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "claude-review-pr-6")
+			if err := os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			write := func(path string, v any) {
+				t.Helper()
+				data, err := json.Marshal(v)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.lease != "" {
+				write(WriterLeasePath(dir), WriterLease{Agent: "claude", SessionID: tc.lease, PID: os.Getpid(), LastSeen: now.Add(-time.Minute)})
+			}
+			if tc.handoff != "" {
+				h := &Handoff{Goal: "review #6", Agent: "claude", SessionID: tc.handoff, Branch: "HEAD", UpdatedAt: now.Add(-5 * time.Minute)}
+				write(CacheFilePath(dir), map[string]any{"handoffs": map[string]*Handoff{"claude@HEAD": h}})
+			}
+			st := defaultState()
+			st.Git.Branch = "main"
+			st.CurrentAgent, st.CurrentSessionID = "claude", "me"
+			st.Cards = []BoardCard{{ID: "GH-PR-6", Number: 6, Type: "pr", Column: "done", Merged: true, Branch: "claude/x", HeadSHA: "fffffff"}}
+			wt := Worktree{Path: dir, Branch: "", Head: "fffffff", Dirty: &clean}
+			remove, reason := st.PruneVerdict(wt, "claude", "/r/me", tc.force)
+			if remove != tc.remove || reason != tc.reason {
+				t.Fatalf("PruneVerdict = (%v, %q), want (%v, %q)", remove, reason, tc.remove, tc.reason)
+			}
+		})
+	}
+}

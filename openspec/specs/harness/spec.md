@@ -753,6 +753,7 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 - **WHEN** a detached linked worktree's directory is named `<agent>-review-pr-<n>[-<suffix>]` for the caller's agent, no cached PR `<n>` on any forge is open, and its head equals the head of a closed or merged cached PR `<n>`
 - **THEN** the checkout is pinned to a temporary branch, removed, and the pin deleted only while it still points at that head, so a commit landing during removal stays on the pin
 - **AND** if any cached PR `<n>` is open, or no closed PR `<n>` has that head, the worktree is kept
+- **AND** without `--force`, a checkout another session occupies is kept under the same lease and handoff rules as a finished branch worktree
 
 #### Scenario: Dry run and pickup hint
 
