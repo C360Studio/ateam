@@ -427,6 +427,16 @@ func (s *Server) handleForges(w http.ResponseWriter, r *http.Request) {
 	}
 
 	root := s.currentRepo()
+	// A committed list would overwrite the edit on the next refresh, so refuse it and name the file (#333 OQ2).
+	settings, committed, err := state.LoadSettings(root)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if committed && len(settings.Forges) > 0 {
+		writeError(w, http.StatusConflict, "forges are committed in "+state.SettingsPath+"; edit that file instead")
+		return
+	}
 	var badReqErr error
 	st, err := state.Update(root, func(cur *state.State) error {
 		if strings.EqualFold(strings.TrimSpace(req.Action), "remove") {

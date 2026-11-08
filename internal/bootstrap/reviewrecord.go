@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/c360studio/ateam/internal/review"
+	"github.com/c360studio/ateam/internal/state"
 )
 
 // The review-record text for a repository whose policy sets review_record: aip
@@ -64,14 +65,25 @@ func reviewerContractFor(record string) string {
 }
 
 // templateFiles returns the init templates for root: the defaults, with the
-// review-record text swapped when root's review policy sets review_record: aip.
+// review-record text swapped when root's review policy sets review_record: aip,
+// else with the Close text naming the merge_method of .agents/ateam.json.
 func templateFiles(root string) (map[string]string, error) {
 	files := defaultTemplateFiles()
 	record, err := policyReviewRecord(root)
 	if err != nil {
 		return nil, err
 	}
+	settings, _, err := state.LoadSettings(root)
+	if err != nil {
+		return nil, err
+	}
 	if record != review.RecordAIP {
+		if m := settings.MergeMethod; m != "" && m != state.MergeSquash {
+			r := mergeMethodReplacer(m)
+			for _, rel := range []string{"AGENTS.md", ".agents/rules-index.md", ".agents/protocol.md"} {
+				files[rel] = r.Replace(files[rel])
+			}
+		}
 		return files, nil
 	}
 	for rel, swaps := range map[string][]string{

@@ -350,7 +350,7 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 					if post.Existing {
 						statusLine += " (already on PR)"
 					}
-					if state.CommitStatusesEnabled() && post.HeadSHA != "" {
+					if state.CommitStatusesEnabled(root) && post.HeadSHA != "" {
 						// A status error is reported here and never fails the handoff (#302).
 						res, statusErr := state.HandoffCommitStatuses(ctx, root, st, post, h)
 						if statusErr != nil {

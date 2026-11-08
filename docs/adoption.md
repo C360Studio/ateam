@@ -106,7 +106,33 @@ Local forge selection: an exported `GITEA_URL` takes priority over a github.com 
 | `ateam/review-record` | `APPROVE` or `REQUEST CHANGES` | `success` or `failure` `<verdict> by <agent> (<model>, <effort>) at <sha7>` |
 | `ateam/review-record` | any other verdict, or none | `pending` `record at <sha7> has no single verdict` |
 
-A context is written only when its state or description differs from the latest status with that context on the head, so a repeated sync posts nothing. Writes use the write token (`ATEAM_TOKEN_WRITE`, see above), which needs permission to set commit statuses. A rejected write prints one warning and never changes an exit code; `ateam doctor` then warns from the cache, naming the context and HTTP or `gh` exit code but never the token, and `--check` still passes. `REQUEST CHANGES` shows as a red check although nothing requires it. Statuses refresh only on sync and posting handoffs, so they lag a bare `git push` until the next one. Set `ATEAM_COMMIT_STATUSES=0` to turn all of this off.
+A context is written only when its state or description differs from the latest status with that context on the head, so a repeated sync posts nothing. Writes use the write token (`ATEAM_TOKEN_WRITE`, see above), which needs permission to set commit statuses. A rejected write prints one warning and never changes an exit code; `ateam doctor` then warns from the cache, naming the context and HTTP or `gh` exit code but never the token, and `--check` still passes. `REQUEST CHANGES` shows as a red check although nothing requires it. Statuses refresh only on sync and posting handoffs, so they lag a bare `git push` until the next one. Set `commit_statuses: false` in [`.agents/ateam.json`](#team-settings) to turn all of this off for the team, or `ATEAM_COMMIT_STATUSES=0` (or `1`) to override that on one machine.
+
+## Team settings
+
+A team can commit settings it chooses in `.agents/ateam.json`. The file is optional. Without it, ateam behaves as it does today and `ateam init` writes the same bytes. It is not a gate file: a key that can weaken a merge gate belongs in `.agents/review-policy.json` or gate-protected workflow env, never here. `ATEAM_*` environment variables carry only per-machine, per-session, secret or test values, or a documented override, and `.ateam/` is runtime cache only.
+
+```json
+{
+  "version": 1,
+  "merge_method": "rebase",
+  "default_branch": "trunk",
+  "commit_statuses": false,
+  "forges": [{"provider": "gitea", "base_url": "https://git.example", "owner": "team", "repo": "app"}]
+}
+```
+
+| Key | Values and default | Effect |
+| --- | --- | --- |
+| `version` | `1`, required | Any other value is an error. |
+| `merge_method` | `squash` (default), `merge`, or `rebase` | `ateam init` writes `gh pr merge --<method> --auto` and Gitea `"do":"<method>"` into the Close rule and the protocol Close step. Under `review_record: aip` it has no effect, since no PR is merged. |
+| `default_branch` | a branch name; unset keeps both `main` and `master` as the default branch | Only this branch counts as the default branch for worktree labels, prune, handoff freshness, and ahead/behind counts, which are measured against it. |
+| `commit_statuses` | `true` (default) or `false` | Turns [commit statuses](#informational-commit-statuses) on or off. `ATEAM_COMMIT_STATUSES` set to `0` or `1` overrides it on one machine; any other value is ignored. |
+| `forges` | a non-empty list of `{provider, base_url, owner, repo}`, at most one per provider; unset keeps auto-detection, and an empty list is an error (omit the key instead) | The committed list replaces forge detection, `ATEAM_FORGE`, and any list edited in the board. The board's forge settings then refuse edits with a 409 that names this file. Tokens never go in this file. |
+
+The file is decoded strictly: an unknown key, a wrong type, an out-of-range value, trailing data, or a file over 64 KiB is an error. `ateam doctor --check` fails on it and names the file, and `ateam init` returns the error. Hooks and state refresh fall back to the defaults so a session is never blocked, so a broken file shows only in doctor. An older ateam rejects a key it does not know, so a new key arrives with a version bump.
+
+Changing `merge_method` does not rewrite docs already committed. `ateam doctor` warns while `.agents/protocol.md` does not name the configured `gh pr merge --<method> --auto`; run `ateam init --force` (which backs up the harness docs first) or edit the Close text by hand. A forge list already cached in `.ateam/state.json` is ignored while a committed list exists. When the list is removed, or the file is deleted or invalid, the next refresh restores the list last edited in the board, or detects the forge again if there was none.
 
 ## Optional external task lease
 
