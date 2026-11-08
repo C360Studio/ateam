@@ -229,6 +229,12 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 - **THEN** it prints every `state` subcommand and exits 0 without reading or writing `.ateam/state.json`, touching the writer lease, syncing a forge, or posting a comment
 - **AND** an unknown `state` subcommand still exits 1 and names `ateam state --help`
 
+#### Scenario: A handoff post whose outcome is unknown
+
+- **WHEN** `ateam state handoff` or `ateam_state(action="handoff")` posts the PR comment and the send times out
+- **THEN** the CLI prints `forge PR comment uncertain: <err>; rerun ateam state handoff to post it once` (exit 0) and MCP prints `PR comment: uncertain (<err>)`, never `skipped`, and no commit status is posted
+- **AND WHEN** a later post finds that the PR's newest handoff comment has the same body, it posts nothing and reports `posted (already on PR)`, while a different newest body, or a failed read of the comments, posts
+
 ### Requirement: Fast Git identity across worktrees
 
 Git identity reads SHALL resolve loose and packed refs, detached HEADs, and linked-worktree gitdir/commondir pointers, returning the branch and seven-character commit identity.

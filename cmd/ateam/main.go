@@ -386,9 +386,14 @@ func runStateHandoff(repoRoot string, args []string) int {
 	if !*noPost && st.Forge.Provider != state.ForgeLocal {
 		ctx := context.Background()
 		post, err := state.PostPRHandoffComment(ctx, repoRoot, st.Forge, ho.Branch, prompt)
-		if err != nil {
+		if errors.Is(err, state.ErrPostUncertain) {
+			fmt.Fprintf(os.Stderr, "ateam state handoff: forge PR comment uncertain: %v; rerun ateam state handoff to post it once\n", err)
+		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "ateam state handoff: forge PR comment skipped: %v\n", err)
-		} else if state.CommitStatusesEnabled() && post.HeadSHA != "" {
+		} else if post.Existing {
+			fmt.Fprintf(os.Stderr, "ateam state handoff: forge PR comment posted (already on PR)\n")
+		}
+		if err == nil && state.CommitStatusesEnabled() && post.HeadSHA != "" {
 			// A status error is one warning line and never changes the exit code (#302).
 			if _, err := state.HandoffCommitStatuses(ctx, repoRoot, st, post, ho); err != nil {
 				fmt.Fprintf(os.Stderr, "ateam state handoff: warning: commit statuses: %v\n", err)
