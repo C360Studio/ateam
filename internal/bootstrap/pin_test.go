@@ -86,7 +86,7 @@ func TestPinStatus(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/ateam-version-341/specs/harness/spec.md#Requirement: Doctor checks a declared ateam pin
+// spec: openspec/specs/harness/spec.md#Requirement: Doctor checks a declared ateam pin
 func TestPinStatusKeyAndFile(t *testing.T) {
 	const hookPath = "/repo/.tools/bin/ateam"
 	at := func(v string) HookBinary { return HookBinary{Path: hookPath, Version: v, Build: "module"} }
