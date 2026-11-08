@@ -24,4 +24,5 @@
 
 ## 4. Verify
 
-- [ ] 4.1 `task verify` is green on a clean tree after `npm ci` at the root, so the pinned openspec 1.14.3 runs strict. `ateam doctor --check` and `ateam bench --selftest` exit 0. The change is archived before ready.
+- [x] 4.1 `task verify` is green on a clean tree after `npm ci` at the root, so the pinned openspec 1.14.3 runs strict. `ateam doctor --check` and `ateam bench --selftest` exit 0. The change is archived before ready.
+  - Evidence: `doctor --check`, `bench --selftest` and `git diff --check` exit 0 at 05980e6. Locally, `task verify` failed twice, each time on a different #320 handoff-dedupe subtest under full-suite load (`TestStateHandoffPostOutcome` and `TestMCPHandoffPostOutcome`, "a repeat of the newest handoff is not posted again"); both pass in isolation with `-count=5`. The Codex review record at 05980e6 reports `task verify` exit 0 on a clean tree. Codex's P3 fix moves `docs/brownfield.md:22` to `ateam_version`.
