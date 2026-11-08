@@ -10,7 +10,7 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
-// spec: openspec/specs/harness/spec.md#Requirement: Doctor checks a declared ateam pin
+// spec: openspec/changes/ateam-pin-334/specs/harness/spec.md#Requirement: Doctor checks a declared ateam pin
 func TestDoctorReportsDeclaredPin(t *testing.T) {
 	dir := t.TempDir()
 	gitRun(t, dir, "init", "-q", "-b", "main")
