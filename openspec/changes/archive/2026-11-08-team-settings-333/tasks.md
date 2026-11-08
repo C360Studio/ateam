@@ -53,8 +53,9 @@
 
 - [x] 6.1 Add the D5 row to `AGENTS.md` §3 and `.agents/rules-index.md`. Acceptance: `ateam doctor --check` row-count parity passes, and AGENTS.md stays under 24,000 bytes.
   - Evidence: one `review` row added after the shared-state row in both files (§3 now 13 rows); `go run ./cmd/ateam doctor --check` prints `"passed": true` with no violations; `wc -c AGENTS.md` is 14835. The generated adopter templates are unchanged (OQ3).
-- [ ] 6.2 Final checks:
+- [x] 6.2 Final checks:
   - `task verify` is green on a clean tree, and `ateam doctor --check` and `ateam bench --selftest` exit 0.
   - The tests carry `// spec:` references that `task test:spec` resolves.
   - The change is archived before the PR is marked ready.
   - No gate file is touched, so the PR needs no gate label.
+  - Evidence: at 27caf11 (clean tree, rebased on main 0fe9db3) `task verify`, `ateam doctor --check` and `ateam bench --selftest` each exit 0. The test references now cite `openspec/specs/harness/spec.md` and `task test:spec` resolves them. The change is archived in that commit. No gate file is in the diff.
