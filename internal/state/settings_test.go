@@ -21,7 +21,7 @@ func writeSettings(t *testing.T, root, body string) {
 	}
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestLoadSettingsMissingFile(t *testing.T) {
 	s, ok, err := LoadSettings(t.TempDir())
 	if err != nil || ok || !reflect.DeepEqual(s, Settings{}) {
@@ -29,7 +29,7 @@ func TestLoadSettingsMissingFile(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestLoadSettings(t *testing.T) {
 	off := false
 	cases := []struct {
@@ -86,7 +86,7 @@ func TestLoadSettings(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestCommitStatusesEnabledPrecedence(t *testing.T) {
 	// Truth table written out by hand from D4: env "0"/"1" wins, else the file, else on.
 	want := map[string]map[string]bool{
@@ -122,7 +122,7 @@ func TestCommitStatusesEnabledPrecedence(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestCommittedForgesAuthoritative(t *testing.T) {
 	newRepo := func(t *testing.T) string {
 		t.Helper()
@@ -189,7 +189,7 @@ func TestCommittedForgesAuthoritative(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestIsDefaultBranch(t *testing.T) {
 	for _, c := range []struct {
 		configured string
@@ -222,7 +222,7 @@ func TestIsDefaultBranch(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestConfiguredDefaultBranchTrunk(t *testing.T) {
 	t.Setenv("ATEAM_FORGE", "")
 	t.Setenv("GITEA_URL", "")

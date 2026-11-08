@@ -18,7 +18,7 @@ func writeTeamSettings(t *testing.T, root, body string) {
 	}
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestDoctorTeamSettings(t *testing.T) {
 	t.Run("absent file reports nothing", func(t *testing.T) {
 		root, _ := initWithPolicy(t, "")
@@ -94,7 +94,7 @@ func initWithSettings(t *testing.T, policy, settings string) (string, map[string
 	return root, got, nil
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestInitMergeMethod(t *testing.T) {
 	defaults := defaultTemplateFiles()
 	closeFiles := map[string]bool{"AGENTS.md": true, ".agents/rules-index.md": true, ".agents/protocol.md": true}
@@ -148,7 +148,7 @@ func TestInitMergeMethod(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestInitMergeMethodAIPUnaffected(t *testing.T) {
 	aipPolicy := `{"version":1,"review_record":"aip",` + recordTiers + `}`
 	_, want, err := initWithSettings(t, aipPolicy, "")
@@ -166,14 +166,14 @@ func TestInitMergeMethodAIPUnaffected(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestInitInvalidSettingsFails(t *testing.T) {
 	if _, _, err := initWithSettings(t, "", `{"version":1,"merge_method":"fast-forward-only"}`); err == nil || !strings.Contains(err.Error(), ".agents/ateam.json") {
 		t.Fatalf("init err = %v, want one naming .agents/ateam.json", err)
 	}
 }
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestMergeMethodSwapTextsAppearOnce(t *testing.T) {
 	for _, c := range []struct{ text, sub string }{
 		{closeRuleRow, "squash auto-merge"},

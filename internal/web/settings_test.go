@@ -11,7 +11,7 @@ import (
 	"github.com/c360studio/ateam/internal/state"
 )
 
-// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
 func TestForgesAPIRefusesCommittedList(t *testing.T) {
 	for _, c := range []struct {
 		name, settings string
