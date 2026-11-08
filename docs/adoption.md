@@ -22,6 +22,17 @@ See [bringing ateam into an existing repository](brownfield.md) for a worked pat
 
 Sources: [scanner](../internal/state/shortcut.go), [initialization](../internal/bootstrap/bootstrap.go), [task runner](../internal/taskrunner/taskrunner.go), [mutation runner](../internal/mutate/mutate.go), [CLI](../cmd/ateam/main.go), and [benchmark fixtures](../internal/bench/bench.go).
 
+## What the host governs
+
+ATeam does not govern what data leaves the machine, who can see the result, which tools a session may run, or what a session may spend. The host runtime (Claude Code, Codex CLI, Gemini CLI, Antigravity, or a wrapper such as Enjoy, herdr or T3 Code) owns these, and ateam cannot see the host's settings. Decide each one before work starts:
+
+| Concern | What ateam does | Where to set it |
+| --- | --- | --- |
+| Egress | ATeam's own network calls go to the forge (sync, pickup, handoff comments, commit statuses, the merge gate) and, for live `ateam bench` runs, to the model endpoints you configure. The agent's prompts, file contents and command output go to its model provider through the host. | The host's provider and telemetry settings, and your account or organization agreement with the model provider |
+| Audience | Handoff comments, review records and commit statuses are written to the PR. On a public repository anyone can read them, and the PR body, branch names and commits too. | The repository's visibility on the forge. Keep private data out of a public repository's PRs |
+| Effectful tools | Hooks run `ateam hook` and never block or grant a tool. The reviewer contract asks for a read-only review, but nothing in ateam enforces it. | The host's permission and sandbox settings, for example `permissions` in `.claude/settings.json` and `sandbox_mode` and `approval_policy` in `.codex/config.toml`, for both the implementing and the reviewing session |
+| Spend | No bound. `ateam bench` records the usage and cost the Claude CLI reports after a run, but sets no budget. | The model provider's spend limits, or the host's own limit if it has one |
+
 ## Hooks outside the project settings
 
 A project that pins its client settings file (for example a review manifest that hashes `.claude/settings.json`) can register ateam's hooks elsewhere and set `ATEAM_HOOK_SCOPE=user` in the environment that runs `ateam doctor`. `ateam hook` itself reads no settings file. With the knob set, a client whose project hook file lacks the hooks passes when one of its local or user-scope files carries them all (`.claude/settings.local.json` is project-local and untracked, not user scope):
