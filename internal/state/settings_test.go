@@ -336,4 +336,42 @@ func TestCommittedForgesTransitions(t *testing.T) {
 		check(t, root, "key removed", boardEdit)
 		check(t, root, "key removed again", boardEdit)
 	})
+	// A board edit accepted after the list left the file, before any refresh, must survive the next
+	// refresh (#337 re-review).
+	removeFile := func(t *testing.T, root string) {
+		t.Helper()
+		if err := os.Remove(settingsFile(root)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		name       string
+		priorBoard bool
+		edit       func(st *State) error
+		want       want
+	}{
+		{name: "add with no saved board edit", edit: func(st *State) error { return st.UpsertForge(board) },
+			want: want{forge: board, forges: []ForgeConfig{board}, configured: true}},
+		{name: "remove with no saved board edit", edit: func(st *State) error { st.RemoveForge(ForgeGitHub); return nil },
+			want: want{forge: ForgeConfig{Provider: ForgeLocal}, configured: true}},
+		{name: "remove with a saved board edit", priorBoard: true, edit: func(st *State) error { st.RemoveForge(ForgeGitea); return nil },
+			want: want{forge: detected, forges: []ForgeConfig{detected}, configured: true}},
+	} {
+		t.Run("committed, file deleted, then "+c.name, func(t *testing.T) {
+			root := newRepo(t)
+			check(t, root, "absent", auto)
+			if c.priorBoard {
+				if _, err := Update(root, func(st *State) error { return st.UpsertForge(board) }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			writeSettings(t, root, committedFile)
+			check(t, root, "committed", fromFile)
+			removeFile(t, root)
+			if _, err := Update(root, c.edit); err != nil {
+				t.Fatal(err)
+			}
+			check(t, root, "after the edit", c.want)
+		})
+	}
 }

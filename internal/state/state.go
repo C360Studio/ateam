@@ -2443,6 +2443,23 @@ func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Dur
 	return updated, nil
 }
 
+// dropSettingsForges forgets a forge list copied from a committed list that is gone: it restores the
+// board edit that list shadowed, else leaves the cache unconfigured. Refresh and every board edit run it
+// first, so an edit accepted after the list was removed is not discarded by the next refresh.
+func (st *State) dropSettingsForges() {
+	if !st.ForgesFromSettings {
+		return
+	}
+	st.preserveActiveForgeSync()
+	st.ForgesFromSettings = false
+	if board := st.BoardForges; board != nil {
+		st.Forge, st.Forges, st.ForgesConfigured, st.BoardForges = board.Forge, board.Forges, true, nil
+	} else {
+		st.Forge, st.Forges, st.ForgesConfigured = ForgeConfig{Provider: ForgeLocal}, nil, false
+	}
+	st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
+}
+
 // refreshForgeConfig seeds automatic detection until the user explicitly edits settings. A forges list
 // committed in .agents/ateam.json is authoritative over both: detection then only picks which of its
 // entries is active (#333 D4 A).
@@ -2465,17 +2482,7 @@ func (st *State) refreshForgeConfig(detected ForgeConfig, committed []ForgeConfi
 		st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
 		return
 	}
-	if st.ForgesFromSettings {
-		// The committed list is gone: restore the board edit it shadowed, else detect again.
-		st.preserveActiveForgeSync()
-		st.ForgesFromSettings = false
-		if board := st.BoardForges; board != nil {
-			st.Forge, st.Forges, st.ForgesConfigured, st.BoardForges = board.Forge, board.Forges, true, nil
-			st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
-			return
-		}
-		st.Forges, st.ForgesConfigured = nil, false
-	}
+	st.dropSettingsForges()
 	if st.ForgesConfigured {
 		return
 	}
@@ -2499,6 +2506,7 @@ func (st *State) UpsertForge(cfg ForgeConfig) error {
 	if err != nil {
 		return err
 	}
+	st.dropSettingsForges()
 	st.preserveActiveForgeSync()
 	st.Forges = MergeConfiguredForges(st.Forge, st.Forges)
 	st.ForgesConfigured = true
@@ -2526,6 +2534,7 @@ func (st *State) RemoveForge(provider ForgeProvider) {
 	if p != ForgeGitHub && p != ForgeGitea {
 		return
 	}
+	st.dropSettingsForges()
 	st.preserveActiveForgeSync()
 	st.ForgesConfigured = true
 	var kept []ForgeConfig
