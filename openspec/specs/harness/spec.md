@@ -1096,7 +1096,9 @@ A missing file SHALL leave every behaviour and every `ateam init` output byte-id
 - **WHEN** `forges` is set
 - **THEN** it replaces auto-detection and any forge list edited locally
 - **AND** the board's forge settings API refuses edits with a message that names the file
+- **AND** an empty list is an error that says to omit the key to auto-detect
 - **AND** when it is unset, forge detection and board edits behave as before
+- **AND** once it is removed, or the file is deleted or invalid, the next refresh restores the board-edited list it replaced, else detects the forge again
 
 ### Requirement: Doctor checks a declared ateam pin
 
