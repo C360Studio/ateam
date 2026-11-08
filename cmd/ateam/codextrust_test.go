@@ -11,7 +11,7 @@ import (
 	"github.com/c360studio/ateam/internal/bootstrap"
 )
 
-// spec: openspec/changes/codex-hook-trust-311/specs/harness/spec.md#Requirement: Doctor reports Codex project hook trust
+// spec: openspec/specs/harness/spec.md#Requirement: Doctor reports Codex project hook trust
 func TestDoctorReportsCodexHookTrust(t *testing.T) {
 	dir, codexHome := t.TempDir(), t.TempDir()
 	gitRun(t, dir, "init", "-q", "-b", "main")

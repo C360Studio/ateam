@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// spec: openspec/changes/codex-hook-trust-311/specs/harness/spec.md#Requirement: Doctor reports Codex project hook trust
+// spec: openspec/specs/harness/spec.md#Requirement: Doctor reports Codex project hook trust
 func TestCodexHookTrust(t *testing.T) {
 	trust := func(path string, events ...string) string {
 		var b strings.Builder
@@ -88,7 +88,7 @@ func TestCodexHookTrust(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/codex-hook-trust-311/specs/harness/spec.md#Requirement: Doctor reports Codex project hook trust
+// spec: openspec/specs/harness/spec.md#Requirement: Doctor reports Codex project hook trust
 func TestCodexConfigPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
