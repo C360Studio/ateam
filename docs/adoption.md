@@ -99,6 +99,18 @@ Call the released binary from your own CI or `task verify`; do not copy ateam's 
 
 Local forge selection: an exported `GITEA_URL` takes priority over a github.com `origin` (unless `ATEAM_FORGE=github`), so unset it when working on a GitHub repository. Without it, the API URL comes from the `origin` host: an `ssh://` remote's port is dropped because it is the SSH port, and an `http(s)://` remote's port is kept. A forge serving HTTPS on a non-default port behind an SSH remote needs `GITEA_URL`. Forge transport errors print the full request URL, host included, so do not paste gate output from a private Gitea instance into a public place.
 
+## Decision records and retention
+
+Three decision classes are consequential in this repository. The forge history is their only record, and it is kept for the life of the repository. ATeam keeps no other copy. The `.ateam/` cache and handoff text are not records.
+
+| Decision | Who decides | Record |
+| --- | --- | --- |
+| Merge | The squash auto-merge, after the required check and the merge gate pass | The merged PR with its `implemented-by:`, `reviewed-by:`, review record comment and check runs, and the squash commit on `main` |
+| Gate-change approval | The owner | The `gate-change-approved` label event and the `gate-change-approved: <sha>` PR comment ([protocol § 4](../.agents/protocol.md)) |
+| Proposal approval | The owner | The `Approved-by: <name> (<YYYY-MM-DD>)` line in the change's `proposal.md` and the commit that removed its `OPEN-Q` hold, kept under `openspec/changes/archive/` |
+
+A record disappears when someone deletes a PR comment, removes a label, deletes the repository, or rewrites `main`. Under a shared forge login the record names the login, not the person who acted. An adopting repository declares its own classes and retention. Copy this table only if the forge history really is its record.
+
 ## Informational commit statuses
 
 `ateam state sync` and a posting handoff (`ateam state handoff` without `--no-post`, or the MCP `ateam_state` handoff without `post: false`) set three commit statuses on the open PR head, so GitHub, Gitea, and any client that shows a PR's checks list shows them too. Sync covers each open PR whose branch has a worktree on this machine; a handoff covers its own branch's PR. They describe the PR; no gate reads them, none is a required check, and `task merge:check` is unchanged. Hooks, pickup, prune, board, the MCP pickup, and the UI never write them.
