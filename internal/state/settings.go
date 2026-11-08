@@ -85,6 +85,9 @@ func parseSettings(data []byte) (Settings, error) {
 	if b := s.DefaultBranch; b != "" && (!branchNameRe.MatchString(b) || strings.Contains(b, "..") || strings.HasSuffix(b, "/") || strings.HasSuffix(b, ".lock")) {
 		return Settings{}, fmt.Errorf("default_branch %q is not a branch name", b)
 	}
+	if s.Forges != nil && len(s.Forges) == 0 {
+		return Settings{}, fmt.Errorf("forges is an empty list; omit the key to auto-detect the forge")
+	}
 	seen := map[ForgeProvider]bool{}
 	for i, cfg := range s.Forges {
 		norm, err := normalizeForgeConfig(cfg)

@@ -61,6 +61,7 @@ func TestLoadSettings(t *testing.T) {
 		{name: "spaced branch", body: `{"version":1,"default_branch":"my branch"}`, wantErr: "default_branch"},
 		{name: "invalid forge", body: `{"version":1,"forges":[{"provider":"bitbucket","owner":"o","repo":"r"}]}`, wantErr: "forges[0]"},
 		{name: "forge with credentials", body: `{"version":1,"forges":[{"provider":"gitea","base_url":"https://u:p@git.example","owner":"o","repo":"r"}]}`, wantErr: "forges[0]"},
+		{name: "empty forges", body: `{"version":1,"forges":[]}`, wantErr: "omit the key to auto-detect"},
 		{name: "duplicate forge", body: `{"version":1,"forges":[{"provider":"github","owner":"o","repo":"r"},{"provider":"github","owner":"x","repo":"y"}]}`, wantErr: "duplicate provider"},
 		{name: "wrong type", body: `{"version":1,"commit_statuses":"no"}`, wantErr: "commit_statuses"},
 		{name: "oversized", body: `{"version":1,"default_branch":"` + strings.Repeat("a", 64<<10) + `"}`, wantErr: "exceeds 65536 bytes"},
@@ -266,4 +267,73 @@ func TestConfiguredDefaultBranchTrunk(t *testing.T) {
 	if main.AheadCount != 0 || main.BehindCount != 1 {
 		t.Errorf("main worktree ahead %d, behind %d; want 0, 1 counted against trunk", main.AheadCount, main.BehindCount)
 	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Committed team settings file
+func TestCommittedForgesTransitions(t *testing.T) {
+	t.Setenv("ATEAM_FORGE", "")
+	t.Setenv("GITEA_URL", "")
+	detected := ForgeConfig{Provider: ForgeGitHub, BaseURL: "https://api.github.com", Owner: "detected", Repo: "repo"}
+	committed := ForgeConfig{Provider: ForgeGitHub, BaseURL: "https://api.github.com", Owner: "team", Repo: "app"}
+	board := ForgeConfig{Provider: ForgeGitea, BaseURL: "https://board.example", Owner: "ui", Repo: "edit"}
+	const committedFile = `{"version":1,"forges":[{"provider":"github","owner":"team","repo":"app"}]}`
+	type want struct {
+		forge        ForgeConfig
+		forges       []ForgeConfig
+		configured   bool
+		fromSettings bool
+	}
+	auto := want{forge: detected, forges: []ForgeConfig{detected}}
+	fromFile := want{forge: committed, forges: []ForgeConfig{committed}, configured: true, fromSettings: true}
+	boardEdit := want{forge: detected, forges: []ForgeConfig{detected, board}, configured: true}
+	newRepo := func(t *testing.T) string {
+		t.Helper()
+		root := t.TempDir()
+		gitIn(t, root, "init", "-q")
+		gitIn(t, root, "remote", "add", "origin", "https://github.com/detected/repo.git")
+		return root
+	}
+	check := func(t *testing.T, root, step string, w want) {
+		t.Helper()
+		st, err := Refresh(context.Background(), root, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Forge != w.forge || !reflect.DeepEqual(st.Forges, w.forges) || st.ForgesConfigured != w.configured || st.ForgesFromSettings != w.fromSettings {
+			t.Fatalf("%s: got forge %+v, forges %+v, configured %v, from settings %v; want %+v", step, st.Forge, st.Forges, st.ForgesConfigured, st.ForgesFromSettings, w)
+		}
+	}
+	settingsFile := func(root string) string { return filepath.Join(root, ".agents", "ateam.json") }
+	for name, drop := range map[string]func(t *testing.T, root string){
+		"key removed": func(t *testing.T, root string) { writeSettings(t, root, `{"version":1}`) },
+		"file deleted": func(t *testing.T, root string) {
+			if err := os.Remove(settingsFile(root)); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"file invalid": func(t *testing.T, root string) { writeSettings(t, root, `{"version":2}`) },
+	} {
+		t.Run("absent, committed, "+name, func(t *testing.T) {
+			root := newRepo(t)
+			check(t, root, "absent", auto)
+			writeSettings(t, root, committedFile)
+			check(t, root, "committed", fromFile)
+			drop(t, root)
+			check(t, root, name, auto)
+		})
+	}
+	t.Run("a board edit survives the file coming and going", func(t *testing.T) {
+		root := newRepo(t)
+		check(t, root, "absent", auto)
+		if _, err := Update(root, func(st *State) error { return st.UpsertForge(board) }); err != nil {
+			t.Fatal(err)
+		}
+		check(t, root, "board edit", boardEdit)
+		writeSettings(t, root, committedFile)
+		check(t, root, "committed", fromFile)
+		check(t, root, "committed again", fromFile)
+		writeSettings(t, root, `{"version":1}`)
+		check(t, root, "key removed", boardEdit)
+		check(t, root, "key removed again", boardEdit)
+	})
 }

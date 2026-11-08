@@ -612,26 +612,31 @@ type WriterLease struct {
 
 // State is the cached local state stored in gitignored .ateam/state.json.
 type State struct {
-	Mode             DisciplineMode              `json:"mode"`
-	Forge            ForgeConfig                 `json:"forge"`
-	Forges           []ForgeConfig               `json:"forges,omitempty"`
-	ForgesConfigured bool                        `json:"forges_configured,omitempty"`
-	LastHandoff      *Handoff                    `json:"last_handoff,omitempty"`
-	Handoffs         map[string]*Handoff         `json:"handoffs,omitempty"`
-	Writer           *WriterLease                `json:"writer,omitempty"`
-	TaskLease        *TaskLease                  `json:"-"`
-	TaskLeaseError   string                      `json:"-"`
-	CurrentAgent     string                      `json:"-"`
-	CurrentSessionID string                      `json:"-"`
-	MCPBuild         string                      `json:"-"`
-	DiskBuild        string                      `json:"-"`
-	MCPStaleTarget   string                      `json:"-"`
-	Git              GitStatus                   `json:"git"`
-	Cards            []BoardCard                 `json:"cards"`
-	BoardSyncedAt    time.Time                   `json:"board_synced_at,omitempty"`
-	ForgeSyncedAt    map[ForgeProvider]time.Time `json:"forge_synced_at,omitempty"`
-	ForgeSyncTarget  map[ForgeProvider]string    `json:"forge_sync_target,omitempty"`
-	BoardSyncError   string                      `json:"board_sync_error,omitempty"`
+	Mode             DisciplineMode `json:"mode"`
+	Forge            ForgeConfig    `json:"forge"`
+	Forges           []ForgeConfig  `json:"forges,omitempty"`
+	ForgesConfigured bool           `json:"forges_configured,omitempty"`
+	// ForgesFromSettings marks Forge/Forges as copied from .agents/ateam.json, so a refresh after the list
+	// is removed (or the file is deleted or invalid) drops them; BoardForges holds the board-edited
+	// configuration that list shadowed, restored then (#333).
+	ForgesFromSettings bool                        `json:"forges_from_settings,omitempty"`
+	BoardForges        *ForgeSnapshot              `json:"board_forges,omitempty"`
+	LastHandoff        *Handoff                    `json:"last_handoff,omitempty"`
+	Handoffs           map[string]*Handoff         `json:"handoffs,omitempty"`
+	Writer             *WriterLease                `json:"writer,omitempty"`
+	TaskLease          *TaskLease                  `json:"-"`
+	TaskLeaseError     string                      `json:"-"`
+	CurrentAgent       string                      `json:"-"`
+	CurrentSessionID   string                      `json:"-"`
+	MCPBuild           string                      `json:"-"`
+	DiskBuild          string                      `json:"-"`
+	MCPStaleTarget     string                      `json:"-"`
+	Git                GitStatus                   `json:"git"`
+	Cards              []BoardCard                 `json:"cards"`
+	BoardSyncedAt      time.Time                   `json:"board_synced_at,omitempty"`
+	ForgeSyncedAt      map[ForgeProvider]time.Time `json:"forge_synced_at,omitempty"`
+	ForgeSyncTarget    map[ForgeProvider]string    `json:"forge_sync_target,omitempty"`
+	BoardSyncError     string                      `json:"board_sync_error,omitempty"`
 	// StatusWriteError is the last commit status error in this checkout, cleared by a clean publication; it names
 	// the context, sha and HTTP or gh exit code only, never a body or token (#302).
 	StatusWriteError string           `json:"status_write_error,omitempty"`
@@ -2444,6 +2449,10 @@ func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Dur
 func (st *State) refreshForgeConfig(detected ForgeConfig, committed []ForgeConfig) {
 	if len(committed) > 0 {
 		st.preserveActiveForgeSync()
+		if !st.ForgesFromSettings && st.ForgesConfigured {
+			st.BoardForges = &ForgeSnapshot{Forge: st.Forge, Forges: append([]ForgeConfig(nil), st.Forges...)}
+		}
+		st.ForgesFromSettings = true
 		st.Forges = append([]ForgeConfig(nil), committed...)
 		st.ForgesConfigured = true
 		st.Forge = committed[0]
@@ -2455,6 +2464,17 @@ func (st *State) refreshForgeConfig(detected ForgeConfig, committed []ForgeConfi
 		}
 		st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
 		return
+	}
+	if st.ForgesFromSettings {
+		// The committed list is gone: restore the board edit it shadowed, else detect again.
+		st.preserveActiveForgeSync()
+		st.ForgesFromSettings = false
+		if board := st.BoardForges; board != nil {
+			st.Forge, st.Forges, st.ForgesConfigured, st.BoardForges = board.Forge, board.Forges, true, nil
+			st.BoardSyncedAt = st.SyncedAtFor(st.Forge)
+			return
+		}
+		st.Forges, st.ForgesConfigured = nil, false
 	}
 	if st.ForgesConfigured {
 		return

@@ -40,6 +40,12 @@ type ForgeConfig struct {
 	Repo     string        `json:"repo,omitempty"`
 }
 
+// ForgeSnapshot is a forge configuration set aside while a committed list replaces it (#333).
+type ForgeSnapshot struct {
+	Forge  ForgeConfig   `json:"forge"`
+	Forges []ForgeConfig `json:"forges,omitempty"`
+}
+
 // StandardLabels defines the canonical SemEngine/ATeam workflow labels seeded by ateam init.
 var StandardLabels = []struct {
 	Name        string
