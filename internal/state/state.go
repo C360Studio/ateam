@@ -555,7 +555,7 @@ type GitStatus struct {
 	UserName   string     `json:"user_name,omitempty"`
 	UserEmail  string     `json:"user_email,omitempty"`
 	Worktrees  []Worktree `json:"worktrees,omitempty"`
-	// DefaultRemoteRef ("origin/main" or "origin/master") and DefaultRemoteHead are the
+	// DefaultRemoteRef ("origin/main" or "origin/master", or origin/<DefaultBranch>) and DefaultRemoteHead are the
 	// default branch's remote-tracking ref and tip already on disk; DefaultAheadOfRemote
 	// counts local commits on that branch not on the remote (#210), DefaultBehindRemote
 	// remote commits not yet on the local branch (#251).
@@ -563,6 +563,8 @@ type GitStatus struct {
 	DefaultRemoteHead    string `json:"default_remote_head,omitempty"`
 	DefaultAheadOfRemote int    `json:"default_ahead_of_remote,omitempty"`
 	DefaultBehindRemote  int    `json:"default_behind_remote,omitempty"`
+	// DefaultBranch is default_branch from .agents/ateam.json; empty keeps main and master both default (#333).
+	DefaultBranch string `json:"default_branch,omitempty"`
 }
 
 // BoardCard represents an issue, PR claim, or OpenSpec item on the PM board.
@@ -676,7 +678,7 @@ func HandoffSlotKey(agent, branch string) string {
 	}
 	b := strings.TrimSpace(branch)
 	if b == "" {
-		b = "main"
+		b = defaultBranchLabel("")
 	}
 	return a + "@" + b
 }
@@ -791,7 +793,7 @@ func (st *State) migrateLegacyLastHandoff() {
 		prevBranch = strings.TrimSpace(st.Git.Branch)
 	}
 	if prevBranch == "" {
-		prevBranch = "main"
+		prevBranch = defaultBranchLabel(st.Git.DefaultBranch)
 	}
 	prev.Branch = prevBranch
 	prevAgent := normalizeAgentKey(prev.Agent)
@@ -816,7 +818,7 @@ func (st *State) migrateLegacyLastHandoff() {
 // CurrentHandoffKey returns the "<agent>@<branch>" slot key for the current session on st.
 func (st *State) CurrentHandoffKey() string {
 	if st == nil {
-		return HandoffSlotKey("agent", "main")
+		return HandoffSlotKey("agent", "")
 	}
 	return HandoffSlotKey(st.EffectiveAgent(), st.Git.Branch)
 }
@@ -881,7 +883,7 @@ func (st *State) normalizeHandoffSlot(h *Handoff) string {
 		branch = strings.TrimSpace(st.Git.Branch)
 	}
 	if branch == "" {
-		branch = "main"
+		branch = defaultBranchLabel(st.Git.DefaultBranch)
 	}
 	h.Branch = branch
 	agent := normalizeAgentKey(h.Agent)
@@ -1054,7 +1056,7 @@ func (st *State) handoffStaleReasonsAt(h *Handoff, expectedBranch, headSHA strin
 				subjectPRs[prNum] = true
 			}
 		}
-		if h.Branch != "" && h.Branch != "main" && h.Branch != "master" {
+		if h.Branch != "" && !st.isDefaultBranch(h.Branch) {
 			hasOpenBranchPR := false
 			for _, c := range st.Cards {
 				if isPRCard(c) && c.Branch == h.Branch && c.Column != "done" {
@@ -2037,7 +2039,7 @@ func (st *State) ReconcileWorktrees() {
 	for i := range st.Git.Worktrees {
 		wt := &st.Git.Worktrees[i]
 		branch := strings.TrimSpace(wt.Branch)
-		if branch == "" || branch == "main" || branch == "master" || branch == "detached" || branch == "HEAD" {
+		if branch == "" || st.isDefaultBranch(branch) || branch == "detached" || branch == "HEAD" {
 			continue
 		}
 		var branchPRs []BoardCard
@@ -2138,7 +2140,7 @@ func (st *State) worktreePRStatusAndAge(wt Worktree) (string, string) {
 	if branch == "" || branch == "detached" || branch == "HEAD" {
 		return "detached", ""
 	}
-	if branch == "main" || branch == "master" {
+	if st.isDefaultBranch(branch) {
 		return "default branch", ""
 	}
 	var branchPRs []BoardCard
@@ -2192,17 +2194,17 @@ func (st *State) worktreePRStatusAndAge(wt Worktree) (string, string) {
 	return withForgeCacheAge("no PR", age), age
 }
 
-// defaultBranchHead returns the head of the main or master worktree, else of the current checkout when it is on main or master.
+// defaultBranchHead returns the head of the default-branch worktree, else of the current checkout when it is on the default branch.
 func (st *State) defaultBranchHead() string {
 	if st == nil {
 		return ""
 	}
 	for _, wt := range st.Git.Worktrees {
-		if b := strings.TrimSpace(wt.Branch); b == "main" || b == "master" {
+		if st.isDefaultBranch(wt.Branch) {
 			return wt.Head
 		}
 	}
-	if b := strings.TrimSpace(st.Git.Branch); b == "main" || b == "master" {
+	if st.isDefaultBranch(st.Git.Branch) {
 		return st.Git.HeadSHA
 	}
 	return ""
@@ -2540,9 +2542,10 @@ func (st *State) ResolveForge(provider ForgeProvider) ForgeConfig {
 // SnapshotGit collects current branch, HEAD SHA, dirty files, remote URL, and worktree list.
 func SnapshotGit(ctx context.Context, root string) GitStatus {
 	var gs GitStatus
+	gs.DefaultBranch = settingsOrDefault(root).DefaultBranch
 	gs.Branch = runGitLine(ctx, root, "branch", "--show-current")
 	if gs.Branch == "" {
-		gs.Branch = "main"
+		gs.Branch = defaultBranchLabel(gs.DefaultBranch)
 	}
 	gs.HeadSHA = runGitLine(ctx, root, "rev-parse", "--short", "HEAD")
 	if gs.HeadSHA == "" {
@@ -2564,7 +2567,11 @@ func SnapshotGit(ctx context.Context, root string) GitStatus {
 			}
 		}
 	}
-	for _, b := range []string{"main", "master"} {
+	candidates := fallbackDefaultBranches[:]
+	if gs.DefaultBranch != "" {
+		candidates = []string{gs.DefaultBranch}
+	}
+	for _, b := range candidates {
 		if sha := runGitLine(ctx, root, "rev-parse", "--short", "--verify", "--quiet", "refs/remotes/origin/"+b); sha != "" {
 			gs.DefaultRemoteRef, gs.DefaultRemoteHead = "origin/"+b, sha
 			// Left counts local-only commits (ahead), right counts remote-only commits (behind), in one call (#251).
@@ -2588,8 +2595,8 @@ func SnapshotGit(ctx context.Context, root string) GitStatus {
 				wt.Dirty = &wtDirty
 			}
 		}
-		if wt.Head != "" && wt.Branch != "main" && wt.Branch != "master" {
-			if counts := strings.Fields(runGitLine(ctx, root, "rev-list", "--left-right", "--count", "main..."+wt.Head)); len(counts) == 2 {
+		if wt.Head != "" && !isDefaultBranchName(gs.DefaultBranch, wt.Branch) {
+			if counts := strings.Fields(runGitLine(ctx, root, "rev-list", "--left-right", "--count", defaultBranchLabel(gs.DefaultBranch)+"..."+wt.Head)); len(counts) == 2 {
 				behind, errB := strconv.Atoi(counts[0])
 				ahead, errA := strconv.Atoi(counts[1])
 				if errB == nil && errA == nil {
@@ -2978,7 +2985,7 @@ func (st *State) handoffPRLabel(h *Handoff) string {
 	if h == nil {
 		return ""
 	}
-	if st != nil && strings.TrimSpace(h.Branch) != "" && h.Branch != "main" && h.Branch != "master" {
+	if st != nil && strings.TrimSpace(h.Branch) != "" && !st.isDefaultBranch(h.Branch) {
 		for _, c := range st.Cards {
 			if isPRCard(c) && c.Branch == h.Branch && c.Column != "done" {
 				if num := cardPRNumber(c); num > 0 {
@@ -3112,7 +3119,7 @@ func (st *State) worktreeReviewSuffix(wt Worktree) string {
 // worktree's writer lease, else "owner unknown". It returns "" for a prefixed, default, or detached branch.
 func worktreeHostOwner(st *State, wt Worktree) string {
 	branch := strings.TrimSpace(wt.Branch)
-	if branch == "" || branch == "HEAD" || branch == "detached" || branch == "main" || branch == "master" ||
+	if branch == "" || branch == "HEAD" || branch == "detached" || st.isDefaultBranch(branch) ||
 		branch == strings.TrimPrefix(st.Git.DefaultRemoteRef, "origin/") || inferAgentFromBranch(branch) != "" {
 		return ""
 	}

@@ -26,7 +26,7 @@ func (st *State) PruneVerdict(wt Worktree, agent, currentPath string, force bool
 	branch := strings.TrimSpace(wt.Branch)
 	detached := branch == "" || branch == "detached" || branch == "HEAD"
 	label := st.WorktreePRStatus(wt)
-	if branch == "main" || branch == "master" {
+	if st.isDefaultBranch(branch) {
 		return false, label
 	}
 	if (currentPath != "" && samePath(wt.Path, currentPath)) ||

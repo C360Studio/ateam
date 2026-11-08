@@ -42,11 +42,12 @@
 
 ## 5. default_branch
 
-- [ ] 5.1 `GitStatus.DefaultBranch` plus `isDefaultBranch` replace the literals at `prune.go:29` and `state.go:679,794,819,884,1057,2040,2141,2201,2205,2528,2550,2574,2575,2964,3098` (D3, per OQ1).
+- [x] 5.1 `GitStatus.DefaultBranch` plus `isDefaultBranch` replace the literals at `prune.go:29` and `state.go:679,794,819,884,1057,2040,2141,2201,2205,2528,2550,2574,2575,2964,3098` (D3, per OQ1).
   - Acceptance: `git grep '"main"\|"master"' internal/state ':!*_test.go'` lists only the fallback constant, and `gopls references` on `isDefaultBranch` covers every predicate site.
   - A `trunk` fixture repo labels `trunk` as the default branch, prunes nothing on it, and counts ahead/behind against it.
   - The existing main/master tests pass unchanged.
   - Mutation of the fallback set is detected.
+  - Evidence: `git grep '"main"\|"master"' internal/state ':!*_test.go'` lists only `settings.go:115` `fallbackDefaultBranches`. `gopls references` on `(*State).isDefaultBranch` returns `prune.go:29` and `state.go:1059,2042,2143,2203,2207,2988,3122`; `isDefaultBranchName` covers `state.go:2598` (worktree counts); `defaultBranchLabel` covers the labels at `state.go:681,796,886,2548,2599`; `:819` now passes `""` to `HandoffSlotKey`. `TestIsDefaultBranch` and `TestConfiguredDefaultBranchTrunk` (trunk labelled `default branch`, main not; prune verdict `default branch`; `claude/topic` ahead 1 / behind 1 against trunk; `origin/trunk` probed) pass with `-race`, and the full `./internal/state` suite passes unchanged. `task mutate:check`: `detection` for `"master"`→`"trunk"` in the fallback set, for counting against `main`, for probing the fallback set when configured, and for an unconfigured predicate in `prune.go`.
 
 ## 6. Rule and verify
 

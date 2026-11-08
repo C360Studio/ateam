@@ -188,3 +188,82 @@ func TestCommittedForgesAuthoritative(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+func TestIsDefaultBranch(t *testing.T) {
+	for _, c := range []struct {
+		configured string
+		yes, no    []string
+	}{
+		{configured: "", yes: []string{"main", "master", " main "}, no: []string{"trunk", "develop", "claude/main", ""}},
+		{configured: "trunk", yes: []string{"trunk"}, no: []string{"main", "master", "claude/trunk", ""}},
+	} {
+		st := &State{Git: GitStatus{DefaultBranch: c.configured}}
+		for _, b := range c.yes {
+			if !st.isDefaultBranch(b) {
+				t.Errorf("default_branch %q: %q is not the default branch, want it to be", c.configured, b)
+			}
+		}
+		for _, b := range c.no {
+			if st.isDefaultBranch(b) {
+				t.Errorf("default_branch %q: %q is the default branch, want it not to be", c.configured, b)
+			}
+		}
+	}
+	var none *State
+	if !none.isDefaultBranch("master") || none.isDefaultBranch("trunk") {
+		t.Error("a nil state must keep main and master as the default branch")
+	}
+	if key := (&State{Git: GitStatus{DefaultBranch: "trunk"}}).normalizeHandoffSlot(&Handoff{Agent: "claude"}); key != "claude@trunk" {
+		t.Errorf("empty-branch handoff slot = %q, want claude@trunk", key)
+	}
+	if key := (&State{}).normalizeHandoffSlot(&Handoff{Agent: "claude"}); key != "claude@main" {
+		t.Errorf("unconfigured empty-branch handoff slot = %q, want claude@main", key)
+	}
+}
+
+// spec: openspec/changes/team-settings-333/specs/harness/spec.md#Requirement: Committed team settings file
+func TestConfiguredDefaultBranchTrunk(t *testing.T) {
+	t.Setenv("ATEAM_FORGE", "")
+	t.Setenv("GITEA_URL", "")
+	root, topic, mainWT := t.TempDir(), filepath.Join(t.TempDir(), "topic"), filepath.Join(t.TempDir(), "main")
+	gitIn(t, root, "init", "-q", "-b", "trunk")
+	gitIn(t, root, "commit", "-q", "--allow-empty", "-m", "c1")
+	gitIn(t, root, "branch", "main")
+	gitIn(t, root, "update-ref", "refs/remotes/origin/main", "main")
+	gitIn(t, root, "worktree", "add", "-q", "-b", "claude/topic", topic)
+	gitIn(t, topic, "commit", "-q", "--allow-empty", "-m", "c2")
+	gitIn(t, root, "worktree", "add", "-q", mainWT, "main")
+	gitIn(t, root, "commit", "-q", "--allow-empty", "-m", "c3")
+	gitIn(t, root, "update-ref", "refs/remotes/origin/trunk", "trunk")
+	writeSettings(t, root, `{"version":1,"default_branch":"trunk"}`)
+
+	st, err := Refresh(context.Background(), root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Git.DefaultBranch != "trunk" || st.Git.DefaultRemoteRef != "origin/trunk" {
+		t.Fatalf("default branch %q, remote ref %q; want trunk, origin/trunk", st.Git.DefaultBranch, st.Git.DefaultRemoteRef)
+	}
+	byBranch := map[string]Worktree{}
+	for _, wt := range st.Git.Worktrees {
+		byBranch[wt.Branch] = wt
+	}
+	trunk, top, main := byBranch["trunk"], byBranch["claude/topic"], byBranch["main"]
+	if got := st.WorktreePRStatus(trunk); got != "default branch" {
+		t.Errorf("trunk worktree label %q, want default branch", got)
+	}
+	if got := st.WorktreePRStatus(main); got == "default branch" {
+		t.Errorf("main worktree is labelled the default branch although default_branch is trunk")
+	}
+	if remove, why := st.PruneVerdict(trunk, "claude", "", true); remove || why != "default branch" {
+		t.Errorf("prune verdict on trunk = (%v, %q), want (false, \"default branch\")", remove, why)
+	}
+	// claude/topic is one commit ahead of trunk (c2) and one behind it (c3); against main it would be 1 and 0.
+	if top.AheadCount != 1 || top.BehindCount != 1 || top.MergedIntoMain {
+		t.Errorf("claude/topic ahead %d, behind %d, merged %v; want 1, 1, false counted against trunk", top.AheadCount, top.BehindCount, top.MergedIntoMain)
+	}
+	if main.AheadCount != 0 || main.BehindCount != 1 {
+		t.Errorf("main worktree ahead %d, behind %d; want 0, 1 counted against trunk", main.AheadCount, main.BehindCount)
+	}
+}

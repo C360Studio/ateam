@@ -109,3 +109,33 @@ func settingsOrDefault(root string) Settings {
 	}
 	return s
 }
+
+// fallbackDefaultBranches both count as the default branch while default_branch is unset, as before #333
+// (OQ1 A); the first labels a checkout with no branch name.
+var fallbackDefaultBranches = [...]string{"main", "master"}
+
+// isDefaultBranchName reports whether branch is the default branch: only configured when it is set, else
+// main or master.
+func isDefaultBranchName(configured, branch string) bool {
+	branch = strings.TrimSpace(branch)
+	if configured != "" {
+		return branch == configured
+	}
+	return branch == fallbackDefaultBranches[0] || branch == fallbackDefaultBranches[1]
+}
+
+// defaultBranchLabel names the default branch where a branch is missing: configured, else main.
+func defaultBranchLabel(configured string) string {
+	if configured != "" {
+		return configured
+	}
+	return fallbackDefaultBranches[0]
+}
+
+// isDefaultBranch is isDefaultBranchName for st's configured branch; a nil st has none configured.
+func (st *State) isDefaultBranch(branch string) bool {
+	if st == nil {
+		return isDefaultBranchName("", branch)
+	}
+	return isDefaultBranchName(st.Git.DefaultBranch, branch)
+}
