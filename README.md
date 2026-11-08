@@ -257,7 +257,7 @@ In this repository the gates are `task verify`, `ateam doctor --check`, and `ate
 task merge:check -- 185
 ```
 
-A PR that touches a gate file (`.agents/review-policy.json`, the merge-check scripts, the workflows, `internal/review/`) also fails the `Gate files` check until the owner applies the `gate-change-approved` label; an agent blocked by it hands off. Details: [model review](docs/model-review.md) and [the merge gate on GitHub and Gitea](docs/adoption.md#the-merge-gate-on-github-and-gitea).
+A PR that touches a gate file (`.agents/review-policy.json`, the merge-check scripts, the workflows, `internal/review/`) also fails the `Gate files` check until the owner applies the `gate-change-approved` label and comments `gate-change-approved: <head sha>`; a push after that fails it again until the owner approves the new head. An agent blocked by it hands off. Details: [model review](docs/model-review.md) and [the merge gate on GitHub and Gitea](docs/adoption.md#the-merge-gate-on-github-and-gitea).
 
 ### 8. Archive, merge, and clean up (`Close` gate)
 
