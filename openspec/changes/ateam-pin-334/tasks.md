@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)`, ruling on design Open Questions 1–3, and removing this hold in the same edit (#334). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)`, ruling on design Open Questions 1–3, and removing this hold in the same edit (#334). Evidence: the owner approved in Enjoy on 2026-11-08 ("Approve, go ahead") with every Open Question as recommended: OQ1 `.agents/ateam-version`, OQ2 the linked-worktree README fix goes in task 3.1, OQ3 a violation. Claude wrote the header at their request.
 
 ## 2. Pin check
 

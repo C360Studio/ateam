@@ -47,6 +47,6 @@ None for repos without the file. semsource: add `.agents/ateam-version`, point `
 
 ## Open Questions
 
-1. **Owner ruling:** the file name and place. `.agents/ateam-version` is recommended. The alternative is a root `.ateam-version`, which is more visible but adds a dotfile at the top level.
-2. **Owner ruling:** fold a README fix for linked worktrees into this change's docs task (recommended: a wrapper like semsource's, or an absolute path to the main checkout's `.tools/bin`), or file it separately.
-3. **Owner ruling:** a violation (D3 A, recommended) or a warning (D3 B).
+1. **Ruled 2026-11-08: `.agents/ateam-version`.** The file name and place. `.agents/ateam-version` is recommended. The alternative is a root `.ateam-version`, which is more visible but adds a dotfile at the top level.
+2. **Ruled 2026-11-08: fold it into task 3.1.** Fold a README fix for linked worktrees into this change's docs task (recommended: a wrapper like semsource's, or an absolute path to the main checkout's `.tools/bin`), or file it separately.
+3. **Ruled 2026-11-08: a violation.** A violation (D3 A, recommended) or a warning (D3 B).
