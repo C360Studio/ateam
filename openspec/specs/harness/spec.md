@@ -1058,18 +1058,16 @@ When `ATEAM_ROLE=review` is set in its environment, `ateam hook` SHALL NOT write
 - **THEN** the three events write the lease as before
 
 ### Requirement: Committed team settings file
-`ateam` SHALL read optional team settings from the committed, non-gate file `.agents/ateam.json`. The file SHALL have version 1 and be strictly decoded. Its optional keys are:
-- `merge_method`: `squash`, `merge` or `rebase`, default `squash`;
-- `default_branch`;
-- `commit_statuses`: default `true`;
-- `forges`.
-
-A missing file SHALL leave every behaviour and every `ateam init` output byte-identical to a repository without the file. Keys that can weaken a merge gate SHALL NOT be accepted in this file.
+`ateam` SHALL read optional team settings (`merge_method`, `default_branch`, `commit_statuses`, `forges`) from the committed, non-gate, strictly decoded version-1 file `.agents/ateam.json`. A missing file SHALL change no behaviour and no `ateam init` output. The file SHALL NOT accept keys that can weaken a merge gate.
 
 #### Scenario: Missing file
 - **WHEN** `.agents/ateam.json` does not exist
 - **THEN** `ateam init` writes the same bytes as before and does not create the file
 - **AND** `ateam doctor` reports nothing about it
+
+#### Scenario: Absent keys take defaults
+- **WHEN** the file omits a key
+- **THEN** `merge_method` is `squash`, `commit_statuses` is `true`, and `default_branch` and `forges` behave as if no file existed
 
 #### Scenario: Invalid file
 - **WHEN** the file has an unknown key, a version other than 1, an out-of-range value, or trailing data
