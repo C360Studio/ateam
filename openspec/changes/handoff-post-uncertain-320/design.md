@@ -29,12 +29,12 @@ Goal: a handoff never says `skipped` when the comment may exist, and a retry wit
 - Cost of A: one extra forge read per post (GitHub `gh pr view <branch> --json comments`; Gitea `issues/<n>/comments`, after the pull listing that already finds `<n>`). A failed read posts anyway (fail toward today's behavior: at worst a duplicate).
 - Seam: an adopter sees `PR comment: posted (already on PR)`; commit statuses still run, because the PR head is read either way.
 
-**D3. Budget.** The comment read gets its own 2 s timeout, separate from the post's 5 s, so a slow read cannot turn a sendable post into a timeout. The CLI's worst case grows from 5 s to 7 s.
+**D3. Budget.** The GitHub comment read gets its own 2 s timeout, separate from the post's 5 s, so a slow read cannot turn a sendable post into a timeout; Gitea reuses sync's `fetchGiteaIssueComments` (1.5 s). The CLI's worst case grows from 5 s to 7 s.
 
 ## Risks / Trade-offs
 
 - A post that times out and then never lands is reported uncertain; the rerun posts it. A post that times out and lands *later* than the rerun's read can still duplicate. This is the remaining window, and it is stated in docs.
-- `gh pr view --json comments` may cap long threads (gh's GraphQL page); the newest handoff past the cap would not be seen, and the retry posts. Not verified in this session (Open Question 2).
+- `gh pr view --json comments` pages past 100 comments (Open Question 2); Gitea's issue comments endpoint returns the whole thread.
 - Body equality ignores who posted: another session's identical handoff counts as already posted. This is accepted, because the content is the same.
 
 ## Migration Plan
@@ -43,5 +43,5 @@ None. No stored state changes; old comments are compared by body like new ones.
 
 ## Open Questions
 
-1. **Owner:** keep exit 0 on `uncertain` (recommended: the checkpoint is saved, and scripts that chain handoff keep working), or exit non-zero so a wrapper retries?
-2. Does `gh pr view --json comments` return every comment on a long PR? To be checked against a PR with > 100 comments during implementation; if capped, use `gh api …/issues/<n>/comments --paginate`.
+1. **Owner (ruled 2026-11-08: keep exit 0):** keep exit 0 on `uncertain` (recommended: the checkpoint is saved, and scripts that chain handoff keep working), or exit non-zero so a wrapper retries?
+2. Does `gh pr view --json comments` return every comment on a long PR? Resolved: on nodejs/node#61478 it returned 114, matching the API's `comments` count, so it pages past 100.

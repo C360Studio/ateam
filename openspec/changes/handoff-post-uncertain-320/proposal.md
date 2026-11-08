@@ -1,6 +1,6 @@
 # Change Proposal: `handoff-post-uncertain-320`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-08)
 
 ## Why
 

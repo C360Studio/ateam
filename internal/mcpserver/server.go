@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -338,12 +339,17 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 				statusLine = "PR comment: skipped (local forge)"
 			} else {
 				post, postErr := state.PostPRHandoffComment(ctx, root, st.Forge, h.Branch, prompt)
-				if postErr != nil {
+				if errors.Is(postErr, state.ErrPostUncertain) {
+					statusLine = fmt.Sprintf("PR comment: uncertain (%v)", postErr)
+				} else if postErr != nil {
 					statusLine = fmt.Sprintf("PR comment: skipped (%v)", postErr)
 				} else if !post.Posted {
 					statusLine = "PR comment: skipped (no open PR for branch)"
 				} else {
 					statusLine = "PR comment: posted"
+					if post.Existing {
+						statusLine += " (already on PR)"
+					}
 					if state.CommitStatusesEnabled() && post.HeadSHA != "" {
 						// A status error is reported here and never fails the handoff (#302).
 						res, statusErr := state.HandoffCommitStatuses(ctx, root, st, post, h)

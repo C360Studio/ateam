@@ -32,7 +32,7 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 
 func newStatusFixture(t *testing.T, statusJSON string) statusFixture {
 	t.Helper()
-	for _, k := range []string{"ATEAM_FORGE", "GITEA_URL", "ATEAM_COMMIT_STATUSES", "FAKE_POST_EXIT", "GH_TOKEN", "ATEAM_TOKEN_READ", "ATEAM_TOKEN_WRITE",
+	for _, k := range []string{"ATEAM_FORGE", "GITEA_URL", "ATEAM_COMMIT_STATUSES", "FAKE_POST_EXIT", "FAKE_COMMENT_SLEEP", "FAKE_HANDOFF_COMMENTS", "GH_TOKEN", "ATEAM_TOKEN_READ", "ATEAM_TOKEN_WRITE",
 		"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "HERDR_ENV"} {
 		t.Setenv(k, "")
 	}
@@ -57,7 +57,8 @@ func newStatusFixture(t *testing.T, statusJSON string) statusFixture {
 		"{ printf '%s' \"$GH_TOKEN\"; for a in \"$@\"; do printf '|%s' \"$a\"; done; printf '\\n'; } >> '" + f.log + "'\n" +
 		"case \"$*\" in\n" +
 		"'pr list --state open'*) printf '%s' '" + prList + "';;\n" +
-		"'pr comment'*) echo 'https://github.com/o/r/pull/7#issuecomment-42';;\n" +
+		"'pr comment'*) [ -n \"$FAKE_COMMENT_SLEEP\" ] && exec sleep \"$FAKE_COMMENT_SLEEP\"; echo 'https://github.com/o/r/pull/7#issuecomment-42';;\n" +
+		"'pr view claude/pr-7 --json comments') printf '%s' \"${FAKE_HANDOFF_COMMENTS:-[]}\";;\n" +
 		"'pr view claude/pr-7 --json number,headRefOid,url'*) printf '%s' '" + prView + "';;\n" +
 		"'pr view 7 --json comments'*) printf '%s' '{\"comments\":[]}';;\n" +
 		"'api -X POST '*) echo 'response body secret-body' >&2; exit \"${FAKE_POST_EXIT:-0}\";;\n" +
@@ -300,4 +301,49 @@ func TestDoctorStatusWriteWarningOnly(t *testing.T) {
 	if _, _, warnings := doctor(); hasStatusWarning(warnings) {
 		t.Fatalf("status warning still present after a clean publication cleared it: %q", warnings)
 	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestStateHandoffPostOutcome(t *testing.T) {
+	handoff := func(t *testing.T, f statusFixture) (int, string) {
+		t.Helper()
+		return captureBenchError(t, func() int {
+			c, _ := captureStdout(t, func() int {
+				return runStateHandoff(f.wt, []string{"--agent", "claude", "--session", "S", "--goal", "g", "--addresses", "PR #7"})
+			})
+			return c
+		})
+	}
+
+	t.Run("a timed-out post is uncertain, exit 0", func(t *testing.T) {
+		f := newStatusFixture(t, `{"statuses":[]}`)
+		t.Setenv("FAKE_COMMENT_SLEEP", "10")
+		code, stderr := handoff(t, f)
+		want := "ateam state handoff: forge PR comment uncertain: gh pr comment claude/pr-7 timed out: outcome unknown; rerun ateam state handoff to post it once\n"
+		if code != 0 || stderr != want {
+			t.Fatalf("handoff = %d, stderr %q; want 0 and %q", code, stderr, want)
+		}
+		if calls := f.apiCalls(t); len(calls) != 0 {
+			t.Fatalf("an uncertain post wrote commit statuses: %q", calls)
+		}
+	})
+
+	t.Run("a repeat of the newest handoff is not posted again", func(t *testing.T) {
+		f := newStatusFixture(t, `{"statuses":[]}`)
+		body := state.FormatFiveFieldPrompt(state.Handoff{Goal: "g", Addresses: "PR #7", ChecksToRun: "task verify"})
+		raw, _ := json.Marshal(map[string]any{"comments": []map[string]string{{"body": body, "url": "https://github.com/o/r/pull/7#issuecomment-41"}}})
+		t.Setenv("FAKE_HANDOFF_COMMENTS", string(raw))
+		code, stderr := handoff(t, f)
+		if want := "ateam state handoff: forge PR comment posted (already on PR)\n"; code != 0 || stderr != want {
+			t.Fatalf("handoff = %d, stderr %q; want 0 and %q", code, stderr, want)
+		}
+		data, _ := os.ReadFile(f.log)
+		if strings.Contains(string(data), "|pr|comment|") {
+			t.Fatalf("a repeat posted a second comment:\n%s", data)
+		}
+		calls := f.apiCalls(t)
+		if len(calls) != 2 || !strings.Contains(calls[1], "|target_url=https://github.com/o/r/pull/7#issuecomment-41") {
+			t.Fatalf("gh api calls = %q, want a status linking the existing comment", calls)
+		}
+	})
 }
