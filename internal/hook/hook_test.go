@@ -1095,7 +1095,7 @@ func TestSessionStartMalformedTaskLeaseStillSucceeds(t *testing.T) {
 	}
 }
 
-// spec: openspec/changes/review-lease-314/specs/harness/spec.md#Requirement: Read-only review session writes no writer lease
+// spec: openspec/specs/harness/spec.md#Requirement: Read-only review session writes no writer lease
 func TestReviewRoleWritesNoWriterLease(t *testing.T) {
 	newRepo := func(t *testing.T) string {
 		dir := t.TempDir()

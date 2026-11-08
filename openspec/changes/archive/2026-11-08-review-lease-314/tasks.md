@@ -14,4 +14,4 @@
 
 ## 4. Verify
 
-- [ ] 4.1 `task verify` is green on a clean tree, `ateam doctor --check` and `ateam bench --selftest` exit 0, the owner has applied `gate-change-approved`, and the change is archived before ready (#314, #315).
+- [x] 4.1 `task verify` is green on a clean tree, `ateam doctor --check` and `ateam bench --selftest` exit 0, the owner has applied `gate-change-approved`, and the change is archived before ready (#314, #315). Evidence: `task verify`, `ateam doctor --check`, and `ateam bench --selftest` exit 0 at 245c693 (author run) and again in the Codex review record. The owner applied `gate-change-approved` on 2026-11-08. The archive commit also moves the test's spec reference to `openspec/specs/harness/spec.md`.
