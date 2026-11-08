@@ -76,6 +76,27 @@ Before mutating state, the `Clarify` gate ([`.agents/protocol.md`](.agents/proto
 
 ## Prerequisites and Installation
 
+### Install a release (adopters)
+
+Adopters install a tagged release with Go alone. No clone, Node, or Task is needed:
+
+```bash
+go install github.com/c360studio/ateam/cmd/ateam@v0.3.9
+ateam version   # ateam v0.3.9 (module)
+```
+
+`(module)` in `ateam version` and in doctor's `build_commit` means a `go install` of a tag: the tag beside it is the release, and no commit is stamped. Such a binary carries every command and hook, but its embedded board UI is empty, because the UI is built by `task build` and is not in the module; `ateam serve` still serves the JSON API. Build from source below when you need the board.
+
+`go install` writes to `$(go env GOBIN)`, else `$(go env GOPATH)/bin`, which holds one `ateam`. When two repositories on one machine pin different releases, whichever installed last wins. Give each repository its own directory instead, for example a gitignored `.tools/bin`:
+
+```bash
+GOBIN="$PWD/.tools/bin" go install github.com/c360studio/ateam/cmd/ateam@v0.3.9
+```
+
+Hooks run the command written in the hook config, and `ateam init` writes a bare `ateam`, which resolves on the agent's `PATH`, not to the repository's pin. To run the pinned binary, change the hook commands to its path, for example `"$CLAUDE_PROJECT_DIR"/.tools/bin/ateam hook --event … --agent claude` in `.claude/settings.json`; `ateam doctor` accepts any hook command whose program ends in `/ateam`. Doctor's `hook_binary` shows which binary the Claude hook command resolves to and its version; outside the ateam checkout it does not yet compare that with a pin (#334).
+
+### Build from source
+
 To build `ateam` from source, you need:
 
 - **Go 1.26.4+** (the version declared in `go.mod`)
@@ -100,7 +121,7 @@ rm -rf internal/web/dist && cp -R ui/build internal/web/dist
 go build -o bin/ateam ./cmd/ateam
 ```
 
-Expose `./bin/ateam` on your `PATH`—for example, symlink it into `~/.local/bin/ateam` (`ln -sf "$PWD/bin/ateam" ~/.local/bin/ateam`) so `brew doctor` is unaffected and desktop hosts (such as Enjoy) pick up rebuilds in place—so Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy`) can invoke `ateam` from their hook and MCP configurations. Check which build you are running with `ateam version`, which prints the release and the commit it was built from. `task build` takes the release from `git describe`: a tag checkout prints `ateam v0.3.3 (<commit>)`, a commit after a tag prints `ateam v0.3.2-19-gfd9d205 (fd9d205)`, and a dirty tree appends `-dirty`. `go install github.com/c360studio/ateam/cmd/ateam@<tag>` prints `ateam <tag> (module)`, and `go run` prints `dev`. GitHub releases carry no prebuilt binaries yet.
+Expose `./bin/ateam` on your `PATH`—for example, symlink it into `~/.local/bin/ateam` (`ln -sf "$PWD/bin/ateam" ~/.local/bin/ateam`) so `brew doctor` is unaffected and desktop hosts (such as Enjoy) pick up rebuilds in place—so Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy`) can invoke `ateam` from their hook and MCP configurations. Check which build you are running with `ateam version`, which prints the release and the commit it was built from. `task build` takes the release from `git describe`: a tag checkout prints `ateam v0.3.3 (<commit>)`, a commit after a tag prints `ateam v0.3.2-19-gfd9d205 (fd9d205)`, and a dirty tree appends `-dirty`. A `go install` of a tag prints `ateam <tag> (module)` (see [Install a release](#install-a-release-adopters)), and `go run` prints `dev`. GitHub releases carry no prebuilt binaries yet.
 
 ---
 
