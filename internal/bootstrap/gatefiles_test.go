@@ -17,11 +17,35 @@ case "$*" in
   "api repos/{owner}/{repo}/pulls/7") key=pull ;;
   "api --paginate repos/{owner}/{repo}/pulls/7/files?per_page=100") key=files ;;
   "pr view 7 --json labels --jq "*) key=labels ;;
+  "api --paginate repos/{owner}/{repo}/issues/7/comments?per_page=100") key=comments ;;
   *) echo "fake gh: unexpected call: $*" >&2; exit 3 ;;
 esac
 if [ -e "$d/$key.fail" ]; then echo "HTTP 502 (fake)" >&2; exit 1; fi
 cat "$d/$key.txt"
 `
+
+// gateHead is the live head of the fake pull request; gateOld is an earlier commit (#319).
+const (
+	gateHead = "0123456789abcdef0123456789abcdef01234567"
+	gateOld  = "fedcba9876543210fedcba9876543210fedcba98"
+)
+
+// approvalAt renders issue comments, oldest first, each body "gate-change-approved: <sha>" or the raw text.
+func approvalAt(t *testing.T, bodies ...string) string {
+	t.Helper()
+	cs := make([]map[string]string, len(bodies))
+	for i, b := range bodies {
+		if strings.Trim(b, "0123456789abcdef") == "" {
+			b = "gate-change-approved: " + b
+		}
+		cs[i] = map[string]string{"body": b}
+	}
+	out, err := json.Marshal(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
 
 type gateFile struct {
 	Filename         string `json:"filename"`
@@ -69,6 +93,7 @@ func TestGateFilesCheck(t *testing.T) {
 		reported int // changed_files; -1 means len(files)
 		raw      string
 		labels   string
+		comments string // issue comments JSON; empty means none
 		failRead string
 		wantCode int
 		wantOut  string
@@ -84,7 +109,15 @@ func TestGateFilesCheck(t *testing.T) {
 		{name: "gate file on a later page", files: many, reported: -1, wantCode: 1, wantOut: "scripts/merge-check.sh"},
 		{name: "listing cut short", files: many[:300], reported: 301, wantCode: 2, wantOut: "incomplete"},
 		{name: "pages not lists of files", raw: `{"message":"oops"}`, reported: 1, wantCode: 2, wantOut: "not a list of files"},
-		{name: "gate file with owner label", files: names("scripts/merge-check.sh"), reported: -1, labels: "bug\ngate-change-approved\n", wantOut: "labelled gate-change-approved"},
+		{name: "gate file with owner label", files: names("scripts/merge-check.sh"), reported: -1, labels: "bug\ngate-change-approved\n", comments: approvalAt(t, gateHead), wantOut: "approved at " + gateHead},
+		{name: "approval at a short head prefix", files: names("scripts/merge-check.sh"), reported: -1, labels: "gate-change-approved\n", comments: approvalAt(t, "  gate-change-approved: "+strings.ToUpper(gateHead[:7])+" for #319"), wantOut: "approved at " + gateHead},
+		{name: "approval at an older commit", files: names("scripts/merge-check.sh"), reported: -1, labels: "gate-change-approved\n", comments: approvalAt(t, gateOld), wantCode: 1, wantOut: "covers " + gateOld + ", not head " + gateHead},
+		{name: "a newer approval for an older commit revokes", files: names("scripts/merge-check.sh"), reported: -1, labels: "gate-change-approved\n", comments: approvalAt(t, gateHead, "reviewed-by: codex (m, high)", gateOld[:7]), wantCode: 1, wantOut: "covers " + gateOld[:7]},
+		{name: "label without an approval comment", files: names("scripts/merge-check.sh"), reported: -1, labels: "gate-change-approved\n", comments: approvalAt(t, "LGTM", "gate-change-approved: "+gateHead[:6]), wantCode: 1, wantOut: "no 'gate-change-approved: <sha>' comment"},
+		{name: "approval comment without the label", files: names("scripts/merge-check.sh"), reported: -1, comments: approvalAt(t, gateHead), wantCode: 1, wantOut: "waits for the owner"},
+		{name: "approval comment on a later page", files: names("scripts/merge-check.sh"), reported: -1, labels: "gate-change-approved\n", comments: approvalAt(t, "old") + approvalAt(t, gateHead), wantOut: "approved at " + gateHead},
+		{name: "comments not a list", files: names("scripts/merge-check.sh"), reported: -1, labels: "gate-change-approved\n", comments: `{"message":"oops"}`, wantCode: 2, wantOut: "not a list of comments"},
+		{name: "comments read fails", files: names("scripts/merge-check.sh"), reported: -1, labels: "gate-change-approved\n", failRead: "comments", wantCode: 2, wantOut: "could not read the comments"},
 		{name: "label name must match exactly", files: names("scripts/merge-check.sh"), reported: -1, labels: "not-gate-change-approved\n", wantCode: 1, wantOut: "waits for the owner"},
 		{name: "pull read fails", files: names("README.md"), reported: -1, failRead: "pull", wantCode: 2, wantOut: "could not read pull request"},
 		{name: "files read fails", files: names("README.md"), reported: -1, failRead: "files", wantCode: 2, wantOut: "could not read the changed files"},
@@ -100,10 +133,15 @@ func TestGateFilesCheck(t *testing.T) {
 			if pages == "" {
 				pages = gatePages(t, tc.files)
 			}
+			comments := tc.comments
+			if comments == "" {
+				comments = "[]"
+			}
 			for name, body := range map[string]string{
-				"pull.txt":   fmt.Sprintf(`{"number":7,"changed_files":%d}`, reported),
-				"files.txt":  pages,
-				"labels.txt": tc.labels,
+				"pull.txt":     fmt.Sprintf(`{"number":7,"changed_files":%d,"head":{"sha":%q}}`, reported, gateHead),
+				"files.txt":    pages,
+				"labels.txt":   tc.labels,
+				"comments.txt": comments,
 			} {
 				if err := os.WriteFile(filepath.Join(d, name), []byte(body), 0o644); err != nil {
 					t.Fatal(err)
@@ -256,6 +294,7 @@ case "$url" in
   "https://gitea.example.test/api/v1/repos/acme/widgets/pulls/7/files?page="*"&limit=50")
     p=${url#*page=}; p=${p%%&*}; key=files-$p
     [ -e "$d/$key.txt" ] || { echo '[]'; exit 0; } ;;
+  "https://gitea.example.test/api/v1/repos/acme/widgets/issues/7/comments") key=comments ;;
   *) echo "fake curl: unexpected call: $*" >&2; exit 3 ;;
 esac
 if [ -e "$d/$key.fail" ]; then echo "curl: (22) The requested URL returned error: 502" >&2; exit 22; fi
@@ -276,6 +315,7 @@ func TestGateFilesCheckGitea(t *testing.T) {
 		files    []gateFile
 		reported int // changed_files; -1 means len(files)
 		labels   []string
+		comments string // issue comments JSON; empty means none
 		failRead string
 		wantCode int
 		wantOut  string
@@ -284,7 +324,10 @@ func TestGateFilesCheckGitea(t *testing.T) {
 		{name: "gitea workflow without label", files: names(".gitea/workflows/gate-files.yml"), reported: -1, labels: []string{"bug"}, wantCode: 1, wantOut: ".gitea/workflows/gate-files.yml"},
 		{name: "gate file on a later page", files: many, reported: -1, wantCode: 1, wantOut: ".gitea/workflows/ci.yml"},
 		{name: "listing cut short", files: many[:100], reported: 121, wantCode: 2, wantOut: "incomplete"},
-		{name: "gate file with owner label", files: names("internal/review/gate.go"), reported: -1, labels: []string{"gate-change-approved"}, wantOut: "labelled gate-change-approved"},
+		{name: "gate file with owner label", files: names("internal/review/gate.go"), reported: -1, labels: []string{"gate-change-approved"}, comments: approvalAt(t, gateHead), wantOut: "approved at " + gateHead},
+		{name: "approval at an older commit", files: names("internal/review/gate.go"), reported: -1, labels: []string{"gate-change-approved"}, comments: approvalAt(t, gateOld), wantCode: 1, wantOut: "covers " + gateOld + ", not head " + gateHead},
+		{name: "label without an approval comment", files: names("internal/review/gate.go"), reported: -1, labels: []string{"gate-change-approved"}, wantCode: 1, wantOut: "no 'gate-change-approved: <sha>' comment"},
+		{name: "comments read fails", files: names("internal/review/gate.go"), reported: -1, labels: []string{"gate-change-approved"}, failRead: "comments", wantCode: 2, wantOut: "could not read the comments"},
 		{name: "pull read fails", files: names("README.md"), reported: -1, failRead: "pull", wantCode: 2, wantOut: "could not read pull request"},
 		{name: "files read fails", files: names("README.md"), reported: -1, failRead: "files-1", wantCode: 2, wantOut: "could not read the changed files"},
 	} {
@@ -298,7 +341,7 @@ func TestGateFilesCheckGitea(t *testing.T) {
 			for i, l := range tc.labels {
 				labels[i] = map[string]string{"name": l}
 			}
-			pull, err := json.Marshal(map[string]any{"number": 7, "changed_files": reported, "labels": labels})
+			pull, err := json.Marshal(map[string]any{"number": 7, "changed_files": reported, "labels": labels, "head": map[string]string{"sha": gateHead}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -308,6 +351,11 @@ func TestGateFilesCheckGitea(t *testing.T) {
 				}
 			}
 			write("pull.txt", string(pull))
+			comments := tc.comments
+			if comments == "" {
+				comments = "[]"
+			}
+			write("comments.txt", comments)
 			for page := 0; page*50 < len(tc.files); page++ {
 				write(fmt.Sprintf("files-%d.txt", page+1), gatePages(t, tc.files[page*50:min(page*50+50, len(tc.files))]))
 			}

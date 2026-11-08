@@ -39,5 +39,5 @@ Open gate-file PRs at merge time need the comment. This PR itself is judged by t
 
 ## Open Questions
 
-1. **Owner:** option B with its per-push friction, or option A with write permission and the draft and cancellation holes fixed separately?
-2. Gitea: does the job token read issue comments on a private repository? To be checked against the test Gitea instance during implementation.
+1. **Owner (ruled 2026-11-08: option B):** option B with its per-push friction, or option A with write permission and the draft and cancellation holes fixed separately?
+2. Gitea: does the job token read issue comments on a private repository? Resolved: the Gitea `Merge check` job already reads `issues/<n>/comments` with `github.token` for review records (`internal/review/gate_gitea.go:279`, `.gitea/workflows/merge-check.yml:56`).

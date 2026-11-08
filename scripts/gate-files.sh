@@ -5,8 +5,11 @@
 # edit the check that judges it.
 #
 # A pull request whose changed files (or a rename's previous path) include a
-# gate file fails until it carries the owner-only label below. With a shared
-# forge login the label is an attestation, not proof of who applied it.
+# gate file fails until it carries the owner-only label below and its newest
+# comment starting "gate-change-approved: <sha>" names the live head, so an
+# approval covers one revision and a later push fails until the owner approves
+# again (#319). With a shared forge login both are an attestation, not proof of
+# who wrote them.
 #
 # Usage: gate-files.sh <pr-number>
 # A read that fails exits 2 naming the read; it never counts as "no gate files".
@@ -43,10 +46,13 @@ if [ "${ATEAM_FORGE:-}" = gitea ]; then
     return 1
   }
   read_labels() { printf '%s' "$pull" | jq -r '(.labels // [])[].name'; }
+  # Gitea's issue comments endpoint returns the whole thread, oldest first.
+  read_comments() { get "issues/$pr/comments"; }
 else
   read_pull() { gh api "repos/{owner}/{repo}/pulls/$pr"; }
   read_files() { gh api --paginate "repos/{owner}/{repo}/pulls/$pr/files?per_page=100"; }
   read_labels() { gh pr view "$pr" --json labels --jq '.labels[].name'; }
+  read_comments() { gh api --paginate "repos/{owner}/{repo}/issues/$pr/comments?per_page=100"; }
 fi
 
 if ! pull=$(read_pull); then
@@ -80,9 +86,34 @@ if ! labels=$(read_labels); then
 fi
 echo "gate-files: pull request #$pr touches gate files:"
 printf '%s\n' "$touched" | sed 's/^/  /'
-if printf '%s\n' "$labels" | grep -qx "$approval"; then
-  echo "gate-files: ok: labelled $approval by the owner"
-  exit 0
+if ! printf '%s\n' "$labels" | grep -qx "$approval"; then
+  echo "gate-files: FAIL: a gate-file change waits for the owner to add the label $approval" >&2
+  exit 1
 fi
-echo "gate-files: FAIL: a gate-file change waits for the owner to add the label $approval" >&2
-exit 1
+if ! head=$(printf '%s' "$pull" | jq -er '.head.sha | select(type == "string" and test("^[0-9a-f]{40}$"))'); then
+  echo "gate-files: unavailable: pull request #$pr has no head sha" >&2
+  exit 2
+fi
+if ! comments=$(read_comments); then
+  echo "gate-files: unavailable: could not read the comments of pull request #$pr" >&2
+  exit 2
+fi
+# The newest approval comment wins, so a later one for an older sha revokes.
+if ! approved=$(printf '%s' "$comments" | jq -r -s --arg a "$approval" 'if all(.[]; type == "array" and all(.[]; type == "object")) then [.[][] | (.body // "") | sub("^\\s+"; "") | capture("^" + $a + ": (?<sha>[0-9a-fA-F]{7,40})(?![0-9a-zA-Z])")? | .sha | ascii_downcase] | last // "" else error("not pages of comments") end'); then
+  echo "gate-files: unavailable: the comments of pull request #$pr are not a list of comments" >&2
+  exit 2
+fi
+again="the owner posts '$approval: $head' and re-applies the label $approval"
+if [ -z "$approved" ]; then
+  echo "gate-files: FAIL: labelled $approval, but no '$approval: <sha>' comment names a commit; $again" >&2
+  exit 1
+fi
+case "$head" in
+  "$approved"*) ;;
+  *)
+    echo "gate-files: FAIL: the owner's approval covers $approved, not head $head; $again" >&2
+    exit 1
+    ;;
+esac
+echo "gate-files: ok: labelled $approval by the owner and approved at $head"
+exit 0
