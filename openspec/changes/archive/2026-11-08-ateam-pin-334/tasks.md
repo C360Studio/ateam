@@ -12,4 +12,4 @@
 
 ## 4. Verify
 
-- [ ] 4.1 `task verify` is green on a clean tree, `ateam doctor --check` and `ateam bench --selftest` exit 0, and the change is archived before ready (#334).
+- [x] 4.1 `task verify` is green on a clean tree, `ateam doctor --check` and `ateam bench --selftest` exit 0, and the change is archived before ready (#334). Evidence: `task verify`, `ateam doctor --check`, and `ateam bench --selftest` exit 0 at 1ccf1de. The archive commit moves the tests' spec references to `openspec/specs/harness/spec.md`.
