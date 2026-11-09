@@ -1,6 +1,6 @@
 # Change Proposal: `instruction-reading-200`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-09)
 
 ## Why
 

@@ -7,7 +7,7 @@ description: >-
 
 # Review a Pull Request
 
-Read [the shared protocol](../../protocol.md) and [the reviewer contract](../../contracts/reviewer.md) first. Review in a separate run that wrote none of the change. The deliverable stays read-only; the author makes corrections.
+Read [the reviewer contract](../../contracts/reviewer.md) first; it names the protocol sections a review needs. Review in a separate run that wrote none of the change. The deliverable stays read-only; the author makes corrections.
 
 ## 1. Pick the PR
 
