@@ -600,6 +600,7 @@ func runDoctor(repoRoot string, args []string) int {
 	buildProvenance, warnings := bootstrap.BuildProvenanceStatus(context.Background(), repoRoot, fullRev, headSHA, bootstrap.RunningBinaryPath())
 	warnings = append(warnings, bootstrap.CheckUnarchivedOpenSpecChanges(repoRoot)...)
 	warnings = append(warnings, bootstrap.CheckMergeMethodDocs(repoRoot)...)
+	warnings = append(warnings, bootstrap.CheckDeprecatedPolicyKeys(repoRoot)...)
 	latencyWarning, latencyViolation := hookLatencyFindings(hookUs)
 	if latencyWarning != "" {
 		warnings = append(warnings, latencyWarning)

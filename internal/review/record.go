@@ -224,9 +224,9 @@ func validateChecks(p Policy, r Record) error {
 			passed[check.Name] = true
 		}
 	}
-	for _, required := range p.RequiredChecks {
-		if !passed[required] {
-			return fmt.Errorf("required check %q lacks reviewer-executed passing evidence at current head", required)
+	for _, check := range p.ReviewerChecks {
+		if !passed[check] {
+			return fmt.Errorf("reviewer check %q lacks reviewer-executed passing evidence at current head", check)
 		}
 	}
 	return nil

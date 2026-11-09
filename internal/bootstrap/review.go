@@ -165,6 +165,20 @@ func reviewFiles(policy *review.Policy, record string) map[string]string {
 	return files
 }
 
+// CheckDeprecatedPolicyKeys returns a doctor warning while a valid review policy still sets
+// required_checks, so adopters rename it before the alias is removed (#336). An invalid or
+// absent policy says nothing here; checkReviewSetup reports it.
+func CheckDeprecatedPolicyKeys(root string) []string {
+	data, err := os.ReadFile(filepath.Join(root, reviewPolicyPath))
+	if err != nil {
+		return nil
+	}
+	if _, err := review.ParsePolicy(data); err != nil || !review.PolicyUsesDeprecatedKeys(data) {
+		return nil
+	}
+	return []string{reviewPolicyPath + ": required_checks is deprecated; rename it to reviewer_checks"}
+}
+
 func checkReviewSetup(root string) []string {
 	if err := rejectReviewSymlinks(root, reviewPolicyPath); err != nil {
 		return []string{err.Error()}
