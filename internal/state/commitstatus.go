@@ -156,7 +156,7 @@ func chooseStatuses(in statusInputs) []CommitStatus {
 			if r.Verdict == "REQUEST CHANGES" {
 				st.State = "failure"
 			}
-			st.Description = r.Verdict + " by " + recordReviewer(*r) + " at " + at
+			st.Description = r.Verdict + " self-reported by " + recordReviewer(*r) + " at " + at
 		default:
 			st.Description = "record at " + at + " has no single verdict"
 		}
