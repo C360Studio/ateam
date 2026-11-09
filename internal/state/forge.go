@@ -882,8 +882,9 @@ type HandoffPost struct {
 // ErrPostUncertain marks a handoff comment send that timed out: the forge may hold the comment or not (#320).
 var ErrPostUncertain = errors.New("outcome unknown")
 
-// handoffCommentReadTimeout bounds the pre-post comment read, apart from the post's own budget (#320).
-const handoffCommentReadTimeout = 2 * time.Second
+// HandoffCommentReadTimeout bounds the pre-post comment read, apart from the post's own budget (#320). A test
+// seam: a dedupe test widens it so a fake gh slowed by a loaded machine is not read as a failed read (#364).
+var HandoffCommentReadTimeout = 2 * time.Second
 
 // handoffPostTimeout bounds the handoff comment post. A variable so a test can time a send out quickly (#320).
 var handoffPostTimeout = 5 * time.Second
@@ -905,9 +906,9 @@ func newestHandoffMatches(comments []forgeComment, body string) (forgeComment, b
 	return forgeComment{}, false
 }
 
-// ghNewestHandoffMatches reads the branch PR's comments under handoffCommentReadTimeout; a failed read matches nothing.
+// ghNewestHandoffMatches reads the branch PR's comments under HandoffCommentReadTimeout; a failed read matches nothing.
 func ghNewestHandoffMatches(ctx context.Context, root, branch, body string) (forgeComment, bool) {
-	rctx, cancel := context.WithTimeout(ctx, handoffCommentReadTimeout)
+	rctx, cancel := context.WithTimeout(ctx, HandoffCommentReadTimeout)
 	defer cancel()
 	read := ghCommand(rctx, ReadToken(), "pr", "view", branch, "--json", "comments")
 	read.Dir = root
