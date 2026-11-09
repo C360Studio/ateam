@@ -11,6 +11,11 @@ import (
 
 var (
 	protocolPointer = regexp.MustCompile(`(skill )?§ (\d+)`)
+	// A sentence that tells the reader to read the protocol, first or fully,
+	// without naming a section is a full-read mandate, however the path is
+	// formatted.
+	sentenceEnd = regexp.MustCompile(`[.;:]\s|\n`)
+	fullRead    = regexp.MustCompile(`(?i)\bread\b.*\b(first|fully)\b`)
 	// Unnumbered protocol headings that skills and contracts name in italics.
 	namedProtocolSections = []string{"Test-to-spec attribution", "Unattended and fan-out runs"}
 )
@@ -19,9 +24,9 @@ var (
 // a skill or contract that the protocol does not resolve.
 func readingViolations(protocol, doc string) []string {
 	var out []string
-	for _, full := range []string{"protocol.md fully", "protocol.md) first"} {
-		if strings.Contains(doc, full) {
-			out = append(out, "full read: "+full)
+	for _, sentence := range sentenceEnd.Split(doc, -1) {
+		if fullRead.MatchString(sentence) && strings.Contains(sentence, "protocol.md") && !strings.Contains(sentence, "§") {
+			out = append(out, "full read: "+strings.TrimSpace(sentence))
 		}
 	}
 	for _, m := range protocolPointer.FindAllStringSubmatch(doc, -1) {
@@ -79,17 +84,24 @@ func TestTaskScopedInstructionReads(t *testing.T) {
 // The checker flags full reads and dangling pointers and skips a skill's own sections.
 // spec: openspec/specs/harness/spec.md#Requirement: Task-scoped instruction reads
 func TestReadingViolationsSensitivity(t *testing.T) {
-	protocol := "# P\n\n## 1. State\n\n## Test-to-spec attribution\n"
+	protocol := "# P\n\n## 1. State\n\n## 2. Lifecycle\n\n## Test-to-spec attribution\n"
 	for _, tc := range []struct {
 		doc  string
 		want int
 	}{
 		{"From protocol, read § 1 and *Test-to-spec attribution*.", 0},
 		{"The review-pr skill § 5 gives the commands.", 0},
-		{"Read § 2.", 1},
+		{"Read § 3.", 1},
 		{"Also read *Unattended and fan-out runs*.", 1},
 		{"Read AGENTS.md and .agents/protocol.md fully.", 1},
 		{"Read [the shared protocol](../../protocol.md) first.", 1},
+		{"Read `.agents/protocol.md` fully.", 1},
+		{"Read [the shared protocol](../../protocol.md) and [the reviewer contract](../../contracts/reviewer.md) first.", 1},
+		{"Read [the shared protocol](../../protocol.md) and [the architect contract](../../contracts/architect.md) first. Use this skill.", 1},
+		{"Read [the reviewer contract](../../contracts/reviewer.md) first; it names the protocol sections a review needs.", 0},
+		{"From `.agents/protocol.md`, read § 1 and § 2 step 1 (Clarify).", 0},
+		{"From [the shared protocol](../../protocol.md), read § 1 and § 2 steps 1–2 (Clarify, Claim).", 0},
+		{"For unclaimed work, follow the Claim gate in [protocol.md](../../protocol.md).", 0},
 	} {
 		if got := readingViolations(protocol, tc.doc); len(got) != tc.want {
 			t.Errorf("%q: got %v, want %d violations", tc.doc, got, tc.want)
