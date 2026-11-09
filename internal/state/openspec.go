@@ -358,7 +358,7 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 			ch.Approval = approvalOf(prop, design) // design is nil when design.md is absent
 			if ch.Approval.State == ApprovalStale {
 				// shortcut: no caller passes a context to the scan; staleSource's git calls carry their own 2s timeout.
-				ch.Approval.File, ch.Approval.At = staleSource(context.Background(), root, path.Dir(propRel), design != nil)
+				ch.Approval.File, ch.Approval.At = staleSource(context.Background(), root, path.Dir(propRel))
 			}
 		}
 		out = append(out, ch)

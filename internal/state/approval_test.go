@@ -87,7 +87,7 @@ func TestCheckOpenSpecApprovalStates(t *testing.T) {
 	repo := t.TempDir()
 	gitIn(t, repo, "init", "-q", "-b", "main")
 	writeRepoFile(t, repo, "openspec/config.yaml", "schema: spec-driven\n")
-	for _, id := range []string{"ok", "edited", "dirty", "loose"} {
+	for _, id := range []string{"ok", "edited", "dirty", "loose", "dropped", "unstaged"} {
 		writeRepoFile(t, repo, "openspec/changes/"+id+"/tasks.md", tasks)
 		writeRepoFile(t, repo, "openspec/changes/"+id+"/design.md", design)
 		writeRepoFile(t, repo, "openspec/changes/"+id+"/proposal.md", bound)
@@ -111,7 +111,13 @@ func TestCheckOpenSpecApprovalStates(t *testing.T) {
 	writeRepoFile(t, repo, "openspec/changes/edited/design.md", design+"D2 B.\n")
 	gitIn(t, repo, "commit", "-q", "-am", "edit design")
 	sha := gitIn(t, repo, "rev-parse", "--short=7", "HEAD")
+	gitIn(t, repo, "rm", "-q", "openspec/changes/dropped/design.md")
+	gitIn(t, repo, "commit", "-q", "-m", "drop design")
+	dropSha := gitIn(t, repo, "rev-parse", "--short=7", "HEAD")
 	writeRepoFile(t, repo, "openspec/changes/dirty/proposal.md", bound+"\nOne more line.\n")
+	if err := os.Remove(filepath.Join(repo, "openspec/changes/unstaged/design.md")); err != nil {
+		t.Fatal(err)
+	}
 
 	out, code, err = CheckOpenSpec(context.Background(), repo)
 	if code != 1 || err == nil {
@@ -119,9 +125,12 @@ func TestCheckOpenSpecApprovalStates(t *testing.T) {
 	}
 	editedNow := ApprovalDigest([]byte(bound), []byte(design+"D2 B.\n"))
 	dirtyNow := ApprovalDigest([]byte(bound+"\nOne more line.\n"), []byte(design))
+	droppedNow := ApprovalDigest([]byte(bound), nil)
 	for _, want := range []string{
 		"openspec/changes/edited/proposal.md: approval sha256:" + digest + " is stale; design.md changed since (last commit " + sha + "); re-approve with sha256:" + editedNow + "\n",
 		"openspec/changes/dirty/proposal.md: approval sha256:" + digest + " is stale; proposal.md changed since (uncommitted); re-approve with sha256:" + dirtyNow + "\n",
+		"openspec/changes/dropped/proposal.md: approval sha256:" + digest + " is stale; design.md changed since (last commit " + dropSha + "); re-approve with sha256:" + droppedNow + "\n",
+		"openspec/changes/unstaged/proposal.md: approval sha256:" + digest + " is stale; design.md changed since (uncommitted); re-approve with sha256:" + droppedNow + "\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
@@ -187,6 +196,10 @@ func TestApproveEdits(t *testing.T) {
 			proposal:  "```\r\nApproved-by: <name>\r\n```\r\nApproved-by:\r\n",
 			tasks:     "## 1. Approval\r\n\r\n- [ ] 1.1 Owner approves\r\n  Hold: OPEN-Q proposal awaits owner approval\r\n- [x] 1.2 Done\r\n",
 			wantTasks: "## 1. Approval\r\n\r\n- [ ] 1.1 Owner approves\r\n- [x] 1.2 Done\r\n"},
+		{name: "an earlier owner decision hold stays",
+			proposal:  "# C\n\nApproved-by:\n",
+			tasks:     "## 1. Approval\n\n- [ ] 1.1 Decide rollout\n  Hold: OPEN-Q choose rollout region\n- [ ] 1.2 Owner approves\n  Hold: OPEN-Q proposal awaits owner approval\n",
+			wantTasks: "## 1. Approval\n\n- [ ] 1.1 Decide rollout\n  Hold: OPEN-Q choose rollout region\n- [ ] 1.2 Owner approves\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := ApprovalDigest([]byte(tc.proposal), []byte(design))
@@ -215,6 +228,10 @@ func TestApproveEdits(t *testing.T) {
 	}
 	if _, _, err := ApproveEdits([]byte("Approved-by:\n"), nil, []byte("## 1. T\n\n- [ ] 1.1 Do it\n"), "Ann", date); err == nil {
 		t.Error("tasks.md without the OPEN-Q hold: want an error")
+	}
+	decision := []byte("## 1. T\n\n- [ ] 1.1 Decide rollout\n  Hold: OPEN-Q choose rollout region\n")
+	if _, got, err := ApproveEdits([]byte("Approved-by:\n"), nil, decision, "Ann", date); err == nil {
+		t.Errorf("tasks.md with only an unrelated OPEN-Q hold: want an error, got tasks %q", got)
 	}
 	if _, _, err := ApproveEdits([]byte("# C\n```\nApproved-by:\n```\n"), nil, []byte("- [ ] 1.1 Hold: OPEN-Q proposal awaits owner approval\n"), "Ann", date); err == nil {
 		t.Error("proposal.md with only a fenced Approved-by: want an error")

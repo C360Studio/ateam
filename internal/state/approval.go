@@ -102,11 +102,9 @@ func approvalOf(proposal, design []byte) Approval {
 
 // staleSource names the file a stale approval's change touched and where: "uncommitted" when the working tree
 // differs from HEAD, else the sha7 of the last commit touching it. It runs git only on the stale path (D3).
-func staleSource(ctx context.Context, root, dir string, hasDesign bool) (file, at string) {
-	files := []string{"proposal.md"}
-	if hasDesign {
-		files = append(files, "design.md")
-	}
+// design.md is always inspected: a deleted design makes the approval stale too, and git reports an absent path.
+func staleSource(ctx context.Context, root, dir string) (file, at string) {
+	files := []string{"proposal.md", "design.md"}
 	for _, f := range files {
 		out, ok := gitOutput(ctx, root, "status", "--porcelain", "--", path.Join(dir, f))
 		if !ok {
@@ -139,9 +137,10 @@ func staleSource(ctx context.Context, root, dir string, hasDesign bool) (file, a
 const approvalHold = "Hold: OPEN-Q proposal awaits owner approval"
 
 // ApproveEdits fills proposal.md's first unfenced `Approved-by:` line in the bound form
-// `Approved-by: <name> (<YYYY-MM-DD>) sha256:<12 hex>` and removes the first OPEN-Q hold from tasks.md, the one
+// `Approved-by: <name> (<YYYY-MM-DD>) sha256:<12 hex>` and removes the approval hold from tasks.md, the one
 // owner edit that approves a change. It is pure so #181's handler can apply it to blobs it fetched; design is nil
-// when the change has no design.md. It errors when either line is missing.
+// when the change has no design.md. It errors when either line is missing; other OPEN-Q holds are owner
+// decisions and stay.
 func ApproveEdits(proposal, design, tasks []byte, name string, date time.Time) (newProposal, newTasks []byte, err error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -158,13 +157,13 @@ func ApproveEdits(proposal, design, tasks []byte, name string, date time.Time) (
 	}
 	holdLine := 0
 	for _, h := range holds {
-		if holdMarker(h.Text) == "OPEN-Q" {
+		if strings.HasPrefix(h.Text, approvalHold) {
 			holdLine = h.Line
 			break
 		}
 	}
 	if holdLine == 0 {
-		return nil, nil, fmt.Errorf("approve: tasks.md has no open OPEN-Q approval hold")
+		return nil, nil, fmt.Errorf("approve: tasks.md has no open %q line", approvalHold)
 	}
 
 	line := pLines[i]
@@ -181,13 +180,11 @@ func ApproveEdits(proposal, design, tasks []byte, name string, date time.Time) (
 	if strings.HasSuffix(raw, "\r") {
 		raw, cr = strings.TrimSuffix(raw, "\r"), "\r"
 	}
-	pos := strings.Index(raw, "Hold:")
-	rest := raw[pos:]
-	if after, ok := strings.CutPrefix(rest, approvalHold); ok {
-		rest = strings.TrimPrefix(after, ".") // the hold leading a task's text ends in a period
-	} else {
-		rest = "" // any other OPEN-Q hold runs to the end of its line
+	pos := strings.Index(raw, approvalHold)
+	if pos < 0 {
+		return nil, nil, fmt.Errorf("approve: tasks.md line %d does not carry %q verbatim", holdLine, approvalHold)
 	}
+	rest := strings.TrimPrefix(raw[pos+len(approvalHold):], ".") // the hold leading a task's text ends in a period
 	kept := strings.TrimRight(raw[:pos], " \t")
 	if r := strings.TrimSpace(rest); r != "" {
 		kept += " " + r
