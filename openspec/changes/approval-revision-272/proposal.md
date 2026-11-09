@@ -32,3 +32,5 @@ Approved-by: Coby Leuschke (2026-11-09) sha256:89b8f51879f4
 - Tests with attached spec references: the digest is unchanged by filling the `Approved-by:` line, removing the hold, moving the change to the archive, and CRLF line endings; it changes after an edit to `proposal.md`, an edit to `design.md`, and a `design.md` added later; `spec-check` exits 1 naming the file and commit for a committed edit and `uncommitted` for a working-tree edit; an unbound filled approval warns with exit 0; an archived unbound approval is not checked; queue labels and the status row; `ApproveEdits` round-trips through `ParseProposal`.
 - `task mutate:check` reports `detection` with the digest comparison inverted and with `design.md` dropped from the digest.
 - Every archived change validates unchanged; `task verify`, `ateam doctor --check`, and `ateam bench --selftest` are green; the change is archived before the PR is marked ready.
+
+Hand-verify probe.
