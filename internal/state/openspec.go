@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -43,6 +44,9 @@ type OpenSpecChange struct {
 	// when the header is empty, absent, or proposal.md is missing; the change's
 	// `Hold: OPEN-Q` task, not this field, is what keeps an unapproved change open.
 	ApprovedBy string `json:"approved_by,omitempty"`
+	// Approval says whether that header is bound to the current proposal.md and design.md (#272); it is the zero
+	// value when proposal.md is missing.
+	Approval Approval `json:"approval,omitzero"`
 	// proposalLines is the line count of proposal.md (0 when missing), for the one-page warning.
 	proposalLines int
 	// designLines is the line count of design.md (0 when missing), for the design length warning.
@@ -334,6 +338,7 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 		ch.Name = name
 		propRel := filepath.ToSlash(filepath.Join("openspec", "changes", name, "proposal.md"))
 		prop, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(propRel)))
+		hasProposal := err == nil
 		switch {
 		case err == nil:
 			ch.ApprovedBy, ch.proposalLines = ParseProposal(prop)
@@ -348,6 +353,13 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 			_, ch.designLines = ParseProposal(design)
 		case !os.IsNotExist(err):
 			return nil, fmt.Errorf("queue unavailable: cannot read %s", designRel)
+		}
+		if hasProposal {
+			ch.Approval = approvalOf(prop, design) // design is nil when design.md is absent
+			if ch.Approval.State == ApprovalStale {
+				// shortcut: no caller passes a context to the scan; staleSource's git calls carry their own 2s timeout.
+				ch.Approval.File, ch.Approval.At = staleSource(context.Background(), root, path.Dir(propRel), design != nil)
+			}
 		}
 		out = append(out, ch)
 	}
@@ -404,7 +416,10 @@ func FormatOpenSpecQueue(changes []OpenSpecChange) (string, bool) {
 	inFlightCount := 0
 	completedCount := 0
 	for _, ch := range changes {
-		fmt.Fprintf(&b, "  %-42s %d/%d\n", ch.Name, ch.CompletedTasks, ch.TotalTasks)
+		fmt.Fprintf(&b, "  %-42s %d/%d%s\n", ch.Name, ch.CompletedTasks, ch.TotalTasks, approvalLabel(ch.Approval))
+		if s := ch.Approval.State; s == ApprovalUnapproved || s == ApprovalStale {
+			fmt.Fprintf(&b, "      %-8s sha256:%s is the current digest to approve with\n", "digest", ch.Approval.Current)
+		}
 		if ch.IsCompletedUnarchived() {
 			completedCount++
 			fmt.Fprintf(&b, "      %-8s done, not archived — move openspec/changes/%s to openspec/changes/archive/<date>-%s\n\n", "done", ch.Name, ch.Name)
@@ -432,6 +447,23 @@ func FormatOpenSpecQueue(changes []OpenSpecChange) (string, bool) {
 	}
 	b.WriteString("\n")
 	return b.String(), foundAny
+}
+
+// approvalLabel is the queue's name-line suffix for an approval (D3); unapproved changes already show their hold.
+func approvalLabel(a Approval) string {
+	switch a.State {
+	case ApprovalApproved:
+		return "  approved sha256:" + a.Digest
+	case ApprovalStale:
+		at := "edited at " + a.At
+		if a.At == "uncommitted" {
+			at = "uncommitted"
+		}
+		return "  stale approval (" + a.File + " " + at + ")"
+	case ApprovalUnbound:
+		return "  approval unbound"
+	}
+	return ""
 }
 
 // CheckOpenSpec validates OpenSpec specs/changes and fails on any stray Hold: outside task blocks.
@@ -513,6 +545,26 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	}
 	if misplaced {
 		return out.String(), 1, fmt.Errorf("stray Hold: outside task block")
+	}
+	stale := false
+	for _, ch := range changes {
+		a := ch.Approval
+		switch a.State {
+		case ApprovalStale:
+			stale = true
+			changed := "last commit " + a.At
+			if a.At == "uncommitted" {
+				changed = "uncommitted"
+			}
+			fmt.Fprintf(&out, "openspec/changes/%s/proposal.md: approval sha256:%s is stale; %s changed since (%s); re-approve with sha256:%s\n",
+				ch.Name, a.Digest, a.File, changed, a.Current)
+		case ApprovalUnbound:
+			fmt.Fprintf(&out, "warning: openspec/changes/%s/proposal.md: approval unbound (Approved-by: has no sha256: digest); re-approve with sha256:%s\n",
+				ch.Name, a.Current)
+		}
+	}
+	if stale {
+		return out.String(), 1, fmt.Errorf("stale approval")
 	}
 	for _, ch := range changes {
 		if ch.proposalLines > maxProposalLines {

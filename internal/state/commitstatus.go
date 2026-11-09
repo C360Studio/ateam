@@ -79,6 +79,7 @@ type touchedChange struct {
 	Proposal   string // repository-relative proposal.md path
 	ApprovedBy string
 	OpenQ      bool
+	Stale      bool // ApprovedBy carries a digest that no longer matches proposal.md and design.md at the head (#272)
 }
 
 // statusInputs is what the D3 chooser decides from; every field is already known locally or from one sync.
@@ -106,9 +107,9 @@ func chooseStatuses(in statusInputs) []CommitStatus {
 	}
 
 	if len(in.Changes) > 0 {
-		var waiting, approved []string
+		var waiting, stale, approved []string
 		first := in.Changes[0]
-		var firstWaiting *touchedChange
+		var firstWaiting, firstStale *touchedChange
 		for i, ch := range in.Changes {
 			if strings.TrimSpace(ch.ApprovedBy) == "" || ch.OpenQ {
 				waiting = append(waiting, ch.ID)
@@ -117,13 +118,26 @@ func chooseStatuses(in statusInputs) []CommitStatus {
 				}
 				continue
 			}
-			approved = append(approved, "approved by "+strings.TrimSpace(ch.ApprovedBy)+": "+ch.ID)
+			if ch.Stale {
+				stale = append(stale, ch.ID)
+				if firstStale == nil {
+					firstStale = &in.Changes[i]
+				}
+				continue
+			}
+			name, _ := parseApproval(ch.ApprovedBy)
+			approved = append(approved, "approved by "+name+": "+ch.ID)
 		}
-		if firstWaiting != nil {
+		switch {
+		case firstWaiting != nil:
 			out = append(out, CommitStatus{Context: StatusContextProposal, State: "pending",
 				Description: "awaiting owner approval (OPEN-Q): " + strings.Join(waiting, ", "),
 				TargetURL:   link(proposalURL(in.Provider, in.PRURL, in.HeadSHA, firstWaiting.Proposal))})
-		} else {
+		case firstStale != nil:
+			out = append(out, CommitStatus{Context: StatusContextProposal, State: "pending",
+				Description: "approval stale: " + strings.Join(stale, ", "),
+				TargetURL:   link(proposalURL(in.Provider, in.PRURL, in.HeadSHA, firstStale.Proposal))})
+		default:
 			out = append(out, CommitStatus{Context: StatusContextProposal, State: "success",
 				Description: strings.Join(approved, "; "),
 				TargetURL:   link(proposalURL(in.Provider, in.PRURL, in.HeadSHA, first.Proposal))})
@@ -257,12 +271,19 @@ func touchedChanges(ctx context.Context, dir, baseRef, head string) []touchedCha
 	for _, d := range changeDirs(strings.Split(strings.TrimSpace(string(names)), "\n")) {
 		proposal, hasProposal := gitOutput(ctx, dir, "show", head+":"+d+"/proposal.md")
 		tasks, hasTasks := gitOutput(ctx, dir, "show", head+":"+d+"/tasks.md")
+		design, hasDesign := gitOutput(ctx, dir, "show", head+":"+d+"/design.md")
+		if !hasDesign {
+			design = nil
+		} else if design == nil {
+			design = []byte{} // an empty design.md is still a design.md
+		}
 		if !hasProposal && !hasTasks {
 			continue // the PR removed this change
 		}
 		ch := touchedChange{ID: path.Base(d), Proposal: d + "/proposal.md"}
 		if hasProposal {
 			ch.ApprovedBy, _ = ParseProposal(proposal)
+			ch.Stale = approvalOf(proposal, design).State == ApprovalStale
 		}
 		if hasTasks {
 			if parsed, _, err := ParseTasksMarkdown(d+"/tasks.md", tasks); err == nil {
