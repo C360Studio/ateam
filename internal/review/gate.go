@@ -392,7 +392,7 @@ func (g *gateRun) review(ctx context.Context) (bool, error) {
 	}
 	switch {
 	case g.findings == 0:
-		g.say("the review check passes; reviewing agent: %s (record at %s)", lines.reviewer, recSHA)
+		g.say("the review check passes; reviewing agent: %s (record at %s); the reviewer and models are self-reported, the comment author is not checked", lines.reviewer, recSHA)
 	case pull.Draft:
 		g.say("pull request #%d is a draft: a review finding does not fail a draft (%d above)", g.pr, g.findings)
 	default:
@@ -707,12 +707,14 @@ func (g *gateRun) flakes(ctx context.Context, failed bool) error {
 }
 
 // gateIsDoc reports a document name: it ends in .md, or starts with openspec/
-// and ends in .yml, .yaml, or .json, and is not under .claude/agents/ or
-// .agents/contracts/. Every other name is code.
+// and ends in .yml, .yaml, or .json, and is not under .claude/agents/,
+// .agents/contracts/, or .agents/skills/review-pr/. Every other name is code:
+// the reviewer's instructions need a review like the contract does (#325).
 func gateIsDoc(name string) bool {
 	doc := strings.HasSuffix(name, ".md") ||
 		(strings.HasPrefix(name, "openspec/") && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".json")))
-	return doc && !strings.HasPrefix(name, ".claude/agents/") && !strings.HasPrefix(name, ".agents/contracts/")
+	return doc && !strings.HasPrefix(name, ".claude/agents/") && !strings.HasPrefix(name, ".agents/contracts/") &&
+		!strings.HasPrefix(name, ".agents/skills/review-pr/")
 }
 
 // gateNames lists every name and previous name once, sorted.
