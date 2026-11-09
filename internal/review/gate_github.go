@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -539,4 +540,51 @@ func (s ghSource) fileAt(ctx context.Context, path, ref string) ([]byte, error) 
 		return nil, ghShape(name, args, []byte("content is not base64 file content"))
 	}
 	return b, nil
+}
+
+// headPassed reads the check runs named gateMergeCheck at sha; the latest by
+// id decides. A page whose total disagrees with the runs read is unavailable.
+func (s ghSource) headPassed(ctx context.Context, sha string) (bool, error) {
+	name := "the merge check runs at " + sha
+	args := []string{"api", "--paginate", "repos/{owner}/{repo}/commits/" + sha + "/check-runs?check_name=" + url.PathEscape(gateMergeCheck) + "&per_page=100"}
+	answer, err := s.gh(ctx, name, args...)
+	if err != nil {
+		return false, err
+	}
+	values, err := ghValues(answer)
+	if err != nil {
+		return false, ghShape(name, args, answer)
+	}
+	type run struct {
+		ID         *int64  `json:"id"`
+		Name       *string `json:"name"`
+		Status     *string `json:"status"`
+		Conclusion *string `json:"conclusion"`
+	}
+	var runs []run
+	total := -1
+	for _, v := range values {
+		var page struct {
+			Total *int  `json:"total_count"`
+			Runs  []run `json:"check_runs"`
+		}
+		if !isJSONObject(v) || json.Unmarshal(v, &page) != nil || page.Total == nil || page.Runs == nil {
+			return false, ghShape(name, args, answer)
+		}
+		total = *page.Total
+		runs = append(runs, page.Runs...)
+	}
+	if total != len(runs) {
+		return false, ghShape(name, args, answer)
+	}
+	var latest *run
+	for i, r := range runs {
+		if r.ID == nil || r.Name == nil || r.Status == nil {
+			return false, ghShape(name, args, answer)
+		}
+		if *r.Name == gateMergeCheck && (latest == nil || *r.ID > *latest.ID) {
+			latest = &runs[i]
+		}
+	}
+	return latest != nil && *latest.Status == "completed" && latest.Conclusion != nil && *latest.Conclusion == "success", nil
 }

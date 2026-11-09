@@ -1,6 +1,6 @@
 # Change Proposal: `awaiting-probe-359`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-09) sha256:4a46b57f0691
 
 ## Why
 

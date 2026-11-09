@@ -2,7 +2,7 @@
 
 ### Requirement: Merge check runs on pull-request state events
 
-`Merge check` SHALL run in its own workflow (`.github/workflows/merge-check.yml` and its Gitea twin), separate from `CI`, on the pull-request events that change its inputs, and SHALL be a required context of its own beside `Required` and `Gate files`. `Required` SHALL need only `Verify`. While a code pull request awaits its review (no `reviewed-by:` line, no review record comment), the job SHALL be skipped under a name that is not a required context, decided by a probe job built from the base.
+`Merge check` SHALL run in its own workflow (`.github/workflows/merge-check.yml` and its Gitea twin), separate from `CI`, on the pull-request events that change its inputs, and SHALL be a required context of its own beside `Required` and `Gate files`. `Required` SHALL need only `Verify`. While a code pull request awaits its review (no `reviewed-by:` line, no passing `Merge check` at its head), the job SHALL be skipped under a name that is not a required context, decided by a probe job built from the base.
 
 #### Scenario: The reviewer's description edit re-runs the merge check
 

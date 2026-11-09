@@ -21,11 +21,11 @@ permissions:
   contents: read
 
 jobs:
-  # The awaiting probe (#262): reads the pull request through the API with the
-  # ateam built from the base commit, as the merge check does, and answers
+  # The awaiting probe (#262, #359): reads the pull request through the API with
+  # the ateam built from the base commit, as the merge check does, and answers
   # awaiting=true only for a code pull request with no reviewed-by: line and no
-  # review record comment. It reads the forge when it runs, so a rerun sees the
-  # description and records of that moment.
+  # successful Merge check already at its head, the one pass a skip could leave
+  # standing. It reads the forge when it runs, so a rerun sees that moment.
   awaiting:
     name: Merge check probe
     if: ${{ !github.event.pull_request.draft }}
@@ -35,6 +35,8 @@ jobs:
       contents: read
       issues: read
       pull-requests: read
+      # The head's Merge check check run (#359).
+      checks: read
     outputs:
       awaiting: ${{ steps.probe.outputs.awaiting }}
     steps:

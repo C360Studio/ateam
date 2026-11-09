@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by:` with the digest `spec:queue` prints and removing the `OPEN-Q` line in the same edit, ruling on design Open Questions 1–3 (#359). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by:` with the digest `spec:queue` prints and removing the `OPEN-Q` line in the same edit, ruling on design Open Questions 1–3 (#359). Evidence: the owner ruled in Enjoy on 2026-11-09: OQ1 D1 A (standing pass at the head); OQ2 check the job token on the Gitea test repository, and if it cannot read commit statuses keep today's rule on Gitea; OQ3 live acceptance on the next code PR after merge. Claude wrote the header at those rulings.
 
 ## 2. Implementation
 
