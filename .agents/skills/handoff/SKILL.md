@@ -38,3 +38,5 @@ Checks to run: <Reconciliation commands and remaining validation>
 End by instructing the next session to run `/pickup` (`ateam state pickup`).
 
 At a code PR's ready-for-review under the review policy's `review_launch: manual` (the default), this handoff is the stop: name the PR and the reviewer runs `ateam review request <n>` prints in `Done when`, so a person or a scheduled workflow can start the reviewer.
+
+**T3 Code card.** Only when the `html_render` tool is available to you and `printenv T3CODE_THREAD_ID` prints a non-empty value: after the report above, read [t3-card.html](t3-card.html), replace each double-brace placeholder with a fact read this turn (escape `& < > " '` first, write `not checked` for anything you did not read, and put the handoff goal and done-when only in the Agent-written region), then call `html_render` with that HTML, the title `Handoff · <branch>`, and height 560. On any other host, skip this step.

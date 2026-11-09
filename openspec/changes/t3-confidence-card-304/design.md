@@ -27,9 +27,9 @@ The goal is one honest card per boundary, only in T3, with nothing extra for oth
 
 ### D1. Where the card HTML lives
 
-- **A (recommended): one shared file, `.agents/skills/handoff/t3-card.html`.** Both skills name it in one sentence and read it only under the T3 condition. Each skill grows by about 400 bytes instead of about 3 KB, so the cost on non-T3 hosts is that sentence. `ateam init` writes the file and doctor parity checks it like any other template file. It forecloses nothing; a later `ateam state card` (Go) could render the same file.
+- **A (recommended): one shared file, `.agents/skills/handoff/t3-card.html`.** Both skills name it in one sentence and read it only under the T3 condition. Each skill grows by about 400 bytes instead of about 3 KB, so the cost on non-T3 hosts is that sentence. `ateam init` writes the file; doctor does not require it (corrected at implementation). It forecloses nothing; a later `ateam state card` (Go) could render the same file.
 - **B: inline the HTML in both SKILL.md files**, as the issue first sketched. Every pickup and handoff on every host would then read about 3 KB × 2 of HTML it never uses. That works against #200, and it is two copies to keep in sync.
-- **Adopter seam:** an adopter who never uses T3 sees one extra conditional sentence per skill and one inert file. If they delete the file, doctor reports parity drift, the same as for any other template file.
+- **Adopter seam:** an adopter who never uses T3 sees one extra conditional sentence per skill and one inert file. If they delete the file, the T3 card cannot render; doctor does not check it, the same as other non-required template files (corrected at implementation: the approved draft claimed doctor parity covered it).
 
 ### D2. The trigger
 

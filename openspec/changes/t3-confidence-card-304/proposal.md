@@ -1,6 +1,6 @@
 # Change Proposal: `t3-confidence-card-304`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-09)
 
 ## Why
 
@@ -10,7 +10,7 @@ In T3 Code, someone following a thread on web or mobile sees only the agent's ma
 
 - The canonical pickup and handoff skills gain one short paragraph. In a T3 thread, after the text report, the agent renders a five-row card with `html_render`. The rows are Proposal, Claim, Gates, Review and Merge, filled from facts read this turn. A fact the agent did not check shows as `not checked`. Agent-written handoff text sits in a visibly labelled region.
 - One shared card template, `.agents/skills/handoff/t3-card.html`, holds the layout: inline CSS, no script, no remote URL, under 8 KB, and legible at 360 px. A skill reads it only in a T3 thread, so other hosts pay no extra instruction text.
-- The adopter templates in `internal/bootstrap/templates.go` carry the same paragraph and file, and `ateam doctor` parity covers the file.
+- The adopter templates in `internal/bootstrap/templates.go` carry the same paragraph and file, and a bootstrap test keeps the repository's copy equal to the template (corrected at implementation: `ateam doctor` does not check the file).
 - One spec Requirement covers the trigger, the five rows, the honesty rule, and the template limits.
 
 ## Track
