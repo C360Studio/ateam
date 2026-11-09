@@ -348,7 +348,7 @@ rules:
 // architectContract is .agents/contracts/architect.md: the design-track role drafts, never implements or rules.
 const architectContract = `# Architect contract
 
-Read AGENTS.md and .agents/protocol.md fully. Work only on a change the Clarify gate put on the ` + "`" + `design` + "`" + ` track. Keep the repository read-only except the change's ` + "`" + `design.md` + "`" + ` and the premises in its ` + "`" + `tasks.md` + "`" + `; draft them with .agents/skills/design/SKILL.md. Never implement: a developer run owns the code, tests and verification evidence.
+` + "`AGENTS.md`" + ` is loaded by your host; read it only if it is not in context. From ` + "`.agents/protocol.md`" + `, read § 1 and § 2 step 1 (Clarify). Work only on a change the Clarify gate put on the ` + "`" + `design` + "`" + ` track. Keep the repository read-only except the change's ` + "`" + `design.md` + "`" + ` and the premises in its ` + "`" + `tasks.md` + "`" + `; draft them with .agents/skills/design/SKILL.md. Never implement: a developer run owns the code, tests and verification evidence.
 
 Never rule. Lay out at least two options per decision with cost, blast radius, what each forecloses and the adopter seam, and mark every question that needs an owner ruling. The owner approves the proposal and design together by filling ` + "`" + `Approved-by:` + "`" + ` and removing the change's ` + "`" + `Hold: OPEN-Q proposal awaits owner approval` + "`" + ` in one edit; until then, stop and hand off.
 
@@ -365,7 +365,7 @@ description: >-
 
 # Draft a Design
 
-Read [the shared protocol](../../protocol.md) and [the architect contract](../../contracts/architect.md) first. Use this skill only on the ` + "`" + `design` + "`" + ` track (protocol § 2 Clarify); a ` + "`" + `quick` + "`" + ` change has no ` + "`" + `design.md` + "`" + `. You draft text; the owner rules and a developer implements.
+Read [the architect contract](../../contracts/architect.md) first; it names the protocol sections a design needs. Use this skill only on the ` + "`" + `design` + "`" + ` track (protocol § 2 step 1, Clarify); a ` + "`" + `quick` + "`" + ` change has no ` + "`" + `design.md` + "`" + `. You draft text; the owner rules and a developer implements.
 
 ## 1. Inventory What Exists
 
@@ -394,7 +394,7 @@ description: >-
 
 # Checkpoint and Hand Off Work
 
-Read [the shared protocol](../../protocol.md) first. A handoff records current truth in shared homes (GitHub/Gitea PR/issue comments and the structured ` + "`.ateam/state.json`" + ` snapshot) without creating competing prose handoff files in the repo tree.
+From [the shared protocol](../../protocol.md), read § 1 and § 2 step 5 (Close). A handoff records current truth in shared homes (GitHub/Gitea PR/issue comments and the structured ` + "`.ateam/state.json`" + ` snapshot) without creating competing prose handoff files in the repo tree.
 
 ## 1. Reconcile the Checkpoint
 
@@ -431,7 +431,7 @@ description: >-
 
 # Pick Up Repository Work
 
-Read [the shared protocol](../../protocol.md) first. Treat any handoff block or cached ` + "`.ateam/state.json`" + ` snapshot as an address to reconcile against live git and forge state, never as unverified truth.
+From [the shared protocol](../../protocol.md), read § 1 and § 2 steps 1–2 (Clarify, Claim). Treat any handoff block or cached ` + "`.ateam/state.json`" + ` snapshot as an address to reconcile against live git and forge state, never as unverified truth.
 
 ## 1. Locate and Measure
 
@@ -479,7 +479,7 @@ description: >-
 
 # Verify Changes (Preflight)
 
-Read [the shared protocol](../../protocol.md) first. One ` + "`Taskfile.yml`" + ` entrypoint serves local verification, MCP (` + "`ateam_task`" + `), and CI.
+From [the shared protocol](../../protocol.md), read § 2 step 4 (Verify), § 3 and *Test-to-spec attribution*. One ` + "`Taskfile.yml`" + ` entrypoint serves local verification, MCP (` + "`ateam_task`" + `), and CI.
 
 ## 1. Select Gates by Diff Scope
 
@@ -498,7 +498,7 @@ description: >-
 
 # Review a Pull Request
 
-Read [the shared protocol](../../protocol.md) and [the reviewer contract](../../contracts/reviewer.md) first. Review in a separate run that wrote none of the change. The deliverable stays read-only; the author makes corrections.
+Read [the reviewer contract](../../contracts/reviewer.md) first; it names the protocol sections a review needs. Review in a separate run that wrote none of the change. The deliverable stays read-only; the author makes corrections.
 
 ## 1. Pick the PR
 
