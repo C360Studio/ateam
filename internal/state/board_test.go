@@ -14,6 +14,8 @@ import (
 func FuzzBoardViewPaging(f *testing.F) {
 	f.Add([]byte{6, 1, 0, 1, 1, 3, 0, 3, 1, 0, 0, 2, 1}, uint8(0), uint8(2))
 	f.Add([]byte{4, 2, 1, 2, 0, 2, 1, 2, 0, 1, 2, 3}, uint8(1), uint8(1))
+	// open #3, done #2, open #1 under scope open and limit 1: the continuation page must skip the done card.
+	f.Add([]byte{3, 0, 3, 1, 2, 0, 1, 0, 0}, uint8(0), uint8(1))
 	f.Add([]byte{0}, uint8(2), uint8(0))
 	f.Add([]byte{11, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 0, 0, 1, 1, 7, 3, 5}, uint8(2), uint8(3))
 
@@ -63,45 +65,67 @@ func FuzzBoardViewPaging(f *testing.F) {
 			rank[c.ID] = i
 		}
 
-		first, err := st.BoardView(BoardQuery{Scope: scope, Limit: limit})
+		// expectPage is the reference model for one page: cards matching scope now, strictly after the
+		// last returned card in the fixed order, capped at limit.
+		expectPage := func(lastRank int) (ids []string, total, done int, complete bool) {
+			var rest []string
+			for _, c := range order {
+				col := ""
+				for _, cur := range st.Cards {
+					if cur.ID == c.ID {
+						col = cur.Column
+					}
+				}
+				if col == "done" {
+					done++
+				}
+				if !matches(col) {
+					continue
+				}
+				total++
+				if rank[c.ID] > lastRank {
+					rest = append(rest, c.ID)
+				}
+			}
+			if limit > 0 && len(rest) > limit {
+				return rest[:limit], total, done, false
+			}
+			return rest, total, done, true
+		}
+		pageIDs := func(s BoardSnapshot) []string {
+			var out []string
+			for _, c := range s.Cards {
+				out = append(out, c.ID)
+			}
+			return out
+		}
+
+		page, err := st.BoardView(BoardQuery{Scope: scope, Limit: limit})
 		if err != nil {
 			t.Fatalf("BoardView: %v", err)
 		}
-		wantTotal, wantDone := 0, 0
-		for _, c := range st.Cards {
-			if matches(c.Column) {
-				wantTotal++
-			}
-			if c.Column == "done" {
-				wantDone++
-			}
-		}
-		if first.Total != wantTotal || first.Counts["done"] != wantDone || first.Scope != scope {
-			t.Fatalf("first page scope=%q total=%d counts.done=%d, want %q %d %d", first.Scope, first.Total, first.Counts["done"], scope, wantTotal, wantDone)
-		}
-
 		seen := map[string]bool{}
 		last := -1
-		page := first
 		for pages := 0; ; pages++ {
 			if pages > n+1 {
 				t.Fatalf("traversal did not finish after %d pages", pages)
 			}
-			if limit > 0 && len(page.Cards) > limit {
-				t.Fatalf("page holds %d cards, limit %d", len(page.Cards), limit)
+			wantIDs, wantTotal, wantDone, wantComplete := expectPage(last)
+			if got := pageIDs(page); !slices.Equal(got, wantIDs) {
+				t.Fatalf("page %d scope=%s limit=%d = %v, reference model %v", pages, scope, limit, got, wantIDs)
+			}
+			if page.Scope != scope || page.Total != wantTotal || page.Counts["done"] != wantDone || page.Complete != wantComplete {
+				t.Fatalf("page %d scope=%q total=%d counts.done=%d complete=%v, want %q %d %d %v", pages, page.Scope, page.Total, page.Counts["done"], page.Complete, scope, wantTotal, wantDone, wantComplete)
+			}
+			if page.Complete != (page.NextAfter == "") {
+				t.Fatalf("complete=%v with next_after=%q", page.Complete, page.NextAfter)
 			}
 			for _, c := range page.Cards {
 				if seen[c.ID] {
 					t.Fatalf("card %s returned twice", c.ID)
 				}
 				seen[c.ID] = true
-				if rank[c.ID] <= last {
-					t.Fatalf("card %s out of order", c.ID)
-				}
 				last = rank[c.ID]
-			}
-			if page.Complete != (page.NextAfter == "") {
-				t.Fatalf("complete=%v with next_after=%q", page.Complete, page.NextAfter)
 			}
 			if page.Complete {
 				break
@@ -117,9 +141,10 @@ func FuzzBoardViewPaging(f *testing.F) {
 					throughout[st.Cards[i].ID] = false
 				}
 			}
-			page, err = st.BoardView(BoardQuery{Scope: scope, Limit: limit, After: page.NextAfter})
+			cursor := page.NextAfter
+			page, err = st.BoardView(BoardQuery{Scope: scope, Limit: limit, After: cursor})
 			if err != nil {
-				t.Fatalf("BoardView after %q: %v", page.NextAfter, err)
+				t.Fatalf("BoardView after %q: %v", cursor, err)
 			}
 		}
 		for id, ok := range throughout {
@@ -161,6 +186,17 @@ func TestBoardViewQuery(t *testing.T) {
 	done, _ = st.BoardView(BoardQuery{Scope: BoardScopeDone, Limit: 1, After: done.NextAfter})
 	if ids(done) != "GH-1" || !done.Complete {
 		t.Fatalf("done page 2 = %q complete=%v", ids(done), done.Complete)
+	}
+	// A continuation page must still apply the scope: open #3, done #2, open #1 pages to #3 then #1.
+	mixed := &State{Cards: []BoardCard{
+		{ID: "GH-1", Number: 1, Column: "backlog"},
+		{ID: "GH-2", Number: 2, Column: "done"},
+		{ID: "GH-3", Number: 3, Column: "backlog"},
+	}}
+	p1, _ := mixed.BoardView(BoardQuery{Scope: BoardScopeOpen, Limit: 1})
+	p2, _ := mixed.BoardView(BoardQuery{Scope: BoardScopeOpen, Limit: 1, After: p1.NextAfter})
+	if ids(p1) != "GH-3" || ids(p2) != "GH-1" || !p2.Complete {
+		t.Fatalf("open pages = %q then %q complete=%v, want GH-3 then GH-1 complete", ids(p1), ids(p2), p2.Complete)
 	}
 	empty, _ := (&State{}).BoardView(BoardQuery{Scope: BoardScopeOpen})
 	if empty.Cards == nil || !empty.Complete {
