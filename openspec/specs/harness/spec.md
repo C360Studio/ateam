@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks across Claude Code, Codex CLI, and Gemini CLI, the 2-tool low-tax MCP server (`ateam_state`, `ateam_task`), OpenSpec queue and `Hold:` validation (`spec:queue` and `spec:check`), dual-forge state synchronization (**GitHub** and **Gitea**), `// shortcut:` debt scanning, and the agentic benchmark suite (`ateam bench`).
-
 ## Requirements
-
 ### Requirement: Lifecycle hook normalization under 10ms
 
 `ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 10ms using cached `.ateam/state.json`.
@@ -819,7 +817,7 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 
 ### Requirement: Merge check runs on pull-request state events
 
-`Merge check` SHALL run in its own workflow (`.github/workflows/merge-check.yml` and its Gitea twin), separate from `CI`, on the pull-request events that change its inputs, and SHALL be a required context of its own beside `Required` and `Gate files`. `Required` SHALL need only `Verify`. While a code pull request awaits its review (no `reviewed-by:` line, no review record comment), the job SHALL be skipped under a name that is not a required context, decided by a probe job built from the base.
+`Merge check` SHALL run in its own workflow (`.github/workflows/merge-check.yml` and its Gitea twin), separate from `CI`, on the pull-request events that change its inputs, and SHALL be a required context of its own beside `Required` and `Gate files`. `Required` SHALL need only `Verify`. While a code pull request awaits its review (no `reviewed-by:` line, no passing `Merge check` at its head), the job SHALL be skipped under a name that is not a required context, decided by a probe job built from the base.
 
 #### Scenario: The reviewer's description edit re-runs the merge check
 
@@ -843,18 +841,18 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 
 #### Scenario: A ready pull request awaiting its review record carries no failed Merge check
 
-- **WHEN** a ready code pull request is opened, marked ready, pushed, or edited, its description has no `reviewed-by:` line, and it has no review record comment
+- **WHEN** a ready code pull request is opened, marked ready, pushed, or edited, its description has no `reviewed-by:` line, and no successful `Merge check` stands at its head, whether or not a review record comment exists at that head or an earlier one
 - **THEN** the merge-check job is skipped under a name other than `Merge check` (on GitHub, the raw `name:` expression, because GitHub does not evaluate a skipped job's `name:`), no failed `Merge check` is posted, and the absent required context keeps the pull request from merging
 
 #### Scenario: The probe reads the forge and fails closed
 
 - **WHEN** the `awaiting` job runs `ateam review gate --awaiting` for a ready pull request
-- **THEN** it answers `awaiting=true` only for a code pull request with no `reviewed-by:` line and no review record comment by any agent, reading the forge when it runs so a rerun sees the current state; a documents-only pull request or one with a line or any record is judged in full, and a failed probe leaves no answer, so `Merge check` runs in full
+- **THEN** it answers `awaiting=true` only for a code pull request with no `reviewed-by:` line and no successful `Merge check` at its head (GitHub check run, Gitea commit status, matched by exact name), reading the forge when it runs so a rerun sees the current state; a documents-only pull request, one with a line, or one with a standing pass at its head is judged in full, and a failed probe leaves no answer, so `Merge check` runs in full
 
 #### Scenario: Removing the line after an approval fails instead of keeping the pass
 
 - **WHEN** a passing `Merge check` stands at a head and the `reviewed-by:` line is then removed from the description without a push
-- **THEN** the `edited` event runs `Merge check` in full, because a review record exists, and it fails on the missing line
+- **THEN** the `edited` event runs `Merge check` in full, because a successful `Merge check` stands at the head, and it fails on the missing line
 
 #### Scenario: A documents-only pull request is judged without a review
 
@@ -1228,3 +1226,4 @@ Canonical skills, role contracts and their `ateam init` templates SHALL name the
 
 - **WHEN** an agent starts a pickup, handoff, preflight, design or review workflow
 - **THEN** its skill and contract direct it to named sections, not to the whole protocol
+

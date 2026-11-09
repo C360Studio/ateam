@@ -11,4 +11,4 @@
 
 ## 3. Verify
 
-- [ ] 3.1 `task verify` green on a clean tree; `ateam doctor --check` and `ateam bench --selftest` exit 0; owner `gate-change-approved` at the final head; change archived before ready (#359).
+- [x] 3.1 `task verify` green on a clean tree; `ateam doctor --check` and `ateam bench --selftest` exit 0; owner `gate-change-approved` at the final head; change archived before ready (#359). Evidence: `task verify` exited 0 on a clean tree at the commit before the archive; `ateam doctor --check` and `ateam bench --selftest` exited 0; the change is archived in its own commit. The owner's `gate-change-approved` label and comment land at the final head after review; `task merge:check` and `Gate files` enforce them.
