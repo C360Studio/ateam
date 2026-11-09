@@ -56,8 +56,8 @@ type GateOptions struct {
 	Checks []string
 	// Awaiting runs only the awaiting probe (#262) instead of the merge check:
 	// it prints awaiting=true when the pull request is a code pull request
-	// with no reviewed-by: line and no review record comment, else
-	// awaiting=false, and exits 0 either way.
+	// with no reviewed-by: line and no successful Merge check at its head,
+	// else awaiting=false, and exits 0 either way.
 	Awaiting bool
 }
 
@@ -67,6 +67,10 @@ const (
 	gatePolicy    = ".agents/review-policy.json"
 	gateHeading   = "### Independent Cross-Agent Review"
 	giteaRequired = "CI / Required (pull_request)"
+	// The merge-check job's result as each forge names it (merge-check.yml):
+	// a GitHub check run, a Gitea commit status context.
+	gateMergeCheck    = "Merge check"
+	giteaMergeContext = "Merge check / Merge check (pull_request)"
 )
 
 // gateExit ends the run with its own status and line (a FAIL or a usage stop).
@@ -130,6 +134,9 @@ type gateSource interface {
 	closingRefs(ctx context.Context, pr int, open []gateIssue) ([]string, error)
 	// fileAt returns path's content at ref, or nil when the forge answers 404.
 	fileAt(ctx context.Context, path, ref string) ([]byte, error)
+	// headPassed reports whether the latest merge-check result at sha, matched
+	// by exact name, succeeded; none, pending, or failed is false.
+	headPassed(ctx context.Context, sha string) (bool, error)
 }
 
 // Gate runs the merge check against cfg's forge and returns the exit status:
@@ -312,12 +319,13 @@ func (g *gateRun) kind() (bool, error) {
 	return false, nil
 }
 
-// awaiting reports a pull request not yet judgeable (#262): a code pull
-// request whose description has no reviewed-by: line and which has no review
-// record comment by any agent. Anything else, a documents-only pull request,
-// a line, or any record, approving or not, is judged by the full merge check,
-// so a line removed after an approval at the same head fails there instead of
-// leaving the earlier pass standing.
+// awaiting reports a pull request not yet judgeable (#262, #359): a code pull
+// request whose description has no reviewed-by: line and at whose head no
+// successful Merge check stands. A review record does not decide: "record
+// posted, line not yet written" and "line removed after an approval at the same
+// head" are the same pull-request state, and only a standing pass tells them
+// apart. A skipped job is renamed and never replaces that pass, so a standing
+// pass is judged by the full merge check, which fails on the missing line.
 func (g *gateRun) awaiting(ctx context.Context) (bool, error) {
 	pull, err := g.src.pullRequest(ctx, g.pr)
 	if err != nil {
@@ -340,19 +348,15 @@ func (g *gateRun) awaiting(ctx context.Context) (bool, error) {
 			return false, nil
 		}
 	}
-	comments, err := g.src.comments(ctx, g.pr)
+	passed, err := g.src.headPassed(ctx, pull.Head)
 	if err != nil {
 		return false, err
 	}
-	for _, c := range comments {
-		for _, agent := range []string{"claude", "codex", "gemini"} {
-			if gateIsRecord(c, agent) {
-				g.say("a review record comment exists; the merge check judges it")
-				return false, nil
-			}
-		}
+	if passed {
+		g.say("a successful merge check stands at head %s; the merge check judges it", pull.Head)
+		return false, nil
 	}
-	g.say("code pull request #%d has no reviewed-by: line and no review record comment; awaiting its review", g.pr)
+	g.say("code pull request #%d has no reviewed-by: line and no successful merge check at its head; awaiting its review", g.pr)
 	return true, nil
 }
 

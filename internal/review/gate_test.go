@@ -43,6 +43,8 @@ type gateWorld struct {
 	giteaOldestFirst bool
 	// giteaStatus answers a Gitea path with an HTTP status instead.
 	giteaStatus map[string]int
+	// giteaNull answers these Gitea list paths with the JSON literal null.
+	giteaNull []string
 	// giteaTotalSkew adds to the X-Total-Count Gitea sends for a list path.
 	giteaTotalSkew map[string]int
 	// ghNull answers these gh argv with the JSON literal null.
@@ -53,6 +55,15 @@ type gateWorld struct {
 	proposalsMissing []string
 	// awaiting runs the awaiting probe (GateOptions.Awaiting, #262) instead.
 	awaiting bool
+	// headChecks are job results at head: GitHub check runs, Gitea commit
+	// statuses with the context "Merge check / <name> (pull_request)".
+	headChecks []worldCheck
+}
+
+// worldCheck is one job result; an empty conclusion is still running.
+type worldCheck struct {
+	id               int
+	name, conclusion string
 }
 
 type worldCommit struct {
@@ -180,6 +191,15 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 		labels = append(labels, map[string]any{"name": l})
 	}
 	answers["label list --json name --limit 100"] = mustJSON(t, labels)
+	runs := []map[string]any{}
+	for _, c := range w.headChecks {
+		status, conclusion := "completed", any(c.conclusion)
+		if c.conclusion == "" {
+			status, conclusion = "in_progress", nil
+		}
+		runs = append(runs, map[string]any{"id": c.id, "name": c.name, "status": status, "conclusion": conclusion})
+	}
+	answers["api --paginate repos/{owner}/{repo}/commits/"+head+"/check-runs?check_name=Merge%20check&per_page=100"] = mustJSON(t, map[string]any{"total_count": len(runs), "check_runs": runs})
 	issues, refs := []map[string]any{}, []map[string]any{}
 	for _, is := range w.issues {
 		if is.flake && !is.pr {
@@ -300,6 +320,15 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 	for p, e := range timelines {
 		lists[p] = e
 	}
+	statuses := []any{}
+	for _, c := range w.headChecks {
+		state := c.conclusion
+		if state == "" {
+			state = "pending"
+		}
+		statuses = append(statuses, map[string]any{"id": c.id, "context": "Merge check / " + c.name + " (pull_request)", "status": state})
+	}
+	lists["/commits/"+w.commits[len(w.commits)-1].sha+"/statuses"] = statuses
 	ruleName := "main"
 	if w.giteaRuleHidden {
 		ruleName = ""
@@ -342,6 +371,11 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 		items, ok := lists[path]
 		if !ok {
 			http.NotFound(rw, r)
+			return
+		}
+		if slices.Contains(w.giteaNull, path) {
+			rw.Header().Set("X-Total-Count", strconv.Itoa(len(items)))
+			fmt.Fprint(rw, "null")
 			return
 		}
 		if path == fmt.Sprintf("/pulls/%d/commits", gatePR) && (r.URL.Query().Get("files") != "false" || r.URL.Query().Get("verification") != "false") {
@@ -394,10 +428,12 @@ type forgeWant struct {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Merge check runs on pull-request state events
 func TestGateAwaiting(t *testing.T) {
-	// #262: the probe answers awaiting=true only for a code pull request with no
-	// reviewed-by: line and no review record by any agent, the same on both forges.
+	// #262, #359: the probe answers awaiting=true for a code pull request with
+	// no reviewed-by: line unless a successful Merge check stands at its head,
+	// the same on both forges; a review record no longer decides.
 	approve := "reviewed-by: codex\nReviewed at " + shaA[:7] + "\nVerdict: APPROVE"
 	reject := "reviewed-by: codex\nReviewed at " + shaA[:7] + "\nVerdict: REQUEST CHANGES"
+	pass := []worldCheck{{1, "Merge check", "success"}}
 	for _, tc := range []struct {
 		name  string
 		world func(w *gateWorld)
@@ -409,12 +445,28 @@ func TestGateAwaiting(t *testing.T) {
 		{"code, CRLF line present", func(w *gateWorld) {
 			w.body, w.comments = "implemented-by: claude (opus)\r\nreviewed-by: codex (gpt-6)\r\n", nil
 		}, false, "has a reviewed-by: line"},
-		{"line removed after an approving record", func(w *gateWorld) { w.body, w.comments = "", []string{approve} }, false, "a review record comment exists"},
-		{"rejecting record, no line", func(w *gateWorld) { w.body, w.comments = "", []string{reject} }, false, "a review record comment exists"},
-		{"heading record, no line", func(w *gateWorld) {
-			w.body, w.comments = "", []string{"### Independent Cross-Agent Review\nReviewed at " + shaA[:7] + "\nVerdict: APPROVE"}
-		}, false, "a review record comment exists"},
-		{"only a fenced record, no line", func(w *gateWorld) { w.body, w.comments = "", []string{"```\n" + approve + "\n```"} }, true, "awaiting its review"},
+		{"approving record at the head, line not yet written", func(w *gateWorld) { w.body, w.comments = "", []string{approve} }, true, "awaiting its review"},
+		{"record at an older head, no line", func(w *gateWorld) {
+			w.commits = append(w.commits, worldCommit{sha: shaContent, message: "fix: after review", parents: []string{shaA}, files: []string{"scripts/x.sh"}})
+			w.body, w.comments = "", []string{reject}
+		}, true, "awaiting its review"},
+		{"line removed after a pass at the head", func(w *gateWorld) { w.body, w.comments, w.headChecks = "", []string{approve}, pass }, false, "a successful merge check stands at head " + shaA},
+		{"rejecting record after a pass, no line", func(w *gateWorld) {
+			w.body, w.comments, w.headChecks = "", []string{approve, reject}, pass
+		}, false, "a successful merge check stands"},
+		{"failed merge check at the head, no line", func(w *gateWorld) {
+			w.body, w.headChecks = "", []worldCheck{{1, "Merge check", "failure"}}
+		}, true, "awaiting its review"},
+		{"merge check running at the head, no line", func(w *gateWorld) { w.body, w.headChecks = "", []worldCheck{{1, "Merge check", ""}} }, true, "awaiting its review"},
+		{"a later failure replaces an earlier pass", func(w *gateWorld) {
+			w.body, w.headChecks = "", []worldCheck{{9, "Merge check", "failure"}, {3, "Merge check", "success"}}
+		}, true, "awaiting its review"},
+		{"a later pass replaces an earlier failure", func(w *gateWorld) {
+			w.body, w.headChecks = "", []worldCheck{{3, "Merge check", "failure"}, {9, "Merge check", "success"}}
+		}, false, "a successful merge check stands"},
+		{"only the probe and a renamed skip passed, no line", func(w *gateWorld) {
+			w.body, w.headChecks = "", []worldCheck{{5, "Merge check probe", "success"}, {6, "Merge check (awaiting review record, skipped)", "success"}}
+		}, true, "awaiting its review"},
 		{"handoff comment only, no line", func(w *gateWorld) { w.body, w.comments = "", []string{"Goal: PR ready; awaits a Codex review record"} }, true, "awaiting its review"},
 		{"documents only, no line, no record", func(w *gateWorld) { w.body, w.files, w.comments = "", []string{"docs/a.md"}, nil }, false, "is documents only"},
 	} {
@@ -430,6 +482,30 @@ func TestGateAwaiting(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge check runs on pull-request state events
+func TestGateAwaitingFailsClosed(t *testing.T) {
+	// #359: an unreadable head result leaves no awaiting= answer, so the
+	// workflow runs Merge check in full rather than skipping it.
+	w := healthyWorld()
+	w.body, w.awaiting = "", true
+	gh := w
+	gh.ghNull = []string{"api --paginate repos/{owner}/{repo}/commits/" + shaA + "/check-runs?check_name=Merge%20check&per_page=100"}
+	gt := w
+	gt.giteaStatus = map[string]int{"/commits/" + shaA + "/statuses": http.StatusBadGateway}
+	// null with an empty list's total must not read as "no result at the head".
+	gtNull := w
+	gtNull.giteaNull = []string{"/commits/" + shaA + "/statuses"}
+	for forge, tc := range map[string]struct {
+		w   gateWorld
+		run func(*testing.T, gateWorld) (int, string)
+	}{"github": {gh, runGitHub}, "gitea": {gt, runGitea}, "gitea null": {gtNull, runGitea}} {
+		code, out := tc.run(t, tc.w)
+		if code == 0 || strings.Contains(out, "awaiting=") || !strings.Contains(out, shaA) {
+			t.Errorf("%s: exit %d, want non-zero, no awaiting= line, naming the head read:\n%s", forge, code, out)
+		}
 	}
 }
 

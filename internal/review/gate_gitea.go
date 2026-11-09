@@ -71,6 +71,10 @@ func giteaList[T any](ctx context.Context, s *giteaSource, name, path string, q 
 		if err != nil {
 			return nil, 0, err
 		}
+		// null decodes into a nil slice without error; [] is an empty page.
+		if items == nil {
+			return nil, 0, giteaShape(name, path, "a page is not a list")
+		}
 		if v := h.Get("X-Total-Count"); v != "" && mode != totalIgnored {
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 0 {
@@ -429,4 +433,30 @@ func (s *giteaSource) fileAt(ctx context.Context, path, ref string) ([]byte, err
 		return nil, giteaShape(name, p, "content is not base64 file content")
 	}
 	return b, nil
+}
+
+// headPassed reads the commit statuses at sha; the latest giteaMergeContext
+// status by id decides, so the list order Gitea serves does not matter.
+func (s *giteaSource) headPassed(ctx context.Context, sha string) (bool, error) {
+	name := "the commit statuses at " + sha
+	path := "/commits/" + sha + "/statuses"
+	type status struct {
+		ID      *int64  `json:"id"`
+		Context *string `json:"context"`
+		Status  *string `json:"status"`
+	}
+	all, _, err := giteaList[status](ctx, s, name, path, url.Values{}, totalOptional)
+	if err != nil {
+		return false, err
+	}
+	var latest *status
+	for i, st := range all {
+		if st.ID == nil || st.Context == nil || st.Status == nil {
+			return false, giteaShape(name, path, "a status has no id, context, or status")
+		}
+		if *st.Context == giteaMergeContext && (latest == nil || *st.ID > *latest.ID) {
+			latest = &all[i]
+		}
+	}
+	return latest != nil && *latest.Status == "success", nil
 }

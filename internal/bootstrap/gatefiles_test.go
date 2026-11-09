@@ -231,6 +231,8 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 				"  # On a WIP pull request every job is skipped and renamed (Gitea sets draft from\n  # the WIP: prefix). Gitea counts a skipped status as passing, and a WIP run\n  # rerun after the PR is ready skips again from its saved event, so a skipped\n  # job must never post under a required name. Leaving WIP: is an edited event.\n  # Needs Gitea 28.x: older Gitea evaluates neither name: nor a compound\n  # always() (#257).\n"},
 		}},
 		{"merge-check.yml", []swap{
+			{"      pull-requests: read\n      # The head's Merge check check run (#359).\n      checks: read\n    outputs:\n",
+				"      pull-requests: read\n    outputs:\n"},
 			{"          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n          PR_NUMBER: ${{ github.event.pull_request.number }}\n        run: |\n",
 				"          GITEA_TOKEN: ${{ github.token }}\n          PR_NUMBER: ${{ github.event.pull_request.number }}\n        run: |\n"},
 			{"          # Every check the main ruleset must require, so dropping one fails here.\n          ATEAM_REQUIRED_CHECKS: Required,Merge check\n          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
