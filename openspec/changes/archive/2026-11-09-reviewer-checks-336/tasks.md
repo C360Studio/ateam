@@ -35,4 +35,5 @@
 ## 5. Close
 
 - [ ] 5.1 `task verify`, `ateam doctor --check`, and `ateam bench --selftest` are green on a clean tree. A not-weaker review record is posted at the final head. The owner approves the gate change at that head.
-- [ ] 5.2 Archive this change before marking the PR ready. If OQ2 names a release, file the alias-removal issue in that milestone.
+- [x] 5.2 Archive this change before marking the PR ready. If OQ2 names a release, file the alias-removal issue in that milestone.
+  - Evidence: archived before review so the new Requirement resolves for `task test:spec`. The v0.5.0 alias-removal issue is filed when this merges.
