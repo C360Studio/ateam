@@ -170,17 +170,18 @@ func TestGateFilesCheck(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Merge gate and CI workflow enforcement
-func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
-	// #140: the gate-files workflow takes its definition from the base branch and never
-	// runs PR code, and the merge-check job builds and runs from the base commit.
-	// #143: the Gitea twins under .gitea/workflows/ hold to the same.
+func TestGateFilesWorkflowTrigger(t *testing.T) {
+	// #360: the gate-files workflow runs on pull_request, never pull_request_target,
+	// which GitHub's default event policy blocks in public repositories; it checks
+	// out no head ref and holds no write permission, and the merge-check job still
+	// builds and runs from the base commit (#140). #143: the Gitea twins hold to the same.
 	for _, forge := range []string{".github", ".gitea"} {
 		data, err := os.ReadFile(filepath.Join(repoRoot(t), forge, "workflows", "gate-files.yml"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		wf := string(data)
-		for _, want := range []string{"pull_request_target:", "labeled, unlabeled", "runs-on: ubuntu-24.04", "persist-credentials: false", "run: scripts/gate-files.sh \"$PR_NUMBER\"", "  contents: read\n  pull-requests: read\n"} {
+		for _, want := range []string{"\non:\n  pull_request:\n", "labeled, unlabeled", "runs-on: ubuntu-24.04", "persist-credentials: false", "run: scripts/gate-files.sh \"$PR_NUMBER\"", "  contents: read\n  pull-requests: read\n"} {
 			if !strings.Contains(wf, want) {
 				t.Fatalf("%s gate-files.yml lacks %q", forge, want)
 			}
@@ -192,14 +193,13 @@ func TestGateFilesWorkflowRunsFromBase(t *testing.T) {
 		}
 		// #250: on GitHub, skipped and renamed on a draft except when a label is
 		// removed, so revoking gate-change-approved replaces an earlier pass at the
-		// same head; pull_request_target is never the event name pull_request, so
-		// the guard tests the draft flag. The Gitea twin is checked against it.
+		// same head. The Gitea twin is checked against it.
 		if forge == ".github" && !strings.Contains(wf, "    name: ${{ github.event.pull_request.draft && github.event.action != 'unlabeled' && 'Gate files (draft, skipped)' || 'Gate files' }}\n    if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}\n") {
 			t.Fatalf("%s gate-files.yml: the job must skip a draft under a non-required name, except on unlabeled (#250)", forge)
 		}
-		for _, banned := range []string{"pull_request.head", "head_ref", "ref:", "write", "\n  pull_request:\n"} {
+		for _, banned := range []string{"pull_request.head", "head_ref", "ref:", "write", "pull_request_target:"} {
 			if strings.Contains(wf, banned) {
-				t.Fatalf("%s gate-files.yml contains %q: it must not check out or run pull request code, or write", forge, banned)
+				t.Fatalf("%s gate-files.yml contains %q: it must not run on pull_request_target, check out a head ref, or write", forge, banned)
 			}
 		}
 		mc, err := os.ReadFile(filepath.Join(repoRoot(t), forge, "workflows", "merge-check.yml"))
@@ -244,8 +244,10 @@ func TestGiteaWorkflowsTwinGitHub(t *testing.T) {
 		{"gate-files.yml", []swap{
 			{"          GH_TOKEN: ${{ github.token }}\n          GH_REPO: ${{ github.repository }}\n",
 				"          ATEAM_FORGE: gitea\n          GITEA_TOKEN: ${{ github.token }}\n"},
-			{"that judges it (#140). It must never check out or run pull request code: the\n",
-				"that judges it (#140; the Gitea twin of .github/workflows/gate-files.yml, #143).\n# It must never check out or run pull request code: the\n"},
+			{"# pull_request, not pull_request_target (#360): GitHub's default event policy\n# blocks pull_request_target in public repositories from 2026-12-02. So this\n",
+				"# pull_request, not pull_request_target (#360), as in the GitHub twin\n# .github/workflows/gate-files.yml (#143). So this\n"},
+			{"pull request is the control. It stays fail-closed on the name: the main\n# ruleset requires a check named Gate files, so a pull request that deletes the\n",
+				"pull request is the control. It stays fail-closed on the name: branch\n# protection requires Gate files / Gate files (pull_request), so one that deletes the\n"},
 			{"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]\n",
 				"    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]\n"},
 			{"    # Skipped and renamed on a draft, so a draft head carries no Gate files check\n    # run for GitHub to count as passing (#250). Removing a label still runs it\n    # on a draft, so revoking gate-change-approved replaces an earlier pass at\n    # the same head before the PR can be marked ready again.\n    name: ${{ github.event.pull_request.draft && github.event.action != 'unlabeled' && 'Gate files (draft, skipped)' || 'Gate files' }}\n    if: ${{ !github.event.pull_request.draft || github.event.action == 'unlabeled' }}\n",

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Gate files check (#140). Runs from .github/workflows/gate-files.yml (or
-# .gitea/workflows/gate-files.yml) on pull_request_target, so the forge takes
-# this script and that workflow from the base branch: a pull request cannot
-# edit the check that judges it.
+# .gitea/workflows/gate-files.yml) on pull_request (#360), so the forge takes
+# this script and that workflow from the pull request's tree: a pull request
+# that edits either is judged by its edited copy, and review is the control.
 #
 # A pull request whose changed files (or a rename's previous path) include a
 # gate file fails until it carries the owner-only label below and its newest
