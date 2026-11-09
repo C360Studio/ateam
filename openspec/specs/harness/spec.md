@@ -79,7 +79,7 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 
 ### Requirement: OpenSpec queue and stray Hold detection
 
-`ateam state spec-queue` SHALL scan `openspec/changes/*/tasks.md` and report open-task holds (`Hold:`) and caveats (`WONTDO`, `HALT`, `RED`, `BLOCKED`, `OPEN-Q`). `ateam state spec-check` SHALL fail with exit code 1 when any `Hold:` appears below a file's first `## ` heading outside every task block, or exit code 2 when a `tasks.md` is unreadable or invalid UTF-8. Truncated caveat display text SHALL remain valid UTF-8.
+`ateam state spec-queue` SHALL scan `openspec/changes/*/tasks.md` and report open-task holds (`Hold:`) and caveats (`WONTDO`, `HALT`, `RED`, `BLOCKED`, `OPEN-Q`). `ateam state spec-check` SHALL fail with exit code 1 when any `Hold:` appears below a file's first `## ` heading outside every task block, or when an in-flight change's filled `Approved-by:` carries a `sha256:` digest that no longer matches the digest of its `proposal.md` (without the `Approved-by:` line) and `design.md`, or exit code 2 when a `tasks.md` is unreadable or invalid UTF-8. Truncated caveat display text SHALL remain valid UTF-8.
 
 #### Scenario: Stray Hold below heading
 
@@ -99,8 +99,19 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 #### Scenario: Proposal awaiting owner approval
 
 - **WHEN** a change's `proposal.md` has an empty `Approved-by:` line and its first open task carries `Hold: OPEN-Q proposal awaits owner approval`, every other task being done
-- **THEN** `ateam state spec-queue` reports the change with an empty `approved_by` and flags the hold rather than printing `done, not archived`
-- **AND** once the owner fills `Approved-by: <name> (<YYYY-MM-DD>)` and removes the hold, `approved_by` carries that value; an `Approved-by:` line inside a code fence is not the header
+- **THEN** `ateam state spec-queue` reports the change with an empty `approved_by`, flags the hold rather than printing `done, not archived`, and prints the current digest `sha256:<12 hex>` of `proposal.md` (without the `Approved-by:` line) and `design.md`
+- **AND** once the owner fills `Approved-by: <name> (<YYYY-MM-DD>) sha256:<12 hex>` and removes the hold, `approved_by` carries that value and the change is labelled `approved`; an `Approved-by:` line inside a code fence is not the header
+
+#### Scenario: Stale approval
+
+- **WHEN** an in-flight change's `proposal.md` or `design.md` changes after its `Approved-by:` line was filled with a digest, or a `design.md` is added
+- **THEN** `ateam state spec-check` exits 1 naming the changed file, the last commit that touched it or `uncommitted`, and the current digest, and `ateam state spec-queue` labels the change `stale approval`
+- **AND** filling the line with the current digest, removing the hold, and moving the change to `openspec/changes/archive/` leave the digest unchanged
+
+#### Scenario: Approval without a digest
+
+- **WHEN** an in-flight change's `Approved-by:` is filled without a `sha256:` token
+- **THEN** `ateam state spec-check` prints a warning labelling the change `approval unbound` and still exits 0, and a change under `archive/` is never checked
 
 #### Scenario: Proposal over one page
 
@@ -1017,8 +1028,12 @@ When `.agents/hosts/<host>.toml` exists for the detected host, ateam SHALL read 
 
 #### Scenario: Proposal approved or awaiting approval
 - **WHEN** the PR touches an OpenSpec change whose `proposal.md` at the head has `Approved-by:` filled and no open `OPEN-Q` hold
-- **THEN** `ateam/proposal` is `success` naming the approver
+- **THEN** `ateam/proposal` is `success` naming the approver without the digest token
 - **AND** with `Approved-by:` empty or the hold open it is `pending` `awaiting owner approval (OPEN-Q)`
+
+#### Scenario: Stale approval at the head
+- **WHEN** a touched change's `Approved-by:` digest does not match its `proposal.md` and `design.md` at the PR head
+- **THEN** `ateam/proposal` is `pending` `approval stale: <id>`
 
 #### Scenario: No change touched
 - **WHEN** the PR touches no directory under `openspec/changes/`
