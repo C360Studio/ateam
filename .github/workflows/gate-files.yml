@@ -1,12 +1,15 @@
 name: Gate files
 
-# pull_request_target runs this workflow and the script it calls from the base
-# branch, never from the pull request, so a pull request cannot loosen the check
-# that judges it (#140). It must never check out or run pull request code: the
-# checkout below is the base branch, and the pull request's files are read
-# through the API only.
+# pull_request, not pull_request_target (#360): GitHub's default event policy
+# blocks pull_request_target in public repositories from 2026-12-02. So this
+# workflow and the script it calls come from the pull request's own tree, and a
+# pull request that edits either is judged by its edited copy: review of such a
+# pull request is the control. It stays fail-closed on the name: the main
+# ruleset requires a check named Gate files, so a pull request that deletes the
+# workflow, renames the job, or makes it skip reports no such check and stays
+# blocked (#140). The pull request's state is read through the API only.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 
 concurrency:
