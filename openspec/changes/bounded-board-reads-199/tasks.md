@@ -1,0 +1,25 @@
+## 1. Approval
+
+- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design OQ1 (omitted-argument default) and OQ2 (default limit) (#199).
+  - Hold: OPEN-Q proposal awaits owner approval
+
+## 2. Bounded board read
+
+- [ ] 2.1 Add `state.BoardQuery{Scope, Limit, After}` and have `BoardView` take it (D1 A, D2 A, D3, D4).
+  - Premise: `BoardSnapshot` is at `internal/state/state.go:2266-2274`, `BoardView` at `:2278-2303`, and the card ID format is set at `forge.go:796`.
+  - Acceptance: tests carry `// spec: openspec/specs/harness/spec.md#Requirement: Bounded board reads`. A `testing.F` fuzz target builds mixed open/done card sets and checks every `scope` × `limit` combination against a reference model (filter, then sort by `Number` descending and `ID` ascending): concatenating pages via `next_after` gives the model's list exactly once, in order. Card columns are mutated between pages to prove keyset stability. Table cases reject an unknown scope, a negative limit and a malformed cursor. `counts` always includes `done`.
+  - `task mutate:check` reports `detection` for dropping the scope filter, `>` → `>=` in the cursor comparison, and forcing `complete` to true.
+- [ ] 2.2 Plumb the query through the MCP tool (`internal/mcpserver/server.go:255-274`, `:400-402`) and `ateam state board` (`cmd/ateam/main.go:487-498`) with the OQ1 default. The resource (`:501-503`) stays unfiltered (D5).
+  - Acceptance: `server_test.go:153-154` style cases cover `scope: "done"`, a bad scope returning `isError`, and the omitted-argument default. A `main_test.go` case covers the CLI flags.
+- [ ] 2.3 Add `scope`, `limit` and `after` to the schema (`server.go:51-76`).
+  - Acceptance: `ateam doctor` reports under 300 schema tokens. Record the before (230) and after figures here.
+
+## 3. Docs and evidence
+
+- [ ] 3.1 Update `docs/mcp.md:103` and `:137` with the arguments, the fields, the order and the default.
+- [ ] 3.2 Record `ateam state board` response bytes on this repository before (54,944 total, 8,282 open, 43,220 done) and after for the default, `scope: "open"` and `scope: "done"`, kept separate from the schema figure.
+
+## 4. Close
+
+- [ ] 4.1 `task verify`, `ateam doctor --check` and `ateam bench --selftest` are green on a clean tree, and a not-weaker review record is posted at the final head.
+- [ ] 4.2 Archive this change before marking the PR ready.
