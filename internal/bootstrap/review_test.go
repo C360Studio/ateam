@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const testReviewPolicy = `{"version":1,"models":[{"id":"test-dev","provider":"codex"},{"id":"test-review","provider":"claude","stronger_than":["test-dev"]}],"routes":{"developer":{"model":"test-dev","effort":"medium"},"reviewer":{"model":"test-review","effort":"high"}},"owners":["project-owner"],"review_authors":["review-bot"],"required_checks":["unit"],"cross_provider":false}`
+const testReviewPolicy = `{"version":1,"models":[{"id":"test-dev","provider":"codex"},{"id":"test-review","provider":"claude","stronger_than":["test-dev"]}],"routes":{"developer":{"model":"test-dev","effort":"medium"},"reviewer":{"model":"test-review","effort":"high"}},"owners":["project-owner"],"review_authors":["review-bot"],"reviewer_checks":["unit"],"cross_provider":false}`
 
 // spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing
 func TestConfigureReviewLifecycle(t *testing.T) {
@@ -340,5 +340,40 @@ func TestConfigureReviewTiersOnly(t *testing.T) {
 	}
 	if v := CheckParity(root); len(v) != 0 {
 		t.Fatalf("tiers-only policy violates parity: %v", v)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Reviewer checks policy key
+func TestCheckDeprecatedPolicyKeys(t *testing.T) {
+	want := ".agents/review-policy.json: required_checks is deprecated; rename it to reviewer_checks"
+	cases := []struct {
+		name, policy string
+		warn         bool
+	}{
+		{"no policy", "", false},
+		{"reviewer_checks", testReviewPolicy, false},
+		{"required_checks", strings.Replace(testReviewPolicy, `"reviewer_checks"`, `"required_checks"`, 1), true},
+		{"tiers only", `{"version":1,` + recordTiers + `}`, false},
+		{"invalid policy", strings.Replace(testReviewPolicy, `"reviewer_checks"`, `"required_checks":["unit"],"reviewer_checks"`, 1), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if tc.policy != "" {
+				if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, reviewPolicyPath), []byte(tc.policy), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := CheckDeprecatedPolicyKeys(root)
+			if tc.warn && (len(got) != 1 || got[0] != want) {
+				t.Fatalf("warnings = %v, want [%q]", got, want)
+			}
+			if !tc.warn && len(got) != 0 {
+				t.Fatalf("unexpected warnings: %v", got)
+			}
+		})
 	}
 }

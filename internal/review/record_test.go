@@ -71,6 +71,12 @@ func TestRecordRefusals(t *testing.T) {
 	if err := Validate(testPolicy(), r, e, nil, ""); err == nil {
 		t.Fatal("short trusted commit accepted")
 	}
+	r, e = testRecord()
+	r.Checks = nil
+	want := `reviewer check "test" lacks reviewer-executed passing evidence at current head`
+	if err := Validate(testPolicy(), r, e, nil, ""); err == nil || err.Error() != want {
+		t.Fatalf("missing reviewer check: err = %v, want %q", err, want)
+	}
 }
 
 func testException(r Record) Exception {

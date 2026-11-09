@@ -18,7 +18,7 @@ import (
 )
 
 func cliReviewPolicy() review.Policy {
-	return review.Policy{Version: 1, Models: []review.Model{{ID: "work", Provider: "codex", StrongerThan: []string{}}, {ID: "audit", Provider: "codex", StrongerThan: []string{"work"}}}, Routes: review.Routes{Developer: review.Route{Model: "work", Effort: "medium"}, Reviewer: review.Route{Model: "audit", Effort: "high"}}, Owners: []string{"owner"}, ReviewAuthors: []string{"review-account"}, RequiredChecks: []string{"task verify"}}
+	return review.Policy{Version: 1, Models: []review.Model{{ID: "work", Provider: "codex", StrongerThan: []string{}}, {ID: "audit", Provider: "codex", StrongerThan: []string{"work"}}}, Routes: review.Routes{Developer: review.Route{Model: "work", Effort: "medium"}, Reviewer: review.Route{Model: "audit", Effort: "high"}}, Owners: []string{"owner"}, ReviewAuthors: []string{"review-account"}, ReviewerChecks: []string{"task verify"}}
 }
 
 // spec: openspec/specs/model-review/spec.md#Requirement: Explicit setup and portable routing

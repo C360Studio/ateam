@@ -8,7 +8,7 @@ import (
 )
 
 func testPolicy() Policy {
-	return Policy{Version: 1, Models: []Model{{ID: "small", Provider: "codex"}, {ID: "medium", Provider: "codex", StrongerThan: []string{"small"}}, {ID: "large", Provider: "claude", StrongerThan: []string{"medium"}}}, Routes: Routes{Developer: Route{Model: "small", Effort: "high"}, Reviewer: Route{Model: "medium", Effort: "low"}}, Owners: []string{"owner"}, ReviewAuthors: []string{"reviewer-login"}, RequiredChecks: []string{"test"}}
+	return Policy{Version: 1, Models: []Model{{ID: "small", Provider: "codex"}, {ID: "medium", Provider: "codex", StrongerThan: []string{"small"}}, {ID: "large", Provider: "claude", StrongerThan: []string{"medium"}}}, Routes: Routes{Developer: Route{Model: "small", Effort: "high"}, Reviewer: Route{Model: "medium", Effort: "low"}}, Owners: []string{"owner"}, ReviewAuthors: []string{"reviewer-login"}, ReviewerChecks: []string{"test"}}
 }
 
 func mustJSON(t *testing.T, value any) []byte {
@@ -70,8 +70,8 @@ func TestValidatePolicy(t *testing.T) {
 		{"owners", func(p *Policy) { p.Owners = nil }},
 		{"review-authors", func(p *Policy) { p.ReviewAuthors = nil }},
 		{"duplicate-owners", func(p *Policy) { p.Owners = []string{"owner", "owner"} }},
-		{"checks", func(p *Policy) { p.RequiredChecks = nil }},
-		{"bad-check", func(p *Policy) { p.RequiredChecks = []string{" test "} }},
+		{"checks", func(p *Policy) { p.ReviewerChecks = nil }},
+		{"bad-check", func(p *Policy) { p.ReviewerChecks = []string{" test "} }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -286,5 +286,49 @@ func TestReviewRecordPolicy(t *testing.T) {
 		if err != nil || p.ReviewRecord != tc.want {
 			t.Errorf("%s: got %q, %v; want %q", tc.field, p.ReviewRecord, err, tc.want)
 		}
+	}
+}
+
+// The deprecated key parses to the same checks the new key does; a policy may set
+// only one of them, and an empty array counts as setting it (#336).
+// spec: openspec/specs/harness/spec.md#Requirement: Reviewer checks policy key
+func TestReviewerChecksAlias(t *testing.T) {
+	base := strings.Replace(string(mustJSON(t, testPolicy())), `"reviewer_checks":["test"],`, "", 1)
+	if strings.Contains(base, "checks") {
+		t.Fatalf("fixture still names a checks key: %s", base)
+	}
+	withKeys := func(keys string) []byte {
+		return []byte(strings.Replace(base, `{"version":1,`, `{"version":1,`+keys, 1))
+	}
+	for _, key := range []string{"reviewer_checks", "required_checks"} {
+		p, err := ParsePolicy(withKeys(`"` + key + `":["test"],`))
+		if err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		if len(p.ReviewerChecks) != 1 || p.ReviewerChecks[0] != "test" || p.DeprecatedRequiredChecks != nil {
+			t.Fatalf("%s parsed to ReviewerChecks=%v Deprecated=%v", key, p.ReviewerChecks, p.DeprecatedRequiredChecks)
+		}
+		if got := PolicyUsesDeprecatedKeys(withKeys(`"` + key + `":["test"],`)); got != (key == "required_checks") {
+			t.Fatalf("PolicyUsesDeprecatedKeys(%s) = %v", key, got)
+		}
+	}
+	for _, keys := range []string{
+		`"reviewer_checks":["test"],"required_checks":["test"],`,
+		`"reviewer_checks":["test"],"required_checks":[],`,
+		`"reviewer_checks":[],"required_checks":["test"],`,
+	} {
+		_, err := ParsePolicy(withKeys(keys))
+		if err == nil || !strings.Contains(err.Error(), "reviewer_checks or required_checks, not both") {
+			t.Fatalf("%s: err = %v", keys, err)
+		}
+	}
+	for _, keys := range []string{`"required_checks":[" test "],`, `"required_checks":["test","test"],`, `"required_checks":[],`} {
+		if _, err := ParsePolicy(withKeys(keys)); err == nil {
+			t.Fatalf("%s accepted", keys)
+		}
+	}
+	tiersOnly := `{"version":1,"model_tiers":{"frontier":["claude:opus"],"workhorse":["claude:sonnet"],"light":["claude:haiku"]},"effort_bands":{"claude":{"low":["low"],"mid":["medium"],"high":["high"]},"codex":{"low":["low"],"mid":["medium"],"high":["high"]},"gemini":{"low":["low"],"mid":["medium"],"high":["high"]}},"cross_provider":false,"reviewer_checks":["test"]}`
+	if _, err := ParsePolicy([]byte(tiersOnly)); err == nil || !strings.Contains(err.Error(), "reviewer_checks require models") {
+		t.Fatalf("reviewer_checks without models: err = %v", err)
 	}
 }

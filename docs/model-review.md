@@ -35,10 +35,12 @@ This is a schema illustration with **placeholder IDs, not a runnable model recom
   },
   "owners": ["project-owner"],
   "review_authors": ["review-bot"],
-  "required_checks": ["task verify"],
+  "reviewer_checks": ["task verify"],
   "cross_provider": false
 }
 ```
+
+`reviewer_checks` lists checks the reviewer itself must run and pass at the current head. It is unrelated to `ATEAM_REQUIRED_CHECKS`, which lists the forge status contexts the merge gate requires ([the merge gate](adoption.md#the-merge-gate-on-github-and-gitea)). The old key name `required_checks` still parses until v0.5.0, `ateam doctor` warns while it is set, and a policy that sets both keys is rejected.
 
 `stronger_than` comparisons are transitive and must be acyclic. Unknown IDs, unresolved inheritance, contradictory comparisons and malformed policies are rejected. Setup supports the `claude`, `codex` and `gemini` provider identities. They identify the client/provider route, not a cross-provider ranking.
 

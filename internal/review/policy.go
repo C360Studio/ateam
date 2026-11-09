@@ -3,6 +3,7 @@ package review
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -14,8 +15,12 @@ type Policy struct {
 	Routes         Routes   `json:"routes"`
 	Owners         []string `json:"owners,omitempty"`
 	ReviewAuthors  []string `json:"review_authors,omitempty"`
-	RequiredChecks []string `json:"required_checks,omitempty"`
-	CrossProvider  bool     `json:"cross_provider"`
+	ReviewerChecks []string `json:"reviewer_checks,omitempty"`
+	// DeprecatedRequiredChecks is the pre-#336 name of ReviewerChecks, kept so
+	// existing policies parse; ParsePolicy folds it into ReviewerChecks.
+	// shortcut: alias accepted through v0.4.x, remove in v0.5.0 (#336).
+	DeprecatedRequiredChecks []string `json:"required_checks,omitempty"`
+	CrossProvider            bool     `json:"cross_provider"`
 	// ModelTiers and EffortBands rank runs for merge-check (ADR 0002). A policy may
 	// declare only these; Models, Routes and the lists above serve the dormant
 	// route/check path and are then absent.
@@ -106,7 +111,24 @@ func ParsePolicy(data []byte) (Policy, error) {
 	if err := decodeJSON(data, &p); err != nil {
 		return p, err
 	}
+	// Presence, not length: decodeJSON rejects null, so an empty array still
+	// counts as setting the key.
+	if p.DeprecatedRequiredChecks != nil {
+		if p.ReviewerChecks != nil {
+			return p, fmt.Errorf("set reviewer_checks or required_checks, not both")
+		}
+		p.ReviewerChecks, p.DeprecatedRequiredChecks = p.DeprecatedRequiredChecks, nil
+	}
 	return p, ValidatePolicy(p)
+}
+
+// PolicyUsesDeprecatedKeys reports whether a policy's bytes still set
+// required_checks, the deprecated name of reviewer_checks.
+func PolicyUsesDeprecatedKeys(data []byte) bool {
+	var keys struct {
+		RequiredChecks json.RawMessage `json:"required_checks"`
+	}
+	return json.Unmarshal(data, &keys) == nil && keys.RequiredChecks != nil
 }
 
 // PolicyDigest binds evidence to the exact governing policy bytes.
@@ -147,8 +169,8 @@ func ValidatePolicy(p Policy) error {
 		if !p.HasTiers() {
 			return fmt.Errorf("policy must contain model tiers or 1..256 models")
 		}
-		if p.Routes != (Routes{}) || len(p.Owners)+len(p.ReviewAuthors)+len(p.RequiredChecks) != 0 {
-			return fmt.Errorf("routes, owners, review_authors and required_checks require models")
+		if p.Routes != (Routes{}) || len(p.Owners)+len(p.ReviewAuthors)+len(p.ReviewerChecks) != 0 {
+			return fmt.Errorf("routes, owners, review_authors and reviewer_checks require models")
 		}
 		return nil
 	}
@@ -185,7 +207,7 @@ func ValidatePolicy(p Policy) error {
 	if err := uniqueNames("review_authors", p.ReviewAuthors); err != nil {
 		return err
 	}
-	return uniqueNames("required_checks", p.RequiredChecks)
+	return uniqueNames("reviewer_checks", p.ReviewerChecks)
 }
 
 // validateTiers rejects malformed, duplicate or unknown-provider tier and band entries.

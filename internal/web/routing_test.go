@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const routingPolicyFixture = `{"version":1,"models":[{"id":"dev-model","provider":"codex"},{"id":"review-model","provider":"codex","stronger_than":["dev-model"]}],"routes":{"developer":{"model":"dev-model","effort":"custom-effort"},"reviewer":{"model":"review-model","effort":"high"}},"owners":["owner"],"review_authors":["reviewer"],"required_checks":["task verify"],"cross_provider":false}`
+const routingPolicyFixture = `{"version":1,"models":[{"id":"dev-model","provider":"codex"},{"id":"review-model","provider":"codex","stronger_than":["dev-model"]}],"routes":{"developer":{"model":"dev-model","effort":"custom-effort"},"reviewer":{"model":"review-model","effort":"high"}},"owners":["owner"],"review_authors":["reviewer"],"reviewer_checks":["task verify"],"cross_provider":false}`
 
 func writeRoutingPolicy(t *testing.T, dir, data string) string {
 	t.Helper()
