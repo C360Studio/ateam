@@ -1,6 +1,6 @@
 # Change Proposal: `approval-revision-272`
 
-Approved-by: Coby Leuschke (2026-11-09)
+Approved-by: Coby Leuschke (2026-11-09) sha256:89b8f51879f4
 
 ## Why
 
