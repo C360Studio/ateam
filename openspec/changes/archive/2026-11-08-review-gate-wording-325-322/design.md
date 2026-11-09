@@ -31,4 +31,4 @@ None. The gate binary is built from the base commit, so this PR is judged by the
 
 ## Open Questions
 
-1. **Owner:** D1 option A (review record) or B (owner approval too)?
+1. **Owner (ruled 2026-11-08: option A):** D1 option A (review record) or B (owner approval too)?
