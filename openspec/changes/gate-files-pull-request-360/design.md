@@ -48,8 +48,8 @@ The protocol and `docs/adoption.md` state the residual risk once and the propert
 ## Migration Plan
 
 1. Land this PR before 2026-12-02. On GitHub, nothing else changes.
-2. Under OQ1 A, update the Gitea branch protection context in the same session the PR merges, and record that in `tasks.md`.
+2. The owner updates the Gitea branch protection context when the PR merges (OQ1 A), and the agent records it in `tasks.md`.
 
 ## Open Questions
 
-- **OQ1 (owner):** Gitea parity, A or B (D2)? If A, who updates the Gitea branch protection context: the owner or the agent?
+- **OQ1 (owner, ruled 2026-11-09):** Gitea parity, A or B (D2)? Ruling: A, Gitea moves too. The owner updates the Gitea branch protection context to `Gate files / Gate files (pull_request)` when this merges.
