@@ -71,6 +71,10 @@ func giteaList[T any](ctx context.Context, s *giteaSource, name, path string, q 
 		if err != nil {
 			return nil, 0, err
 		}
+		// null decodes into a nil slice without error; [] is an empty page.
+		if items == nil {
+			return nil, 0, giteaShape(name, path, "a page is not a list")
+		}
 		if v := h.Get("X-Total-Count"); v != "" && mode != totalIgnored {
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 0 {

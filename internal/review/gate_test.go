@@ -43,6 +43,8 @@ type gateWorld struct {
 	giteaOldestFirst bool
 	// giteaStatus answers a Gitea path with an HTTP status instead.
 	giteaStatus map[string]int
+	// giteaNull answers these Gitea list paths with the JSON literal null.
+	giteaNull []string
 	// giteaTotalSkew adds to the X-Total-Count Gitea sends for a list path.
 	giteaTotalSkew map[string]int
 	// ghNull answers these gh argv with the JSON literal null.
@@ -371,6 +373,11 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 			http.NotFound(rw, r)
 			return
 		}
+		if slices.Contains(w.giteaNull, path) {
+			rw.Header().Set("X-Total-Count", strconv.Itoa(len(items)))
+			fmt.Fprint(rw, "null")
+			return
+		}
 		if path == fmt.Sprintf("/pulls/%d/commits", gatePR) && (r.URL.Query().Get("files") != "false" || r.URL.Query().Get("verification") != "false") {
 			http.Error(rw, "commit list asked for files or verification", http.StatusBadRequest)
 			return
@@ -488,10 +495,13 @@ func TestGateAwaitingFailsClosed(t *testing.T) {
 	gh.ghNull = []string{"api --paginate repos/{owner}/{repo}/commits/" + shaA + "/check-runs?check_name=Merge%20check&per_page=100"}
 	gt := w
 	gt.giteaStatus = map[string]int{"/commits/" + shaA + "/statuses": http.StatusBadGateway}
+	// null with an empty list's total must not read as "no result at the head".
+	gtNull := w
+	gtNull.giteaNull = []string{"/commits/" + shaA + "/statuses"}
 	for forge, tc := range map[string]struct {
 		w   gateWorld
 		run func(*testing.T, gateWorld) (int, string)
-	}{"github": {gh, runGitHub}, "gitea": {gt, runGitea}} {
+	}{"github": {gh, runGitHub}, "gitea": {gt, runGitea}, "gitea null": {gtNull, runGitea}} {
 		code, out := tc.run(t, tc.w)
 		if code == 0 || strings.Contains(out, "awaiting=") || !strings.Contains(out, shaA) {
 			t.Errorf("%s: exit %d, want non-zero, no awaiting= line, naming the head read:\n%s", forge, code, out)
