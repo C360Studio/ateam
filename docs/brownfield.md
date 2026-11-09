@@ -134,7 +134,7 @@ summary, and `ateam state pickup` prints it on demand.
 - **OpenSpec tracks.** If your repository already has `openspec/config.yaml`, `ateam init` leaves it untouched
   (otherwise writing `schema: spec-driven` and the `rules: design:` block). Non-trivial changes choose `quick`
   (`proposal.md` + `tasks.md`, no `design.md`) or `design` (`proposal.md` + `design.md` via `/design` + `tasks.md`), gated
-  on `Approved-by:` and Task 1's `Hold: OPEN-Q proposal awaits owner approval`; with your own config, copy
+  on `Approved-by: <name> (<YYYY-MM-DD>) sha256:<12 hex>` (the digest `spec-queue` prints) and Task 1's `Hold: OPEN-Q proposal awaits owner approval`; with your own config, copy
   `rules: design:` from ateam's `openspec/config.yaml` if you also invoke `openspec instructions design` alongside
   `/design`. `ateam state spec-check` uses
   `node_modules/.bin/openspec` or `openspec` on `PATH` for strict validation, prints
