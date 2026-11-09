@@ -3,7 +3,9 @@
 ## Purpose
 
 Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks across Claude Code, Codex CLI, and Gemini CLI, the 2-tool low-tax MCP server (`ateam_state`, `ateam_task`), OpenSpec queue and `Hold:` validation (`spec:queue` and `spec:check`), dual-forge state synchronization (**GitHub** and **Gitea**), `// shortcut:` debt scanning, and the agentic benchmark suite (`ateam bench`).
+
 ## Requirements
+
 ### Requirement: Lifecycle hook normalization under 10ms
 
 `ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 10ms using cached `.ateam/state.json`.
@@ -1226,4 +1228,3 @@ Canonical skills, role contracts and their `ateam init` templates SHALL name the
 
 - **WHEN** an agent starts a pickup, handoff, preflight, design or review workflow
 - **THEN** its skill and contract direct it to named sections, not to the whole protocol
-
