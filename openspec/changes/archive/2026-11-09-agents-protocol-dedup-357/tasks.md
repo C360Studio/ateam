@@ -8,7 +8,7 @@
 - [x] 2.1 Add the merge-check PR-classification globs to protocol § 4. Add "never remove a worktree you do not own, or one that is dirty or unpushed" to § 2 step 5.
   - Premise: the globs exist only at `AGENTS.md:89`; the stop rule exists only at `AGENTS.md:101`.
   - Acceptance: `grep` finds each in `.agents/protocol.md`, and `scripts/merge-check.sh` classification agrees with the globs.
-  - Evidence: protocol § 4 *The live gate* now defines a code PR by the same globs, gives the `implemented-by:`/`reviewed-by:` line format and the record comment forms, and notes that `task merge:check` also reads the ruleset and `class:flake` issues. These globs match `gateIsDoc` (`internal/review/gate.go:709-717`), which the script runs. § 2 step 5 now ends with the stop rule.
+  - Evidence: protocol § 4 *The live gate* now defines a code PR by the same globs, gives the `implemented-by:`/`reviewed-by:` line format and the record comment forms, and notes that `task merge:check` also reads the ruleset and `class:flake` issues. These globs match `gateIsDoc` (`internal/review/gate.go:709-717`), which the script runs. The stop rule was **not** added to § 2 step 5, and L91 is unchanged. Codex's review of `291a79c` found that `TestInitRepoAndParitySensitivity/Close_rule_copies_match_the_repository_text` (`internal/bootstrap/parity_test.go:162-181`, #120) requires the repository's Close row in AGENTS and rules-index, and its protocol Close step, to equal the adopter copies byte for byte. Under OQ3 (template untouched), both were restored to `39917f4`. The stop rule stays verbatim in the always-loaded AGENTS Close bullet.
 
 ## 3. Shrink
 
@@ -20,10 +20,10 @@
     - L84: "≤ 60 lines: why, what changes…, `spec:check` warns" and the `<name> (<YYYY-MM-DD>)` form → protocol § 2 step 1 (`protocol.md:30`). The one-page rule, owner-only approval, the hold and the stop-and-hand-off rule stay.
     - L89: the code-PR globs, the agent list, the effort-parentheses form, the record comment forms, the ruleset and the flake check → protocol § 4 (added in 2.1). The two lines, reviewer strength, `cross_provider`, record freshness and `task merge:check` stay.
     - L90: running on `pull_request` from the PR's own tree, judged by its own copy, the fail-closed property, and "a later push fails it again" → protocol § 4 *Gate files* (`protocol.md:93`). The gate-file list, the label and comment, owner-only application and hand-off stay.
-    - L91: "required check green on an up-to-date branch", "GitHub or Gitea", "the `main` run is informational" and review-checkout removal → protocol § 2 step 5. The worktree stop rule was added here.
+    - L91: unchanged (it must match the adopter `closeRuleRow`; see 2.1).
     - Close (L101): the `spec:queue` rationale, the `gh` flags, the Gitea payload, the prune commands and review-checkout removal → protocol § 2 step 5. The stop rule and the red-job waiver stay.
 - [x] 3.2 Record `wc -c AGENTS.md` before (`39917f4`) and after, overall and per row.
-  - Evidence: 15,027 → 13,496 bytes (−1,531, −10%). Per row, before → after: L72 446 → 321, L82 495 → 415, L84 519 → 404, L89 958 → 557, L90 798 → 549, L91 421 → 339, Close 1,160 → 681. The design estimated about 2.4 KB; the actual figure is lower because the gate-file list, the hook file names and the env-var rule stay verbatim. `.agents/protocol.md` grows 24,627 → 25,329 (+702), read only by sessions that open § 2 or § 4. Neither figure is a measured token or productivity gain.
+  - Evidence: 15,027 → 13,578 bytes (−1,449, −9.6%). Per row, before → after: L72 446 → 321, L82 495 → 415, L84 519 → 404, L89 958 → 557, L90 798 → 549, L91 421 (unchanged), Close 1,160 → 681. The design estimated about 2.4 KB; the actual figure is lower because the gate-file list, the hook file names and the env-var rule stay verbatim. `.agents/protocol.md` grows 24,627 → 25,248 (+621), read only by sessions that open § 2 or § 4. Neither figure is a measured token or productivity gain.
 
 ## 4. Verify
 
