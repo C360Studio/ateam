@@ -60,6 +60,18 @@ func TestChooseStatusesD3Table(t *testing.T) {
 		{name: "proposal: all approved", ctx: StatusContextProposal, in: statusInputs{Changes: []touchedChange{approved}},
 			want: []CommitStatus{{Context: "ateam/proposal", State: "success", Description: "approved by Ann Owner (2026-11-07): feat-1",
 				TargetURL: "https://github.com/o/r/blob/" + headFull + "/openspec/changes/feat-1/proposal.md"}}},
+		{name: "proposal: approver shown without the digest token", ctx: StatusContextProposal,
+			in: statusInputs{Changes: []touchedChange{{ID: "feat-1", Proposal: "openspec/changes/feat-1/proposal.md", ApprovedBy: "Ann Owner (2026-11-07) sha256:3f9a1c2b4d5e"}}},
+			want: []CommitStatus{{Context: "ateam/proposal", State: "success", Description: "approved by Ann Owner (2026-11-07): feat-1",
+				TargetURL: "https://github.com/o/r/blob/" + headFull + "/openspec/changes/feat-1/proposal.md"}}},
+		{name: "proposal: stale approval wins over approved", ctx: StatusContextProposal,
+			in: statusInputs{Changes: []touchedChange{approved, {ID: "feat-2", Proposal: "openspec/changes/feat-2/proposal.md", ApprovedBy: "Ann sha256:3f9a1c2b4d5e", Stale: true}}},
+			want: []CommitStatus{{Context: "ateam/proposal", State: "pending", Description: "approval stale: feat-2",
+				TargetURL: "https://github.com/o/r/blob/" + headFull + "/openspec/changes/feat-2/proposal.md"}}},
+		{name: "proposal: awaiting approval wins over stale", ctx: StatusContextProposal,
+			in: statusInputs{Changes: []touchedChange{{ID: "feat-2", Proposal: "openspec/changes/feat-2/proposal.md", ApprovedBy: "Ann sha256:3f9a1c2b4d5e", Stale: true}, {ID: "feat-3", Proposal: "openspec/changes/feat-3/proposal.md"}}},
+			want: []CommitStatus{{Context: "ateam/proposal", State: "pending", Description: "awaiting owner approval (OPEN-Q): feat-3",
+				TargetURL: "https://github.com/o/r/blob/" + headFull + "/openspec/changes/feat-3/proposal.md"}}},
 		{name: "proposal: Gitea link", ctx: StatusContextProposal,
 			in: statusInputs{Provider: ForgeGitea, PRURL: "https://forge.example/o/r/pulls/7", Changes: []touchedChange{approved}},
 			want: []CommitStatus{{Context: "ateam/proposal", State: "success", Description: "approved by Ann Owner (2026-11-07): feat-1",
@@ -179,6 +191,19 @@ func TestTouchedChangesAtHead(t *testing.T) {
 	twoHead := branch("two", map[string]string{
 		"openspec/changes/feat-a/proposal.md": approvedProposal, "openspec/changes/feat-a/tasks.md": doneTasks,
 		"openspec/changes/feat-d/proposal.md": emptyProposal, "openspec/changes/feat-d/tasks.md": doneTasks})
+	// Bound approvals carry the digest of the files they approve; feat-g and feat-h change design.md after it.
+	const design = "# Design\n\nD1 A.\n"
+	bound := func(design []byte) string {
+		return strings.Replace(emptyProposal, "Approved-by:", "Approved-by: Ann Owner (2026-11-07) sha256:"+ApprovalDigest([]byte(emptyProposal), design), 1)
+	}
+	boundHead := branch("bound", map[string]string{
+		"openspec/changes/feat-e/proposal.md": bound([]byte(design)), "openspec/changes/feat-e/design.md": design, "openspec/changes/feat-e/tasks.md": doneTasks})
+	noDesignHead := branch("nodesign", map[string]string{
+		"openspec/changes/feat-f/proposal.md": bound(nil), "openspec/changes/feat-f/tasks.md": doneTasks})
+	staleHead := branch("stale", map[string]string{
+		"openspec/changes/feat-g/proposal.md": bound([]byte(design)), "openspec/changes/feat-g/design.md": design + "D2 B.\n", "openspec/changes/feat-g/tasks.md": doneTasks})
+	addedDesignHead := branch("addeddesign", map[string]string{
+		"openspec/changes/feat-h/proposal.md": bound(nil), "openspec/changes/feat-h/design.md": design, "openspec/changes/feat-h/tasks.md": doneTasks})
 	noneHead := branch("none", map[string]string{"main.go": "package main\n", "openspec/specs/harness/spec.md": "# spec\n"})
 
 	pending := func(desc, file, sha string) []CommitStatus {
@@ -199,6 +224,14 @@ func TestTouchedChangesAtHead(t *testing.T) {
 			want: success("approved by Ann Owner (2026-11-07): 2026-11-01-feat-c", "openspec/changes/archive/2026-11-01-feat-c/proposal.md", archivedHead)},
 		{name: "two changes, one unapproved", head: twoHead,
 			want: pending("awaiting owner approval (OPEN-Q): feat-d", "openspec/changes/feat-d/proposal.md", twoHead)},
+		{name: "bound approval with design.md", head: boundHead,
+			want: success("approved by Ann Owner (2026-11-07): feat-e", "openspec/changes/feat-e/proposal.md", boundHead)},
+		{name: "bound approval, design.md absent at the head", head: noDesignHead,
+			want: success("approved by Ann Owner (2026-11-07): feat-f", "openspec/changes/feat-f/proposal.md", noDesignHead)},
+		{name: "design.md edited after approval", head: staleHead,
+			want: pending("approval stale: feat-g", "openspec/changes/feat-g/proposal.md", staleHead)},
+		{name: "design.md added after approval", head: addedDesignHead,
+			want: pending("approval stale: feat-h", "openspec/changes/feat-h/proposal.md", addedDesignHead)},
 		{name: "no change touched", head: noneHead},
 		{name: "head object missing locally", head: "0123456789abcdef0123456789abcdef01234567"},
 	} {
