@@ -55,6 +55,8 @@ Additive. Archived changes are untouched and unchecked. In-flight filled approva
 
 ## Open Questions
 
+Ruled 2026-11-09 by the owner: 1 → D1 A, 2 → D4 A, 3 → D5 A, 4 → A (gate unchanged). Question 5 was not ruled; the stale status stays `pending`.
+
 1. **Owner ruling (changes the spec scenario and tasks 2.1–2.3):** D1 A digest or B commit sha.
 2. **Owner ruling (task 2.2):** D4 A warn or B fail for a filled approval with no digest.
 3. **Owner ruling (task 2.1):** D5 A two files, or B also the `specs/` deltas.

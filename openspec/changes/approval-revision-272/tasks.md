@@ -1,6 +1,6 @@
 ## 1. Approval
 
-- [ ] 1.1 Hold: OPEN-Q proposal awaits owner approval. Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design Open Questions 1–4 (#272).
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing the `OPEN-Q` line in the same edit, ruling on design Open Questions 1–4 (#272). Evidence: the owner ruled in Enjoy on 2026-11-09 with the recommended options: OQ1 D1 A (content digest), OQ2 D4 A (unbound in-flight approvals warn, exit 0), OQ3 D5 A (`proposal.md` and `design.md` only), OQ4 A (`gate.go` `approvalNotes` unchanged); OQ5 unruled, so the stale status stays `pending`. Claude wrote the header at those rulings. This approval is unbound by construction; task 3.2 re-approves in the bound form.
 
 ## 2. Implementation
 
