@@ -28,9 +28,13 @@
   - Evidence: one sentence after the `runOnWorktreeCreate` line in `docs/adoption.md` § T3 Code hosts. Reviewer read pending.
 ## 5. Hand verification (OQ3)
 
-- [ ] 5.1 In a T3 Code thread on this repository, run `/pickup` and `/handoff` once each, then view the card on web and on the mobile app. Record a one-line result per surface here.
+- [x] 5.1 In a T3 Code thread on this repository, run `/pickup` and `/handoff` once each, then view the card on web and on the mobile app. Record a one-line result per surface here.
 
+  - Evidence: on 2026-11-09 the owner ran `/pickup` and `/handoff` in a T3 Code thread on this branch at `e68a1b7`. Both cards rendered with all five rows and the Agent-written region, and rows the agent had not read showed `not run` / `not checked`. The owner sent two screenshots, both of the desktop/web view, and accepted the result ("I am going to call that good"). No mobile-app screenshot was recorded.
 ## 6. Close
 
-- [ ] 6.1 `task verify`, `ateam doctor --check`, and `ateam bench --selftest` are green on a clean tree. A not-weaker review record is posted at the final head.
-- [ ] 6.2 Archive this change before marking the PR ready.
+- [x] 6.1 `task verify`, `ateam doctor --check`, and `ateam bench --selftest` are green on a clean tree. A not-weaker review record is posted at the final head.
+  - Evidence: `task verify`, `ateam doctor --check`, and `ateam bench --selftest` exit 0 at `e68a1b7` (no code changed after, only the archive). The review record is on PR #348.
+- [x] 6.2 Archive this change before marking the PR ready.
+
+  - Evidence: archived on the branch before the PR was marked ready.

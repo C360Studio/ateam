@@ -10,7 +10,7 @@ import (
 
 // The card ateam init writes stays static and small, and each skill carries the
 // card paragraph once, behind the T3 condition (#304).
-// spec: openspec/changes/t3-confidence-card-304/specs/harness/spec.md#Requirement: T3 Code in-thread confidence card
+// spec: openspec/specs/harness/spec.md#Requirement: T3 Code in-thread confidence card
 func TestT3CardTemplate(t *testing.T) {
 	root := t.TempDir()
 	if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
@@ -55,7 +55,7 @@ func TestT3CardTemplate(t *testing.T) {
 }
 
 // The static checker itself names each limit a card can break.
-// spec: openspec/changes/t3-confidence-card-304/specs/harness/spec.md#Requirement: T3 Code in-thread confidence card
+// spec: openspec/specs/harness/spec.md#Requirement: T3 Code in-thread confidence card
 func TestT3CardViolations(t *testing.T) {
 	cases := []struct{ name, mutate, want string }{
 		{"script", strings.Replace(t3CardHTML, "</body>", "<script>x()</script></body>", 1), "<script"},
