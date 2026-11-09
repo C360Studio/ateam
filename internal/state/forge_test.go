@@ -269,7 +269,7 @@ func TestDualForgeSyncTimestampIsolation(t *testing.T) {
 	if !afterGiteaMerge.BoardSyncedAt.Equal(oldGHSync) {
 		t.Fatalf("BoardSyncedAt after Gitea merge = %v, want %v", afterGiteaMerge.BoardSyncedAt, oldGHSync)
 	}
-	if snap := afterGiteaMerge.BoardView(); snap.Forge != ForgeGitHub || snap.SyncedAt != oldGHSync.Format(time.RFC3339) {
+	if snap, _ := afterGiteaMerge.BoardView(BoardQuery{}); snap.Forge != ForgeGitHub || snap.SyncedAt != oldGHSync.Format(time.RFC3339) {
 		t.Fatalf("BoardView after Gitea merge reported (%s, %s), want (github, %s)", snap.Forge, snap.SyncedAt, oldGHSync.Format(time.RFC3339))
 	}
 	dualRefreshed, err := RefreshWithBestEffortSync(context.Background(), dualRoot, 30*time.Second)

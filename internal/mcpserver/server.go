@@ -70,6 +70,9 @@ func Tools() []ToolDef {
 					"checks_to_run": map[string]any{"type": "string"},
 					"post":          map[string]any{"type": "boolean", "description": "handoff: omitted or true posts a PR comment; false saves locally only"},
 					"force":         map[string]any{"type": "boolean"},
+					"scope":         map[string]any{"type": "string", "enum": []string{"open", "done", "all"}},
+					"limit":         map[string]any{"type": "integer"},
+					"after":         map[string]any{"type": "string"},
 				},
 				"required": []string{"action"},
 			},
@@ -265,6 +268,9 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		SessionID      string `json:"session_id"`
 		ConversationID string `json:"conversationId"`
 		Slot           string `json:"slot"`
+		Scope          string `json:"scope"`
+		Limit          int    `json:"limit"`
+		After          string `json:"after"`
 	}
 	// Absent arguments stay valid for actions that need none; a wrong-type field fails the call (#266).
 	if len(rawArgs) > 0 {
@@ -398,7 +404,23 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		}
 		return out, false
 	case "board":
-		data, _ := json.MarshalIndent(st.BoardView(), "", "  ")
+		// Agents get open work by default; counts and the notice keep the omitted done total visible (#199 OQ1).
+		q := state.BoardQuery{Scope: args.Scope, Limit: args.Limit, After: args.After}
+		if q.Scope == "" {
+			q.Scope = state.BoardScopeOpen
+		}
+		snap, err := st.BoardView(q)
+		if err != nil {
+			return "board: " + err.Error(), true
+		}
+		if args.Scope == "" && snap.Counts["done"] > 0 {
+			omitted := fmt.Sprintf("%d done cards omitted; pass scope \"done\" or \"all\" to read them", snap.Counts["done"])
+			if snap.Notice != "" {
+				omitted = snap.Notice + "; " + omitted
+			}
+			snap.Notice = omitted
+		}
+		data, _ := json.MarshalIndent(snap, "", "  ")
 		return string(data), false
 	default:
 		return "unsupported action: " + args.Action, true
@@ -499,7 +521,8 @@ func handleResourceRead(ctx context.Context, root string, req rpcRequest, connSe
 		st.PopulateMCPProvenance(ctx, root, serverBuildLabel)
 		text = state.BuildPickupSummary(st)
 	case "ateam://state/board":
-		b, _ := json.MarshalIndent(st.BoardView(), "", "  ")
+		snap, _ := st.BoardView(state.BoardQuery{}) // an empty query cannot fail
+		b, _ := json.MarshalIndent(snap, "", "  ")
 		text = string(b)
 	case "ateam://state/shortcuts":
 		b, _ := json.MarshalIndent(st.Shortcuts, "", "  ")

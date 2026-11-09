@@ -156,8 +156,10 @@ func runState(repoRoot string, args []string) int {
 		return runStateReadHandoff(repoRoot, args[1:])
 	case "prune":
 		return runStatePrune(repoRoot, args[1:])
-	case "status", "board":
+	case "status":
 		return runStateSnapshot(repoRoot, sub)
+	case "board":
+		return runStateBoard(repoRoot, args[1:])
 	case "writer":
 		return runStateWriter(repoRoot, args[1:])
 	case "herdr":
@@ -176,7 +178,7 @@ const stateUsage = `Usage:
 
 Subcommands:
   status       Refresh state and print it as JSON (default)
-  board        Refresh state with a forge sync and print the PM board as JSON
+  board        Refresh state with a forge sync and print the PM board as JSON (--scope open|done|all, --limit, --after)
   pickup       Refresh state and print the pickup summary (--agent, --session)
   handoff      Record the five-field handoff checkpoint (see ateam state handoff -h)
   read-handoff <agent>@<branch>
@@ -480,24 +482,35 @@ func runStateSync(repoRoot string, args []string) int {
 }
 
 func runStateSnapshot(repoRoot, sub string) int {
-	var (
-		st  *state.State
-		err error
-	)
-	if sub == "board" {
-		st, err = state.RefreshWithBestEffortSync(context.Background(), repoRoot, 30*time.Second)
-	} else {
-		st, err = state.Refresh(context.Background(), repoRoot, false)
-	}
+	st, err := state.Refresh(context.Background(), repoRoot, false)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ateam state: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ateam state %s: %v\n", sub, err)
 		return 1
 	}
-	if sub == "board" {
-		printJSON(st.BoardView())
-		return 0
-	}
 	printJSON(st)
+	return 0
+}
+
+func runStateBoard(repoRoot string, args []string) int {
+	fs := flag.NewFlagSet("state board", flag.ContinueOnError)
+	var q state.BoardQuery
+	fs.StringVar(&q.Scope, "scope", state.BoardScopeAll, "cards to return: open, done, or all")
+	fs.IntVar(&q.Limit, "limit", 0, "maximum cards per page (0: no limit)")
+	fs.StringVar(&q.After, "after", "", "next_after cursor from a previous page")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+	st, err := state.RefreshWithBestEffortSync(context.Background(), repoRoot, 30*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state board: %v\n", err)
+		return 1
+	}
+	snap, err := st.BoardView(q)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state board: %v\n", err)
+		return 1
+	}
+	printJSON(snap)
 	return 0
 }
 
