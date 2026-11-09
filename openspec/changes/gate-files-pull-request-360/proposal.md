@@ -1,6 +1,6 @@
 # Change Proposal: `gate-files-pull-request-360`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-09)
 
 ## Why
 

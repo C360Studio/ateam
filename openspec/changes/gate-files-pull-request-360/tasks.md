@@ -1,7 +1,7 @@
 ## 1. Approval
 
-- [ ] 1.1 The owner approves `proposal.md` and `design.md` by filling in `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit. The approval also rules on design OQ1: whether Gitea moves too, and who updates its branch protection context (#360).
-  - Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 The owner approves `proposal.md` and `design.md` by filling in `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit. The approval also rules on design OQ1: whether Gitea moves too, and who updates its branch protection context (#360).
+  - Evidence: the owner approved in Enjoy on 2026-11-09. OQ1 is A: Gitea moves too, and the owner updates the Gitea branch protection context. Claude wrote the header at their request.
 
 ## 2. Trigger
 
