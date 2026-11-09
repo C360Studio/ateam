@@ -36,3 +36,5 @@ Report in one concise block:
 4. **Next authorized step** under the Ponytail decision ladder
 
 Continue directly into the next authorized step when no blocking hold or unclarified scope boundary applies.
+
+**T3 Code card.** Only when the `html_render` tool is available to you and `printenv T3CODE_THREAD_ID` prints a non-empty value: after the report above, read [t3-card.html](../handoff/t3-card.html), replace each double-brace placeholder with a fact read this turn (escape `& < > " '` first, write `not checked` for anything you did not read, and put the handoff goal and done-when only in the Agent-written region), then call `html_render` with that HTML, the title `Pickup · <branch>`, and height 560. On any other host, skip this step.

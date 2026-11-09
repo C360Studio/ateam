@@ -421,7 +421,7 @@ Checks to run: <Reconciliation commands and remaining validation>
 ` + "```" + `
 
 At a code PR's ready-for-review under the review policy's ` + "`review_launch: manual`" + ` (the default), this handoff is the stop: name the PR and the reviewer runs ` + "`ateam review request <n>`" + ` prints in ` + "`Done when`" + `, so a person or a scheduled workflow can start the reviewer.
-`,
+` + "\n" + t3CardParagraph("Handoff", "t3-card.html"),
 	"pickup": `---
 name: pickup
 description: >-
@@ -444,7 +444,7 @@ Confirm the previous writer has handed off or stopped before mutating files in a
 ## 3. Reconcile and Continue
 
 Report verified worktree/branch/HEAD SHA, active holds/drift, write ownership status, and the next authorized step under the Ponytail decision ladder.
-`,
+` + "\n" + t3CardParagraph("Pickup", "../handoff/t3-card.html"),
 	"ponytail": `---
 name: ponytail
 description: >-
@@ -615,6 +615,7 @@ func defaultTemplateFiles() map[string]string {
 		"openspec/config.yaml":                  openspecConfig,
 		"openspec/changes/.gitkeep":             "# keep\n",
 		"openspec/specs/.gitkeep":               "# keep\n",
+		t3CardPath:                              t3CardHTML,
 	}
 	for _, s := range canonicalSkills {
 		body, ok := canonicalSkillBodies[s]
@@ -641,3 +642,44 @@ const protocolClaimState = `- **Who has claimed what:** A draft PR on an agent-p
 const protocolClaimStep = `2. **Claim:** Create or switch to an isolated worktree at ` + "`.worktrees/<agent>-<topic>`" + `, the gitignored directory inside the repository, unless the host creates it for you (Enjoy's ` + "`move_to_worktree`" + `, herdr, T3 Code), on an agent-prefixed branch (` + "`claude/…`" + `, ` + "`codex/…`" + `, ` + "`gemini/…`" + `; T3 Code names its own ` + "`t3/<topic>`" + `), backed by a draft PR on GitHub or Gitea.`
 
 const protocolCloseStep = `5. **Handoff or Land (Close):** At a session boundary or before context compaction, run ` + "`ateam state handoff`" + ` (or ` + "`/handoff`" + `) to record the 5-field pickup prompt. When a PR lands an OpenSpec change, the archive move (` + "`openspec/changes/<id>/`" + ` → ` + "`openspec/changes/archive/<date>-<id>/`" + `) is a commit on the branch before the PR is marked ready, and the change's ` + "`Hold: OPEN-Q proposal awaits owner approval`" + ` must be gone before that move; merging with a completed unarchived change is a Close-gate miss, not a follow-up. Mark the PR ready and arm auto-merge (` + "`gh pr merge --squash --auto`" + `; on Gitea, ` + "`POST /repos/{owner}/{repo}/pulls/{n}/merge`" + ` with ` + "`{\"do\":\"squash\",\"merge_when_checks_succeed\":true}`" + `); the merge fires when the required check is green on an up-to-date branch, and arming it past a previously red required job needs the cause fixed or an owner waiver. A code PR then waits for its review, and the review policy's ` + "`review_launch`" + ` says who starts the reviewer: under ` + "`manual`" + ` (the default) stop at ready-for-review and hand off, and a person or a scheduled workflow starts it; under ` + "`agent`" + `, run ` + "`ateam review request <n>`" + `, which prints the eligible reviewer runs and, with a host manifest in ` + "`.agents/hosts/`" + `, starts the reviewer or names the host tool to call. The record then shows on your worktree's pickup line after ` + "`ateam state sync`" + ` runs in your own checkout, which keeps its own cache; ` + "`ateam state pickup`" + ` alone skips the fetch while that cache is under 30 seconds old. Once the merge has landed, remove the worktree you claimed and delete its remote branch; ` + "`ateam state prune`" + ` does both for every clean, merged worktree on your agent prefix that no other session holds or handed off in the last 30 minutes (` + "`--force`" + ` overrides that; ` + "`--dry-run`" + ` first lists what it would remove). The ` + "`main`" + ` run is informational: a red one after a green up-to-date PR run is a tracked issue, not a reason to keep the worktree. Review checkouts (` + "`.worktrees/<agent>-review-pr-<n>`" + `, detached; ` + "`ateam state prune`" + ` also removes them once the PR is closed) are removed when the review record comment is posted. Pickup labels every merged and PR-less worktree; a finished worktree older than a day is yours to explain or remove.`
+
+// t3CardPath is the card the pickup and handoff skills render with T3 Code's html_render (#304).
+const t3CardPath = ".agents/skills/handoff/t3-card.html"
+
+// t3CardCondition opens the card paragraph; on any host without both markers the skills render nothing.
+const t3CardCondition = "**T3 Code card.** Only when the `html_render` tool is available to you and `printenv T3CODE_THREAD_ID` prints a non-empty value:"
+
+// t3CardParagraph is the one card paragraph each of the pickup and handoff skills carries.
+func t3CardParagraph(kind, link string) string {
+	return t3CardCondition + " after the report above, read [t3-card.html](" + link + "), replace each double-brace placeholder with a fact read this turn (escape `& < > \" '` first, write `not checked` for anything you did not read, and put the handoff goal and done-when only in the Agent-written region), then call `html_render` with that HTML, the title `" + kind + " · <branch>`, and height 560. On any other host, skip this step.\n"
+}
+
+const t3CardHTML = `<!doctype html>
+<!-- ateam T3 Code confidence card (#304). Read by the pickup and handoff skills only in a T3 thread.
+Replace every double-brace placeholder with a value read this turn, escaping & < > " ' first; write "not checked" for
+anything not read. Each *_CLASS is one of ok, wait, fail, unk. Render with html_render, height 560 (measured: 551 px at 360 wide, 378 px at 728).
+No script and no remote URL: the card neither fetches nor runs anything. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{KIND}} · {{BRANCH}}</title>
+<style>
+:root{color-scheme:dark light;--fg:#e6e6e6;--mut:#9a9a9a;--bg:#161616;--line:#2c2c2c;--ok:#3fb950;--wait:#d29922;--fail:#f85149;--unk:#8b949e}
+@media (prefers-color-scheme:light){:root{--fg:#1f2328;--mut:#59636e;--bg:#fff;--line:#d1d9e0;--ok:#1a7f37;--wait:#9a6700;--fail:#cf222e;--unk:#59636e}}
+*{box-sizing:border-box}body{margin:0;padding:12px;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,sans-serif}
+h1{font-size:15px;margin:0 0 2px}.sub{color:var(--mut);font-size:12px;margin-bottom:10px;overflow-wrap:anywhere}
+.row{display:grid;grid-template-columns:84px 1fr;gap:8px;padding:7px 0;border-top:1px solid var(--line)}
+.k{font-weight:600}.v{overflow-wrap:anywhere}.s{font-weight:600;margin-right:6px}
+.ok .s{color:var(--ok)}.wait .s{color:var(--wait)}.fail .s{color:var(--fail)}.unk .s{color:var(--unk)}
+.free{margin-top:10px;border:1px dashed var(--line);border-radius:6px;padding:8px}
+.free h2{font-size:12px;margin:0 0 4px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.free p{margin:2px 0;overflow-wrap:anywhere}
+</style></head><body>
+<h1>{{KIND}} · {{REPO}}</h1>
+<div class="sub">{{BRANCH}} @ {{HEAD}} · {{TIME}}</div>
+<div class="row {{PROPOSAL_CLASS}}"><div class="k">Proposal</div><div class="v"><span class="s">{{PROPOSAL_STATE}}</span>{{PROPOSAL}}</div></div>
+<div class="row {{CLAIM_CLASS}}"><div class="k">Claim</div><div class="v"><span class="s">{{CLAIM_STATE}}</span>{{CLAIM}}</div></div>
+<div class="row {{GATES_CLASS}}"><div class="k">Gates</div><div class="v"><span class="s">{{GATES_STATE}}</span>{{GATES}}</div></div>
+<div class="row {{REVIEW_CLASS}}"><div class="k">Review</div><div class="v"><span class="s">{{REVIEW_STATE}}</span>{{REVIEW}}</div></div>
+<div class="row {{MERGE_CLASS}}"><div class="k">Merge</div><div class="v"><span class="s">{{MERGE_STATE}}</span>{{MERGE}}</div></div>
+<div class="free"><h2>Agent-written (not verified)</h2><p><b>Goal:</b> {{GOAL}}</p><p><b>Done when:</b> {{DONE_WHEN}}</p></div>
+</body></html>
+`
