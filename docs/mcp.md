@@ -100,7 +100,7 @@ Expect initialization followed by exactly two tool definitions. EOF stops this t
 | `mode` | Without `mode`, reads current mode; with `"mode":"on"` or `"off"`, changes it and returns mode/ladder text. | Saves mode when supplied; does not change provider/model settings. |
 | `spec_queue` | Returns in-flight OpenSpec task/caveat summary. | Local refresh only. |
 | `spec_check` | Validates OpenSpec and reports tool error on invalid specs. | May invoke installed OpenSpec CLI. |
-| `board` | Returns board cards as JSON text. | Attempts a bounded remote forge sync when stale, falling back to cache on failure. |
+| `board` | Optional `scope` (`open`, `done` or `all`; **omitted means `open`**), `limit` (cards per page; 0 or omitted means no limit) and `after` (the `next_after` value from the previous page). Returns board JSON text: cards in number-descending, then ID, order; `counts` per column over every card; the matching `total`; `next_after` and `complete`; and the sync fields. When `scope` is omitted and `done` cards exist, `notice` names how many were left out. An invalid argument is a tool error. `ateam state board --scope --limit --after` takes the same arguments, but defaults to `all`. | Attempts a bounded remote forge sync when stale, falling back to cache on failure. |
 | `handoff` | Accepts `goal`, `addresses`, `constraints`, `done_when`, `checks_to_run`, and optional boolean `post`. Returns the five-field checkpoint and posting status. | Saves checkpoint, releases the writer lease only when it is this session's (a kept lease is named as `writer lease: kept (held by <agent> session <id>)`), and **defaults to attempting a PR comment** when a forge is configured. Set `post:false` for local-only use. |
 
 Example local-only handoff:
@@ -134,7 +134,7 @@ Prompts `pickup`, `handoff`, `preflight`, and `ponytail` return the correspondin
 | Resource URI | Contents |
 | --- | --- |
 | `ateam://state/pickup` | Pickup summary |
-| `ateam://state/board` | Cached board cards as JSON text |
+| `ateam://state/board` | Cached board as JSON text: every card (`scope` `all`), with `counts` |
 | `ateam://state/shortcuts` | Shortcut scan as JSON text |
 | `ateam://state/openspec` | OpenSpec queue summary |
 

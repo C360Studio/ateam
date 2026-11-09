@@ -2271,15 +2271,112 @@ type BoardSnapshot struct {
 	CachedFallback bool          `json:"cached_fallback,omitempty"`
 	SyncError      string        `json:"sync_error,omitempty"`
 	Notice         string        `json:"notice,omitempty"`
-	Cards          []BoardCard   `json:"cards"`
+	// Scope is the effective filter; Counts covers every card before filtering, so omitted history stays visible (#199).
+	Scope     string         `json:"scope"`
+	Counts    map[string]int `json:"counts"`
+	Total     int            `json:"total"`
+	NextAfter string         `json:"next_after,omitempty"`
+	Complete  bool           `json:"complete"`
+	Cards     []BoardCard    `json:"cards"`
 }
 
-// BoardView returns a BoardSnapshot including sync metadata and fallback status for CLI/MCP board responses.
-func (st *State) BoardView() BoardSnapshot {
-	cards := st.Cards
-	if cards == nil {
-		cards = []BoardCard{}
+// Board scopes: open is every column except done.
+const (
+	BoardScopeOpen = "open"
+	BoardScopeDone = "done"
+	BoardScopeAll  = "all"
+)
+
+// BoardQuery bounds a board read. An empty Scope means all, Limit 0 means no limit, and After is the
+// next_after cursor of a previous page.
+type BoardQuery struct {
+	Scope string
+	Limit int
+	After string
+}
+
+// boardKey orders cards by number descending, then ID ascending. Both are immutable per card, so a keyset
+// cursor neither loses nor repeats a card that changes column between pages (#199).
+type boardKey struct {
+	number int
+	id     string
+}
+
+func (k boardKey) before(o boardKey) bool {
+	if k.number != o.number {
+		return k.number > o.number
 	}
+	return k.id < o.id
+}
+
+func (k boardKey) cursor() string { return strconv.Itoa(k.number) + ":" + k.id }
+
+func parseBoardCursor(s string) (boardKey, error) {
+	num, id, ok := strings.Cut(s, ":")
+	n, err := strconv.Atoi(num)
+	if !ok || err != nil || id == "" {
+		return boardKey{}, fmt.Errorf("after: %q is not a board cursor; pass next_after from a previous page", s)
+	}
+	return boardKey{number: n, id: id}, nil
+}
+
+func boardScopeMatches(scope, column string) bool {
+	switch scope {
+	case BoardScopeOpen:
+		return column != "done"
+	case BoardScopeDone:
+		return column == "done"
+	}
+	return true
+}
+
+// BoardView returns a BoardSnapshot including sync metadata and fallback status for CLI/MCP board responses,
+// filtered by q.Scope and paged by q.Limit and q.After. Invalid query fields return an error naming the field.
+func (st *State) BoardView(q BoardQuery) (BoardSnapshot, error) {
+	scope := q.Scope
+	if scope == "" {
+		scope = BoardScopeAll
+	}
+	if scope != BoardScopeOpen && scope != BoardScopeDone && scope != BoardScopeAll {
+		return BoardSnapshot{}, fmt.Errorf("scope: %q is not one of open, done, all", q.Scope)
+	}
+	if q.Limit < 0 {
+		return BoardSnapshot{}, fmt.Errorf("limit: %d is negative", q.Limit)
+	}
+	var after *boardKey
+	if q.After != "" {
+		k, err := parseBoardCursor(q.After)
+		if err != nil {
+			return BoardSnapshot{}, err
+		}
+		after = &k
+	}
+
+	counts := map[string]int{}
+	matched := make([]BoardCard, 0, len(st.Cards))
+	for _, c := range st.Cards {
+		counts[c.Column]++
+		if boardScopeMatches(scope, c.Column) {
+			matched = append(matched, c)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		return boardKey{matched[i].Number, matched[i].ID}.before(boardKey{matched[j].Number, matched[j].ID})
+	})
+	start := 0
+	if after != nil {
+		start = sort.Search(len(matched), func(i int) bool {
+			return after.before(boardKey{matched[i].Number, matched[i].ID})
+		})
+	}
+	cards := matched[start:]
+	nextAfter := ""
+	if q.Limit > 0 && len(cards) > q.Limit {
+		cards = cards[:q.Limit]
+		last := cards[len(cards)-1]
+		nextAfter = boardKey{last.Number, last.ID}.cursor()
+	}
+
 	syncedAt := "never"
 	var tsPtr *time.Time
 	activeSync := st.SyncedAtFor(st.Forge)
@@ -2292,6 +2389,11 @@ func (st *State) BoardView() BoardSnapshot {
 		Forge:         st.Forge.Provider,
 		SyncedAt:      syncedAt,
 		BoardSyncedAt: tsPtr,
+		Scope:         scope,
+		Counts:        counts,
+		Total:         len(matched),
+		NextAfter:     nextAfter,
+		Complete:      nextAfter == "",
 		Cards:         cards,
 	}
 	if strings.TrimSpace(st.BoardSyncError) != "" {
@@ -2299,7 +2401,7 @@ func (st *State) BoardView() BoardSnapshot {
 		snap.SyncError = strings.TrimSpace(st.BoardSyncError)
 		snap.Notice = fmt.Sprintf("WARNING: forge sync failed (%s); serving cached board (synced=%s)", snap.SyncError, syncedAt)
 	}
-	return snap
+	return snap, nil
 }
 
 // MoveCard moves an existing card by ID to a new column and optional agent assignee.

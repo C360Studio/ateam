@@ -30,6 +30,7 @@ func TestMain(m *testing.M) {
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
 // spec: openspec/specs/benchmark-experiments/spec.md#Requirement: Honest evaluator self-tests
+// spec: openspec/specs/harness/spec.md#Requirement: Bounded board reads
 func TestCLISubcommands(t *testing.T) {
 	if code := run([]string{"--help"}); code != 0 {
 		t.Fatalf("run(--help) = %d, want 0", code)
@@ -94,8 +95,11 @@ func TestCLISubcommands(t *testing.T) {
 	if got := runStatePickup(handoffDir, []string{"--agent", "claude"}); got != 0 {
 		t.Fatalf("runStatePickup(--agent claude) = %d, want 0", got)
 	}
-	if got := runStateSnapshot(handoffDir, "board"); got != 0 {
-		t.Fatalf("runStateSnapshot(board) = %d, want 0", got)
+	if got := runStateBoard(handoffDir, []string{"--scope", "done", "--limit", "1"}); got != 0 {
+		t.Fatalf("runStateBoard(--scope done --limit 1) = %d, want 0", got)
+	}
+	if got := runStateBoard(handoffDir, []string{"--scope", "closed"}); got != 1 {
+		t.Fatalf("runStateBoard(--scope closed) = %d, want 1", got)
 	}
 
 	// Verify the recovery command advertised by stale forge-cache worktree output parses and succeeds through runState.

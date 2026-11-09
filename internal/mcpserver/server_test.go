@@ -175,6 +175,64 @@ func TestMCPBoardAndPickupStaleCacheFallback(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Bounded board reads
+func TestMCPBoardScope(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if _, err := state.Update(dir, func(cur *state.State) error {
+		if err := cur.UpsertForge(state.ForgeConfig{Provider: state.ForgeGitHub, Owner: "c360", Repo: "ateam"}); err != nil {
+			return err
+		}
+		cur.Cards = []state.BoardCard{
+			{ID: "GH-1", Number: 1, Title: "Open card", Column: "backlog", Forge: "github"},
+			{ID: "GH-2", Number: 2, Title: "Closed card", Column: "done", Forge: "github"},
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("state.Update: %v", err)
+	}
+
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"board"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"board","scope":"done"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ateam_state","arguments":{"action":"board","scope":"closed"}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"ateam://state/board"}}`,
+	}, "\n") + "\n"
+	var out bytes.Buffer
+	if err := Serve(context.Background(), dir, strings.NewReader(input), &out); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("got %d responses, want 4:\n%s", len(lines), out.String())
+	}
+	for _, tc := range []struct {
+		name          string
+		line          string
+		want, notWant []string
+	}{
+		{"default", lines[0], []string{"GH-1", "1 done cards omitted", "WARNING: forge sync failed", `\"scope\": \"open\"`}, []string{"GH-2", `"isError":true`}},
+		{"scope done", lines[1], []string{"GH-2", `\"done\": 1`}, []string{"GH-1", "omitted", `"isError":true`}},
+		{"bad scope", lines[2], []string{`"isError":true`, "scope:"}, []string{"GH-1", "GH-2"}},
+		{"resource", lines[3], []string{"GH-1", "GH-2", `\"scope\": \"all\"`}, []string{"omitted"}},
+	} {
+		for _, w := range tc.want {
+			if !strings.Contains(tc.line, w) {
+				t.Errorf("%s response missing %q:\n%s", tc.name, w, tc.line)
+			}
+		}
+		for _, w := range tc.notWant {
+			if strings.Contains(tc.line, w) {
+				t.Errorf("%s response contains %q:\n%s", tc.name, w, tc.line)
+			}
+		}
+	}
+}
+
 // spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
 func TestMCPPickupBuildProvenanceAndStaleBinaryWarning(t *testing.T) {
 	dir := t.TempDir()
