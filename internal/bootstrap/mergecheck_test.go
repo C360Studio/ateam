@@ -862,7 +862,10 @@ func TestMergeCheckReview(t *testing.T) {
 var (
 	requiredNeeds         = []string{"verify"}
 	mergeCheckPermissions = map[string]string{"contents": "read", "issues": "read", "pull-requests": "read"}
-	pullRequestTypes      = []string{"opened", "synchronize", "reopened", "ready_for_review"}
+	// The GitHub probe also reads the head's Merge check check run (#359); Gitea
+	// reads commit statuses under contents: read.
+	githubProbePermissions = map[string]string{"contents": "read", "issues": "read", "pull-requests": "read", "checks": "read"}
+	pullRequestTypes       = []string{"opened", "synchronize", "reopened", "ready_for_review"}
 )
 
 const (
@@ -875,7 +878,7 @@ const (
 // awaitingProbeViolations checks the awaiting probe (#262): never named as a
 // required check, skipped on a draft, read-only, built from the base commit, and
 // publishing the probe's answer as the job output merge-check reads.
-func awaitingProbeViolations(jobs map[string]ciJob) []string {
+func awaitingProbeViolations(jobs map[string]ciJob, perms map[string]string) []string {
 	job, ok := jobs["awaiting"]
 	if !ok {
 		return []string{"merge-check.yml: no job awaiting"}
@@ -890,7 +893,7 @@ func awaitingProbeViolations(jobs map[string]ciJob) []string {
 	if label, ok := job.RunsOn.(string); !ok || label != runnerLabel {
 		out = append(out, fmt.Sprintf("merge-check.yml: job awaiting runs on %v; the merge-gate spec requires %s", job.RunsOn, runnerLabel))
 	}
-	out = append(out, mergeCheckPermissionViolations(job.Permissions)...)
+	out = append(out, mergeCheckPermissionViolations("awaiting", job.Permissions, perms)...)
 	if o, _ := job.Outputs["awaiting"].(string); o != "${{ steps.probe.outputs.awaiting }}" {
 		out = append(out, fmt.Sprintf("merge-check.yml: job awaiting outputs awaiting=%v; the merge-gate spec requires ${{ steps.probe.outputs.awaiting }}", job.Outputs["awaiting"]))
 	}
@@ -1061,7 +1064,7 @@ const (
 // spec (#255): PR-state triggers, runs queued and never cancelled, skipped and
 // renamed on a draft, read-only, built from the base commit, and told every
 // context main must require.
-func mergeCheckWorkflowViolations(data []byte, checks string) []string {
+func mergeCheckWorkflowViolations(data []byte, checks string, probePerms map[string]string) []string {
 	wf, err := parseCIWorkflowYAML(data)
 	if err != nil {
 		return []string{fmt.Sprintf("merge-check.yml: %v", err)}
@@ -1081,7 +1084,7 @@ func mergeCheckWorkflowViolations(data []byte, checks string) []string {
 	if len(wf.Jobs) != 2 {
 		violations = append(violations, fmt.Sprintf("merge-check.yml: has %d jobs; the merge-gate spec requires the jobs awaiting and merge-check", len(wf.Jobs)))
 	}
-	violations = append(violations, awaitingProbeViolations(wf.Jobs)...)
+	violations = append(violations, awaitingProbeViolations(wf.Jobs, probePerms)...)
 	job, ok := wf.Jobs["merge-check"]
 	if !ok {
 		return append(violations, "merge-check.yml: no job merge-check")
@@ -1098,7 +1101,7 @@ func mergeCheckWorkflowViolations(data []byte, checks string) []string {
 	if label, ok := job.RunsOn.(string); !ok || label != runnerLabel {
 		violations = append(violations, fmt.Sprintf("merge-check.yml: job merge-check runs on %v; the merge-gate spec requires %s", job.RunsOn, runnerLabel))
 	}
-	violations = append(violations, mergeCheckPermissionViolations(job.Permissions)...)
+	violations = append(violations, mergeCheckPermissionViolations("merge-check", job.Permissions, mergeCheckPermissions)...)
 	ran := false
 	for _, st := range job.Steps {
 		if st.Run != `scripts/merge-check.sh "$PR_NUMBER"` {
@@ -1117,15 +1120,18 @@ func mergeCheckWorkflowViolations(data []byte, checks string) []string {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Merge check runs on pull-request state events
 func TestMergeCheckWorkflowPinned(t *testing.T) {
-	for forge, checks := range map[string]string{
-		".github": "Required,Merge check",
-		".gitea":  "CI / Required (pull_request),Merge check / Merge check (pull_request)",
+	for forge, tc := range map[string]struct {
+		checks string
+		probe  map[string]string
+	}{
+		".github": {"Required,Merge check", githubProbePermissions},
+		".gitea":  {"CI / Required (pull_request),Merge check / Merge check (pull_request)", mergeCheckPermissions},
 	} {
 		data, err := os.ReadFile(filepath.Join(repoRoot(t), forge, "workflows", "merge-check.yml"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if v := mergeCheckWorkflowViolations(data, checks); len(v) > 0 {
+		if v := mergeCheckWorkflowViolations(data, tc.checks, tc.probe); len(v) > 0 {
 			t.Errorf("%s merge-check.yml violations:\n- %s", forge, strings.Join(v, "\n- "))
 		}
 	}
@@ -1156,7 +1162,8 @@ func TestMergeCheckWorkflowPinnedSensitivity(t *testing.T) {
 		{"probe answer not published", ` >> "$GITHUB_OUTPUT"`, "", []string{"no step probe"}},
 		{"probe output unwired", "      awaiting: ${{ steps.probe.outputs.awaiting }}\n", "      awaiting: 'false'\n", []string{"job awaiting outputs awaiting"}},
 		{"probe runs on a draft", "    name: Merge check probe\n    if: ${{ !github.event.pull_request.draft }}\n", "    name: Merge check probe\n", []string{"job awaiting runs under if"}},
-		{"probe write permission", "      pull-requests: read\n    outputs:\n", "      pull-requests: write\n    outputs:\n", []string{"pull-requests: write"}},
+		{"probe write permission", "      pull-requests: read\n      # The head's Merge check check run (#359).\n      checks: read\n    outputs:\n", "      pull-requests: write\n      # The head's Merge check check run (#359).\n      checks: read\n    outputs:\n", []string{"job awaiting is granted pull-requests: write"}},
+		{"probe checks scope dropped", "      # The head's Merge check check run (#359).\n      checks: read\n", "", []string{"job awaiting is missing checks: read"}},
 		{"name kept on a draft", "    name: " + mergeCheckName + "\n", "    name: Merge check\n", []string{"is named Merge check"}},
 		{"name kept while awaiting", "    name: " + mergeCheckName + "\n", "    name: " + draftName("Merge check") + "\n", []string{"awaiting job leaves no"}},
 		{"a check dropped from the list", "ATEAM_REQUIRED_CHECKS: Required,Merge check", "ATEAM_REQUIRED_CHECKS: Required", []string{`ATEAM_REQUIRED_CHECKS is "Required"`}},
@@ -1166,7 +1173,7 @@ func TestMergeCheckWorkflowPinnedSensitivity(t *testing.T) {
 			if !strings.Contains(good, tc.old) {
 				t.Fatalf("merge-check.yml lacks %q", tc.old)
 			}
-			requireViolation(t, mergeCheckWorkflowViolations([]byte(strings.Replace(good, tc.old, tc.repl, 1)), checks), tc.wants...)
+			requireViolation(t, mergeCheckWorkflowViolations([]byte(strings.Replace(good, tc.old, tc.repl, 1)), checks, githubProbePermissions), tc.wants...)
 		})
 	}
 }
@@ -1350,21 +1357,21 @@ func writeGrants(where string, perms any) []string {
 	return nil
 }
 
-func mergeCheckPermissionViolations(perms any) []string {
+func mergeCheckPermissionViolations(name string, perms any, want map[string]string) []string {
 	p, ok := perms.(map[string]any)
 	if !ok {
-		return []string{fmt.Sprintf("ci.yml: job merge-check has no permissions of its own (%v); the merge-gate spec requires exactly %v", perms, mergeCheckPermissions)}
+		return []string{fmt.Sprintf("ci.yml: job %s has no permissions of its own (%v); the merge-gate spec requires exactly %v", name, perms, want)}
 	}
 	var out []string
 	for _, scope := range slices.Sorted(maps.Keys(p)) {
 		level := fmt.Sprint(p[scope])
-		if mergeCheckPermissions[scope] != level {
-			out = append(out, fmt.Sprintf("ci.yml: job merge-check is granted %s: %s; the merge-gate spec allows only %v", scope, level, mergeCheckPermissions))
+		if want[scope] != level {
+			out = append(out, fmt.Sprintf("ci.yml: job %s is granted %s: %s; the merge-gate spec allows only %v", name, scope, level, want))
 		}
 	}
-	for _, scope := range slices.Sorted(maps.Keys(mergeCheckPermissions)) {
+	for _, scope := range slices.Sorted(maps.Keys(want)) {
 		if _, ok := p[scope]; !ok {
-			out = append(out, fmt.Sprintf("ci.yml: job merge-check is missing %s: %s; the merge-gate spec requires exactly %v", scope, mergeCheckPermissions[scope], mergeCheckPermissions))
+			out = append(out, fmt.Sprintf("ci.yml: job %s is missing %s: %s; the merge-gate spec requires exactly %v", name, scope, want[scope], want))
 		}
 	}
 	return out
