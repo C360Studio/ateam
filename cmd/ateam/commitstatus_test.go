@@ -333,6 +333,10 @@ func TestStateHandoffPostOutcome(t *testing.T) {
 		body := state.FormatFiveFieldPrompt(state.Handoff{Goal: "g", Addresses: "PR #7", ChecksToRun: "task verify"})
 		raw, _ := json.Marshal(map[string]any{"comments": []map[string]string{{"body": body, "url": "https://github.com/o/r/pull/7#issuecomment-41"}}})
 		t.Setenv("FAKE_HANDOFF_COMMENTS", string(raw))
+		// A read past the 2 s budget posts anyway, so a loaded machine would fail this dedupe check (#364).
+		old := state.HandoffCommentReadTimeout
+		state.HandoffCommentReadTimeout = time.Minute
+		t.Cleanup(func() { state.HandoffCommentReadTimeout = old })
 		code, stderr := handoff(t, f)
 		if want := "ateam state handoff: forge PR comment posted (already on PR)\n"; code != 0 || stderr != want {
 			t.Fatalf("handoff = %d, stderr %q; want 0 and %q", code, stderr, want)
