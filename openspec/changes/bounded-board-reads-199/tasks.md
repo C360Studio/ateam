@@ -1,7 +1,7 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design OQ1 (omitted-argument default) and OQ2 (default limit) (#199).
-  - Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>)` and removing this hold in the same edit, ruling on design OQ1 (omitted-argument default) and OQ2 (default limit) (#199).
+  - Evidence: the owner approved in Enjoy on 2026-11-09. OQ1 is (b): with no `scope`, the MCP tool returns `open`, with `counts` and a `notice` naming the omitted `done` total, while the CLI and the resource keep `all`. OQ2 is no default limit (revisit past about 100 open cards). Claude wrote the header at their request.
 
 ## 2. Bounded board read
 

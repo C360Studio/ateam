@@ -34,7 +34,7 @@ Goal: an agent can ask for actionable work at a bounded cost, explicitly page th
 
 ### D3. Response shape
 
-Fields are additive on `BoardSnapshot`. `scope` is the effective scope; `counts` is cards per column over all cards, before filtering; `total` is the number of cards matching `scope`; `next_after` is empty on the last page; `complete` is `true` when `cards` holds every match. Existing fields and the stale-cache `notice` are unchanged. **Adopter seam:** a decoder that ignores unknown fields keeps working. A strict decoder breaks, and none exists here.
+Fields are additive on `BoardSnapshot`. `scope` is the effective scope; `counts` is cards per column over all cards, before filtering; `total` is the number of cards matching `scope`; `next_after` is empty on the last page; `complete` is `true` when no further page remains (`next_after` is empty). Existing fields and the stale-cache `notice` are unchanged. **Adopter seam:** a decoder that ignores unknown fields keeps working. A strict decoder breaks, and none exists here.
 
 ### D4. Validation
 
@@ -57,5 +57,5 @@ The MCP tool and `ateam state board --scope/--limit/--after` share one `state.Bo
 
 ## Open Questions
 
-1. **OQ1 (owner ruling):** what should an MCP `board` call with no `scope` return? (a) `all`, unchanged for existing callers; (b) `open` on the MCP tool only, with `counts` and a `notice` naming the omitted `done` total, while the CLI and resource keep `all` (recommended, because agents are the measured cost and humans and scripts keep the full view); (c) `open` everywhere.
-2. **OQ2 (owner ruling):** should the MCP tool also apply a default `limit` when none is given? Recommendation: no. Open work here is 22 cards and filtering already cuts about 85%. Revisit it with a `// shortcut:` note if open boards grow past about 100 cards.
+1. **OQ1 (ruled 2026-11-09: b):** what should an MCP `board` call with no `scope` return? (a) `all`, unchanged for existing callers; (b) `open` on the MCP tool only, with `counts` and a `notice` naming the omitted `done` total, while the CLI and resource keep `all` (recommended, because agents are the measured cost and humans and scripts keep the full view); (c) `open` everywhere.
+2. **OQ2 (ruled 2026-11-09: no):** should the MCP tool also apply a default `limit` when none is given? Recommendation: no. Open work here is 22 cards and filtering already cuts about 85%. Revisit it with a `// shortcut:` note if open boards grow past about 100 cards.
