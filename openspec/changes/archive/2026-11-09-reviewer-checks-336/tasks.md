@@ -34,6 +34,7 @@
   - Evidence: `docs/model-review.md` example uses `reviewer_checks`, and a new paragraph contrasts it with `ATEAM_REQUIRED_CHECKS` and links `adoption.md#the-merge-gate-on-github-and-gitea`. Reviewer read pending.
 ## 5. Close
 
-- [ ] 5.1 `task verify`, `ateam doctor --check`, and `ateam bench --selftest` are green on a clean tree. A not-weaker review record is posted at the final head. The owner approves the gate change at that head.
+- [x] 5.1 `task verify`, `ateam doctor --check`, and `ateam bench --selftest` are green on a clean tree. A not-weaker review record is posted at the final head. The owner approves the gate change at that head.
+  - Evidence: all three exit 0 at e42b0fb. The review record and the owner's gate approval are on PR #346.
 - [x] 5.2 Archive this change before marking the PR ready. If OQ2 names a release, file the alias-removal issue in that milestone.
   - Evidence: archived before review so the new Requirement resolves for `task test:spec`. The v0.5.0 alias-removal issue is filed when this merges.
