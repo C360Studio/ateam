@@ -33,7 +33,7 @@ Goal: `Gate files` keeps running in every public repository after 2026-12-02 wit
 
 ### D3. Fail-closed statement
 
-The protocol and `docs/adoption.md` state the residual risk once and the property that limits it. The ruleset requires a check *named* `Gate files`. A PR that deletes the workflow, renames the job, or makes it skip reports no such check, so it cannot merge. Only a PR that keeps the job and weakens the script or its file list can pass itself. The review contract already treats `scripts/` and workflows as code. No new mechanism is added (#360 non-goals).
+The protocol and `docs/adoption.md` state the residual risk once, along with the property that limits it. The ruleset requires a check *named* `Gate files`, so a PR that deletes the workflow or renames the job reports no such check and cannot merge. A PR that keeps a job under that name can pass itself, either with a weakened script or by skipping the job, because GitHub counts a skipped job as passing. Codex's review of `a9fafff` pointed this out, and an earlier draft overstated it. The review contract already treats `scripts/` and workflows as code. No new mechanism is added (#360 non-goals).
 
 ### D4. Test
 

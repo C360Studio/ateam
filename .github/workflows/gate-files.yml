@@ -6,8 +6,8 @@ name: Gate files
 # pull request that edits either is judged by its edited copy: review of such a
 # pull request is the control. It stays fail-closed on the name: the main
 # ruleset requires a check named Gate files, so a pull request that deletes the
-# workflow, renames the job, or makes it skip reports no such check and stays
-# blocked (#140). The pull request's state is read through the API only.
+# workflow or renames the job reports no such check and stays blocked (#140);
+# a skipped job under that name counts as passing, so it is review's to catch. The pull request's state is read through the API only.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
