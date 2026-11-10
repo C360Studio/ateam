@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { createDashboardLoader, createSpecPanel, emptySpecPanel, type SpecPanelState } from '$lib/dashboard';
+	import { approveChange, createDashboardLoader, createSpecPanel, emptySpecPanel, type SpecPanelState } from '$lib/dashboard';
 	const dashboardLoader = createDashboardLoader();
 	import ModelRoutingPanel from '$lib/ModelRoutingPanel.svelte';
 	import {
@@ -190,6 +190,21 @@
 
 	function loadSpecPanel() {
 		return specPanel.load(authHeaders(false), spec);
+	}
+
+	let approving = $state('');
+	let approveErrors = $state<Record<string, string>>({});
+
+	async function approve(change: string, branch: string) {
+		const key = `${branch}/${change}`;
+		approving = key;
+		const error = await approveChange(authHeaders(true), change, branch);
+		approving = '';
+		approveErrors = { ...approveErrors, [key]: error };
+		if (!error) {
+			flashNotice(`Approved ${change} on ${branch}; the agent pulls the commit`);
+			loadSpecPanel();
+		}
 	}
 
 	async function runBenchmarks() {
@@ -830,6 +845,22 @@
 										<span>{row.change.completed_tasks}/{row.change.total_tasks} tasks complete</span>
 										{#if row.prUrl}<a href={row.prUrl} target="_blank" rel="noopener noreferrer">pull request</a>{/if}
 									</summary>
+									{#if row.openQ}
+										<p>
+											<button
+												type="button"
+												class="btn primary"
+												onclick={() => approve(row.change.name, row.change.branch)}
+												disabled={approving !== ''}
+											>
+												{approving === `${row.change.branch}/${row.change.name}` ? 'Approving…' : 'Approve'}
+											</button>
+											<span class="muted">Commits the approval on {row.change.branch} through the forge as your login.</span>
+										</p>
+										{#if approveErrors[`${row.change.branch}/${row.change.name}`]}
+											<p class="muted" role="alert">Approve failed: {approveErrors[`${row.change.branch}/${row.change.name}`]}</p>
+										{/if}
+									{/if}
 									<p class="muted">
 										Approved-by: {row.change.approved_by || '(empty)'}
 										{#if row.change.approval?.state === 'stale'}

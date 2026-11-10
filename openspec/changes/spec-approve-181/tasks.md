@@ -7,16 +7,19 @@
 
 ## 2. Forge file helper
 
-- [ ] 2.1 Add a forge helper in `internal/state` that resolves a branch head, reads files at that commit with their blob `sha`, writes contents with the `sha` (Gitea: one multi-file commit; GitHub: one `PUT` per file in the order given), and returns the login behind `WriteToken()` (D1 A, D2, D3).
+- [x] 2.1 Add a forge helper in `internal/state` that resolves a branch head, reads files at that commit with their blob `sha`, writes contents with the `sha` (Gitea: one multi-file commit; GitHub: one `PUT` per file in the order given), and returns the login behind `WriteToken()` (D1 A, D2, D3).
   - Premise: dispatch as in `PublishCommitStatuses` (`internal/state/commitstatus.go:338-360`); GitHub through `ghCommand(ctx, WriteToken(), ...)` (`:449-463`); Gitea through `net/http` (`:470`).
   - Acceptance: tests with recorded GitHub and Gitea responses carry `// spec: openspec/specs/harness/spec.md#Requirement: Approve an OpenSpec change from the board`. They assert the same things on both providers: reads use the head commit SHA, not the branch name; writes send the read blob `sha`; a stale `sha` returns the conflict error; and the GitHub write order is `proposal.md` then `tasks.md`. `task mutate:check` gives `detection` for swapping the write order and for reading at the branch name.
+  - Evidence: `internal/state/forgefiles.go` adds `ForgeFiles` with `NewForgeFiles` for GitHub (`gh api`, the HTTP status read from the error body gh prints) and Gitea (`net/http`, one `POST .../contents`). `TestForgeFilesReadAtHeadAndWriteWithReadSHA`, `TestForgeFilesStaleSHAIsConflict` and `TestForgeFilesUnknownBranch` run the same assertions against a recorded `gh` fake and an `httptest` Gitea. Mutation `detection` for dropping Gitea's conflict mapping. The handler-level mutants for write order and for reading at the branch name are under 3.1, where those choices live.
 
 ## 3. Endpoint and button
 
-- [ ] 3.1 Add `POST /api/openspec/approve` `{change, branch}` behind `validateMutationRequest` (`internal/web/server.go:155`), applying `ApproveEdits` (`internal/state/approval.go:144`) to the fetched bytes, with the D4 shortcut comment and commit message.
+- [x] 3.1 Add `POST /api/openspec/approve` `{change, branch}` behind `validateMutationRequest` (`internal/web/server.go:155`), applying `ApproveEdits` (`internal/state/approval.go:144`) to the fetched bytes, with the D4 shortcut comment and commit message.
   - Acceptance: server tests with a fake helper check that an `OPEN-Q` change writes two files whose header is the bound form for the fetched `proposal.md` and `design.md`; that a stale `sha` returns 409; that a missing hold returns 400; that `branch: main` returns 400; and that a cross-origin request returns 403. Removing the hold check gives `detection`.
-- [ ] 3.2 Add the Approve button to the spec panel, only for a change holding on `OPEN-Q`, showing the error text on 409 or 502.
+  - Evidence: `TestApproveWritesBoundHeaderAndDropsHold` checks the bound header against a digest computed outside Go from the #272 format (`1cb65e42708c`), the write order, the blob shas, and that the other task stays. `TestApproveRefusals` covers stale (409), no hold (400, no write), `main` (400, no forge call), an unknown branch (400), a path in the change name (400, no forge call), cross-origin (403) and another forge error (502). The hold check lives in `ApproveEdits` (#272, already mutation-tested), so the handler mutants run here instead: `detection` for swapping the write order and for reading at the branch name rather than the head commit.
+- [x] 3.2 Add the Approve button to the spec panel, only for a change holding on `OPEN-Q`, showing the error text on 409 or 502.
   - Acceptance: a Vitest test checks that the button is absent on an approved change and present on an `OPEN-Q` one.
+  - Evidence: `approveChange` in `ui/src/lib/dashboard.ts` posts `{change, branch}` and returns the server's error text (tested for success, 409 and a bodiless 502). A `board.test.ts` case checks that only the `OPEN-Q` row offers Approve. A row still holding `OPEN-Q` after a half-done GitHub write keeps the button, so a second click finishes it (D2).
 
 ## 4. Live check and close
 

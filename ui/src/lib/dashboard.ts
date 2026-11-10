@@ -63,3 +63,25 @@ export function createSpecPanel(publish: (state: SpecPanelState) => void, fetche
 		}
 	};
 }
+
+// Approves a change holding on OPEN-Q through POST /api/openspec/approve (#181) and returns "" on success, else the
+// server's error text: a 409 means a file changed on the forge after it was read.
+export async function approveChange(
+	headers: Record<string, string>,
+	change: string,
+	branch: string,
+	fetcher: typeof fetch = fetch
+): Promise<string> {
+	try {
+		const response = await fetcher('/api/openspec/approve', {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({ change, branch })
+		});
+		if (response.ok) return '';
+		const body: { error?: string } = await response.json().catch(() => ({}));
+		return body.error || `HTTP ${response.status}`;
+	} catch (error) {
+		return error instanceof Error ? error.message : 'Approve failed';
+	}
+}

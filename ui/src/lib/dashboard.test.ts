@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { createDashboardLoader, createSpecPanel, emptySpecPanel, type SpecPanelState } from './dashboard';
+import { approveChange, createDashboardLoader, createSpecPanel, emptySpecPanel, type SpecPanelState } from './dashboard';
 
 function deferred() {
 	let resolve!: (response: Response) => void;
@@ -86,4 +86,24 @@ it('keeps the newer refresh when an older one completes last', async () => {
 	older.reject(new Error('older failed'));
 	await first;
 	expect(current()).toEqual({ ...emptySpecPanel, changes: [expect.objectContaining({ name: 'newer' })] });
+});
+
+// spec: openspec/specs/harness/spec.md#Requirement: Approve an OpenSpec change from the board
+it('posts the change and branch, and returns the server error on a stale file', async () => {
+	const sent: { url: string; init?: RequestInit }[] = [];
+	const answers = [
+		Response.json({ change: 'alpha' }),
+		Response.json({ error: 'tasks.md: file changed on the forge since it was read; refresh and approve again' }, { status: 409 }),
+		new Response('', { status: 502 })
+	];
+	const fetcher = async (url: RequestInfo | URL, init?: RequestInit) => {
+		sent.push({ url: String(url), init });
+		return answers.shift()!;
+	};
+	expect(await approveChange({ 'Content-Type': 'application/json' }, 'alpha', 'claude/alpha', fetcher)).toBe('');
+	expect(sent[0].url).toBe('/api/openspec/approve');
+	expect(sent[0].init?.method).toBe('POST');
+	expect(JSON.parse(String(sent[0].init?.body))).toEqual({ change: 'alpha', branch: 'claude/alpha' });
+	expect(await approveChange({}, 'alpha', 'claude/alpha', fetcher)).toMatch(/changed on the forge/);
+	expect(await approveChange({}, 'alpha', 'claude/alpha', fetcher)).toBe('HTTP 502');
 });

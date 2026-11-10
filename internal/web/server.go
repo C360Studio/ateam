@@ -9,11 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +56,8 @@ type Server struct {
 	allowUnsignedWebhooks bool
 	apiToken              string
 	limiter               *webhookLimiter
+	forgeFiles            func(root string, cfg state.ForgeConfig) (state.ForgeFiles, error) // tests replace it
+	now                   func() time.Time
 	mu                    sync.Mutex
 	mux                   *http.ServeMux
 }
@@ -72,6 +76,8 @@ func NewServer(repoRoot string) (*Server, error) {
 		allowUnsignedWebhooks: strings.TrimSpace(os.Getenv("ATEAM_ALLOW_UNSIGNED_WEBHOOKS")) == "1",
 		apiToken:              strings.TrimSpace(os.Getenv("ATEAM_API_TOKEN")),
 		limiter:               newWebhookLimiter(60, time.Minute),
+		forgeFiles:            state.NewForgeFiles,
+		now:                   time.Now,
 		mux:                   http.NewServeMux(),
 	}
 	if err := s.registerRoutes(); err != nil {
@@ -95,6 +101,7 @@ func (s *Server) registerRoutes() error {
 	s.mux.HandleFunc("/api/handoff", s.handleHandoff)
 	s.mux.HandleFunc("/api/mode", s.handleMode)
 	s.mux.HandleFunc("/api/openspec", s.handleOpenSpec)
+	s.mux.HandleFunc("/api/openspec/approve", s.handleOpenSpecApprove)
 	s.mux.HandleFunc("/api/shortcuts", s.handleShortcuts)
 	s.mux.HandleFunc("/api/benchmarks", s.handleBenchmarks)
 	s.mux.HandleFunc("/api/sync", s.handleSyncForge)
@@ -697,6 +704,112 @@ func (s *Server) handleBenchmarks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+type approveRequest struct {
+	Change string `json:"change"`
+	Branch string `json:"branch"`
+}
+
+// changeNameRe is an OpenSpec change directory name; it keeps the request from naming a path outside
+// openspec/changes/.
+var changeNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// handleOpenSpecApprove writes the owner approval edit (state.ApproveEdits) on a change's branch through the forge
+// contents API, never a local worktree (#181). The files are read at one head commit so the digest covers the
+// bytes approved, and each write sends the blob sha it read, so a push in between is a 409.
+func (s *Server) handleOpenSpecApprove(w http.ResponseWriter, r *http.Request) {
+	// shortcut: loopback clients can approve (owner ruling 2026-11-10), require ATEAM_API_TOKEN here if an agent is seen calling it
+	if !s.validateMutationRequest(w, r) {
+		return
+	}
+	var req approveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid approve JSON: "+err.Error())
+		return
+	}
+	req.Branch = strings.TrimSpace(req.Branch)
+	if !changeNameRe.MatchString(req.Change) || req.Branch == "" {
+		writeError(w, http.StatusBadRequest, "approve needs a change name and its branch")
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.validateRepoSelection(w, r) {
+		return
+	}
+	root := s.currentRepo()
+	st, err := state.Load(root)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if st.IsDefaultBranch(req.Branch) {
+		writeError(w, http.StatusBadRequest, "approve writes to a change's branch, never the default branch")
+		return
+	}
+	cfg := st.ResolveForge("")
+	files, err := s.forgeFiles(root, cfg)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	login, err := files.Login(ctx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	head, err := files.Head(ctx, req.Branch)
+	if errors.Is(err, state.ErrForgeNotFound) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	dir := "openspec/changes/" + req.Change + "/"
+	read := map[string]state.ForgeFile{}
+	for _, name := range []string{"proposal.md", "design.md", "tasks.md"} {
+		f, err := files.Read(ctx, head, dir+name)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		read[name] = f
+	}
+	if read["proposal.md"].Missing || read["tasks.md"].Missing {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("%s has no proposal.md or tasks.md at %s", req.Change, head))
+		return
+	}
+	var design []byte // nil when there is no design.md, as ApprovalDigest expects
+	if !read["design.md"].Missing {
+		design = append([]byte{}, read["design.md"].Content...)
+	}
+	proposal, tasks, err := state.ApproveEdits(read["proposal.md"].Content, design, read["tasks.md"].Content, login, s.now())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writes := []state.ForgeFile{ // proposal.md first: a failed second write leaves the hold in place (D2)
+		{Path: dir + "proposal.md", Content: proposal, SHA: read["proposal.md"].SHA},
+		{Path: dir + "tasks.md", Content: tasks, SHA: read["tasks.md"].SHA},
+	}
+	err = files.Write(ctx, req.Branch, "docs(openspec): approve "+req.Change+" via ateam serve", writes)
+	log.Printf("openspec approve %s on %s as %s from %s: %v", req.Change, req.Branch, login, r.RemoteAddr, err)
+	if errors.Is(err, state.ErrForgeConflict) {
+		writeError(w, http.StatusConflict, err.Error()+"; refresh and approve again")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"change": req.Change, "branch": req.Branch, "approved_by": login, "head": head})
 }
 
 type syncRequest struct {
