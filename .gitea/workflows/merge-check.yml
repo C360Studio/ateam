@@ -66,9 +66,9 @@ jobs:
   # Gitea counts as passing; leaving WIP: is an edited event (#257).
   merge-check:
     # Also skipped and renamed while the probe finds a code pull request with no
-    # reviewed-by: line and no review record (#262): it is not yet judgeable, so
-    # the required context stays absent instead of failing. A failed probe
-    # leaves no answer, so the full check runs.
+    # reviewed-by: line and no passing Merge check at its head (#262, #359): it
+    # is not yet judgeable, so the required context stays absent instead of
+    # failing. A failed probe leaves no answer, so the full check runs.
     needs: awaiting
     name: ${{ github.event.pull_request.draft && 'Merge check (draft, skipped)' || needs.awaiting.outputs.awaiting == 'true' && 'Merge check (awaiting review record, skipped)' || 'Merge check' }}
     if: ${{ always() && !github.event.pull_request.draft && needs.awaiting.outputs.awaiting != 'true' }}
