@@ -9,7 +9,9 @@ import {
 	resolveCardRelations,
 	resolveConfiguredForges,
 	resolveRequirementCards,
-	type BoardCard
+	specPanelRows,
+	type BoardCard,
+	type WorktreeChange
 } from './board';
 
 const sampleCards: BoardCard[] = [
@@ -383,4 +385,40 @@ it('classifies worktree merge status across merged, open, closed-unmerged, post-
 		updated_at: '2026-10-20T12:00:00Z'
 	});
 	expect(unsynced[0].mergeStatus).toBe('unknown');
+});
+
+describe('specPanelRows', () => {
+	const change = (name: string, branch: string, openQ: boolean): WorktreeChange => ({
+		name,
+		branch,
+		worktree: `/wt/${branch}`,
+		completed_tasks: 0,
+		total_tasks: 2,
+		caveats: openQ ? [{ marker: 'OPEN-Q', line: 3, text: 'Hold: OPEN-Q proposal awaits owner approval' }] : []
+	});
+
+	// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
+	it('sorts OPEN-Q changes first, then by name and branch', () => {
+		const rows = specPanelRows(
+			[change('alpha', 'claude/a', false), change('zeta', 'claude/z', true), change('beta', 'codex/b', true), change('beta', 'claude/b', true)],
+			[]
+		);
+		expect(rows.map((r) => `${r.change.name}@${r.change.branch}:${r.openQ}`)).toEqual([
+			'beta@claude/b:true',
+			'beta@codex/b:true',
+			'zeta@claude/z:true',
+			'alpha@claude/a:false'
+		]);
+	});
+
+	// spec: openspec/specs/harness/spec.md#Requirement: Board state and authenticated API access
+	it('links a change to the unmerged pull request on its branch, and only when one exists', () => {
+		const cards: BoardCard[] = [
+			{ id: 'GH-1', title: 'old', column: 'done', type: 'pr', branch: 'claude/a', merged: true, url: 'https://forge/pr/1' },
+			{ id: 'GH-2', title: 'new', column: 'review', type: 'pr', branch: 'claude/a', url: 'https://forge/pr/2' },
+			{ id: 'GH-3', title: 'issue', column: 'backlog', type: 'issue', branch: 'claude/b', url: 'https://forge/issues/3' }
+		];
+		const rows = specPanelRows([change('alpha', 'claude/a', false), change('beta', 'claude/b', false)], cards);
+		expect(rows.map((r) => r.prUrl)).toEqual(['https://forge/pr/2', undefined]);
+	});
 });

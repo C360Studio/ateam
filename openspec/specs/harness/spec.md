@@ -349,6 +349,12 @@ The board SHALL expose state and support card creation, movement, handoff, and m
 - **THEN** a worktree whose branch PR is merged (and has no newer unmerged commits ahead of `main` or the merged PR head) or whose branch is an ancestor of `main` with no open PR is marked `merged` (`Merged / potentially stale`) with its merge evidence (`Merged via PR #N` or `Branch ancestor of main`) while preserving local dirty status
 - **AND** worktrees with an open PR, a closed-unmerged PR, new commits after a merged PR, or unavailable forge evidence are not marked `merged`
 
+#### Scenario: In-flight change read view across worktrees
+
+- **WHEN** a client reads `/api/openspec` while another worktree's branch holds an OpenSpec change on `Hold: OPEN-Q`
+- **THEN** the response lists that change once with its branch, its worktree, its `proposal.md` text and its approval state read from that worktree's files
+- **AND** the OpenSpec tab sorts changes holding on `OPEN-Q` first and links each to its branch's pull request when the synced cards hold one
+
 ### Requirement: Optional herdr pane identity in the writer lease
 When `HERDR_ENV=1`, the writer lease SHALL record `HERDR_PANE_ID` and `HERDR_WORKSPACE_ID` from the environment only, and pickup output SHALL name the pane in the writer line and the different-writer warning. Outside herdr the lease SHALL record no herdr identity and SHALL ignore herdr variables.
 
