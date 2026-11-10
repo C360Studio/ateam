@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { approveChange, createDashboardLoader, createSpecPanel, emptySpecPanel, type SpecPanelState } from './dashboard';
+import { approveChange, createApprovals, emptyApprovals, type ApprovalState, createDashboardLoader, createSpecPanel, emptySpecPanel, type SpecPanelState } from './dashboard';
 
 function deferred() {
 	let resolve!: (response: Response) => void;
@@ -106,4 +106,35 @@ it('posts the change and branch, and returns the server error on a stale file', 
 	expect(JSON.parse(String(sent[0].init?.body))).toEqual({ change: 'alpha', branch: 'claude/alpha' });
 	expect(await approveChange({}, 'alpha', 'claude/alpha', fetcher)).toMatch(/changed on the forge/);
 	expect(await approveChange({}, 'alpha', 'claude/alpha', fetcher)).toBe('HTTP 502');
+});
+
+function approvalHarness(answers: ReturnType<typeof deferred>[]) {
+	let state: ApprovalState = emptyApprovals;
+	const runner = createApprovals((next) => (state = next), () => answers.shift()!.promise);
+	return { runner, current: () => state };
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Approve an OpenSpec change from the board
+it('clears a completed approval when the repository changes', async () => {
+	const a = deferred();
+	const { runner, current } = approvalHarness([a]);
+	const done = runner.approve({}, 'alpha', 'claude/alpha', current());
+	a.resolve(Response.json({ change: 'alpha' }));
+	expect(await done).toBe(true);
+	expect(current().done['claude/alpha/alpha']).toBe(true);
+	runner.reset();
+	expect(current()).toEqual(emptyApprovals);
+});
+
+// spec: openspec/specs/harness/spec.md#Requirement: Approve an OpenSpec change from the board
+it.each(['success', 'failure'] as const)('drops an approval %s that completes after a repository change', async (outcome) => {
+	const a = deferred();
+	const { runner, current } = approvalHarness([a]);
+	const pending = runner.approve({}, 'alpha', 'claude/alpha', current());
+	expect(current().pending).toBe('claude/alpha/alpha');
+	runner.reset();
+	if (outcome === 'success') a.resolve(Response.json({ change: 'alpha' }));
+	else a.resolve(Response.json({ error: 'stale' }, { status: 409 }));
+	expect(await pending).toBe(false);
+	expect(current()).toEqual(emptyApprovals);
 });

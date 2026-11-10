@@ -85,3 +85,32 @@ export async function approveChange(
 		return error instanceof Error ? error.message : 'Approve failed';
 	}
 }
+
+export interface ApprovalState {
+	pending: string; // "<branch>/<change>" while its request runs
+	done: Record<string, boolean>; // approved on the forge, waiting for that worktree's pull
+	errors: Record<string, string>;
+}
+
+export const emptyApprovals: ApprovalState = { pending: '', done: {}, errors: {} };
+
+// Approval results belong to the repository they were sent for: reset() on a repository change clears them and
+// drops any approval still in flight, like createSpecPanel.
+export function createApprovals(publish: (state: ApprovalState) => void, fetcher: typeof fetch = fetch) {
+	let generation = 0;
+	return {
+		reset() {
+			generation++;
+			publish(emptyApprovals);
+		},
+		async approve(headers: Record<string, string>, change: string, branch: string, current: ApprovalState) {
+			const request = generation;
+			const key = `${branch}/${change}`;
+			publish({ ...current, pending: key });
+			const error = await approveChange(headers, change, branch, fetcher);
+			if (request !== generation) return false;
+			publish({ pending: '', done: { ...current.done, [key]: !error }, errors: { ...current.errors, [key]: error } });
+			return !error;
+		}
+	};
+}
