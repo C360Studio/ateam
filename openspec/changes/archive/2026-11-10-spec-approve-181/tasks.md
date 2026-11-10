@@ -23,5 +23,6 @@
 
 ## 4. Live check and close
 
-- [ ] 4.1 The owner approves one change from the board on this repository, then `task spec:check` on that branch passes. Record the one-line result here.
-- [ ] 4.2 Archive before ready with `task verify` green and `openspec: strict ok` naming `node_modules/.bin/openspec`.
+- [x] 4.1 The owner approves one change from the board on this repository, then `task spec:check` on that branch passes. Record the one-line result here.
+  - Evidence: on 2026-11-10 the owner clicked Approve on a throwaway change, `approve-live-check` on `claude/approve-live-check`. GitHub got two commits as `cglusky`, `25d8e67` (proposal) then `0322da7` (tasks). The header is `Approved-by: cglusky (2026-11-10) sha256:df01c11d1d65` and the hold is gone. `spec:queue` reads it as approved, and `task spec:check` passes on the pulled branch, once the fixture's missing spec delta was marked `skip_specs` (a fixture gap, unrelated to the approval). The run showed one UI gap: the panel reads worktrees from disk, so the row looked unchanged until a pull. After a successful approve the row now says the approval is on the forge and waits for that worktree's agent to pull, rather than offering Approve again. The scratch branch and worktree were deleted afterwards.
+- [x] 4.2 Archive before ready with `task verify` green and `openspec: strict ok` naming `node_modules/.bin/openspec`.

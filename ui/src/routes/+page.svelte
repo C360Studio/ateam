@@ -194,6 +194,9 @@
 
 	let approving = $state('');
 	let approveErrors = $state<Record<string, string>>({});
+	// The panel reads each worktree from disk, so an approval written to the forge shows only once that worktree's
+	// agent pulls; until then the row says so instead of offering Approve again.
+	let approvedOnForge = $state<Record<string, boolean>>({});
 
 	async function approve(change: string, branch: string) {
 		const key = `${branch}/${change}`;
@@ -202,8 +205,8 @@
 		approving = '';
 		approveErrors = { ...approveErrors, [key]: error };
 		if (!error) {
+			approvedOnForge = { ...approvedOnForge, [key]: true };
 			flashNotice(`Approved ${change} on ${branch}; the agent pulls the commit`);
-			loadSpecPanel();
 		}
 	}
 
@@ -845,7 +848,12 @@
 										<span>{row.change.completed_tasks}/{row.change.total_tasks} tasks complete</span>
 										{#if row.prUrl}<a href={row.prUrl} target="_blank" rel="noopener noreferrer">pull request</a>{/if}
 									</summary>
-									{#if row.openQ}
+									{#if row.openQ && approvedOnForge[`${row.change.branch}/${row.change.name}`]}
+										<p class="muted" role="status">
+											Approved on the forge. This worktree still shows the old files until its agent pulls
+											<code>{row.change.branch}</code>.
+										</p>
+									{:else if row.openQ}
 										<p>
 											<button
 												type="button"
