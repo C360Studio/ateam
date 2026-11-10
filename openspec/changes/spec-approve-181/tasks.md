@@ -1,7 +1,9 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>) sha256:<12 hex>` and removing this hold in the same edit, ruling on design OQ1 (name override) and OQ2 (GitHub commit count) (#181). Hold: OPEN-Q proposal awaits owner approval
-- [ ] 1.2 `spec-panel-read-181` has merged; the button sits in its panel.
+- [x] 1.1 Owner approves `proposal.md` and `design.md` by filling `Approved-by: <name> (<YYYY-MM-DD>) sha256:<12 hex>` and removing this hold in the same edit, ruling on design OQ1 (name override) and OQ2 (GitHub commit count) (#181).
+  - Evidence: the owner approved in Enjoy on 2026-11-10 and asked Claude to write the header. OQ1: login only, with no name field in the request. OQ2: two commits through the contents API on GitHub, `proposal.md` first.
+- [x] 1.2 `spec-panel-read-181` has merged; the button sits in its panel.
+  - Evidence: PR #367 squash-merged as `5ba5561` on 2026-11-10, and `main` is merged into this branch.
 
 ## 2. Forge file helper
 

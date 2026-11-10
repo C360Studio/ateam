@@ -1,6 +1,6 @@
 # Change Proposal: `spec-approve-181`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-10) sha256:ff62376465c6
 
 ## Why
 
