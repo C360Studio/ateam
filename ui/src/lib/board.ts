@@ -82,6 +82,43 @@ export interface OpenSpecChange {
 	total_tasks: number;
 	caveats?: OpenSpecCaveat[];
 	stray_holds?: number[];
+	approved_by?: string;
+	approval?: { name?: string; digest?: string; current?: string; state?: string; file?: string; at?: string };
+}
+
+/** An in-flight change as one worktree's branch holds it (`/api/openspec` `worktree_changes`, #181). */
+export interface WorktreeChange extends OpenSpecChange {
+	branch: string;
+	worktree: string;
+	proposal?: string;
+}
+
+export interface SpecPanelRow {
+	change: WorktreeChange;
+	openQ: boolean;
+	prUrl?: string;
+}
+
+/**
+ * Orders the spec panel: changes holding on OPEN-Q first, then by name and branch. A row links to the pull
+ * request card on the change's branch, preferring an unmerged one, and has no link when no card has that branch.
+ */
+export function specPanelRows(changes: WorktreeChange[], cards: BoardCard[]): SpecPanelRow[] {
+	const rows = changes.map((change) => {
+		const prs = cards.filter((c) => c.type === 'pr' && c.url && c.branch === change.branch);
+		const pr = prs.find((c) => !c.merged) ?? prs[0];
+		return {
+			change,
+			openQ: (change.caveats ?? []).some((c) => c.marker === 'OPEN-Q'),
+			prUrl: pr?.url
+		};
+	});
+	return rows.sort(
+		(a, b) =>
+			Number(b.openQ) - Number(a.openQ) ||
+			a.change.name.localeCompare(b.change.name) ||
+			a.change.branch.localeCompare(b.change.branch)
+	);
 }
 
 export interface OpenSpecScenario {

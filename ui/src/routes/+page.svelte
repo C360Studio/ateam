@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { createDashboardLoader } from '$lib/dashboard';
+	import { createDashboardLoader, createSpecPanel, emptySpecPanel, type SpecPanelState } from '$lib/dashboard';
 	const dashboardLoader = createDashboardLoader();
 	import ModelRoutingPanel from '$lib/ModelRoutingPanel.svelte';
 	import {
@@ -12,6 +12,7 @@
 		resolveCardRelations,
 		resolveConfiguredForges,
 		resolveRequirementCards,
+		specPanelRows,
 		type BoardCard,
 		type DashboardPayload,
 		type OpenSpecRequirement,
@@ -25,6 +26,8 @@
 	let apiToken = $state('');
 
 	let activeTab = $state<'board' | 'table' | 'openspec'>('board');
+	let spec = $state<SpecPanelState>(emptySpecPanel);
+	const specPanel = createSpecPanel((next) => (spec = next));
 	let searchQuery = $state('');
 	let filterAgent = $state('all');
 	let filterForge = $state('all');
@@ -66,6 +69,7 @@
 	const grouped = $derived(groupCardsByColumn(filtered));
 	const shortcuts = $derived(payload?.state?.shortcuts ?? []);
 	const holds = $derived(payload?.state?.holds ?? []);
+	const specRows = $derived(specPanelRows(spec.changes, payload?.state?.cards ?? []));
 	const openspecQueue = $derived(payload?.state?.openspec_queue ?? []);
 	const openspecSpecs = $derived(payload?.state?.openspec_specs ?? []);
 	const allRequirements = $derived<OpenSpecRequirement[]>(
@@ -163,6 +167,7 @@
 		if (loading) return;
 		const headers = authHeaders(true);
 		dashboardLoader.invalidate();
+		specPanel.reset();
 		payload = null;
 		loading = true;
 		errorMsg = '';
@@ -173,11 +178,18 @@
 			const res = await fetch('/api/repos', { method: 'POST', headers, body: JSON.stringify(action) });
 			const data = await res.json();
 			if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-			if (await loadDashboard()) flashNotice(notice);
+			if (await loadDashboard()) {
+				flashNotice(notice);
+				if (activeTab === 'openspec') loadSpecPanel();
+			}
 		} catch (err) {
 			loading = false;
 			errorMsg = err instanceof Error ? err.message : 'Failed to change repository';
 		}
+	}
+
+	function loadSpecPanel() {
+		return specPanel.load(authHeaders(false), spec);
 	}
 
 	async function runBenchmarks() {
@@ -605,7 +617,10 @@
 				<button
 					type="button"
 					class="tab-btn {activeTab === 'openspec' ? 'active' : ''}"
-					onclick={() => (activeTab = 'openspec')}
+					onclick={() => {
+						activeTab = 'openspec';
+						loadSpecPanel();
+					}}
 				>
 					OpenSpec
 				</button>
@@ -788,6 +803,68 @@
 				</div>
 			{:else if activeTab === 'openspec'}
 				<div class="openspec-stack">
+					<div class="panel">
+						<div class="spec-head">
+							<h2>In-Flight Changes Across Worktrees ({specRows.length})</h2>
+							<button type="button" class="btn" onclick={loadSpecPanel} disabled={spec.loading}>
+								{spec.loading ? 'Loading…' : 'Refresh'}
+							</button>
+						</div>
+						<p class="muted">
+							Each worktree's <code>openspec/changes/</code>, read from disk. Changes awaiting approval (<code>OPEN-Q</code>) come first.
+						</p>
+						{#if spec.error}
+							<div class="empty-box" role="alert">Could not load in-flight changes: {spec.error}</div>
+						{:else if specRows.length === 0}
+							<div class="empty-box">{spec.loading ? 'Loading…' : 'No in-flight change in any worktree.'}</div>
+						{:else}
+							{#each specRows as row (row.change.branch + '/' + row.change.name)}
+								<details class="spec-card" open={row.openQ}>
+									<summary class="spec-head">
+										<strong>{row.change.name}</strong>
+										{#if row.openQ}<span class="badge warn">OPEN-Q</span>{/if}
+										<span class="badge {row.change.approval?.state === 'approved' ? 'ok' : 'warn'}">
+											{row.change.approval?.state ?? 'no proposal'}
+										</span>
+										<code>{row.change.branch}</code>
+										<span>{row.change.completed_tasks}/{row.change.total_tasks} tasks complete</span>
+										{#if row.prUrl}<a href={row.prUrl} target="_blank" rel="noopener noreferrer">pull request</a>{/if}
+									</summary>
+									<p class="muted">
+										Approved-by: {row.change.approved_by || '(empty)'}
+										{#if row.change.approval?.state === 'stale'}
+											— {row.change.approval.file} changed at {row.change.approval.at}; the digest needs re-approval
+										{/if}
+									</p>
+									{#if row.change.caveats && row.change.caveats.length > 0}
+										<ul class="caveat-list">
+											{#each row.change.caveats as cav}
+												<li>
+													<span class="badge warn">{cav.marker}</span>
+													<code>L{cav.line}</code>
+													{cav.text}
+												</li>
+											{/each}
+										</ul>
+									{/if}
+									{#if row.change.proposal}
+										<pre class="proposal-text">{row.change.proposal}</pre>
+									{:else}
+										<p class="muted">No <code>proposal.md</code> in {row.change.worktree}.</p>
+									{/if}
+								</details>
+							{/each}
+						{/if}
+						{#if spec.skipped.length > 0}
+							<h3>Worktrees not read ({spec.skipped.length})</h3>
+							<ul class="caveat-list">
+								{#each spec.skipped as skip}
+									<li><code>{skip}</code></li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
+
 					<div class="panel">
 						<div class="spec-panel-header">
 							<div>
@@ -2221,6 +2298,13 @@
 	.muted {
 		color: #94a3b8;
 		font-size: 0.78rem;
+	}
+	.proposal-text {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		max-height: 28rem;
+		overflow-y: auto;
+		font-size: 0.8rem;
 	}
 	.empty-box {
 		background: #0b0f19;
