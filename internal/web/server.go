@@ -715,9 +715,9 @@ type approveRequest struct {
 // openspec/changes/.
 var changeNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// handleOpenSpecApprove writes the owner approval edit (state.ApproveEdits) on a change's branch through the forge
-// contents API, never a local worktree (#181). The files are read at one head commit so the digest covers the
-// bytes approved, and each write sends the blob sha it read, so a push in between is a 409.
+// handleOpenSpecApprove writes the owner approval edit (state.ApproveEdits) on a change's branch through the forge,
+// never a local worktree (#181). The files are read at one head commit so the digest covers the bytes approved,
+// and the one commit is refused if any of the three moved after that read, so a push in between is a 409.
 func (s *Server) handleOpenSpecApprove(w http.ResponseWriter, r *http.Request) {
 	// shortcut: loopback clients can approve (owner ruling 2026-11-10), require ATEAM_API_TOKEN here if an agent is seen calling it
 	if !s.validateMutationRequest(w, r) {
@@ -795,11 +795,13 @@ func (s *Server) handleOpenSpecApprove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writes := []state.ForgeFile{ // proposal.md first: a failed second write leaves the hold in place (D2)
+	writes := []state.ForgeFile{
 		{Path: dir + "proposal.md", Content: proposal, SHA: read["proposal.md"].SHA},
 		{Path: dir + "tasks.md", Content: tasks, SHA: read["tasks.md"].SHA},
 	}
-	err = files.Write(ctx, req.Branch, "docs(openspec): approve "+req.Change+" via ateam serve", writes)
+	// The digest also covers design.md, so the write must fail if it moved too, though it is not rewritten.
+	unchanged := []state.ForgeFile{read["design.md"]}
+	err = files.Write(ctx, req.Branch, head, "docs(openspec): approve "+req.Change+" via ateam serve", writes, unchanged)
 	log.Printf("openspec approve %s on %s as %s from %s: %v", req.Change, req.Branch, login, r.RemoteAddr, err)
 	if errors.Is(err, state.ErrForgeConflict) {
 		writeError(w, http.StatusConflict, err.Error()+"; refresh and approve again")

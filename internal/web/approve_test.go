@@ -17,11 +17,13 @@ import (
 
 // fakeFiles serves one change at one head and records the writes.
 type fakeFiles struct {
-	tree     map[string]state.ForgeFile
-	writeErr error
-	calls    int
-	writes   []state.ForgeFile
-	branch   string
+	tree      map[string]state.ForgeFile
+	writeErr  error
+	calls     int
+	writes    []state.ForgeFile
+	unchanged []state.ForgeFile
+	branch    string
+	base      string
 }
 
 func (f *fakeFiles) Head(_ context.Context, branch string) (string, error) {
@@ -43,10 +45,10 @@ func (f *fakeFiles) Read(_ context.Context, ref, path string) (state.ForgeFile, 
 	return state.ForgeFile{Path: path, Missing: true}, nil
 }
 
-func (f *fakeFiles) Write(_ context.Context, branch, _ string, files []state.ForgeFile) error {
+func (f *fakeFiles) Write(_ context.Context, branch, base, _ string, files, unchanged []state.ForgeFile) error {
 	f.calls++
-	f.branch = branch
-	f.writes = files
+	f.branch, f.base = branch, base
+	f.writes, f.unchanged = files, unchanged
 	return f.writeErr
 }
 
@@ -107,6 +109,10 @@ func TestApproveWritesBoundHeaderAndDropsHold(t *testing.T) {
 	if files.branch != "claude/alpha" || len(files.writes) != 2 {
 		t.Fatalf("writes on %q = %+v, want proposal and tasks on claude/alpha", files.branch, files.writes)
 	}
+	// The digest covers design.md, so the write is guarded on it and on the head the files were read at.
+	if files.base != "headsha" || len(files.unchanged) != 1 || files.unchanged[0].Path != "openspec/changes/alpha/design.md" || files.unchanged[0].SHA != "blob-d" {
+		t.Errorf("write guard = base %q, unchanged %+v; want headsha and design.md@blob-d", files.base, files.unchanged)
+	}
 	p, tk := files.writes[0], files.writes[1]
 	if p.Path != "openspec/changes/alpha/proposal.md" || p.SHA != "blob-p" || tk.Path != "openspec/changes/alpha/tasks.md" || tk.SHA != "blob-t" {
 		t.Errorf("write order or blob shas = %s@%s, %s@%s; want proposal.md@blob-p then tasks.md@blob-t", p.Path, p.SHA, tk.Path, tk.SHA)
@@ -165,5 +171,19 @@ func TestApproveRefusals(t *testing.T) {
 				t.Errorf("writes = %+v, want wrote=%v", files.writes, tc.wrote)
 			}
 		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Approve an OpenSpec change from the board
+func TestApproveGuardsAnAbsentDesign(t *testing.T) {
+	tree := approveTree(approveTasks)
+	delete(tree, "openspec/changes/alpha/design.md")
+	files := &fakeFiles{tree: tree}
+	srv, h := approveServer(t, files)
+	if rec := postApprove(srv, h, `{"change":"alpha","branch":"claude/alpha"}`, nil); rec.Code != http.StatusOK {
+		t.Fatalf("approve = %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(files.unchanged) != 1 || !files.unchanged[0].Missing || files.unchanged[0].Path != "openspec/changes/alpha/design.md" {
+		t.Errorf("unchanged = %+v, want design.md guarded as absent", files.unchanged)
 	}
 }

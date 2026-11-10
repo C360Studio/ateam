@@ -36,9 +36,10 @@ type ForgeFiles interface {
 	Head(ctx context.Context, branch string) (string, error)
 	// Read returns path at commit ref.
 	Read(ctx context.Context, ref, path string) (ForgeFile, error)
-	// Write replaces each file on branch, sending its read SHA. Gitea writes one commit; GitHub writes one commit
-	// per file in the order given and stops at the first failure, naming the files already written.
-	Write(ctx context.Context, branch, message string, files []ForgeFile) error
+	// Write commits files on branch in one commit and returns ErrForgeConflict, writing nothing, when the
+	// approved revision moved after it was read at base: on GitHub when the branch is no longer at base, on
+	// Gitea when any of files or unchanged no longer has its read blob sha (#181 review, OQ2 revised).
+	Write(ctx context.Context, branch, base, message string, files, unchanged []ForgeFile) error
 	// Login names the account behind the write token.
 	Login(ctx context.Context) (string, error)
 }
@@ -172,35 +173,80 @@ func (g ghFiles) Read(ctx context.Context, ref, path string) (ForgeFile, error) 
 	return decodeContents(path, out)
 }
 
-func (g ghFiles) Write(ctx context.Context, branch, message string, files []ForgeFile) error {
-	var written []string
+func (g ghFiles) Write(ctx context.Context, branch, base, message string, files, _ []ForgeFile) error {
+	// One commit on top of base through the git data API; the non-force ref update is refused unless the branch
+	// is still at base, so any push after the read (design.md included) is a conflict and nothing lands.
+	out, code, err := g.api(ctx, ReadToken(), nil, "repos/"+g.repo+"/git/commits/"+base)
+	if err != nil || code != http.StatusOK {
+		return ghWriteError("read base commit", code, err)
+	}
+	var commit struct {
+		Tree struct {
+			SHA string `json:"sha"`
+		} `json:"tree"`
+	}
+	if err := json.Unmarshal(out, &commit); err != nil || commit.Tree.SHA == "" {
+		return fmt.Errorf("read base commit: unreadable answer")
+	}
+	type entry struct {
+		Path    string `json:"path"`
+		Mode    string `json:"mode"`
+		Type    string `json:"type"`
+		Content string `json:"content"`
+	}
+	tree := struct {
+		BaseTree string  `json:"base_tree"`
+		Tree     []entry `json:"tree"`
+	}{BaseTree: commit.Tree.SHA}
 	for _, f := range files {
-		payload, err := json.Marshal(map[string]string{
-			"message": message,
-			"content": base64.StdEncoding.EncodeToString(f.Content),
-			"sha":     f.SHA,
-			"branch":  branch,
-		})
-		if err != nil {
-			return err
-		}
-		_, code, err := g.api(ctx, WriteToken(), payload, "-X", "PUT", "repos/"+g.repo+"/contents/"+escapePath(f.Path), "--input", "-")
-		switch {
-		case err != nil:
-		case code == http.StatusConflict:
-			err = ErrForgeConflict
-		case code != http.StatusOK && code != http.StatusCreated:
-			err = fmt.Errorf("HTTP %d", code)
-		}
-		if err != nil {
-			if len(written) > 0 {
-				return fmt.Errorf("wrote %s; %s: %w", strings.Join(written, ", "), f.Path, err)
-			}
-			return fmt.Errorf("%s: %w", f.Path, err)
-		}
-		written = append(written, f.Path)
+		tree.Tree = append(tree.Tree, entry{Path: f.Path, Mode: "100644", Type: "blob", Content: string(f.Content)})
+	}
+	newTree, err := g.create(ctx, "git/trees", tree)
+	if err != nil {
+		return fmt.Errorf("create tree: %w", err)
+	}
+	newCommit, err := g.create(ctx, "git/commits", map[string]any{"message": message, "tree": newTree, "parents": []string{base}})
+	if err != nil {
+		return fmt.Errorf("create commit: %w", err)
+	}
+	payload, _ := json.Marshal(map[string]any{"sha": newCommit, "force": false})
+	_, code, err = g.api(ctx, WriteToken(), payload, "-X", "PATCH", "repos/"+g.repo+"/git/refs/heads/"+escapePath(branch), "--input", "-")
+	if err == nil && code == http.StatusUnprocessableEntity { // "Update is not a fast forward"
+		return fmt.Errorf("branch %s moved after %s: %w", branch, sha7(base), ErrForgeConflict)
+	}
+	if err != nil || code != http.StatusOK {
+		return ghWriteError("update branch", code, err)
 	}
 	return nil
+}
+
+// create POSTs a git data object and returns its sha.
+func (g ghFiles) create(ctx context.Context, kind string, body any) (string, error) {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	out, code, err := g.api(ctx, WriteToken(), payload, "-X", "POST", "repos/"+g.repo+"/"+kind, "--input", "-")
+	if err != nil {
+		return "", err
+	}
+	if code != http.StatusOK && code != http.StatusCreated {
+		return "", fmt.Errorf("HTTP %d", code)
+	}
+	var obj struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.Unmarshal(out, &obj); err != nil || obj.SHA == "" {
+		return "", fmt.Errorf("unreadable answer")
+	}
+	return obj.SHA, nil
+}
+
+func ghWriteError(step string, code int, err error) error {
+	if err != nil {
+		return fmt.Errorf("%s: %w", step, err)
+	}
+	return fmt.Errorf("%s: HTTP %d", step, code)
 }
 
 func (g ghFiles) Login(ctx context.Context) (string, error) {
@@ -293,7 +339,7 @@ func (g giteaFiles) Read(ctx context.Context, ref, path string) (ForgeFile, erro
 	return decodeContents(path, data)
 }
 
-func (g giteaFiles) Write(ctx context.Context, branch, message string, files []ForgeFile) error {
+func (g giteaFiles) Write(ctx context.Context, branch, _, message string, files, unchanged []ForgeFile) error {
 	type change struct {
 		Operation string `json:"operation"`
 		Path      string `json:"path"`
@@ -309,6 +355,28 @@ func (g giteaFiles) Write(ctx context.Context, branch, message string, files []F
 	for _, f := range files {
 		req.Files = append(req.Files, change{Operation: "update", Path: f.Path, Content: base64.StdEncoding.EncodeToString(f.Content), SHA: f.SHA})
 		names = append(names, f.Path)
+	}
+	// Gitea's contents API takes no base commit, so each unchanged input rides along as an identical update
+	// whose sha the server checks in the same commit.
+	for _, f := range unchanged {
+		if f.Missing {
+			// shortcut: an absent input (no design.md) is rechecked here, not in the commit, so one added between
+			// this read and the write lands unguarded; spec:check then fails on the stale digest. Close it if Gitea
+			// gains a base-commit option for POST contents.
+			now, err := g.Head(ctx, branch)
+			if err != nil {
+				return err
+			}
+			got, err := g.Read(ctx, now, f.Path)
+			if err != nil {
+				return err
+			}
+			if !got.Missing {
+				return fmt.Errorf("%s appeared after the read: %w", f.Path, ErrForgeConflict)
+			}
+			continue
+		}
+		req.Files = append(req.Files, change{Operation: "update", Path: f.Path, Content: base64.StdEncoding.EncodeToString(f.Content), SHA: f.SHA})
 	}
 	payload, err := json.Marshal(req)
 	if err != nil {
