@@ -139,6 +139,9 @@ func defaultBranchLabel(configured string) string {
 	return fallbackDefaultBranches[0]
 }
 
+// IsDefaultBranch reports whether branch is st's default branch (configured, else main or master).
+func (st *State) IsDefaultBranch(branch string) bool { return st.isDefaultBranch(branch) }
+
 // isDefaultBranch is isDefaultBranchName for st's configured branch; a nil st has none configured.
 func (st *State) isDefaultBranch(branch string) bool {
 	if st == nil {

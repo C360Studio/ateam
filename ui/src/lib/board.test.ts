@@ -421,4 +421,11 @@ describe('specPanelRows', () => {
 		const rows = specPanelRows([change('alpha', 'claude/a', false), change('beta', 'claude/b', false)], cards);
 		expect(rows.map((r) => r.prUrl)).toEqual(['https://forge/pr/2', undefined]);
 	});
+
+	// spec: openspec/specs/harness/spec.md#Requirement: Approve an OpenSpec change from the board
+	it('offers Approve only on a change holding on OPEN-Q', () => {
+		const approved = { ...change('alpha', 'claude/a', false), approval: { state: 'approved' } };
+		const rows = specPanelRows([approved, change('beta', 'claude/b', true)], []);
+		expect(rows.filter((r) => r.openQ).map((r) => r.change.name)).toEqual(['beta']);
+	});
 });

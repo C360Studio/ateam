@@ -63,3 +63,54 @@ export function createSpecPanel(publish: (state: SpecPanelState) => void, fetche
 		}
 	};
 }
+
+// Approves a change holding on OPEN-Q through POST /api/openspec/approve (#181) and returns "" on success, else the
+// server's error text: a 409 means a file changed on the forge after it was read.
+export async function approveChange(
+	headers: Record<string, string>,
+	change: string,
+	branch: string,
+	fetcher: typeof fetch = fetch
+): Promise<string> {
+	try {
+		const response = await fetcher('/api/openspec/approve', {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({ change, branch })
+		});
+		if (response.ok) return '';
+		const body: { error?: string } = await response.json().catch(() => ({}));
+		return body.error || `HTTP ${response.status}`;
+	} catch (error) {
+		return error instanceof Error ? error.message : 'Approve failed';
+	}
+}
+
+export interface ApprovalState {
+	pending: string; // "<branch>/<change>" while its request runs
+	done: Record<string, boolean>; // approved on the forge, waiting for that worktree's pull
+	errors: Record<string, string>;
+}
+
+export const emptyApprovals: ApprovalState = { pending: '', done: {}, errors: {} };
+
+// Approval results belong to the repository they were sent for: reset() on a repository change clears them and
+// drops any approval still in flight, like createSpecPanel.
+export function createApprovals(publish: (state: ApprovalState) => void, fetcher: typeof fetch = fetch) {
+	let generation = 0;
+	return {
+		reset() {
+			generation++;
+			publish(emptyApprovals);
+		},
+		async approve(headers: Record<string, string>, change: string, branch: string, current: ApprovalState) {
+			const request = generation;
+			const key = `${branch}/${change}`;
+			publish({ ...current, pending: key });
+			const error = await approveChange(headers, change, branch, fetcher);
+			if (request !== generation) return false;
+			publish({ pending: '', done: { ...current.done, [key]: !error }, errors: { ...current.errors, [key]: error } });
+			return !error;
+		}
+	};
+}

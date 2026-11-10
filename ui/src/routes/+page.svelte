@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { createDashboardLoader, createSpecPanel, emptySpecPanel, type SpecPanelState } from '$lib/dashboard';
+	import {
+		createApprovals,
+		createDashboardLoader,
+		createSpecPanel,
+		emptyApprovals,
+		emptySpecPanel,
+		type ApprovalState,
+		type SpecPanelState
+	} from '$lib/dashboard';
 	const dashboardLoader = createDashboardLoader();
 	import ModelRoutingPanel from '$lib/ModelRoutingPanel.svelte';
 	import {
@@ -168,6 +176,7 @@
 		const headers = authHeaders(true);
 		dashboardLoader.invalidate();
 		specPanel.reset();
+		approvalRunner.reset();
 		payload = null;
 		loading = true;
 		errorMsg = '';
@@ -190,6 +199,17 @@
 
 	function loadSpecPanel() {
 		return specPanel.load(authHeaders(false), spec);
+	}
+
+	// The panel reads each worktree from disk, so an approval written to the forge shows only once that worktree's
+	// agent pulls; until then the row says so instead of offering Approve again.
+	let approvals = $state<ApprovalState>(emptyApprovals);
+	const approvalRunner = createApprovals((next) => (approvals = next));
+
+	async function approve(change: string, branch: string) {
+		if (await approvalRunner.approve(authHeaders(true), change, branch, approvals)) {
+			flashNotice(`Approved ${change} on ${branch}; the agent pulls the commit`);
+		}
 	}
 
 	async function runBenchmarks() {
@@ -830,6 +850,27 @@
 										<span>{row.change.completed_tasks}/{row.change.total_tasks} tasks complete</span>
 										{#if row.prUrl}<a href={row.prUrl} target="_blank" rel="noopener noreferrer">pull request</a>{/if}
 									</summary>
+									{#if row.openQ && approvals.done[`${row.change.branch}/${row.change.name}`]}
+										<p class="muted" role="status">
+											Approved on the forge. This worktree still shows the old files until its agent pulls
+											<code>{row.change.branch}</code>.
+										</p>
+									{:else if row.openQ}
+										<p>
+											<button
+												type="button"
+												class="btn primary"
+												onclick={() => approve(row.change.name, row.change.branch)}
+												disabled={approvals.pending !== ''}
+											>
+												{approvals.pending === `${row.change.branch}/${row.change.name}` ? 'Approving…' : 'Approve'}
+											</button>
+											<span class="muted">Commits the approval on {row.change.branch} through the forge as your login.</span>
+										</p>
+										{#if approvals.errors[`${row.change.branch}/${row.change.name}`]}
+											<p class="muted" role="alert">Approve failed: {approvals.errors[`${row.change.branch}/${row.change.name}`]}</p>
+										{/if}
+									{/if}
 									<p class="muted">
 										Approved-by: {row.change.approved_by || '(empty)'}
 										{#if row.change.approval?.state === 'stale'}
