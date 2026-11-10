@@ -1,6 +1,7 @@
 ## 1. Approval
 
-- [ ] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>) sha256:<12 hex>` and removing this hold in the same edit (#181). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves `proposal.md` by filling `Approved-by: <name> (<YYYY-MM-DD>) sha256:<12 hex>` and removing the approval hold in the same edit (#181).
+  - Evidence: the owner approved in Enjoy on 2026-11-10 and asked Claude to write the header.
 
 ## 2. Read view
 

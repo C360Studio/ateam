@@ -1,6 +1,6 @@
 # Change Proposal: `spec-panel-read-181`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-10) sha256:c91ef42fe6eb
 
 ## Why
 
