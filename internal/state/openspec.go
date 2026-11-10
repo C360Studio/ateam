@@ -366,6 +366,37 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 	return out, nil
 }
 
+// WorktreeChange is an in-flight OpenSpec change as one worktree's branch holds it, with its proposal text (#181).
+type WorktreeChange struct {
+	OpenSpecChange
+	Branch   string `json:"branch"`
+	Worktree string `json:"worktree"`
+	Proposal string `json:"proposal,omitempty"`
+}
+
+// ScanWorktreeChanges runs ScanOpenSpecQueue in every worktree on a branch, because a change awaiting approval
+// lives on its agent's branch, not in the checkout the board serves. Detached worktrees (review checkouts) are
+// left out, since the branch they review is listed already. A worktree whose changes cannot be read is named in
+// skipped and the rest are still returned.
+func ScanWorktreeChanges(ctx context.Context, root string) (changes []WorktreeChange, skipped []string) {
+	for _, wt := range parseWorktrees(runGitOutput(ctx, root, "worktree", "list", "--porcelain")) {
+		if wt.Branch == "" {
+			continue
+		}
+		queue, err := ScanOpenSpecQueue(wt.Path)
+		if err != nil {
+			skipped = append(skipped, fmt.Sprintf("%s: %v", wt.Path, err))
+			continue
+		}
+		for _, ch := range queue {
+			// ScanOpenSpecQueue has just read proposal.md; a missing one leaves the text empty.
+			prop, _ := os.ReadFile(filepath.Join(wt.Path, "openspec", "changes", ch.Name, "proposal.md"))
+			changes = append(changes, WorktreeChange{OpenSpecChange: ch, Branch: wt.Branch, Worktree: wt.Path, Proposal: string(prop)})
+		}
+	}
+	return changes, skipped
+}
+
 // ScanHolds scans openspec/changes/*/tasks.md for active Hold: lines in open tasks, failing closed on read or parse errors.
 func ScanHolds(root string) ([]HoldItem, error) {
 	var all []HoldItem

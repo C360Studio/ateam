@@ -12,10 +12,12 @@
 		resolveCardRelations,
 		resolveConfiguredForges,
 		resolveRequirementCards,
+		specPanelRows,
 		type BoardCard,
 		type DashboardPayload,
 		type OpenSpecRequirement,
-		type SuiteReport
+		type SuiteReport,
+		type WorktreeChange
 	} from '$lib/board';
 
 	let payload = $state<DashboardPayload | null>(null);
@@ -25,6 +27,10 @@
 	let apiToken = $state('');
 
 	let activeTab = $state<'board' | 'table' | 'openspec'>('board');
+	let specChanges = $state<WorktreeChange[]>([]);
+	let specSkipped = $state<string[]>([]);
+	let specLoading = $state(false);
+	let specError = $state('');
 	let searchQuery = $state('');
 	let filterAgent = $state('all');
 	let filterForge = $state('all');
@@ -66,6 +72,7 @@
 	const grouped = $derived(groupCardsByColumn(filtered));
 	const shortcuts = $derived(payload?.state?.shortcuts ?? []);
 	const holds = $derived(payload?.state?.holds ?? []);
+	const specRows = $derived(specPanelRows(specChanges, payload?.state?.cards ?? []));
 	const openspecQueue = $derived(payload?.state?.openspec_queue ?? []);
 	const openspecSpecs = $derived(payload?.state?.openspec_specs ?? []);
 	const allRequirements = $derived<OpenSpecRequirement[]>(
@@ -177,6 +184,24 @@
 		} catch (err) {
 			loading = false;
 			errorMsg = err instanceof Error ? err.message : 'Failed to change repository';
+		}
+	}
+
+	async function loadSpecPanel() {
+		specLoading = true;
+		specError = '';
+		try {
+			const res = await fetch('/api/openspec', { headers: authHeaders(false) });
+			if (!res.ok) {
+				throw new Error(`HTTP ${res.status}`);
+			}
+			const body: { worktree_changes?: WorktreeChange[]; worktree_skipped?: string[] } = await res.json();
+			specChanges = body.worktree_changes ?? [];
+			specSkipped = body.worktree_skipped ?? [];
+		} catch (err) {
+			specError = err instanceof Error ? err.message : 'Failed to load in-flight changes';
+		} finally {
+			specLoading = false;
 		}
 	}
 
@@ -605,7 +630,10 @@
 				<button
 					type="button"
 					class="tab-btn {activeTab === 'openspec' ? 'active' : ''}"
-					onclick={() => (activeTab = 'openspec')}
+					onclick={() => {
+						activeTab = 'openspec';
+						loadSpecPanel();
+					}}
 				>
 					OpenSpec
 				</button>
@@ -788,6 +816,68 @@
 				</div>
 			{:else if activeTab === 'openspec'}
 				<div class="openspec-stack">
+					<div class="panel">
+						<div class="spec-head">
+							<h2>In-Flight Changes Across Worktrees ({specRows.length})</h2>
+							<button type="button" class="btn" onclick={loadSpecPanel} disabled={specLoading}>
+								{specLoading ? 'Loading…' : 'Refresh'}
+							</button>
+						</div>
+						<p class="muted">
+							Each worktree's <code>openspec/changes/</code>, read from disk. Changes awaiting approval (<code>OPEN-Q</code>) come first.
+						</p>
+						{#if specError}
+							<div class="empty-box" role="alert">Could not load in-flight changes: {specError}</div>
+						{:else if specRows.length === 0}
+							<div class="empty-box">{specLoading ? 'Loading…' : 'No in-flight change in any worktree.'}</div>
+						{:else}
+							{#each specRows as row (row.change.branch + '/' + row.change.name)}
+								<details class="spec-card" open={row.openQ}>
+									<summary class="spec-head">
+										<strong>{row.change.name}</strong>
+										{#if row.openQ}<span class="badge warn">OPEN-Q</span>{/if}
+										<span class="badge {row.change.approval?.state === 'approved' ? 'ok' : 'warn'}">
+											{row.change.approval?.state ?? 'no proposal'}
+										</span>
+										<code>{row.change.branch}</code>
+										<span>{row.change.completed_tasks}/{row.change.total_tasks} tasks complete</span>
+										{#if row.prUrl}<a href={row.prUrl} target="_blank" rel="noopener noreferrer">pull request</a>{/if}
+									</summary>
+									<p class="muted">
+										Approved-by: {row.change.approved_by || '(empty)'}
+										{#if row.change.approval?.state === 'stale'}
+											— {row.change.approval.file} changed at {row.change.approval.at}; the digest needs re-approval
+										{/if}
+									</p>
+									{#if row.change.caveats && row.change.caveats.length > 0}
+										<ul class="caveat-list">
+											{#each row.change.caveats as cav}
+												<li>
+													<span class="badge warn">{cav.marker}</span>
+													<code>L{cav.line}</code>
+													{cav.text}
+												</li>
+											{/each}
+										</ul>
+									{/if}
+									{#if row.change.proposal}
+										<pre class="proposal-text">{row.change.proposal}</pre>
+									{:else}
+										<p class="muted">No <code>proposal.md</code> in {row.change.worktree}.</p>
+									{/if}
+								</details>
+							{/each}
+						{/if}
+						{#if specSkipped.length > 0}
+							<h3>Worktrees not read ({specSkipped.length})</h3>
+							<ul class="caveat-list">
+								{#each specSkipped as skip}
+									<li><code>{skip}</code></li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
+
 					<div class="panel">
 						<div class="spec-panel-header">
 							<div>
@@ -2221,6 +2311,13 @@
 	.muted {
 		color: #94a3b8;
 		font-size: 0.78rem;
+	}
+	.proposal-text {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		max-height: 28rem;
+		overflow-y: auto;
+		font-size: 0.8rem;
 	}
 	.empty-box {
 		background: #0b0f19;

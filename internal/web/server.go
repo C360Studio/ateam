@@ -661,11 +661,14 @@ func (s *Server) handleOpenSpec(w http.ResponseWriter, r *http.Request) {
 	}
 	specs, _ := state.ScanOpenSpecSpecs(root)
 	formatted, hasCaveats := state.FormatOpenSpecQueue(changes)
+	wtChanges, wtSkipped := state.ScanWorktreeChanges(r.Context(), root)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"specs":       specs,
-		"changes":     changes,
-		"formatted":   formatted,
-		"has_caveats": hasCaveats,
+		"specs":            specs,
+		"changes":          changes,
+		"formatted":        formatted,
+		"has_caveats":      hasCaveats,
+		"worktree_changes": wtChanges,
+		"worktree_skipped": wtSkipped,
 	})
 }
 
