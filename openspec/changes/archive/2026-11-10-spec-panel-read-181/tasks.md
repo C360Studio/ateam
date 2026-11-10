@@ -13,6 +13,7 @@
   - Premise: the queue panel is at `ui/src/routes/+page.svelte:860-900`. `OpenSpecChange` is at `ui/src/lib/board.ts:79`.
   - Acceptance: a Vitest test on a pure sort-and-link helper in `ui/src/lib/board.ts` checks that `OPEN-Q` sorts first, that ties keep name order, and that a PR link appears only when a forge card matches the branch. `task ui:check` is clean.
   - Evidence: `specPanelRows` in `ui/src/lib/board.ts` has two Vitest cases (sort order with name and branch ties; PR link prefers the unmerged card and is absent when only an issue card has the branch). The panel loads `/api/openspec` when the OpenSpec tab opens, sits at the top of the tab (below 98 requirements it was about 10,000 px down), and was checked in the browser against this repository: `spec-approve-181` (`OPEN-Q`, unapproved) first and open, then `review-lease-314` (unbound) and `spec-panel-read-181` (approved).
+  - Review fix (Codex REQUEST CHANGES at `f36b5f2`): the panel kept repository A's rows after a switch to B, and a late or older response could overwrite newer state. `createSpecPanel` (`ui/src/lib/dashboard.ts`) follows the dashboard loader's generation guard: `changeRepository` resets it and reloads when the OpenSpec tab is open, and only the latest load publishes rows, loading or an error. Deferred-response Vitest cases cover a completed A load cleared on switch, late A success and failure after B, and an older refresh completing last. Removing the guard fails 3 of them (`cp` + SHA-256 restore verified).
 
 ## 3. Close
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { createDashboardLoader } from '$lib/dashboard';
+	import { createDashboardLoader, createSpecPanel, emptySpecPanel, type SpecPanelState } from '$lib/dashboard';
 	const dashboardLoader = createDashboardLoader();
 	import ModelRoutingPanel from '$lib/ModelRoutingPanel.svelte';
 	import {
@@ -16,8 +16,7 @@
 		type BoardCard,
 		type DashboardPayload,
 		type OpenSpecRequirement,
-		type SuiteReport,
-		type WorktreeChange
+		type SuiteReport
 	} from '$lib/board';
 
 	let payload = $state<DashboardPayload | null>(null);
@@ -27,10 +26,8 @@
 	let apiToken = $state('');
 
 	let activeTab = $state<'board' | 'table' | 'openspec'>('board');
-	let specChanges = $state<WorktreeChange[]>([]);
-	let specSkipped = $state<string[]>([]);
-	let specLoading = $state(false);
-	let specError = $state('');
+	let spec = $state<SpecPanelState>(emptySpecPanel);
+	const specPanel = createSpecPanel((next) => (spec = next));
 	let searchQuery = $state('');
 	let filterAgent = $state('all');
 	let filterForge = $state('all');
@@ -72,7 +69,7 @@
 	const grouped = $derived(groupCardsByColumn(filtered));
 	const shortcuts = $derived(payload?.state?.shortcuts ?? []);
 	const holds = $derived(payload?.state?.holds ?? []);
-	const specRows = $derived(specPanelRows(specChanges, payload?.state?.cards ?? []));
+	const specRows = $derived(specPanelRows(spec.changes, payload?.state?.cards ?? []));
 	const openspecQueue = $derived(payload?.state?.openspec_queue ?? []);
 	const openspecSpecs = $derived(payload?.state?.openspec_specs ?? []);
 	const allRequirements = $derived<OpenSpecRequirement[]>(
@@ -170,6 +167,7 @@
 		if (loading) return;
 		const headers = authHeaders(true);
 		dashboardLoader.invalidate();
+		specPanel.reset();
 		payload = null;
 		loading = true;
 		errorMsg = '';
@@ -180,29 +178,18 @@
 			const res = await fetch('/api/repos', { method: 'POST', headers, body: JSON.stringify(action) });
 			const data = await res.json();
 			if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-			if (await loadDashboard()) flashNotice(notice);
+			if (await loadDashboard()) {
+				flashNotice(notice);
+				if (activeTab === 'openspec') loadSpecPanel();
+			}
 		} catch (err) {
 			loading = false;
 			errorMsg = err instanceof Error ? err.message : 'Failed to change repository';
 		}
 	}
 
-	async function loadSpecPanel() {
-		specLoading = true;
-		specError = '';
-		try {
-			const res = await fetch('/api/openspec', { headers: authHeaders(false) });
-			if (!res.ok) {
-				throw new Error(`HTTP ${res.status}`);
-			}
-			const body: { worktree_changes?: WorktreeChange[]; worktree_skipped?: string[] } = await res.json();
-			specChanges = body.worktree_changes ?? [];
-			specSkipped = body.worktree_skipped ?? [];
-		} catch (err) {
-			specError = err instanceof Error ? err.message : 'Failed to load in-flight changes';
-		} finally {
-			specLoading = false;
-		}
+	function loadSpecPanel() {
+		return specPanel.load(authHeaders(false), spec);
 	}
 
 	async function runBenchmarks() {
@@ -819,17 +806,17 @@
 					<div class="panel">
 						<div class="spec-head">
 							<h2>In-Flight Changes Across Worktrees ({specRows.length})</h2>
-							<button type="button" class="btn" onclick={loadSpecPanel} disabled={specLoading}>
-								{specLoading ? 'Loading…' : 'Refresh'}
+							<button type="button" class="btn" onclick={loadSpecPanel} disabled={spec.loading}>
+								{spec.loading ? 'Loading…' : 'Refresh'}
 							</button>
 						</div>
 						<p class="muted">
 							Each worktree's <code>openspec/changes/</code>, read from disk. Changes awaiting approval (<code>OPEN-Q</code>) come first.
 						</p>
-						{#if specError}
-							<div class="empty-box" role="alert">Could not load in-flight changes: {specError}</div>
+						{#if spec.error}
+							<div class="empty-box" role="alert">Could not load in-flight changes: {spec.error}</div>
 						{:else if specRows.length === 0}
-							<div class="empty-box">{specLoading ? 'Loading…' : 'No in-flight change in any worktree.'}</div>
+							<div class="empty-box">{spec.loading ? 'Loading…' : 'No in-flight change in any worktree.'}</div>
 						{:else}
 							{#each specRows as row (row.change.branch + '/' + row.change.name)}
 								<details class="spec-card" open={row.openQ}>
@@ -868,10 +855,10 @@
 								</details>
 							{/each}
 						{/if}
-						{#if specSkipped.length > 0}
-							<h3>Worktrees not read ({specSkipped.length})</h3>
+						{#if spec.skipped.length > 0}
+							<h3>Worktrees not read ({spec.skipped.length})</h3>
 							<ul class="caveat-list">
-								{#each specSkipped as skip}
+								{#each spec.skipped as skip}
 									<li><code>{skip}</code></li>
 								{/each}
 							</ul>
