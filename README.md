@@ -95,6 +95,17 @@ GOBIN="$PWD/.tools/bin" go install github.com/c360studio/ateam/cmd/ateam@v0.3.9
 
 Hooks run the command written in the hook config, and `ateam init` writes a bare `ateam`, which resolves on the agent's `PATH`, not to the repository's pin. To run the pinned binary, change the hook commands to its path, for example `"$CLAUDE_PROJECT_DIR"/.tools/bin/ateam hook --event … --agent claude` in `.claude/settings.json`; `ateam doctor` accepts any hook command whose program ends in `/ateam`. In a linked worktree, `$CLAUDE_PROJECT_DIR` is that worktree, whose `.tools/bin` is empty unless you install there too. Either install into each worktree, or commit a small wrapper such as `scripts/ateam` that execs the main checkout's `.tools/bin/ateam` (found from the worktree's `.git` file, without forking `git`, to keep within the hook budget), and name the wrapper in the hook commands.
 
+A program path with a slash, such as `scripts/ateam`, resolves against the hook's or MCP server's working directory, not `PATH`, so it exits 127 in a session started below the checkout root (for example in `ui/`). No host was found to hand hooks the repository root (#339):
+
+| Host | Hook working directory and variable | Wiring |
+| --- | --- | --- |
+| Claude Code | `$CLAUDE_PROJECT_DIR`, documented as the directory the session started in; not run live | `"$CLAUDE_PROJECT_DIR"/scripts/ateam hook …`; start the session at the checkout or worktree root |
+| Gemini CLI 0.43 | Hooks run in the session's working directory, and `$GEMINI_PROJECT_DIR` (also exported as `$CLAUDE_PROJECT_DIR`) is that same directory (read from its source, not run live) | `"$GEMINI_PROJECT_DIR"/scripts/ateam hook …`; start the session at the root |
+| Codex CLI | Unverified | Start the session at the root |
+| Antigravity (`agy`) | Unverified | Start the session at the root |
+
+The MCP server has the same constraint: it takes its repository from its working directory ([MCP guide](docs/mcp.md)). A command that finds the root itself, such as `sh -c 'exec "$(git rev-parse --show-toplevel)/scripts/ateam" "$@"' ateam hook …`, works from any directory, but it forks `git` on every event: about 11 ms measured here, past the hook's 10 ms budget. A bare `ateam` on `PATH` works from any directory but runs the `PATH` binary, not the pin.
+
 Declare the pin as `ateam_version` in [`.agents/ateam.json`](docs/adoption.md#team-settings), for example `{"version":1,"ateam_version":"v0.3.9"}`. The version then has one source, and both a Taskfile and CI can read it before ateam is installed: `ATEAM_VERSION: {sh: jq -r .ateam_version .agents/ateam.json}` in a Taskfile, or `go install github.com/c360studio/ateam/cmd/ateam@$(jq -r .ateam_version .agents/ateam.json)` in CI. The older one-line `.agents/ateam-version` file is deprecated and will be dropped in a later release. Until then it is read when the key is absent, and when both declare a pin and they differ, the key wins and doctor warns. With a pin declared, `ateam doctor` reports `pin` and fails when the running binary, or the `hook_binary` the Claude hook command resolves to, is not exactly that release, so a `v0.3.9-8-g<sha>` source build fails a `v0.3.9` pin. A hook binary that does not resolve, as on a CI runner, is reported without failing. Doctor reads only the Claude hook command, so check Codex and Gemini hooks name the same binary. Without a pin, nothing changes; in the ateam checkout itself the pin is ignored, because doctor compares the build with `HEAD` there.
 
 ### Build from source
