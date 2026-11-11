@@ -273,7 +273,7 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 - **AND** when the PR cannot be read the command exits 2 naming its head and prints nothing
 
 ### Requirement: Review notify text
-`ateam review notify` SHALL send only the fixed text `review record for PR #<n> landed at <sha>; run ateam state sync, then ateam state pickup`, followed by `; to re-review after fixes run ateam review request --reviewer-session <id> <n>` when the reviewer's own session is known, to the launch spec's `return_to` through the host manifest's `notify` command. It SHALL print the host tool when there is no `notify` and send nothing on `cli`.
+`ateam review notify` SHALL send only the fixed text `review record for PR #<n> landed at <sha>; run ateam state sync, then ateam state pickup`, followed by `; to re-review after fixes run ateam review request --reviewer-session <id> --return-to <return_to> <n>` when the reviewer's own session is known, to the launch spec's `return_to` through the host manifest's `notify` command. It SHALL print the host tool when there is no `notify` and send nothing on `cli`.
 
 #### Scenario: Hostile record body
 - **WHEN** the review record comment carries shell text and the different-writer warning line
@@ -281,8 +281,8 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 
 #### Scenario: Reviewer session in the text
 - **WHEN** the reviewer's session comes from its environment or `--from` and is one line of `[A-Za-z0-9._:-]`
-- **THEN** the message ends with the re-review clause naming that session
-- **AND** a session holding any other character exits 2 and sends nothing
+- **THEN** the message ends with the re-review clause naming that session and the `--return-to` it was sent to
+- **AND** a session or `--return-to` holding any other character exits 2 and sends nothing
 
 ### Requirement: Re-review to the reviewing session
 `ateam review request --reviewer-session <id> <pr>` SHALL send the fixed re-review text to `<id>` through the host manifest's `notify` action only when the cached newest record is `REQUEST CHANGES` at a sha other than the PR head and its reviewer run passes the gate comparison against the current implementers; otherwise, or with `--fresh`, it SHALL print the fresh launch spec naming why.

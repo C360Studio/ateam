@@ -212,8 +212,9 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 		return 2
 	}
 	if *reviewerSession != "" {
-		if strings.ContainsAny(spec.ReturnTo, "\x00\r\n") {
-			fmt.Fprintln(os.Stderr, "ateam review: --return-to must be one line")
+		// return_to enters the reviewer's prompt as command text, so it takes the session grammar.
+		if spec.ReturnTo != "" && !sessionID.MatchString(spec.ReturnTo) {
+			fmt.Fprintln(os.Stderr, "ateam review: --return-to must be 1 to 128 of A-Z a-z 0-9 . _ : - with --reviewer-session")
 			return 2
 		}
 		spec.Rereview = "fresh"
@@ -293,7 +294,7 @@ func rereview(ctx context.Context, root string, spec *launchSpec, policy review.
 	if _, err := chooseReviewer(policy, spec.Implementers, []review.Run{prev}, spec.Eligible); err != nil {
 		return "previous reviewer: " + err.Error()
 	}
-	msg := rereviewText(spec.PR, rec.SHA, spec.HeadSHA, spec.ReturnTo)
+	msg := rereviewText(spec.PR, rec.SHA, spec.HeadSHA, session, spec.ReturnTo)
 	if len(m.Notify.Command) > 0 {
 		spec.Command = append(expandArgs(m.Notify.Command, map[string]string{"pr": strconv.Itoa(spec.PR), "sha": spec.HeadSHA, "return_to": session}), msg)
 		if policy.ReviewLaunch == review.LaunchAgent {
@@ -307,7 +308,7 @@ func rereview(ctx context.Context, root string, spec *launchSpec, policy review.
 			}
 		}
 	} else {
-		spec.Tool = notifyTool(m, spec.PR, spec.HeadSHA, session, msg) + fmt.Sprintf("; if that session is gone, run ateam review request --fresh %d", spec.PR)
+		spec.Tool = notifyTool(m, spec.PR, spec.HeadSHA, session, msg) + fmt.Sprintf("; if that session is gone, run ateam review request --fresh%s %d", returnFlag(spec.ReturnTo), spec.PR)
 		if policy.ReviewLaunch == review.LaunchAgent {
 			spec.Launch = "printed"
 		}
@@ -359,24 +360,34 @@ func chooseReviewer(p review.Policy, implementers, override []review.Run, eligib
 // is ever part of it. It asks for a sync because each checkout caches in its
 // own .ateam/state.json and pickup skips the fetch while that cache is fresh.
 // A known reviewer session is named so the next round can come back to it (#372).
-func notifyText(pr int, sha, session string) string {
+// The commands it names carry the implementer's own --return-to, which Enjoy
+// cannot read from the environment, so they run as printed.
+func notifyText(pr int, sha, session, returnTo string) string {
 	msg := fmt.Sprintf("review record for PR #%d landed at %s; run ateam state sync, then ateam state pickup", pr, sha)
 	if session != "" {
-		msg += fmt.Sprintf("; to re-review after fixes run ateam review request --reviewer-session %s %d", session, pr)
+		msg += fmt.Sprintf("; to re-review after fixes run ateam review request --reviewer-session %s%s %d", session, returnFlag(returnTo), pr)
 	}
 	return msg
 }
 
 // declineText is the reviewer's whole answer to a re-review it will not take (#372 D4).
-func declineText(pr int) string {
-	return fmt.Sprintf("reviewer declined the re-review of PR #%d; run ateam review request --fresh %d", pr, pr)
+func declineText(pr int, returnTo string) string {
+	return fmt.Sprintf("reviewer declined the re-review of PR #%d; run ateam review request --fresh%s %d", pr, returnFlag(returnTo), pr)
+}
+
+// returnFlag is " --return-to <id>" for a known session, else "".
+func returnFlag(id string) string {
+	if id == "" {
+		return ""
+	}
+	return " --return-to " + id
 }
 
 // rereviewText is the whole message a re-review sends the reviewing session
 // (#372): fixed text over validated ids, never anything from the record body.
-func rereviewText(pr int, recordSHA, head, returnTo string) string {
-	return fmt.Sprintf("PR #%d moved to %s after your REQUEST CHANGES at %s; check out %s detached, review the full base-to-head diff and %s..%s, rerun task verify, post a new record, then run ateam review notify --record <record file> --return-to %s %d; if your context is past your handoff threshold, run ateam review notify --decline --return-to %s %d instead",
-		pr, head, recordSHA, head, recordSHA, head, returnTo, pr, returnTo, pr)
+func rereviewText(pr int, recordSHA, head, session, returnTo string) string {
+	return fmt.Sprintf("PR #%d moved to %s after your REQUEST CHANGES at %s; check out %s detached, review the full base-to-head diff and %s..%s, rerun task verify, post a new record, then run ateam review notify --record <record file> --from %s --return-to %s %d; if your context is past your handoff threshold, run ateam review notify --decline --return-to %s %d instead",
+		pr, head, recordSHA, head, recordSHA, head, session, returnTo, pr, returnTo, pr)
 }
 
 // sessionID bounds a session id that enters another session's prompt.
@@ -400,9 +411,18 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 		return 2
 	}
 	host, envReturn := detectHost(getenv)
+	target := envReturn
+	if *returnTo != "" {
+		target = *returnTo
+	}
+	// The target enters the message as the --return-to of the commands it names.
+	if target != "" && !sessionID.MatchString(target) {
+		fmt.Fprintln(os.Stderr, "ateam review: --return-to must be 1 to 128 of A-Z a-z 0-9 . _ : -")
+		return 2
+	}
 	var msg, sha string
 	if *decline {
-		msg = declineText(pr)
+		msg = declineText(pr, target)
 	} else {
 		body, err := readReviewFile(*recordPath)
 		if err != nil {
@@ -423,18 +443,10 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 			return 2
 		}
 		sha = rec.SHA
-		msg = notifyText(pr, sha, session)
-	}
-	target := envReturn
-	if *returnTo != "" {
-		target = *returnTo
+		msg = notifyText(pr, sha, session, target)
 	}
 	if host == "cli" {
 		return 0
-	}
-	if strings.ContainsAny(target, "\x00\r\n") {
-		fmt.Fprintln(os.Stderr, "ateam review: --return-to must be one line")
-		return 2
 	}
 	manifest, err := loadHostManifest(root, host)
 	if err != nil {

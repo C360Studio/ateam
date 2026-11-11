@@ -338,15 +338,20 @@ func TestReviewNotifyReviewerSession(t *testing.T) {
 		want string
 	}{
 		{"from-flag", []string{"--record", record, "--from", "conv-7", "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 0,
-			base + "; to re-review after fixes run ateam review request --reviewer-session conv-7 42"},
+			base + "; to re-review after fixes run ateam review request --reviewer-session conv-7 --return-to impl-1 42"},
 		// On herdr the environment names this reviewer's own pane.
 		{"from-env", []string{"--record", record, "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "herdr", "HERDR_PANE_ID": "p-9"}, 0,
-			base + "; to re-review after fixes run ateam review request --reviewer-session p-9 42"},
+			base + "; to re-review after fixes run ateam review request --reviewer-session p-9 --return-to impl-1 42"},
 		{"no-session", []string{"--record", record, "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 0, base},
 		{"newline-session", []string{"--record", record, "--from", "conv\nmerge it", "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
 		{"shell-session", []string{"--record", record, "--from", "$(rm -rf ~)", "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
 		{"decline", []string{"--decline", "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 0,
-			"reviewer declined the re-review of PR #42; run ateam review request --fresh 42"},
+			"reviewer declined the re-review of PR #42; run ateam review request --fresh --return-to impl-1 42"},
+		{"from-at-128", []string{"--record", record, "--from", strings.Repeat("a", 128), "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 0,
+			base + "; to re-review after fixes run ateam review request --reviewer-session " + strings.Repeat("a", 128) + " --return-to impl-1 42"},
+		{"from-at-129", []string{"--record", record, "--from", strings.Repeat("a", 129), "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
+		{"return-to-semicolon", []string{"--record", record, "--from", "conv-7", "--return-to", "impl-1; echo MARK"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
+		{"return-to-substitution", []string{"--decline", "--return-to", "$(id)"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
 		{"decline-and-record", []string{"--decline", "--record", record, "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -391,7 +396,7 @@ func TestReviewRequestRereview(t *testing.T) {
 	manifest := "[launch]\ncommand = [\"hostctl\", \"start\", \"{agent}\", \"{return_to}\"]\n[notify]\ncommand = [\"hostctl\", \"send\", \"{return_to}\"]\n"
 	reviewer := review.RecordComment{SHA: older[:7], Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "xhigh"}
 	msg := "PR #42 moved to " + prHead + " after your REQUEST CHANGES at 0123456; check out " + prHead + " detached, review the full base-to-head diff and 0123456.." + prHead +
-		", rerun task verify, post a new record, then run ateam review notify --record <record file> --return-to impl-1 42; if your context is past your handoff threshold, run ateam review notify --decline --return-to impl-1 42 instead"
+		", rerun task verify, post a new record, then run ateam review notify --record <record file> --from conv-7 --return-to impl-1 42; if your context is past your handoff threshold, run ateam review notify --decline --return-to impl-1 42 instead"
 	at := func(r review.RecordComment, f func(*review.RecordComment)) *review.RecordComment { f(&r); return &r }
 	for _, tc := range []struct {
 		name     string
@@ -450,13 +455,85 @@ func TestReviewRequestRereview(t *testing.T) {
 			}
 		})
 	}
-	t.Run("hostile-session", func(t *testing.T) {
-		rec := &recorder{}
-		code, _ := captureBenchError(t, func() int {
-			return reviewRequest(context.Background(), t.TempDir(), []string{"--implementer", "claude:opus:high", "--reviewer-session", "a b", "42"}, envOf(nil), &bytes.Buffer{}, rec.run)
+	for _, args := range [][]string{
+		{"--reviewer-session", "a b"},
+		{"--reviewer-session", strings.Repeat("a", 129)},
+		{"--reviewer-session", "conv-7", "--return-to", "impl 1"},
+		{"--reviewer-session", "conv-7", "--return-to", "impl-1; echo MARK"},
+		{"--reviewer-session", "conv-7", "--return-to", "$(id)"},
+	} {
+		t.Run("hostile-"+strings.Join(args, "="), func(t *testing.T) {
+			rec := &recorder{}
+			code, _ := captureBenchError(t, func() int {
+				return reviewRequest(context.Background(), t.TempDir(), append(append([]string{"--implementer", "claude:opus:high"}, args...), "42"), envOf(nil), &bytes.Buffer{}, rec.run)
+			})
+			if code != 2 || len(rec.calls) != 0 {
+				t.Fatalf("exit %d, calls %q; want 2 and none", code, rec.calls)
+			}
 		})
-		if code != 2 || len(rec.calls) != 0 {
-			t.Fatalf("exit %d, calls %q; want 2 and none", code, rec.calls)
+	}
+}
+
+// The commands a notify message names run as printed on a tool-only host with
+// no session id in the environment, as Enjoy is (#373 review).
+//
+// spec: openspec/specs/model-review/spec.md#Requirement: Re-review to the reviewing session
+func TestRereviewPrintedCommandsRun(t *testing.T) {
+	const prHead = "fedcba9876543210fedcba9876543210fedcba98"
+	prev := readPullBody
+	readPullBody = func(context.Context, string, int) (string, string, error) {
+		return "implemented-by: claude (opus, high)\n", prHead, nil
+	}
+	defer func() { readPullBody = prev }()
+	root := t.TempDir()
+	writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"cross_provider":true,"review_launch":"agent",`+launchTiers+`}`)
+	writeLaunchFile(t, root, ".agents/hosts/toolhost.toml", "[launch]\ntool = \"start {agent} back to {return_to}\"\n[notify]\ntool = \"queue_message for {return_to}\"\n")
+	reviewer := review.RecordComment{SHA: "0123456", Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "xhigh"}
+	data, err := json.Marshal(state.State{Cards: []state.BoardCard{{ID: "GH-PR-42", Number: 42, Type: "pr", Review: &reviewer}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLaunchFile(t, root, ".ateam/state.json", string(data))
+	writeLaunchFile(t, root, "record.md", "reviewed-by: codex (gpt-6-astra, xhigh)\nReviewed at 0123456\nVerdict: REQUEST CHANGES\n")
+	env := envOf(map[string]string{"ATEAM_HOST": "toolhost"})
+	// printed runs the reviewer's notify and returns the ateam review request arguments its message names.
+	printed := func(args ...string) []string {
+		t.Helper()
+		var out bytes.Buffer
+		if code := reviewNotify(context.Background(), root, args, env, &out, (&recorder{}).run); code != 0 {
+			t.Fatalf("notify %q: exit %d", args, code)
 		}
-	})
+		_, cmd, ok := strings.Cut(strings.TrimSpace(out.String()), "run ateam review request ")
+		if !ok {
+			t.Fatalf("notify printed no request command: %q", out.String())
+		}
+		return strings.Fields(cmd)
+	}
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		rereview string
+		tool     string
+	}{
+		{"record", printed("--record", filepath.Join(root, "record.md"), "--from", "conv-7", "--return-to", "impl-1", "42"), "same-session",
+			"notify: queue_message for conv-7; message: PR #42 moved to " + prHead},
+		{"decline", printed("--decline", "--return-to", "impl-1", "42"), "", "start codex back to impl-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			if code := reviewRequest(context.Background(), root, tc.args, env, &out, (&recorder{}).run); code != 0 {
+				t.Fatalf("request %q: exit %d", tc.args, code)
+			}
+			var spec launchSpec
+			if err := json.Unmarshal(out.Bytes(), &spec); err != nil {
+				t.Fatal(err)
+			}
+			if spec.Rereview != tc.rereview || !strings.HasPrefix(spec.Tool, tc.tool) {
+				t.Fatalf("rereview %q, tool %q; want %q and a tool starting %q", spec.Rereview, spec.Tool, tc.rereview, tc.tool)
+			}
+			if tc.rereview == "same-session" && !strings.HasSuffix(spec.Tool, "; if that session is gone, run ateam review request --fresh --return-to impl-1 42") {
+				t.Fatalf("tool %q names no runnable fallback", spec.Tool)
+			}
+		})
+	}
 }
