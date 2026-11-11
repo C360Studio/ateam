@@ -20,7 +20,7 @@ import (
 
 func runReview(root string, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... (--reviewer AGENT:MODEL:EFFORT | --reviewer-record FILE) | gate [--awaiting] [PR] | request [--implementer AGENT:MODEL:EFFORT]... [--reviewer AGENT:MODEL:EFFORT] [--return-to ID] [--dry-run] PR | notify --record FILE [--return-to ID] PR")
+		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... (--reviewer AGENT:MODEL:EFFORT | --reviewer-record FILE) | gate [--awaiting] [PR] | request [--implementer AGENT:MODEL:EFFORT]... [--reviewer AGENT:MODEL:EFFORT] [--return-to ID] [--reviewer-session ID] [--fresh] [--dry-run] PR | notify (--record FILE [--from ID] | --decline) [--return-to ID] PR")
 		return 2
 	}
 	var err error

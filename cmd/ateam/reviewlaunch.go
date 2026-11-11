@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/c360studio/ateam/internal/review"
+	"github.com/c360studio/ateam/internal/state"
 )
 
 // Host launch for a cross-agent review (#295): the host-specific part is the
@@ -129,6 +131,9 @@ type launchSpec struct {
 	Launch       string             `json:"launch"`
 	Command      []string           `json:"command,omitempty"`
 	Tool         string             `json:"tool,omitempty"`
+	// Rereview is "same-session" when the round went back to --reviewer-session,
+	// else why it fell back to a fresh launch (#372).
+	Rereview string `json:"rereview,omitempty"`
 }
 
 // readPullBody reads a pull request's description and head; tests substitute it.
@@ -149,13 +154,19 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 	fs.Var(&implementers, "implementer", "implementing run as agent:model:effort; repeat for several (default: the PR's implemented-by: line)")
 	fs.Var(&reviewers, "reviewer", "reviewing run as agent:model:effort for {agent} {model} {effort} (default: the first eligible run)")
 	returnTo := fs.String("return-to", "", "session the reviewer notifies (default: the host's thread or pane id)")
+	reviewerSession := fs.String("reviewer-session", "", "after REQUEST CHANGES, send the re-review to this reviewing session (from its notify message)")
+	fresh := fs.Bool("fresh", false, "launch a fresh reviewer even when --reviewer-session is given")
 	dryRun := fs.Bool("dry-run", false, "print the expanded launch command without running it")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	pr, err := strconv.Atoi(fs.Arg(0))
 	if fs.NArg() != 1 || err != nil || pr <= 0 || len(reviewers) > 1 {
-		fmt.Fprintln(os.Stderr, "usage: ateam review request [--implementer AGENT:MODEL:EFFORT]... [--reviewer AGENT:MODEL:EFFORT] [--return-to ID] [--dry-run] PR")
+		fmt.Fprintln(os.Stderr, "usage: ateam review request [--implementer AGENT:MODEL:EFFORT]... [--reviewer AGENT:MODEL:EFFORT] [--return-to ID] [--reviewer-session ID] [--fresh] [--dry-run] PR")
+		return 2
+	}
+	if *reviewerSession != "" && !sessionID.MatchString(*reviewerSession) {
+		fmt.Fprintln(os.Stderr, "ateam review: --reviewer-session must be 1 to 128 of A-Z a-z 0-9 . _ : -")
 		return 2
 	}
 	var policy review.Policy
@@ -200,6 +211,20 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 		fmt.Fprintf(os.Stderr, "ateam review: %v\n", err)
 		return 2
 	}
+	if *reviewerSession != "" {
+		// return_to enters the reviewer's prompt as command text, so it takes the session grammar.
+		if spec.ReturnTo != "" && !sessionID.MatchString(spec.ReturnTo) {
+			fmt.Fprintln(os.Stderr, "ateam review: --return-to must be 1 to 128 of A-Z a-z 0-9 . _ : - with --reviewer-session")
+			return 2
+		}
+		spec.Rereview = "fresh"
+		if !*fresh {
+			spec.Rereview = rereview(ctx, root, &spec, policy, manifest, *reviewerSession, *dryRun, run)
+		}
+		if spec.Rereview == "same-session" {
+			return encodeSpec(out, spec)
+		}
+	}
 	if manifest != nil {
 		reviewer, err := chooseReviewer(policy, implementers, reviewers, spec.Eligible)
 		if err != nil {
@@ -232,6 +257,10 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 			spec.Launch = "executed"
 		}
 	}
+	return encodeSpec(out, spec)
+}
+
+func encodeSpec(out io.Writer, spec launchSpec) int {
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
@@ -240,6 +269,66 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 		return 1
 	}
 	return 0
+}
+
+// rereview sends the round back to the reviewing session through the host's
+// notify action and returns "same-session", or returns why a fresh launch
+// follows instead. It goes back only after REQUEST CHANGES at an older commit,
+// to a reviewer run the merge gate still accepts against these implementers.
+// The notify command runs, as a launch command does, only under review_launch: agent.
+func rereview(ctx context.Context, root string, spec *launchSpec, policy review.Policy, m *hostManifest, session string, dryRun bool, run launchRunner) string {
+	rec := cachedRecord(root, spec.PR)
+	switch {
+	case rec == nil:
+		return "no cached record; run ateam state sync"
+	case rec.Verdict != "REQUEST CHANGES":
+		return "record verdict is " + strings.ToLower(cmp.Or(rec.Verdict, "missing"))
+	case spec.HeadSHA == "" || strings.HasPrefix(spec.HeadSHA, rec.SHA):
+		return "record is at the head"
+	case m == nil || (len(m.Notify.Command) == 0 && m.Notify.Tool == ""):
+		return "host " + spec.Host + " has no notify"
+	case spec.ReturnTo == "":
+		return "no return_to for the reviewer to notify"
+	}
+	prev := review.Run{Provider: rec.Agent, Model: rec.Model, Effort: rec.Effort}
+	if _, err := chooseReviewer(policy, spec.Implementers, []review.Run{prev}, spec.Eligible); err != nil {
+		return "previous reviewer: " + err.Error()
+	}
+	msg := rereviewText(spec.PR, rec.SHA, spec.HeadSHA, session, spec.ReturnTo)
+	if len(m.Notify.Command) > 0 {
+		spec.Command = append(expandArgs(m.Notify.Command, map[string]string{"pr": strconv.Itoa(spec.PR), "sha": spec.HeadSHA, "return_to": session}), msg)
+		if policy.ReviewLaunch == review.LaunchAgent {
+			spec.Launch = "printed"
+			if !dryRun {
+				if err := run(ctx, spec.Command); err != nil {
+					spec.Command, spec.Launch = nil, review.LaunchManual
+					return "unreachable"
+				}
+				spec.Launch = "executed"
+			}
+		}
+	} else {
+		spec.Tool = notifyTool(m, spec.PR, spec.HeadSHA, session, msg) + fmt.Sprintf("; if that session is gone, run ateam review request --fresh%s %d", returnFlag(spec.ReturnTo), spec.PR)
+		if policy.ReviewLaunch == review.LaunchAgent {
+			spec.Launch = "printed"
+		}
+	}
+	return "same-session"
+}
+
+// cachedRecord is the newest review record the last ateam state sync cached
+// for the pull request, or nil.
+func cachedRecord(root string, pr int) *review.RecordComment {
+	st, err := state.Load(root)
+	if err != nil {
+		return nil
+	}
+	for _, c := range st.Cards {
+		if c.Type == "pr" && c.Number == pr && c.Review != nil {
+			return c.Review
+		}
+	}
+	return nil
 }
 
 // chooseReviewer is the --reviewer run, else the first eligible one, refused
@@ -270,9 +359,39 @@ func chooseReviewer(p review.Policy, implementers, override []review.Run, eligib
 // session as a prompt, so nothing from the record body, which is model output,
 // is ever part of it. It asks for a sync because each checkout caches in its
 // own .ateam/state.json and pickup skips the fetch while that cache is fresh.
-func notifyText(pr int, sha string) string {
-	return fmt.Sprintf("review record for PR #%d landed at %s; run ateam state sync, then ateam state pickup", pr, sha)
+// A known reviewer session is named so the next round can come back to it (#372).
+// The commands it names carry the implementer's own --return-to, which Enjoy
+// cannot read from the environment, so they run as printed.
+func notifyText(pr int, sha, session, returnTo string) string {
+	msg := fmt.Sprintf("review record for PR #%d landed at %s; run ateam state sync, then ateam state pickup", pr, sha)
+	if session != "" {
+		msg += fmt.Sprintf("; to re-review after fixes run ateam review request --reviewer-session %s%s %d", session, returnFlag(returnTo), pr)
+	}
+	return msg
 }
+
+// declineText is the reviewer's whole answer to a re-review it will not take (#372 D4).
+func declineText(pr int, returnTo string) string {
+	return fmt.Sprintf("reviewer declined the re-review of PR #%d; run ateam review request --fresh%s %d", pr, returnFlag(returnTo), pr)
+}
+
+// returnFlag is " --return-to <id>" for a known session, else "".
+func returnFlag(id string) string {
+	if id == "" {
+		return ""
+	}
+	return " --return-to " + id
+}
+
+// rereviewText is the whole message a re-review sends the reviewing session
+// (#372): fixed text over validated ids, never anything from the record body.
+func rereviewText(pr int, recordSHA, head, session, returnTo string) string {
+	return fmt.Sprintf("PR #%d moved to %s after your REQUEST CHANGES at %s; check out %s detached, review the full base-to-head diff and %s..%s, rerun task verify, post a new record, then run ateam review notify --record <record file> --from %s --return-to %s %d; if your context is past your handoff threshold, run ateam review notify --decline --return-to %s %d instead",
+		pr, head, recordSHA, head, recordSHA, head, session, returnTo, pr, returnTo, pr)
+}
+
+// sessionID bounds a session id that enters another session's prompt.
+var sessionID = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
 // reviewNotify tells the implementing session that the review record landed,
 // through the host manifest's notify command, or prints the host tool to call.
@@ -281,22 +400,14 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 	fs := flag.NewFlagSet("review notify", flag.ContinueOnError)
 	recordPath := fs.String("record", "", "the review record comment file that was posted")
 	returnTo := fs.String("return-to", "", "the implementing session from the launch spec's return_to")
+	from := fs.String("from", "", "your own session, named so the next round can come back to you (default: the host's thread or pane id)")
+	decline := fs.Bool("decline", false, "decline a re-review instead of sending a record")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	pr, err := strconv.Atoi(fs.Arg(0))
-	if fs.NArg() != 1 || err != nil || pr <= 0 || *recordPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: ateam review notify --record FILE [--return-to ID] PR")
-		return 2
-	}
-	body, err := readReviewFile(*recordPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ateam review: record: %v\n", err)
-		return 2
-	}
-	rec, ok := review.ParseRecordComment(string(body))
-	if !ok {
-		fmt.Fprintln(os.Stderr, "ateam review: the record names no single reviewing agent and reviewed commit")
+	if fs.NArg() != 1 || err != nil || pr <= 0 || (*recordPath == "") == !*decline {
+		fmt.Fprintln(os.Stderr, "usage: ateam review notify (--record FILE [--from ID] | --decline) [--return-to ID] PR")
 		return 2
 	}
 	host, envReturn := detectHost(getenv)
@@ -304,38 +415,76 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 	if *returnTo != "" {
 		target = *returnTo
 	}
+	// The target enters the message as the --return-to of the commands it names.
+	if target != "" && !sessionID.MatchString(target) {
+		fmt.Fprintln(os.Stderr, "ateam review: --return-to must be 1 to 128 of A-Z a-z 0-9 . _ : -")
+		return 2
+	}
+	var msg, sha string
+	if *decline {
+		msg = declineText(pr, target)
+	} else {
+		body, err := readReviewFile(*recordPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ateam review: record: %v\n", err)
+			return 2
+		}
+		rec, ok := review.ParseRecordComment(string(body))
+		if !ok {
+			fmt.Fprintln(os.Stderr, "ateam review: the record names no single reviewing agent and reviewed commit")
+			return 2
+		}
+		session := envReturn
+		if *from != "" {
+			session = *from
+		}
+		if session != "" && !sessionID.MatchString(session) {
+			fmt.Fprintln(os.Stderr, "ateam review: --from must be 1 to 128 of A-Z a-z 0-9 . _ : -")
+			return 2
+		}
+		sha = rec.SHA
+		msg = notifyText(pr, sha, session, target)
+	}
 	if host == "cli" {
 		return 0
-	}
-	if strings.ContainsAny(target, "\x00\r\n") {
-		fmt.Fprintln(os.Stderr, "ateam review: --return-to must be one line")
-		return 2
 	}
 	manifest, err := loadHostManifest(root, host)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ateam review: %v\n", err)
 		return 2
 	}
-	msg := notifyText(pr, rec.SHA)
 	switch {
 	case manifest != nil && len(manifest.Notify.Command) > 0:
 		if target == "" {
 			fmt.Fprintln(os.Stderr, "ateam review: notify needs --return-to on this host")
 			return 2
 		}
-		argv := expandArgs(manifest.Notify.Command, map[string]string{"pr": strconv.Itoa(pr), "sha": rec.SHA, "return_to": target})
-		// The message is appended as its own argument, never substituted into one.
-		if err := run(ctx, append(argv, msg)); err != nil {
-			fmt.Fprintf(os.Stderr, "ateam review: notify command %q failed: %v\n", argv[0], err)
+		if err := sendNotify(ctx, manifest, pr, sha, target, msg, run); err != nil {
+			fmt.Fprintf(os.Stderr, "ateam review: %v\n", err)
 			return 1
 		}
 	case manifest != nil && manifest.Notify.Tool != "":
-		tool := expandArgs([]string{manifest.Notify.Tool}, map[string]string{"pr": strconv.Itoa(pr), "sha": rec.SHA, "return_to": target})[0]
-		fmt.Fprintf(out, "notify: %s; message: %s\n", tool, msg)
+		fmt.Fprintln(out, notifyTool(manifest, pr, sha, target, msg))
 	default:
 		fmt.Fprintf(out, "notify: host %s has no notify in .agents/hosts/%s.toml; send %q to %q\n", host, host, msg, target)
 	}
 	return 0
+}
+
+// sendNotify runs the manifest's notify command for target; the message is
+// appended as its own argument, never substituted into one.
+func sendNotify(ctx context.Context, m *hostManifest, pr int, sha, target, msg string, run launchRunner) error {
+	argv := expandArgs(m.Notify.Command, map[string]string{"pr": strconv.Itoa(pr), "sha": sha, "return_to": target})
+	if err := run(ctx, append(argv, msg)); err != nil {
+		return fmt.Errorf("notify command %q failed: %w", argv[0], err)
+	}
+	return nil
+}
+
+// notifyTool is the line naming the manifest's notify tool for target and the message.
+func notifyTool(m *hostManifest, pr int, sha, target, msg string) string {
+	tool := expandArgs([]string{m.Notify.Tool}, map[string]string{"pr": strconv.Itoa(pr), "sha": sha, "return_to": target})[0]
+	return fmt.Sprintf("notify: %s; message: %s", tool, msg)
 }
 
 // reviewLaunchContext bounds a launch or notify command: a host's launch

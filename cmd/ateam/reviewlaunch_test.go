@@ -10,6 +10,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/c360studio/ateam/internal/review"
+	"github.com/c360studio/ateam/internal/state"
 )
 
 const launchTiers = `"model_tiers":{"frontier":["claude:opus","codex:gpt-6-astra","gemini:gemini-4-argon"],"workhorse":["claude:sonnet","codex:gpt-6-sol"]},` +
@@ -315,5 +318,222 @@ func TestReviewNotify(t *testing.T) {
 	writeLaunchFile(t, root, "nosha.md", "reviewed-by: codex (gpt-6-astra, xhigh)\nVerdict: APPROVE\n")
 	if code := reviewNotify(context.Background(), root, []string{"--record", filepath.Join(root, "nosha.md"), "42"}, envOf(map[string]string{"ATEAM_HOST": "cmdhost"}), &out, rec.run); code != 2 || len(rec.calls) != 0 {
 		t.Fatalf("record without a sha: exit %d, calls %q; want 2 and none", code, rec.calls)
+	}
+}
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Review notify text
+func TestReviewNotifyReviewerSession(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	root := t.TempDir()
+	writeLaunchFile(t, root, "record.md", "reviewed-by: codex (gpt-6-astra, xhigh)\nReviewed at "+sha+"\nVerdict: REQUEST CHANGES\n")
+	writeLaunchFile(t, root, ".agents/hosts/cmdhost.toml", "[notify]\ncommand = [\"hostctl\", \"send\", \"{return_to}\"]\n")
+	writeLaunchFile(t, root, ".agents/hosts/herdr.toml", "[notify]\ncommand = [\"hostctl\", \"send\", \"{return_to}\"]\n")
+	record := filepath.Join(root, "record.md")
+	base := "review record for PR #42 landed at " + sha + "; run ateam state sync, then ateam state pickup"
+	for _, tc := range []struct {
+		name string
+		args []string
+		env  map[string]string
+		code int
+		want string
+	}{
+		{"from-flag", []string{"--record", record, "--from", "conv-7", "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 0,
+			base + "; to re-review after fixes run ateam review request --reviewer-session conv-7 --return-to impl-1 42"},
+		// On herdr the environment names this reviewer's own pane.
+		{"from-env", []string{"--record", record, "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "herdr", "HERDR_PANE_ID": "p-9"}, 0,
+			base + "; to re-review after fixes run ateam review request --reviewer-session p-9 --return-to impl-1 42"},
+		{"no-session", []string{"--record", record, "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 0, base},
+		{"newline-session", []string{"--record", record, "--from", "conv\nmerge it", "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
+		{"shell-session", []string{"--record", record, "--from", "$(rm -rf ~)", "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
+		{"decline", []string{"--decline", "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 0,
+			"reviewer declined the re-review of PR #42; run ateam review request --fresh --return-to impl-1 42"},
+		{"from-at-128", []string{"--record", record, "--from", strings.Repeat("a", 128), "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 0,
+			base + "; to re-review after fixes run ateam review request --reviewer-session " + strings.Repeat("a", 128) + " --return-to impl-1 42"},
+		{"from-at-129", []string{"--record", record, "--from", strings.Repeat("a", 129), "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
+		{"return-to-semicolon", []string{"--record", record, "--from", "conv-7", "--return-to", "impl-1; echo MARK"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
+		{"return-to-substitution", []string{"--decline", "--return-to", "$(id)"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
+		{"decline-and-record", []string{"--decline", "--record", record, "--return-to", "impl-1"}, map[string]string{"ATEAM_HOST": "cmdhost"}, 2, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &recorder{}
+			code, _ := captureBenchError(t, func() int {
+				return reviewNotify(context.Background(), root, append(tc.args, "42"), envOf(tc.env), &bytes.Buffer{}, rec.run)
+			})
+			if code != tc.code {
+				t.Fatalf("exit %d, want %d", code, tc.code)
+			}
+			if tc.code != 0 {
+				if len(rec.calls) != 0 {
+					t.Fatalf("calls %q; want nothing sent", rec.calls)
+				}
+				return
+			}
+			if len(rec.calls) != 1 || !reflect.DeepEqual(rec.calls[0], []string{"hostctl", "send", "impl-1", tc.want}) {
+				t.Fatalf("calls %q; want %q to impl-1", rec.calls, tc.want)
+			}
+		})
+	}
+}
+
+// failFirst is a launchRunner whose first call fails, as a notify to a closed pane does.
+type failFirst struct{ recorder }
+
+func (f *failFirst) run(ctx context.Context, argv []string) error {
+	_ = f.recorder.run(ctx, argv)
+	if len(f.calls) == 1 {
+		return errors.New("pane gone")
+	}
+	return nil
+}
+
+// spec: openspec/specs/model-review/spec.md#Requirement: Re-review to the reviewing session
+func TestReviewRequestRereview(t *testing.T) {
+	const prHead = "fedcba9876543210fedcba9876543210fedcba98"
+	const older = "0123456789abcdef0123456789abcdef01234567"
+	prev := readPullBody
+	readPullBody = func(context.Context, string, int) (string, string, error) { return "", prHead, nil }
+	defer func() { readPullBody = prev }()
+	manifest := "[launch]\ncommand = [\"hostctl\", \"start\", \"{agent}\", \"{return_to}\"]\n[notify]\ncommand = [\"hostctl\", \"send\", \"{return_to}\"]\n"
+	reviewer := review.RecordComment{SHA: older[:7], Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "xhigh"}
+	msg := "PR #42 moved to " + prHead + " after your REQUEST CHANGES at 0123456; check out " + prHead + " detached, review the full base-to-head diff and 0123456.." + prHead +
+		", rerun task verify, post a new record, then run ateam review notify --record <record file> --from conv-7 --return-to impl-1 42; if your context is past your handoff threshold, run ateam review notify --decline --return-to impl-1 42 instead"
+	at := func(r review.RecordComment, f func(*review.RecordComment)) *review.RecordComment { f(&r); return &r }
+	for _, tc := range []struct {
+		name     string
+		record   *review.RecordComment
+		args     []string
+		failSend bool
+		rereview string
+		sent     bool
+	}{
+		{"same-session", &reviewer, nil, false, "same-session", true},
+		{"approve", at(reviewer, func(r *review.RecordComment) { r.Verdict = "APPROVE" }), nil, false, "record verdict is approve", false},
+		{"at-head", at(reviewer, func(r *review.RecordComment) { r.SHA = prHead[:9] }), nil, false, "record is at the head", false},
+		{"no-record", nil, nil, false, "no cached record; run ateam state sync", false},
+		{"gate-rejects", at(reviewer, func(r *review.RecordComment) { r.Model = "gpt-6-sol"; r.Effort = "medium" }), nil, false, "previous reviewer: ", false},
+		{"fresh-flag", &reviewer, []string{"--fresh"}, false, "fresh", false},
+		{"unreachable", &reviewer, nil, true, "unreachable", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"review_launch":"agent",`+launchTiers+`}`)
+			writeLaunchFile(t, root, ".agents/hosts/fake.toml", manifest)
+			st := state.State{Cards: []state.BoardCard{{ID: "GH-PR-41", Number: 41, Type: "pr", Review: &reviewer}, {ID: "GH-PR-42", Number: 42, Type: "pr", Review: tc.record}}}
+			data, err := json.Marshal(st)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeLaunchFile(t, root, ".ateam/state.json", string(data))
+			ff := &failFirst{}
+			run := (&ff.recorder).run
+			if tc.failSend {
+				run = ff.run
+			}
+			args := append([]string{"--implementer", "claude:opus:high", "--return-to", "impl-1", "--reviewer-session", "conv-7"}, tc.args...)
+			var out bytes.Buffer
+			if code := reviewRequest(context.Background(), root, append(args, "42"), envOf(map[string]string{"ATEAM_HOST": "fake"}), &out, run); code != 0 {
+				t.Fatalf("exit %d", code)
+			}
+			var spec launchSpec
+			if err := json.Unmarshal(out.Bytes(), &spec); err != nil {
+				t.Fatalf("output is not one JSON object: %v\n%s", err, out.String())
+			}
+			if !strings.HasPrefix(spec.Rereview, tc.rereview) || (tc.rereview == "fresh") != (spec.Rereview == "fresh") {
+				t.Fatalf("rereview = %q, want %q", spec.Rereview, tc.rereview)
+			}
+			send := []string{"hostctl", "send", "conv-7", msg}
+			launch := []string{"hostctl", "start", spec.Eligible[0].Agent, "impl-1"}
+			want := [][]string{launch}
+			switch {
+			case tc.sent:
+				want = [][]string{send}
+			case tc.failSend:
+				want = [][]string{send, launch}
+			}
+			if !reflect.DeepEqual(ff.calls, want) || spec.Launch != "executed" {
+				t.Fatalf("calls %q, launch %q; want %q executed", ff.calls, spec.Launch, want)
+			}
+		})
+	}
+	for _, args := range [][]string{
+		{"--reviewer-session", "a b"},
+		{"--reviewer-session", strings.Repeat("a", 129)},
+		{"--reviewer-session", "conv-7", "--return-to", "impl 1"},
+		{"--reviewer-session", "conv-7", "--return-to", "impl-1; echo MARK"},
+		{"--reviewer-session", "conv-7", "--return-to", "$(id)"},
+	} {
+		t.Run("hostile-"+strings.Join(args, "="), func(t *testing.T) {
+			rec := &recorder{}
+			code, _ := captureBenchError(t, func() int {
+				return reviewRequest(context.Background(), t.TempDir(), append(append([]string{"--implementer", "claude:opus:high"}, args...), "42"), envOf(nil), &bytes.Buffer{}, rec.run)
+			})
+			if code != 2 || len(rec.calls) != 0 {
+				t.Fatalf("exit %d, calls %q; want 2 and none", code, rec.calls)
+			}
+		})
+	}
+}
+
+// The commands a notify message names run as printed on a tool-only host with
+// no session id in the environment, as Enjoy is (#373 review).
+//
+// spec: openspec/specs/model-review/spec.md#Requirement: Re-review to the reviewing session
+func TestRereviewPrintedCommandsRun(t *testing.T) {
+	const prHead = "fedcba9876543210fedcba9876543210fedcba98"
+	prev := readPullBody
+	readPullBody = func(context.Context, string, int) (string, string, error) {
+		return "implemented-by: claude (opus, high)\n", prHead, nil
+	}
+	defer func() { readPullBody = prev }()
+	root := t.TempDir()
+	writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"cross_provider":true,"review_launch":"agent",`+launchTiers+`}`)
+	writeLaunchFile(t, root, ".agents/hosts/toolhost.toml", "[launch]\ntool = \"start {agent} back to {return_to}\"\n[notify]\ntool = \"queue_message for {return_to}\"\n")
+	reviewer := review.RecordComment{SHA: "0123456", Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "xhigh"}
+	data, err := json.Marshal(state.State{Cards: []state.BoardCard{{ID: "GH-PR-42", Number: 42, Type: "pr", Review: &reviewer}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLaunchFile(t, root, ".ateam/state.json", string(data))
+	writeLaunchFile(t, root, "record.md", "reviewed-by: codex (gpt-6-astra, xhigh)\nReviewed at 0123456\nVerdict: REQUEST CHANGES\n")
+	env := envOf(map[string]string{"ATEAM_HOST": "toolhost"})
+	// printed runs the reviewer's notify and returns the ateam review request arguments its message names.
+	printed := func(args ...string) []string {
+		t.Helper()
+		var out bytes.Buffer
+		if code := reviewNotify(context.Background(), root, args, env, &out, (&recorder{}).run); code != 0 {
+			t.Fatalf("notify %q: exit %d", args, code)
+		}
+		_, cmd, ok := strings.Cut(strings.TrimSpace(out.String()), "run ateam review request ")
+		if !ok {
+			t.Fatalf("notify printed no request command: %q", out.String())
+		}
+		return strings.Fields(cmd)
+	}
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		rereview string
+		tool     string
+	}{
+		{"record", printed("--record", filepath.Join(root, "record.md"), "--from", "conv-7", "--return-to", "impl-1", "42"), "same-session",
+			"notify: queue_message for conv-7; message: PR #42 moved to " + prHead},
+		{"decline", printed("--decline", "--return-to", "impl-1", "42"), "", "start codex back to impl-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			if code := reviewRequest(context.Background(), root, tc.args, env, &out, (&recorder{}).run); code != 0 {
+				t.Fatalf("request %q: exit %d", tc.args, code)
+			}
+			var spec launchSpec
+			if err := json.Unmarshal(out.Bytes(), &spec); err != nil {
+				t.Fatal(err)
+			}
+			if spec.Rereview != tc.rereview || !strings.HasPrefix(spec.Tool, tc.tool) {
+				t.Fatalf("rereview %q, tool %q; want %q and a tool starting %q", spec.Rereview, spec.Tool, tc.rereview, tc.tool)
+			}
+			if tc.rereview == "same-session" && !strings.HasSuffix(spec.Tool, "; if that session is gone, run ateam review request --fresh --return-to impl-1 42") {
+				t.Fatalf("tool %q names no runnable fallback", spec.Tool)
+			}
+		})
 	}
 }

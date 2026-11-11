@@ -81,7 +81,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 8. Run `/review-pr <pr-number>` ([review-pr skill](../.agents/skills/review-pr/SKILL.md)) in that fresh session.
 9. The reviewer checks a detached worktree, runs `task verify`, posts `reviewed-by:` with `Reviewed at <sha>` ([reviewer contract](../.agents/contracts/reviewer.md)), and cleans up.
 10. When the verdict is `APPROVE`, the reviewer adds `reviewed-by: <agent> (<model>, <effort>)` to the PR description.
-11. When the verdict is `REQUEST CHANGES`, the author fixes the findings and requests a fresh review on the new commit.
+11. When the verdict is `REQUEST CHANGES`, the author fixes the findings and runs the `ateam review request --reviewer-session <id> --return-to <your id> <pr>` line from the reviewer's notify message. It sends the new commit back to the same reviewer when the reviewer can still pass the merge gate and the host can reach it, and launches a fresh reviewer otherwise (`--fresh` forces one; the JSON's `rereview` field says which happened and why).
 
 ## 6. Merge and clean up
 
