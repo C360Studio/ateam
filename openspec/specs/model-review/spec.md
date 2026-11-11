@@ -284,6 +284,11 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 - **THEN** the message ends with the re-review clause naming that session and the `--return-to` it was sent to
 - **AND** a session or `--return-to` holding any other character exits 2 and sends nothing
 
+#### Scenario: A return_to on the cli host
+- **WHEN** the host resolves to `cli` and `--return-to` names a session
+- **THEN** nothing is sent, the command exits 1, stdout carries the message and the target to deliver by hand, and stderr names `ATEAM_HOST`
+- **AND** with no `--return-to` on `cli` it exits 0 and prints nothing
+
 ### Requirement: Re-review to the reviewing session
 `ateam review request --reviewer-session <id> <pr>` SHALL send the fixed re-review text to `<id>` through the host manifest's `notify` action only when the cached newest record is `REQUEST CHANGES` at a sha other than the PR head and its reviewer run passes the gate comparison against the current implementers; otherwise, or with `--fresh`, it SHALL print the fresh launch spec naming why.
 
