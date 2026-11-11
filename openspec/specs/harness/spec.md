@@ -1235,6 +1235,11 @@ Canonical skills, role contracts and their `ateam init` templates SHALL name the
 - **WHEN** an agent starts a pickup, handoff, preflight, design or review workflow
 - **THEN** its skill and contract direct it to named sections, not to the whole protocol
 
+#### Scenario: A protocol without the numbered sections
+
+- **WHEN** a skill or contract tells the agent to read numbered protocol sections
+- **THEN** it also says `If your protocol has no such numbered sections, read all of it.`, so an adopter's own protocol is read whole rather than not at all
+
 ### Requirement: Approve an OpenSpec change from the board
 
 `ateam serve` SHALL accept `POST /api/openspec/approve` with a change and its branch. It SHALL apply the owner approval edit to the files read at the branch head commit, and write it in one forge commit that is refused when `proposal.md`, `design.md` or `tasks.md` changed after that read, never to a local worktree or the default branch. The approver is the login behind the forge write token.
