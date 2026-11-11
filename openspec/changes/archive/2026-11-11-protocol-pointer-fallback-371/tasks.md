@@ -12,7 +12,7 @@
 - [x] 2.2 Have `readingViolations` report a document that contains `read §` without the fallback sentence.
   - Premise: `internal/bootstrap/reading_test.go:25`.
   - Acceptance: `task mutate:check` gives `detection` for dropping the sentence from one template.
-  - Evidence: `readingViolations` now reports `section pointer without the whole-protocol fallback`. `task mutate:check` gives `detection` for removing the sentence from the developer contract template in `review.go`, and the source SHA-256 was unchanged.
+  - Evidence: `readingViolations` now reports `section pointer without the whole-protocol fallback`. `task mutate:check` gives `detection` for removing the sentence from the developer contract template in `review.go`, and the source SHA-256 was unchanged. `TestReadingViolationsSensitivity` gains a pointer case without the sentence (1 violation), and its zero-violation pointer cases now carry it.
 - [x] 2.3 Update the protocol row in `docs/brownfield.md:75`.
   - Evidence: the `.agents/protocol.md` row now names the numbered headings, the mapping option and the whole-read fallback.
 
