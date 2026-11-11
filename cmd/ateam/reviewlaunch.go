@@ -446,7 +446,13 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 		msg = notifyText(pr, sha, session, target)
 	}
 	if host == "cli" {
-		return 0
+		if target == "" {
+			return 0
+		}
+		// A silent exit 0 here read as delivery to reviewers whose shell lacked the host marker (#358).
+		fmt.Fprintf(out, "notify: host cli has no notify; send %q to %q\n", msg, target)
+		fmt.Fprintf(os.Stderr, "ateam review: notify: the host resolved to cli, so nothing was sent to %s; rerun with ATEAM_HOST set to your host%s\n", target, hostManifestList(root))
+		return 1
 	}
 	manifest, err := loadHostManifest(root, host)
 	if err != nil {
@@ -469,6 +475,22 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 		fmt.Fprintf(out, "notify: host %s has no notify in .agents/hosts/%s.toml; send %q to %q\n", host, host, msg, target)
 	}
 	return 0
+}
+
+// hostManifestList is " (one of: a, b)" naming the hosts with a manifest in
+// .agents/hosts/, or "" when there are none.
+func hostManifestList(root string) string {
+	entries, _ := os.ReadDir(filepath.Join(root, ".agents", "hosts"))
+	var hosts []string
+	for _, e := range entries {
+		if name, ok := strings.CutSuffix(e.Name(), ".toml"); ok && hostName.MatchString(name) {
+			hosts = append(hosts, name)
+		}
+	}
+	if len(hosts) == 0 {
+		return ""
+	}
+	return " (one of: " + strings.Join(hosts, ", ") + ")"
 }
 
 // sendNotify runs the manifest's notify command for target; the message is

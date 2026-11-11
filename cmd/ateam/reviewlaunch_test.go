@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -313,6 +314,16 @@ func TestReviewNotify(t *testing.T) {
 	out.Reset()
 	if code := reviewNotify(context.Background(), root, []string{"--record", record, "42"}, envOf(nil), &out, rec.run); code != 0 || out.Len() != 0 || len(rec.calls) != 0 {
 		t.Fatalf("cli host: exit %d, output %q, calls %q; want nothing sent", code, out.String(), rec.calls)
+	}
+
+	// With a target on cli nothing can be delivered, so it fails and says what to send by hand (#358).
+	out.Reset()
+	code, stderr := captureBenchError(t, func() int {
+		return reviewNotify(context.Background(), root, []string{"--record", record, "--return-to", "conv-9", "42"}, envOf(nil), &out, rec.run)
+	})
+	if code != 1 || len(rec.calls) != 0 || out.String() != fmt.Sprintf("notify: host cli has no notify; send %q to %q\n", want, "conv-9") ||
+		!strings.Contains(stderr, "nothing was sent to conv-9; rerun with ATEAM_HOST set to your host (one of: cmdhost, mcphost)") {
+		t.Fatalf("cli host with a target: exit %d, calls %q, stdout %q, stderr %q; want 1, none, the send line and ATEAM_HOST named", code, rec.calls, out.String(), stderr)
 	}
 
 	writeLaunchFile(t, root, "nosha.md", "reviewed-by: codex (gpt-6-astra, xhigh)\nVerdict: APPROVE\n")
