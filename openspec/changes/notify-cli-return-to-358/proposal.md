@@ -1,6 +1,6 @@
 # Change Proposal: `notify-cli-return-to-358`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-11) sha256:430d57df01ee
 
 ## Why
 
