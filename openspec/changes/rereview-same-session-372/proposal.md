@@ -1,6 +1,6 @@
 # Change Proposal: `rereview-same-session-372`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-11) sha256:164dbf5a379b
 
 ## Why
 
