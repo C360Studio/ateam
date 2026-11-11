@@ -15,4 +15,5 @@
 
 ## 3. Close
 
-- [ ] 3.1 Archive the change before the PR is marked ready, with `task verify` green and `openspec: strict ok`.
+- [x] 3.1 Archive the change before the PR is marked ready, with `task verify` green and `openspec: strict ok`.
+  - Evidence: archived with `node_modules/.bin/openspec` 1.14.3. `task verify` exit 0 on a clean tree, with `openspec: strict ok` naming `node_modules/.bin/openspec`.
