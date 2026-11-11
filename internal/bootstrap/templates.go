@@ -348,7 +348,7 @@ rules:
 // architectContract is .agents/contracts/architect.md: the design-track role drafts, never implements or rules.
 const architectContract = `# Architect contract
 
-` + "`AGENTS.md`" + ` is loaded by your host; read it only if it is not in context. From ` + "`.agents/protocol.md`" + `, read § 1 and § 2 step 1 (Clarify). Work only on a change the Clarify gate put on the ` + "`" + `design` + "`" + ` track. Keep the repository read-only except the change's ` + "`" + `design.md` + "`" + ` and the premises in its ` + "`" + `tasks.md` + "`" + `; draft them with .agents/skills/design/SKILL.md. Never implement: a developer run owns the code, tests and verification evidence.
+` + "`AGENTS.md`" + ` is loaded by your host; read it only if it is not in context. From ` + "`.agents/protocol.md`" + `, read § 1 and § 2 step 1 (Clarify). If your protocol has no such numbered sections, read all of it. Work only on a change the Clarify gate put on the ` + "`" + `design` + "`" + ` track. Keep the repository read-only except the change's ` + "`" + `design.md` + "`" + ` and the premises in its ` + "`" + `tasks.md` + "`" + `; draft them with .agents/skills/design/SKILL.md. Never implement: a developer run owns the code, tests and verification evidence.
 
 Never rule. Lay out at least two options per decision with cost, blast radius, what each forecloses and the adopter seam, and mark every question that needs an owner ruling. The owner approves the proposal and design together by filling ` + "`" + `Approved-by: <name> (<YYYY-MM-DD>) sha256:<12 hex>` + "`" + ` (the digest ` + "`" + `spec-queue` + "`" + ` prints) and removing the change's ` + "`" + `Hold: OPEN-Q proposal awaits owner approval` + "`" + ` in one edit; until then, stop and hand off.
 
@@ -394,7 +394,7 @@ description: >-
 
 # Checkpoint and Hand Off Work
 
-From [the shared protocol](../../protocol.md), read § 1 and § 2 step 5 (Close). A handoff records current truth in shared homes (GitHub/Gitea PR/issue comments and the structured ` + "`.ateam/state.json`" + ` snapshot) without creating competing prose handoff files in the repo tree.
+From [the shared protocol](../../protocol.md), read § 1 and § 2 step 5 (Close). If your protocol has no such numbered sections, read all of it. A handoff records current truth in shared homes (GitHub/Gitea PR/issue comments and the structured ` + "`.ateam/state.json`" + ` snapshot) without creating competing prose handoff files in the repo tree.
 
 ## 1. Reconcile the Checkpoint
 
@@ -431,7 +431,7 @@ description: >-
 
 # Pick Up Repository Work
 
-From [the shared protocol](../../protocol.md), read § 1 and § 2 steps 1–2 (Clarify, Claim). Treat any handoff block or cached ` + "`.ateam/state.json`" + ` snapshot as an address to reconcile against live git and forge state, never as unverified truth.
+From [the shared protocol](../../protocol.md), read § 1 and § 2 steps 1–2 (Clarify, Claim). If your protocol has no such numbered sections, read all of it. Treat any handoff block or cached ` + "`.ateam/state.json`" + ` snapshot as an address to reconcile against live git and forge state, never as unverified truth.
 
 ## 1. Locate and Measure
 
@@ -479,7 +479,7 @@ description: >-
 
 # Verify Changes (Preflight)
 
-From [the shared protocol](../../protocol.md), read § 2 step 4 (Verify), § 3 and *Test-to-spec attribution*. One ` + "`Taskfile.yml`" + ` entrypoint serves local verification, MCP (` + "`ateam_task`" + `), and CI.
+From [the shared protocol](../../protocol.md), read § 2 step 4 (Verify), § 3 and *Test-to-spec attribution*. If your protocol has no such numbered sections, read all of it. One ` + "`Taskfile.yml`" + ` entrypoint serves local verification, MCP (` + "`ateam_task`" + `), and CI.
 
 ## 1. Select Gates by Diff Scope
 

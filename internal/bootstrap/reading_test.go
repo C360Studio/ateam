@@ -18,6 +18,9 @@ var (
 	fullRead    = regexp.MustCompile(`(?i)\bread\b.*\b(first|fully)\b`)
 	// Unnumbered protocol headings that skills and contracts name in italics.
 	namedProtocolSections = []string{"Test-to-spec attribution", "Unattended and fan-out runs"}
+	// pointerFallback sends an agent whose protocol lacks the numbered
+	// sections, as a brownfield adopter's own protocol does, to the whole file (#371).
+	pointerFallback = "If your protocol has no such numbered sections, read all of it."
 )
 
 // readingViolations lists full-protocol read mandates and section pointers in
@@ -28,6 +31,9 @@ func readingViolations(protocol, doc string) []string {
 		if fullRead.MatchString(sentence) && strings.Contains(sentence, "protocol.md") && !strings.Contains(sentence, "§") {
 			out = append(out, "full read: "+strings.TrimSpace(sentence))
 		}
+	}
+	if strings.Contains(doc, "read §") && !strings.Contains(doc, pointerFallback) {
+		out = append(out, "section pointer without the whole-protocol fallback")
 	}
 	for _, m := range protocolPointer.FindAllStringSubmatch(doc, -1) {
 		if m[1] != "" {
