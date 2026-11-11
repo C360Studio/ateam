@@ -1,6 +1,6 @@
 # Change Proposal: `protocol-pointer-fallback-371`
 
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-11) sha256:a8b88f2bd9d8
 
 ## Why
 
