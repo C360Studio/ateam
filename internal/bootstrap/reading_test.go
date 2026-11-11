@@ -18,6 +18,9 @@ var (
 	fullRead    = regexp.MustCompile(`(?i)\bread\b.*\b(first|fully)\b`)
 	// Unnumbered protocol headings that skills and contracts name in italics.
 	namedProtocolSections = []string{"Test-to-spec attribution", "Unattended and fan-out runs"}
+	// pointerFallback sends an agent whose protocol lacks the numbered
+	// sections, as a brownfield adopter's own protocol does, to the whole file (#371).
+	pointerFallback = "If your protocol has no such numbered sections, read all of it."
 )
 
 // readingViolations lists full-protocol read mandates and section pointers in
@@ -28,6 +31,9 @@ func readingViolations(protocol, doc string) []string {
 		if fullRead.MatchString(sentence) && strings.Contains(sentence, "protocol.md") && !strings.Contains(sentence, "§") {
 			out = append(out, "full read: "+strings.TrimSpace(sentence))
 		}
+	}
+	if strings.Contains(doc, "read §") && !strings.Contains(doc, pointerFallback) {
+		out = append(out, "section pointer without the whole-protocol fallback")
 	}
 	for _, m := range protocolPointer.FindAllStringSubmatch(doc, -1) {
 		if m[1] != "" {
@@ -89,7 +95,7 @@ func TestReadingViolationsSensitivity(t *testing.T) {
 		doc  string
 		want int
 	}{
-		{"From protocol, read § 1 and *Test-to-spec attribution*.", 0},
+		{"From protocol, read § 1 and *Test-to-spec attribution*. If your protocol has no such numbered sections, read all of it.", 0},
 		{"The review-pr skill § 5 gives the commands.", 0},
 		{"Read § 3.", 1},
 		{"Also read *Unattended and fan-out runs*.", 1},
@@ -99,8 +105,9 @@ func TestReadingViolationsSensitivity(t *testing.T) {
 		{"Read [the shared protocol](../../protocol.md) and [the reviewer contract](../../contracts/reviewer.md) first.", 1},
 		{"Read [the shared protocol](../../protocol.md) and [the architect contract](../../contracts/architect.md) first. Use this skill.", 1},
 		{"Read [the reviewer contract](../../contracts/reviewer.md) first; it names the protocol sections a review needs.", 0},
-		{"From `.agents/protocol.md`, read § 1 and § 2 step 1 (Clarify).", 0},
-		{"From [the shared protocol](../../protocol.md), read § 1 and § 2 steps 1–2 (Clarify, Claim).", 0},
+		{"From `.agents/protocol.md`, read § 1 and § 2 step 1 (Clarify). If your protocol has no such numbered sections, read all of it.", 0},
+		{"From [the shared protocol](../../protocol.md), read § 1 and § 2 steps 1–2 (Clarify, Claim). If your protocol has no such numbered sections, read all of it.", 0},
+		{"From `.agents/protocol.md`, read § 1 and § 2 step 1 (Clarify).", 1}, // no whole-protocol fallback (#371)
 		{"For unclaimed work, follow the Claim gate in [protocol.md](../../protocol.md).", 0},
 	} {
 		if got := readingViolations(protocol, tc.doc); len(got) != tc.want {
