@@ -5,19 +5,23 @@
 
 ## 2. Re-review routing
 
-- [ ] 2.1 Carry the reviewer's session in the notify text, from `detectHost` or `--from`, validated as one line of `[A-Za-z0-9._:-]`.
+- [x] 2.1 Carry the reviewer's session in the notify text, from `detectHost` or `--from`, validated as one line of `[A-Za-z0-9._:-]`.
   - Premise: `notifyText` at `cmd/ateam/reviewlaunch.go:273`, `reviewNotify` at `:280`, `detectHost` at `:55`.
   - Acceptance: a `review_test.go` case (`// spec: openspec/specs/model-review/spec.md#Requirement: Review notify text`) checks the exact message with and without a session, and checks that a session holding a newline or shell text exits 2 and sends nothing. The hostile-record scenario still passes.
-- [ ] 2.2 Add `--reviewer-session` and `--fresh` to `ateam review request`. Re-route through `[notify]` only for a cached `REQUEST CHANGES` record at a non-head sha whose run `chooseReviewer` accepts. Otherwise print the fresh launch with the `rereview` reason. When the notify command errors, print the launch spec instead.
+  - Evidence: `notifyText(pr, sha, session)` and `--from` in `cmd/ateam/reviewlaunch.go`, with the session checked against `sessionID`. `TestReviewNotifyReviewerSession` covers `--from`, the herdr pane from the environment, no session, a newline session and a shell-text session (both exit 2 and send nothing). `TestReviewNotify` (the hostile record) is unchanged and passes.
+- [x] 2.2 Add `--reviewer-session` and `--fresh` to `ateam review request`. Re-route through `[notify]` only for a cached `REQUEST CHANGES` record at a non-head sha whose run `chooseReviewer` accepts. Otherwise print the fresh launch with the `rereview` reason. When the notify command errors, print the launch spec instead.
   - Premise: `reviewRequest` at `cmd/ateam/reviewlaunch.go:146`, `chooseReviewer` at `:248`, the cached record at `internal/state/state.go:588`, and the `[notify]` actions in `.agents/hosts/{enjoy,herdr,t3code}.toml`.
   - Acceptance: table cases (`// spec: …#Requirement: Review request spec`) cover a re-route, `APPROVE`, a record at the head, no record, a reviewer the gate now rejects, `--fresh`, and a failing notify runner. `task mutate:check` gives `detection` for dropping the verdict check and for dropping the `chooseReviewer` call.
-- [ ] 2.3 Implement the D4 ruling (`notify --decline`, or the round cap).
+  - Evidence: `rereview` and `cachedRecord` in `cmd/ateam/reviewlaunch.go` reuse `sendNotify`/`notifyTool`, the helpers taken out of `reviewNotify`. `TestReviewRequestRereview` covers same-session, approve, at-head (abbreviated sha), no record, a workhorse reviewer the gate rejects against an opus implementer, `--fresh`, unreachable (the notify command errors, then the launch runs), and a hostile `--reviewer-session`. `task mutate:check` verdicts are `detection` for removing the verdict case and for ignoring the `chooseReviewer` error, and the source SHA-256 was unchanged after both runs.
+- [x] 2.3 Implement the D4 ruling (`notify --decline`, or the round cap).
   - Acceptance: one test on the fixed decline text, or on the cap boundary.
+  - Evidence: D4 option A. `notify --decline` sends `declineText` and refuses to be combined with `--record` (exit 2). Covered by the `decline` and `decline-and-record` cases.
 
 ## 3. Docs
 
-- [ ] 3.1 Update `.agents/skills/review-pr/SKILL.md:35` (pass `--from` on Enjoy, and the re-review paragraph) and `docs/daily-use.md:84`.
+- [x] 3.1 Update `.agents/skills/review-pr/SKILL.md:35` (pass `--from` on Enjoy, and the re-review paragraph) and `docs/daily-use.md:84`.
   - Acceptance: `ateam doctor --check` parity is green.
+  - Evidence: the `review-pr` skill and its `ateam init` template copy (`internal/bootstrap/templates.go`), `docs/daily-use.md` step 11, `docs/adoption.md` (the notify text), and the `ateam review` usage line are updated. `ateam doctor --check` reports `violations: null`.
 
 ## 4. Close
 
