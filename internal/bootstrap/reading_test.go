@@ -95,7 +95,7 @@ func TestReadingViolationsSensitivity(t *testing.T) {
 		doc  string
 		want int
 	}{
-		{"From protocol, read § 1 and *Test-to-spec attribution*.", 0},
+		{"From protocol, read § 1 and *Test-to-spec attribution*. If your protocol has no such numbered sections, read all of it.", 0},
 		{"The review-pr skill § 5 gives the commands.", 0},
 		{"Read § 3.", 1},
 		{"Also read *Unattended and fan-out runs*.", 1},
@@ -105,8 +105,9 @@ func TestReadingViolationsSensitivity(t *testing.T) {
 		{"Read [the shared protocol](../../protocol.md) and [the reviewer contract](../../contracts/reviewer.md) first.", 1},
 		{"Read [the shared protocol](../../protocol.md) and [the architect contract](../../contracts/architect.md) first. Use this skill.", 1},
 		{"Read [the reviewer contract](../../contracts/reviewer.md) first; it names the protocol sections a review needs.", 0},
-		{"From `.agents/protocol.md`, read § 1 and § 2 step 1 (Clarify).", 0},
-		{"From [the shared protocol](../../protocol.md), read § 1 and § 2 steps 1–2 (Clarify, Claim).", 0},
+		{"From `.agents/protocol.md`, read § 1 and § 2 step 1 (Clarify). If your protocol has no such numbered sections, read all of it.", 0},
+		{"From [the shared protocol](../../protocol.md), read § 1 and § 2 steps 1–2 (Clarify, Claim). If your protocol has no such numbered sections, read all of it.", 0},
+		{"From `.agents/protocol.md`, read § 1 and § 2 step 1 (Clarify).", 1}, // no whole-protocol fallback (#371)
 		{"For unclaimed work, follow the Claim gate in [protocol.md](../../protocol.md).", 0},
 	} {
 		if got := readingViolations(protocol, tc.doc); len(got) != tc.want {
