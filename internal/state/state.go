@@ -539,7 +539,7 @@ type Worktree struct {
 	Branch          string    `json:"branch"`
 	Agent           string    `json:"agent,omitempty"`
 	Subject         string    `json:"subject,omitempty"`
-	HeadCommittedAt time.Time `json:"head_committed_at,omitempty"`
+	HeadCommittedAt time.Time `json:"head_committed_at,omitzero"`
 	Dirty           *bool     `json:"dirty,omitempty"`
 	AheadCount      int       `json:"ahead_count,omitempty"`
 	BehindCount     int       `json:"behind_count,omitempty"`
@@ -644,9 +644,10 @@ type State struct {
 	Shortcuts        []ShortcutItem   `json:"shortcuts,omitempty"`
 	Holds            []HoldItem       `json:"holds,omitempty"`
 	HoldScanError    string           `json:"hold_scan_error,omitempty"`
-	OpenSpecQueue    []OpenSpecChange `json:"openspec_queue,omitempty"`
-	OpenSpecSpecs    []OpenSpecSpec   `json:"openspec_specs,omitempty"`
-	UpdatedAt        time.Time        `json:"updated_at"`
+	OpenSpecQueue     []OpenSpecChange  `json:"openspec_queue,omitempty"`
+	OpenSpecSpecs     []OpenSpecSpec    `json:"openspec_specs,omitempty"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+	worktreeCacheMemo map[string]*State `json:"-"`
 }
 
 func normalizeAgentKey(raw string) string {
@@ -2138,6 +2139,59 @@ func withForgeCacheAge(status, age string) string {
 	return status
 }
 
+// readWorktreeCacheFile is a package-level seam so tests can count linked worktree cache reads (#381).
+var readWorktreeCacheFile = os.ReadFile
+
+// worktreeCacheEnvelope decodes only the forge sync timestamps and board cards from a linked worktree's
+// .ateam/state.json, avoiding the cost of unmarshalling git status, handoffs, holds, shortcuts, and OpenSpec trees (#381).
+type worktreeCacheEnvelope struct {
+	Forge           ForgeConfig                 `json:"forge"`
+	Forges          []ForgeConfig               `json:"forges"`
+	BoardSyncedAt   time.Time                   `json:"board_synced_at"`
+	ForgeSyncedAt   map[ForgeProvider]time.Time `json:"forge_synced_at"`
+	ForgeSyncTarget map[ForgeProvider]string    `json:"forge_sync_target"`
+	Cards           []BoardCard                 `json:"cards"`
+}
+
+// cachedWorktreeState loads and memoizes a linked worktree's .ateam/state.json at most once per State,
+// skipping the read entirely when the cache file's mtime is not newer than st's oldest configured forge sync (#381).
+func (st *State) cachedWorktreeState(path string, minSync time.Time) *State {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if st == nil || path == "" {
+		return nil
+	}
+	if st.worktreeCacheMemo != nil {
+		if cached, ok := st.worktreeCacheMemo[path]; ok {
+			return cached
+		}
+	} else {
+		st.worktreeCacheMemo = make(map[string]*State)
+	}
+	cachePath := CacheFilePath(path)
+	if !minSync.IsZero() {
+		if info, err := os.Stat(cachePath); err != nil || !info.ModTime().After(minSync) {
+			st.worktreeCacheMemo[path] = nil
+			return nil
+		}
+	}
+	var wtState *State
+	if data, err := readWorktreeCacheFile(cachePath); err == nil {
+		var env worktreeCacheEnvelope
+		if json.Unmarshal(data, &env) == nil {
+			wtState = &State{
+				Forge:           env.Forge,
+				Forges:          env.Forges,
+				BoardSyncedAt:   env.BoardSyncedAt,
+				ForgeSyncedAt:   env.ForgeSyncedAt,
+				ForgeSyncTarget: env.ForgeSyncTarget,
+				Cards:           env.Cards,
+			}
+		}
+	}
+	st.worktreeCacheMemo[path] = wtState
+	return wtState
+}
+
 // branchPRCardsForWorktree returns the PR cards for wt.Branch and a per-provider syncedAt lookup,
 // preferring wt's own .ateam/state.json for any provider whose sync timestamp there is newer than st's (#381).
 func (st *State) branchPRCardsForWorktree(wt Worktree) ([]BoardCard, func(ForgeProvider) time.Time) {
@@ -2153,12 +2207,14 @@ func (st *State) branchPRCardsForWorktree(wt Worktree) ([]BoardCard, func(ForgeP
 	}
 	var wtState *State
 	if path := strings.TrimSpace(wt.Path); path != "" && branch != strings.TrimSpace(st.Git.Branch) {
-		if data, err := os.ReadFile(CacheFilePath(path)); err == nil {
-			var parsed State
-			if json.Unmarshal(data, &parsed) == nil {
-				wtState = &parsed
+		var minSync time.Time
+		for i, p := range []ForgeProvider{ForgeGitHub, ForgeGitea} {
+			ts := baseSyncedAt(p)
+			if i == 0 || ts.Before(minSync) {
+				minSync = ts
 			}
 		}
+		wtState = st.cachedWorktreeState(path, minSync)
 	}
 	newerProvider := map[ForgeProvider]time.Time{}
 	if wtState != nil {

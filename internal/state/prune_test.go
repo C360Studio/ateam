@@ -607,6 +607,7 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 	t.Run("linked worktree with newer forge cache supplies PR cards to main checkout", func(t *testing.T) {
 		wtMergedDir := t.TempDir()
 		wtOpenDir := t.TempDir()
+		wtOlderDir := t.TempDir()
 
 		writeWTCache := func(dir string, syncedAt time.Time, card BoardCard) {
 			wtSt := defaultState()
@@ -638,6 +639,25 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 			HeadSHA: "ccccccc",
 			Forge:   "github",
 		})
+		// Linked cache older than main cache: its stale open card must be ignored in favor of main's merged card.
+		writeWTCache(wtOlderDir, now.Add(-2*time.Hour), BoardCard{
+			ID:      "GH-PR-291",
+			Number:  291,
+			Type:    "pr",
+			Column:  "in-review",
+			Merged:  false,
+			Branch:  "claude/older-linked-cache",
+			HeadSHA: "ddddddd",
+			Forge:   "github",
+		})
+
+		readCounts := map[string]int{}
+		origRead := readWorktreeCacheFile
+		readWorktreeCacheFile = func(path string) ([]byte, error) {
+			readCounts[filepath.Clean(path)]++
+			return origRead(path)
+		}
+		t.Cleanup(func() { readWorktreeCacheFile = origRead })
 
 		st := defaultState()
 		st.Forge = ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"}
@@ -645,6 +665,30 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 		st.ForgeSyncedAt = map[ForgeProvider]time.Time{ForgeGitHub: now.Add(-1 * time.Hour)}
 		st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
 		st.CurrentAgent = "claude"
+		// Main cache has a stale open card for claude/288-test-spec-citations (which merged in wtMergedDir's newer cache)
+		// and a newer merged card for claude/older-linked-cache (whose linked cache in wtOlderDir is older).
+		st.Cards = []BoardCard{
+			{
+				ID:      "GH-PR-289",
+				Number:  289,
+				Type:    "pr",
+				Column:  "in-review",
+				Merged:  false,
+				Branch:  "claude/288-test-spec-citations",
+				HeadSHA: "aaaaaaa",
+				Forge:   "github",
+			},
+			{
+				ID:      "GH-PR-291",
+				Number:  291,
+				Type:    "pr",
+				Column:  "done",
+				Merged:  true,
+				Branch:  "claude/older-linked-cache",
+				HeadSHA: "ddddddd",
+				Forge:   "github",
+			},
+		}
 		st.Git.Worktrees = []Worktree{
 			{Path: "/r", Branch: "main", Head: "1111111", Dirty: &clean},
 			{
@@ -663,6 +707,14 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 				Dirty:           &clean,
 				AheadCount:      1,
 			},
+			{
+				Path:            wtOlderDir,
+				Branch:          "claude/older-linked-cache",
+				Head:            "ddddddd",
+				HeadCommittedAt: now.Add(-10 * time.Minute),
+				Dirty:           &clean,
+				AheadCount:      1,
+			},
 		}
 		st.ReconcileWorktrees()
 		if !st.Git.Worktrees[1].MergedIntoMain {
@@ -676,14 +728,25 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 		if removeOpen || reasonOpen != "open PR #290" {
 			t.Fatalf("open worktree PruneVerdict = (%v, %q), want (false, %q)", removeOpen, reasonOpen, "open PR #290")
 		}
+		removeOlderLinked, reasonOlderLinked := st.PruneVerdict(st.Git.Worktrees[3], "claude", "/r", false)
+		if !removeOlderLinked || reasonOlderLinked != "merged via #291 (cache 1h)" {
+			t.Fatalf("older linked cache worktree PruneVerdict = (%v, %q), want (true, %q)", removeOlderLinked, reasonOlderLinked, "merged via #291 (cache 1h)")
+		}
 
 		summary := BuildPickupSummary(st)
 		for _, want := range []string{
 			"- claude/288-test-spec-citations (head=aaaaaaa, dirty=false, ahead=1, merged via #289, prune candidate)",
 			"- claude/233-pin-alpha5 (head=ccccccc, dirty=false, ahead=1, open PR #290)",
+			"- claude/older-linked-cache (head=ddddddd, dirty=false, ahead=1, merged via #291 (cache 1h), prune candidate)",
 		} {
 			if !strings.Contains(summary, want) {
 				t.Fatalf("pickup summary missing %q:\n%s", want, summary)
+			}
+		}
+		for _, dir := range []string{wtMergedDir, wtOpenDir, wtOlderDir} {
+			p := filepath.Clean(CacheFilePath(dir))
+			if got := readCounts[p]; got != 1 {
+				t.Fatalf("expected linked cache %s to be read exactly once across ReconcileWorktrees + PruneVerdict + BuildPickupSummary, got %d", p, got)
 			}
 		}
 	})
