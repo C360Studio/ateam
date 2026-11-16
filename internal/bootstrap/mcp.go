@@ -25,10 +25,106 @@ func isClientConfig(rel string) bool {
 type mcpRegistration struct {
 	Command string   `json:"command" toml:"command"`
 	Args    []string `json:"args" toml:"args"`
+	Cwd     string   `json:"cwd" toml:"cwd"`
 	Enabled *bool    `json:"enabled" toml:"enabled"`
 	Type    string   `json:"type" toml:"type"`
 	URL     string   `json:"url" toml:"url"`
 	HTTPURL string   `json:"httpUrl" toml:"httpUrl"`
+}
+
+const relativePathREADMEURL = "https://github.com/C360Studio/ateam#install-a-release-adopters"
+
+// isRelativeSlashCommand reports whether prog is a relative path containing a slash,
+// excluding bare commands, absolute paths, ~/ paths, and host-expanded $VAR paths.
+func isRelativeSlashCommand(prog string) bool {
+	prog = strings.TrimSpace(prog)
+	return strings.Contains(prog, "/") &&
+		!strings.HasPrefix(prog, "/") &&
+		!strings.HasPrefix(prog, "~/") &&
+		!strings.HasPrefix(prog, "$") &&
+		!filepath.IsAbs(prog)
+}
+
+func formatRelativeCommandWarning(file, kind, prog string) string {
+	return fmt.Sprintf("%s: %s command %q is a relative path and resolves from the session working directory, so sessions must start at the checkout root (see %s)", file, kind, prog, relativePathREADMEURL)
+}
+
+// CheckRelativeCommandPaths returns doctor warnings (never violations) when a hook command or an
+// ateam MCP registration without cwd names its ateam program as a relative path containing a slash (#378).
+func CheckRelativeCommandPaths(root string) []string {
+	var warnings []string
+	seen := map[string]bool{}
+	add := func(file, kind, prog string) {
+		key := file + "\x00" + kind + "\x00" + prog
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		warnings = append(warnings, formatRelativeCommandWarning(file, kind, prog))
+	}
+
+	_, sources := inspectHookConfigs(root)
+	home, homeErr := os.UserHomeDir()
+	for _, c := range hookClients {
+		label := sources[c.agent]
+		if label == "" {
+			label = c.project
+		}
+		path := filepath.Join(root, filepath.FromSlash(label))
+		if rest, ok := strings.CutPrefix(label, "~/"); ok {
+			if homeErr != nil {
+				continue
+			}
+			path = filepath.Join(home, filepath.FromSlash(rest))
+		}
+		parsed := readJSONObject(path)
+		if parsed == nil {
+			continue
+		}
+		byNative, _ := parsed[c.root].(map[string]any)
+		for _, ev := range c.events {
+			for _, cmd := range hookCommands(byNative[ev.native], c.nested) {
+				tokens := hookWords(cmd, "")
+				if isAteamHook(tokens) && isRelativeSlashCommand(tokens[0]) {
+					add(label, "hook", tokens[0])
+				}
+			}
+		}
+	}
+
+	for _, rel := range []string{".mcp.json", ".codex/config.toml", ".gemini/settings.json", ".agents/plugins/ateam/mcp_config.json"} {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
+		}
+		var servers map[string]mcpRegistration
+		if rel == ".codex/config.toml" {
+			var cfg struct {
+				Servers map[string]mcpRegistration `toml:"mcp_servers"`
+			}
+			if toml.Unmarshal(data, &cfg) != nil {
+				continue
+			}
+			servers = cfg.Servers
+		} else {
+			var cfg struct {
+				Servers map[string]mcpRegistration `json:"mcpServers"`
+			}
+			if json.Unmarshal(data, &cfg) != nil {
+				continue
+			}
+			servers = cfg.Servers
+		}
+		server, ok := servers["ateam"]
+		if !ok || strings.TrimSpace(server.Cwd) != "" {
+			continue
+		}
+		base := filepath.Base(server.Command)
+		if (base == "ateam" || base == "ateam.exe") && isRelativeSlashCommand(server.Command) {
+			add(rel, "MCP", server.Command)
+		}
+	}
+	return warnings
 }
 
 // checkMCPConfigs checks project-local configuration, never starts a server or
