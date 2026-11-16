@@ -9,7 +9,7 @@
 # spec's return_to to ateam review notify.
 
 [launch]
-tool = "call the Enjoy MCP tool start_conversation with provider {agent}, model {model}, effort {effort} and prompt '{prompt}'; tell the reviewer to finish with ateam review notify --record <record file> --return-to {return_to} {pr}"
+tool = "call the Enjoy MCP tool start_conversation with agent provider {agent}, model {model}, reasoning {effort} (all three; if start_conversation rejects reasoning {effort}, rerun ateam review request with --reviewer {agent}:{model}:<an effort list_agents offers> rather than launching without one) and this text: '{prompt}' then a blank line and 'Launch settings reported by the Enjoy host for this conversation: provider {agent}, model {model}, reasoning effort {effort}. You cannot read these from inside the session. Use them in your reviewed-by: line unless you have evidence they are wrong; if you do, say so in the record. Finish with ATEAM_HOST=enjoy ateam review notify --record <record file> --return-to {return_to} {pr}, then call the queue_message it prints.'"
 
 [notify]
 tool = "call the Enjoy MCP tool queue_message for conversation {return_to} (message_project_conversation only when that conversation is in another project)"

@@ -11,7 +11,7 @@
 # keeps the reviewer's hooks off that checkout's writer lease (#315).
 
 [launch]
-tool = "run herdr pane split --pane {return_to} --direction right --no-focus --env ATEAM_ROLE=review and read the new pane id; then herdr agent start review-pr-{pr} --kind {agent} --pane <new pane id> -- <{agent}'s own flags for model {model} and effort {effort}: claude takes --model M --effort E, codex -m M -c model_reasoning_effort=E, gemini -m M>; then herdr agent prompt <new pane id> '{prompt}'; tell the reviewer to finish with ateam review notify --record <record file> --return-to {return_to} {pr}"
+tool = "run herdr pane split --pane {return_to} --direction right --no-focus --env ATEAM_ROLE=review and read the new pane id; then herdr agent start review-pr-{pr} --kind {agent} --pane <new pane id> -- <{agent}'s own flags for model {model} and effort {effort}: claude takes --model M --effort E, codex -m M -c model_reasoning_effort=E, gemini -m M>; then herdr agent prompt <new pane id> '{prompt}; launch settings reported by the herdr host for this pane: provider {agent}, model {model}, reasoning effort {effort} (you cannot read these from inside the session; use them in your reviewed-by: line unless you have evidence they are wrong, and if you do, say so in the record); finish with ateam review notify --record <record file> --return-to {return_to} {pr}'"
 
 # The fixed message is appended as the last argument, never substituted.
 [notify]

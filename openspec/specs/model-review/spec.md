@@ -241,6 +241,7 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 #### Scenario: Eligible runs
 - **WHEN** the policy ranks the implementers
 - **THEN** `eligible` lists each model whose tier is not below every implementer's, from another provider when `cross_provider` is set, at the highest implementer band
+- **AND** when the required effort band is `low` and the provider's low band lists `low` alongside `none` or `minimal`, candidate selection uses `low`
 
 #### Scenario: Frontier implementer under cross-provider
 - **WHEN** the PR body says `implemented-by: claude (opus, high)` and the policy sets `cross_provider: true`

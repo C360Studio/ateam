@@ -13,8 +13,8 @@ func adrPolicy() Policy {
 	return Policy{
 		Version: 1,
 		ModelTiers: ModelTiers{
-			Frontier:  []string{"claude:opus", "claude:claude-opus-5-5", "claude:fable", "claude:claude-fable-5-1", "codex:gpt-6-astra", "gemini:gemini-4-argon"},
-			Workhorse: []string{"claude:sonnet", "claude:claude-sonnet-5-5", "codex:gpt-6.1-sol", "codex:gpt-6-sol"},
+			Frontier:  []string{"claude:opus", "claude:claude-opus-5-5", "claude:fable", "claude:claude-fable-5-1", "codex:gpt-6-astra", "gemini:gemini-4-carbon"},
+			Workhorse: []string{"claude:sonnet", "claude:claude-sonnet-5-5", "codex:gpt-6.1-sol", "codex:gpt-6-sol", "gemini:gemini-4-argon"},
 			Light:     []string{"claude:haiku", "claude:claude-haiku-4-5", "claude:claude-haiku-4-5-20251001", "codex:gpt-6-luna", "codex:gpt-5.4", "gemini:gemini-3.8-flash", "gemini:gemini-3.1-pro"},
 		},
 		EffortBands: EffortBands{
@@ -49,9 +49,9 @@ func TestCompare(t *testing.T) {
 		{name: "light below workhorse", implementers: []string{"codex:gpt-6-sol:low"}, reviewer: "claude:haiku:max", finding: "light tier, weaker"},
 		{name: "equal tier and band", implementers: []string{"claude:opus:high"}, reviewer: "claude:opus:high"},
 		{name: "equal tier, same band by another native name", implementers: []string{"claude:opus:max"}, reviewer: "codex:gpt-6-astra:high"},
-		{name: "equal tier, higher band", implementers: []string{"claude:opus:low"}, reviewer: "gemini:gemini-4-argon:medium"},
+		{name: "equal tier, higher band", implementers: []string{"claude:opus:low"}, reviewer: "gemini:gemini-4-carbon:medium"},
 		{name: "equal tier, lower band", implementers: []string{"claude:opus:high"}, reviewer: "claude:fable:medium", finding: "frontier tier at mid band, weaker than implementer claude (opus, high) at high band"},
-		{name: "loose model text", implementers: []string{"gemini:Gemini 4 Argon:HIGH"}, reviewer: "codex:GPT-6  Astra:high"},
+		{name: "loose model text", implementers: []string{"gemini:Gemini 4 Carbon:HIGH"}, reviewer: "codex:GPT-6  Astra:high"},
 		// Owner ruling on #125: an unranked run passes only against another unranked run.
 		{name: "unranked reviewer model against a ranked implementer", implementers: []string{"claude:opus:high"}, reviewer: "codex:gpt-7:low", finding: "unranked: reviewer codex (gpt-7, low) is not in model_tiers"},
 		{name: "unranked implementer model against a ranked reviewer", implementers: []string{"claude:opus-9:high"}, reviewer: "codex:gpt-6-astra:high", finding: "unranked: implementer claude (opus-9, high) is not in model_tiers"},
@@ -70,8 +70,8 @@ func TestCompare(t *testing.T) {
 		{name: "placeholder efforts are no effort", implementers: []string{"claude:opus:high"}, reviewer: "codex:gpt-6-astra:N/A", finding: "names no effort"},
 		{name: "question mark effort is no effort", implementers: []string{"claude:opus:?"}, reviewer: "codex:gpt-6-astra:high", finding: "names no effort"},
 		{name: "codex none is a real low effort", implementers: []string{"codex:gpt-6-sol:none"}, reviewer: "claude:sonnet:low"},
-		{name: "several implementers, one stronger than the reviewer", implementers: []string{"claude:sonnet:max", "claude:opus:high"}, reviewer: "gemini:gemini-4-argon:medium", finding: "weaker than implementer claude (opus, high)"},
-		{name: "several implementers, all covered", implementers: []string{"claude:sonnet:max", "claude:opus:medium"}, reviewer: "gemini:gemini-4-argon:medium"},
+		{name: "several implementers, one stronger than the reviewer", implementers: []string{"claude:sonnet:max", "claude:opus:high"}, reviewer: "gemini:gemini-4-carbon:medium", finding: "weaker than implementer claude (opus, high)"},
+		{name: "several implementers, all covered", implementers: []string{"claude:sonnet:max", "claude:opus:medium"}, reviewer: "gemini:gemini-4-carbon:medium"},
 		{name: "reviewer effort missing", implementers: []string{"claude:opus:high"}, reviewer: "codex:gpt-6-astra:", finding: "codex (gpt-6-astra) names no effort"},
 		{name: "model in the effort slot", implementers: []string{"claude:sonnet:opus"}, reviewer: "claude:sonnet:low", finding: `claude (sonnet, opus) names model "opus" where the effort goes`},
 		{name: "implementer effort missing", implementers: []string{"claude:opus:"}, reviewer: "codex:gpt-6-astra:high", finding: "claude (opus) names no effort"},
@@ -136,7 +136,8 @@ func TestCommittedPolicyTiers(t *testing.T) {
 		{"claude:claude-sonnet-5-5:high", "claude:sonnet:high"},
 		{"claude:claude-haiku-4-5:high", "claude:haiku:high"},
 		{"claude:claude-haiku-4-5-20251001:high", "claude:haiku:high"},
-		{"gemini:gemini-4-argon:high", "claude:claude-opus-5-5:high"},
+		{"gemini:gemini-4-carbon:high", "claude:claude-opus-5-5:high"},
+		{"gemini:gemini-4-argon:high", "claude:claude-sonnet-5-5:high"},
 		{"codex:gpt-6-luna:high", "claude:haiku:high"},
 	} {
 		a, b := run(t, pair[0]), run(t, pair[1])
@@ -151,7 +152,8 @@ func TestCommittedPolicyTiers(t *testing.T) {
 	for _, tc := range []struct {
 		dev, rev, want string
 	}{
-		{"gemini:gemini-4-argon:low", "codex:gpt-6-sol:max", "workhorse tier, weaker than implementer gemini (gemini-4-argon, low) at frontier tier"},
+		{"gemini:gemini-4-carbon:low", "gemini:gemini-4-argon:high", "workhorse tier, weaker than implementer gemini (gemini-4-carbon, low) at frontier tier"},
+		{"gemini:gemini-4-argon:low", "gemini:gemini-3.8-flash:high", "light tier, weaker than implementer gemini (gemini-4-argon, low) at workhorse tier"},
 		{"claude:opus:low", "claude:claude-sonnet-5-5:max", "workhorse tier, weaker"},
 		{"claude:sonnet:low", "claude:claude-haiku-4-5:max", "light tier, weaker"},
 		{"claude:sonnet:low", "claude:claude-haiku-4-5-20251001:max", "light tier, weaker"},
