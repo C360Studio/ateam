@@ -141,15 +141,16 @@ Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks acros
 #### Scenario: Worktree PR status labels and stale forge cache caveat
 
 - **WHEN** `WorktreePRStatus` or `BuildPickupSummary` renders worktrees from `.ateam/state.json`
-- **THEN** a worktree with no PR card on the board (and not `main`/`master`/`detached` or an ancestor of `main` with `ahead == 0`) is labeled `no PR` rather than `unmerged`
-- **AND** when the supplying forge cache timestamp (`SyncedAtFor` for the matched card's provider, or the active forge for `no PR`) is at least `10m` old, PR/forge-derived worktree labels append `(cache <age>)` (e.g. `open PR #64 (cache 4h)`, `no PR (cache 4h)`, `merged via #57 (cache 4h)`), `Worktrees:` prints `labels from forge cache synced <age> ago; run ateam state pickup`, and live git-derived fields (`head`, `dirty`, `ahead`, and `default branch` / `detached` / `merged (ancestor of main)` / `no commits yet`) carry no cache caveat
+- **THEN** when a linked worktree's own `.ateam/state.json` holds a newer forge sync timestamp for a provider than the current state's `SyncedAtFor`, its PR cards for that worktree's branch are consulted with that newer timestamp
+- **AND** a worktree with no PR card on the board or in a newer linked-worktree cache (and not `main`/`master`/`detached` or an ancestor of `main` with `ahead == 0`) is labeled `PR unknown (cache predates branch)` when the supplying forge cache timestamp is non-zero and predates the worktree's `HEAD` commit timestamp (`head_committed_at`), and otherwise `no PR` rather than `unmerged`
+- **AND** when the supplying forge cache timestamp (`SyncedAtFor` for the matched card's provider, or the active forge for `no PR` / `PR unknown (cache predates branch)`) is at least `10m` old, PR/forge-derived worktree labels append `(cache <age>)` (e.g. `open PR #64 (cache 4h)`, `no PR (cache 4h)`, `PR unknown (cache predates branch) (cache 4h)`, `merged via #57 (cache 4h)`), `Worktrees:` prints `labels from forge cache synced <age> ago; run ateam state pickup`, and live git-derived fields (`head`, `dirty`, `ahead`, and `default branch` / `detached` / `merged (ancestor of main)` / `no commits yet`) carry no cache caveat
 - **AND** a detached checkout is labeled `detached` on every surface, including after a live head read that names it `HEAD`, and a branch with no PR card whose head equals the `main` head is labeled `no commits yet` rather than `merged (ancestor of main)`
 
 #### Scenario: Open work is never capped
 
 - **WHEN** a forge holds more than 50 open issues or more than 50 open pull requests
 - **THEN** synchronization SHALL list every open issue and pull request (GitHub `--state open` with a limit of 1000; Gitea `state=open`, page by page until an empty page or a page that adds no new numbers) and at most the 50 most recently updated closed ones (Gitea closed issues: the 50 newest, since the issues endpoint cannot sort), merged by number with the closed copy winning, so a worktree on an old open pull request's branch is labelled `open PR #<n>` and never `no PR`, and one on a just-merged old pull request is labelled `merged via #<n>` once GitHub's search index holds the merge (until then a sync may briefly label it `no PR`)
-- **AND** the list queries for one forge SHALL run concurrently, so the sync fits the 3s per-forge pickup budget
+- **AND** the list queries for one forge SHALL run concurrently, so the sync fits the 10s per-forge best-effort sync budget
 - **AND** the pickup summary's `synced` line names the closed-item cap
 
 ### Requirement: Forge token roles
@@ -764,7 +765,7 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 
 ### Requirement: Prune finished worktrees the caller owns
 
-`ateam state prune [--dry-run] [--agent <name>] [--force]` SHALL remove a linked worktree, its local branch, and its remote branch only when the caller's agent owns the worktree, its tree is clean, the refreshed state labels it finished, and, unless `--force` is passed, no other session occupies it. It SHALL list every other linked worktree with the reason it was kept. Pickup SHALL mark each worktree the same check would remove.
+`ateam state prune [--dry-run] [--agent <name>] [--force]` SHALL remove a linked worktree, its local branch, and its remote branch only when the caller's agent owns the worktree, its tree is clean, the refreshed state labels it finished, and, unless `--force` is passed, no other session occupies it. It SHALL list every other linked worktree with its keep reason, print a warning when forge sync fell back to the cache, and mark prune candidates in pickup.
 
 #### Scenario: A finished, clean, owned worktree is removed
 
@@ -774,7 +775,7 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 
 #### Scenario: Unsafe or foreign worktrees are kept
 
-- **WHEN** a linked worktree is dirty, has an unknown dirty state, is labelled `ahead of merged`, `open PR`, `no PR`, or `no commits yet`, is on another agent's prefix or no agent prefix, is the current checkout, or is on the default branch
+- **WHEN** a linked worktree is dirty, has an unknown dirty state, is labelled `ahead of merged`, `open PR`, `no PR`, `PR unknown (cache predates branch)`, or `no commits yet`, is on another agent's prefix or no agent prefix, is the current checkout, or is on the default branch
 - **THEN** it is listed as `kept <branch>: <reason>` and nothing about it changes
 - **AND** a worktree on a branch with no agent prefix is kept as `no agent prefix (host-created branch)`
 

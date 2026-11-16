@@ -655,12 +655,12 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 	const prFields = "number,title,state,isDraft,headRefName,headRefOid,mergedAt,labels,url"
 	var openIssues, closedIssues []forgeIssuePayload
 	var openPRs, closedPRs []ghPR
-	// The four lists run at once, so the sync costs the slowest call rather than the sum (the pickup budget is 3s per forge).
+	// The four lists run at once, so the sync costs the slowest call rather than the sum (the pickup budget is 10s per forge).
 	err := runConcurrently(ctx,
 		func(ctx context.Context) error {
 			out, err := ghList(ctx, issueTimeout, "issue", "list", "--state", "open", "--limit", openLimit, "--json", "number,title,state,labels,milestone,url,body,comments")
 			if err != nil {
-				out, err = ghList(ctx, 5*time.Second, "issue", "list", "--state", "open", "--limit", openLimit, "--json", "number,title,state,labels,milestone,url,body")
+				out, err = ghList(ctx, 10*time.Second, "issue", "list", "--state", "open", "--limit", openLimit, "--json", "number,title,state,labels,milestone,url,body")
 				if err != nil {
 					return fmt.Errorf("gh issue list failed: %w", err)
 				}
@@ -672,7 +672,7 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 		},
 		// Closed issues skip comment expansion: their decision summaries are not needed.
 		func(ctx context.Context) error {
-			out, err := ghList(ctx, 5*time.Second, "issue", "list", "--state", "closed", "--limit", closedLimit, "--search", closedSort, "--json", "number,title,state,labels,milestone,url,body")
+			out, err := ghList(ctx, 10*time.Second, "issue", "list", "--state", "closed", "--limit", closedLimit, "--search", closedSort, "--json", "number,title,state,labels,milestone,url,body")
 			if err != nil {
 				return fmt.Errorf("gh issue list failed: %w", err)
 			}
@@ -682,7 +682,7 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 			return nil
 		},
 		func(ctx context.Context) error {
-			out, err := ghList(ctx, 5*time.Second, "pr", "list", "--state", "open", "--limit", openLimit, "--json", prFields)
+			out, err := ghList(ctx, 10*time.Second, "pr", "list", "--state", "open", "--limit", openLimit, "--json", prFields)
 			if err != nil {
 				return fmt.Errorf("gh pr list failed: %w", err)
 			}
@@ -692,7 +692,7 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 			return nil
 		},
 		func(ctx context.Context) error {
-			out, err := ghList(ctx, 5*time.Second, "pr", "list", "--state", "closed", "--limit", closedLimit, "--search", closedSort, "--json", prFields)
+			out, err := ghList(ctx, 10*time.Second, "pr", "list", "--state", "closed", "--limit", closedLimit, "--search", closedSort, "--json", prFields)
 			if err != nil {
 				return fmt.Errorf("gh pr list failed: %w", err)
 			}

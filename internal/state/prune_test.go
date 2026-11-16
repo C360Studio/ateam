@@ -539,3 +539,152 @@ func TestPruneKeepsReviewCheckoutAnotherSessionOccupies(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Dual-forge GitHub and Gitea state sync
+// spec: openspec/specs/harness/spec.md#Requirement: Prune finished worktrees the caller owns
+func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
+	clearAgentSessionEnv(t)
+	now := time.Now().UTC()
+	clean := false
+
+	t.Run("cache predating branch head reports PR unknown instead of no PR", func(t *testing.T) {
+		st := defaultState()
+		st.Forge = ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"}
+		st.BoardSyncedAt = now.Add(-15 * time.Minute)
+		st.BoardSyncError = "gh issue list failed: signal: killed"
+		st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
+		st.CurrentAgent = "claude"
+		st.Git.Worktrees = []Worktree{
+			{Path: "/r", Branch: "main", Head: "1111111", Dirty: &clean},
+			{
+				Path:            "/r/.worktrees/claude-new",
+				Branch:          "claude/288-test-spec-citations",
+				Head:            "aaaaaaa",
+				HeadCommittedAt: now.Add(-5 * time.Minute),
+				Dirty:           &clean,
+				AheadCount:      1,
+			},
+			{
+				Path:            "/r/.worktrees/claude-old",
+				Branch:          "claude/older-than-cache",
+				Head:            "bbbbbbb",
+				HeadCommittedAt: now.Add(-30 * time.Minute),
+				Dirty:           &clean,
+				AheadCount:      1,
+			},
+		}
+
+		removeNew, reasonNew := st.PruneVerdict(st.Git.Worktrees[1], "claude", "/r", false)
+		if removeNew || reasonNew != "PR unknown (cache predates branch) (cache 15m)" {
+			t.Fatalf("new branch PruneVerdict = (%v, %q), want (false, %q)", removeNew, reasonNew, "PR unknown (cache predates branch) (cache 15m)")
+		}
+		removeOld, reasonOld := st.PruneVerdict(st.Git.Worktrees[2], "claude", "/r", false)
+		if removeOld || reasonOld != "no PR (cache 15m)" {
+			t.Fatalf("old branch PruneVerdict = (%v, %q), want (false, %q)", removeOld, reasonOld, "no PR (cache 15m)")
+		}
+
+		var out bytes.Buffer
+		if Prune(context.Background(), "/r", st, "claude", true, false, &out) {
+			t.Fatalf("Prune dry run failed:\n%s", out.String())
+		}
+		wantSyncWarn := "WARNING: Forge board sync failed (serving cached board, synced=" + st.BoardSyncedAt.Format(time.RFC3339) + "): gh issue list failed: signal: killed\n"
+		for _, want := range []string{
+			wantSyncWarn,
+			"kept claude/288-test-spec-citations: PR unknown (cache predates branch) (cache 15m)\n",
+			"kept claude/older-than-cache: no PR (cache 15m)\n",
+		} {
+			if !strings.Contains(out.String(), want) {
+				t.Fatalf("prune output missing %q:\n%s", want, out.String())
+			}
+		}
+
+		summary := BuildPickupSummary(st)
+		if !strings.Contains(summary, "- claude/288-test-spec-citations (head=aaaaaaa, dirty=false, ahead=1, PR unknown (cache predates branch) (cache 15m))") {
+			t.Fatalf("pickup summary missing PR unknown label:\n%s", summary)
+		}
+	})
+
+	t.Run("linked worktree with newer forge cache supplies PR cards to main checkout", func(t *testing.T) {
+		wtMergedDir := t.TempDir()
+		wtOpenDir := t.TempDir()
+
+		writeWTCache := func(dir string, syncedAt time.Time, card BoardCard) {
+			wtSt := defaultState()
+			wtSt.Forge = ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"}
+			wtSt.BoardSyncedAt = syncedAt
+			wtSt.ForgeSyncedAt = map[ForgeProvider]time.Time{ForgeGitHub: syncedAt}
+			wtSt.Cards = []BoardCard{card}
+			if err := Save(dir, wtSt); err != nil {
+				t.Fatal(err)
+			}
+		}
+		writeWTCache(wtMergedDir, now.Add(-2*time.Minute), BoardCard{
+			ID:      "GH-PR-289",
+			Number:  289,
+			Type:    "pr",
+			Column:  "done",
+			Merged:  true,
+			Branch:  "claude/288-test-spec-citations",
+			HeadSHA: "aaaaaaa",
+			Forge:   "github",
+		})
+		writeWTCache(wtOpenDir, now.Add(-3*time.Minute), BoardCard{
+			ID:      "GH-PR-290",
+			Number:  290,
+			Type:    "pr",
+			Column:  "in-review",
+			Merged:  false,
+			Branch:  "claude/233-pin-alpha5",
+			HeadSHA: "ccccccc",
+			Forge:   "github",
+		})
+
+		st := defaultState()
+		st.Forge = ForgeConfig{Provider: ForgeGitHub, Owner: "c360", Repo: "ateam"}
+		st.BoardSyncedAt = now.Add(-1 * time.Hour)
+		st.ForgeSyncedAt = map[ForgeProvider]time.Time{ForgeGitHub: now.Add(-1 * time.Hour)}
+		st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
+		st.CurrentAgent = "claude"
+		st.Git.Worktrees = []Worktree{
+			{Path: "/r", Branch: "main", Head: "1111111", Dirty: &clean},
+			{
+				Path:            wtMergedDir,
+				Branch:          "claude/288-test-spec-citations",
+				Head:            "aaaaaaa",
+				HeadCommittedAt: now.Add(-10 * time.Minute),
+				Dirty:           &clean,
+				AheadCount:      1,
+			},
+			{
+				Path:            wtOpenDir,
+				Branch:          "claude/233-pin-alpha5",
+				Head:            "ccccccc",
+				HeadCommittedAt: now.Add(-10 * time.Minute),
+				Dirty:           &clean,
+				AheadCount:      1,
+			},
+		}
+		st.ReconcileWorktrees()
+		if !st.Git.Worktrees[1].MergedIntoMain {
+			t.Fatal("expected ReconcileWorktrees to mark claude/288-test-spec-citations MergedIntoMain=true from newer worktree cache")
+		}
+		removeMerged, reasonMerged := st.PruneVerdict(st.Git.Worktrees[1], "claude", "/r", false)
+		if !removeMerged || reasonMerged != "merged via #289" {
+			t.Fatalf("merged worktree PruneVerdict = (%v, %q), want (true, %q)", removeMerged, reasonMerged, "merged via #289")
+		}
+		removeOpen, reasonOpen := st.PruneVerdict(st.Git.Worktrees[2], "claude", "/r", false)
+		if removeOpen || reasonOpen != "open PR #290" {
+			t.Fatalf("open worktree PruneVerdict = (%v, %q), want (false, %q)", removeOpen, reasonOpen, "open PR #290")
+		}
+
+		summary := BuildPickupSummary(st)
+		for _, want := range []string{
+			"- claude/288-test-spec-citations (head=aaaaaaa, dirty=false, ahead=1, merged via #289, prune candidate)",
+			"- claude/233-pin-alpha5 (head=ccccccc, dirty=false, ahead=1, open PR #290)",
+		} {
+			if !strings.Contains(summary, want) {
+				t.Fatalf("pickup summary missing %q:\n%s", want, summary)
+			}
+		}
+	})
+}
