@@ -640,10 +640,10 @@ type State struct {
 	BoardSyncError     string                      `json:"board_sync_error,omitempty"`
 	// StatusWriteError is the last commit status error in this checkout, cleared by a clean publication; it names
 	// the context, sha and HTTP or gh exit code only, never a body or token (#302).
-	StatusWriteError string           `json:"status_write_error,omitempty"`
-	Shortcuts        []ShortcutItem   `json:"shortcuts,omitempty"`
-	Holds            []HoldItem       `json:"holds,omitempty"`
-	HoldScanError    string           `json:"hold_scan_error,omitempty"`
+	StatusWriteError  string            `json:"status_write_error,omitempty"`
+	Shortcuts         []ShortcutItem    `json:"shortcuts,omitempty"`
+	Holds             []HoldItem        `json:"holds,omitempty"`
+	HoldScanError     string            `json:"hold_scan_error,omitempty"`
 	OpenSpecQueue     []OpenSpecChange  `json:"openspec_queue,omitempty"`
 	OpenSpecSpecs     []OpenSpecSpec    `json:"openspec_specs,omitempty"`
 	UpdatedAt         time.Time         `json:"updated_at"`
@@ -2208,8 +2208,8 @@ func (st *State) branchPRCardsForWorktree(wt Worktree) ([]BoardCard, func(ForgeP
 	var wtState *State
 	if path := strings.TrimSpace(wt.Path); path != "" && branch != strings.TrimSpace(st.Git.Branch) {
 		var minSync time.Time
-		for i, p := range []ForgeProvider{ForgeGitHub, ForgeGitea} {
-			ts := baseSyncedAt(p)
+		for i, cfg := range MergeConfiguredForges(st.Forge, st.Forges) {
+			ts := st.SyncedAtFor(cfg)
 			if i == 0 || ts.Before(minSync) {
 				minSync = ts
 			}

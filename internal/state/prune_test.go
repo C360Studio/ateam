@@ -608,6 +608,7 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 		wtMergedDir := t.TempDir()
 		wtOpenDir := t.TempDir()
 		wtOlderDir := t.TempDir()
+		wtStaleMtimeDir := t.TempDir()
 
 		writeWTCache := func(dir string, syncedAt time.Time, card BoardCard) {
 			wtSt := defaultState()
@@ -639,7 +640,8 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 			HeadSHA: "ccccccc",
 			Forge:   "github",
 		})
-		// Linked cache older than main cache: its stale open card must be ignored in favor of main's merged card.
+		// Linked cache older than main cache (newer file mtime because it was just saved, but older SyncedAtFor):
+		// its stale open card must be ignored in favor of main's merged card.
 		writeWTCache(wtOlderDir, now.Add(-2*time.Hour), BoardCard{
 			ID:      "GH-PR-291",
 			Number:  291,
@@ -650,6 +652,21 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 			HeadSHA: "ddddddd",
 			Forge:   "github",
 		})
+		// Linked cache whose file mtime is older than main's sync timestamp: must be skipped by os.Stat without reading.
+		writeWTCache(wtStaleMtimeDir, now.Add(-2*time.Hour), BoardCard{
+			ID:      "GH-PR-292",
+			Number:  292,
+			Type:    "pr",
+			Column:  "in-review",
+			Merged:  false,
+			Branch:  "claude/stale-mtime-cache",
+			HeadSHA: "eeeeeee",
+			Forge:   "github",
+		})
+		staleMtime := now.Add(-2 * time.Hour)
+		if err := os.Chtimes(CacheFilePath(wtStaleMtimeDir), staleMtime, staleMtime); err != nil {
+			t.Fatal(err)
+		}
 
 		readCounts := map[string]int{}
 		origRead := readWorktreeCacheFile
@@ -666,7 +683,7 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 		st.Git.Branch, st.Git.HeadSHA = "main", "1111111"
 		st.CurrentAgent = "claude"
 		// Main cache has a stale open card for claude/288-test-spec-citations (which merged in wtMergedDir's newer cache)
-		// and a newer merged card for claude/older-linked-cache (whose linked cache in wtOlderDir is older).
+		// and newer merged cards for claude/older-linked-cache and claude/stale-mtime-cache.
 		st.Cards = []BoardCard{
 			{
 				ID:      "GH-PR-289",
@@ -686,6 +703,16 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 				Merged:  true,
 				Branch:  "claude/older-linked-cache",
 				HeadSHA: "ddddddd",
+				Forge:   "github",
+			},
+			{
+				ID:      "GH-PR-292",
+				Number:  292,
+				Type:    "pr",
+				Column:  "done",
+				Merged:  true,
+				Branch:  "claude/stale-mtime-cache",
+				HeadSHA: "eeeeeee",
 				Forge:   "github",
 			},
 		}
@@ -715,6 +742,14 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 				Dirty:           &clean,
 				AheadCount:      1,
 			},
+			{
+				Path:            wtStaleMtimeDir,
+				Branch:          "claude/stale-mtime-cache",
+				Head:            "eeeeeee",
+				HeadCommittedAt: now.Add(-10 * time.Minute),
+				Dirty:           &clean,
+				AheadCount:      1,
+			},
 		}
 		st.ReconcileWorktrees()
 		if !st.Git.Worktrees[1].MergedIntoMain {
@@ -732,12 +767,17 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 		if !removeOlderLinked || reasonOlderLinked != "merged via #291 (cache 1h)" {
 			t.Fatalf("older linked cache worktree PruneVerdict = (%v, %q), want (true, %q)", removeOlderLinked, reasonOlderLinked, "merged via #291 (cache 1h)")
 		}
+		removeStaleMtime, reasonStaleMtime := st.PruneVerdict(st.Git.Worktrees[4], "claude", "/r", false)
+		if !removeStaleMtime || reasonStaleMtime != "merged via #292 (cache 1h)" {
+			t.Fatalf("stale mtime linked cache worktree PruneVerdict = (%v, %q), want (true, %q)", removeStaleMtime, reasonStaleMtime, "merged via #292 (cache 1h)")
+		}
 
 		summary := BuildPickupSummary(st)
 		for _, want := range []string{
 			"- claude/288-test-spec-citations (head=aaaaaaa, dirty=false, ahead=1, merged via #289, prune candidate)",
 			"- claude/233-pin-alpha5 (head=ccccccc, dirty=false, ahead=1, open PR #290)",
 			"- claude/older-linked-cache (head=ddddddd, dirty=false, ahead=1, merged via #291 (cache 1h), prune candidate)",
+			"- claude/stale-mtime-cache (head=eeeeeee, dirty=false, ahead=1, merged via #292 (cache 1h), prune candidate)",
 		} {
 			if !strings.Contains(summary, want) {
 				t.Fatalf("pickup summary missing %q:\n%s", want, summary)
@@ -748,6 +788,10 @@ func TestPruneAndPickupStaleCacheAndWorktreeFallback(t *testing.T) {
 			if got := readCounts[p]; got != 1 {
 				t.Fatalf("expected linked cache %s to be read exactly once across ReconcileWorktrees + PruneVerdict + BuildPickupSummary, got %d", p, got)
 			}
+		}
+		staleMtimePath := filepath.Clean(CacheFilePath(wtStaleMtimeDir))
+		if got := readCounts[staleMtimePath]; got != 0 {
+			t.Fatalf("expected stale-mtime linked cache %s to be skipped by os.Stat without reading, got %d reads", staleMtimePath, got)
 		}
 	})
 }
