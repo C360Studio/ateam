@@ -734,7 +734,7 @@ func findRepoRoot(start string) string {
 
 func runTestSpec(root string, args []string) int {
 	fs := flag.NewFlagSet("test-spec", flag.ContinueOnError)
-	base := fs.String("base", "", "report missing citations only for tests changed since the merge base of this ref and HEAD (uncommitted and untracked included)")
+	base := fs.String("base", "", "report missing or malformed citations only for tests changed since the merge base of this ref and HEAD (uncommitted and untracked included)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
