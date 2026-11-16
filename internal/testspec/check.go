@@ -263,7 +263,7 @@ func testName(name, prefix string) bool {
 
 func resolve(root, ref string) error {
 	path, heading, ok := strings.Cut(ref, "#")
-	if !ok {
+	if !ok || strings.Contains(path, " / ") {
 		return resolveShorthand(root, ref)
 	}
 	if !strings.HasPrefix(heading, "Requirement: ") || strings.TrimSpace(strings.TrimPrefix(heading, "Requirement: ")) == "" {
@@ -294,7 +294,7 @@ func resolveShorthand(root, ref string) error {
 	capability, title, ok := strings.Cut(ref, " / ")
 	capability = strings.TrimSpace(capability)
 	title = strings.TrimSpace(title)
-	if !ok || capability == "" || title == "" || capability == "." || capability == ".." || strings.ContainsAny(capability, "/\\:") {
+	if !ok || !isValidCapability(capability) || title == "" {
 		return errMalformedCitation
 	}
 	heading := "Requirement: " + title
@@ -336,6 +336,23 @@ func resolveShorthand(root, ref string) error {
 		return fmt.Errorf("requirement resolves %d times: %s", count, ref)
 	}
 	return nil
+}
+
+func isValidCapability(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		lowerNum := (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+		if i == 0 && !lowerNum {
+			return false
+		}
+		if !lowerNum && c != '-' && c != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func countRequirement(data, heading string) int {

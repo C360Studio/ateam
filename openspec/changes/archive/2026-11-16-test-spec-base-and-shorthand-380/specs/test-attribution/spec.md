@@ -35,7 +35,7 @@ Each citation SHALL either be `<path>#Requirement: <title>`, resolving `### Requ
 
 ### Requirement: Diff-scoped attribution
 
-`ateam test-spec --base <ref>` SHALL report a missing or malformed citation only for a supported test whose span (attached comments through its last line) contains a line changed between the merge base of `<ref>` and the working tree, or that lies in an untracked file. Every other diagnostic (including a syntactically valid citation whose target file or requirement heading is missing or duplicate, and source parse errors) SHALL apply to all discovered tests. Without `--base` every discovered test SHALL be checked.
+`ateam test-spec --base <ref>` SHALL report a missing or malformed citation only for a supported test whose span (attached comments through its last line) contains a line changed between the merge base of `<ref>` and the working tree, or that lies in an untracked file. Unresolved target and source parse diagnostics SHALL apply to all discovered tests. Without `--base` every discovered test SHALL be checked.
 
 #### Scenario: Untouched malformed citation outside the diff
 

@@ -113,6 +113,7 @@ func TestCapabilityShorthand(t *testing.T) {
 	}{
 		{"canonical match", "demo / Works", "", nil},
 		{"title with slash", "demo / Works / Quickly", "", map[string]string{"openspec/specs/demo/spec.md": "### Requirement: Works / Quickly\n"}},
+		{"title with hash", "demo / Supports C# code", "", map[string]string{"openspec/specs/demo/spec.md": "### Requirement: Supports C# code\n"}},
 		{"in-flight fallback when missing from canonical", "demo / New", "", map[string]string{"openspec/changes/c/specs/demo/spec.md": "### Requirement: New\n"}},
 		{"in-flight fallback when canonical capability absent", "fresh / New", "", map[string]string{"openspec/changes/c/specs/fresh/spec.md": "### Requirement: New\n"}},
 		{"canonical wins over in-flight duplicate", "demo / Works", "", map[string]string{"openspec/changes/c/specs/demo/spec.md": "### Requirement: Works\n"}},
@@ -125,6 +126,7 @@ func TestCapabilityShorthand(t *testing.T) {
 		}},
 		{"missing requirement rejected", "demo / Absent", "requirement resolves 0 times: demo / Absent", nil},
 		{"nested capability rejected as malformed", "sub/demo / Works", "malformed spec citation", nil},
+		{"uppercase or spaced capability rejected as malformed", "Demo Cap / Works", "malformed spec citation", nil},
 		{"dotdot capability rejected as malformed", ".. / Works", "malformed spec citation", nil},
 		{"no spaces around slash rejected as malformed", "demo/Works", "malformed spec citation", nil},
 	} {
