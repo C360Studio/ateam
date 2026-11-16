@@ -22,6 +22,21 @@ func TestLegacyB(t *testing.T) {}
 
 // spec: openspec/specs/demo/spec.md#Requirement: Old
 func TestLegacyC(t *testing.T) {}
+
+// spec: bad_legacy_citation
+func TestLegacyMalformed(t *testing.T) {
+	_ = 4
+}
+
+// aip:verifies DEV-001.1
+func TestLegacySpacedAIP(t *testing.T) {
+	_ = 5
+}
+
+//aip:verifies
+func TestLegacyEmptyAIP(t *testing.T) {
+	_ = 6
+}
 `
 
 const legacyVitest = `import { it } from 'vitest';
@@ -99,6 +114,15 @@ func TestBaseScope(t *testing.T) {
 		{"uncommitted edit inside a legacy body fails only that test", func(t *testing.T, root string) {
 			writeFiles(t, root, map[string]string{"legacy_test.go": strings.Replace(legacyGo, "_ = 1", "_ = 2", 1)})
 		}, "legacy_test.go:5: TestLegacyA: missing spec citation\n"},
+		{"edited legacy test with malformed spec citation fails only that test", func(t *testing.T, root string) {
+			writeFiles(t, root, map[string]string{"legacy_test.go": strings.Replace(legacyGo, "_ = 4", "_ = 40", 1)})
+		}, "legacy_test.go:14: TestLegacyMalformed: malformed spec citation\n"},
+		{"edited legacy test with spaced aip directive fails only that test", func(t *testing.T, root string) {
+			writeFiles(t, root, map[string]string{"legacy_test.go": strings.Replace(legacyGo, "_ = 5", "_ = 50", 1)})
+		}, "legacy_test.go:19: TestLegacySpacedAIP: write //aip:verifies without a space\n"},
+		{"edited legacy test with empty aip directive fails only that test", func(t *testing.T, root string) {
+			writeFiles(t, root, map[string]string{"legacy_test.go": strings.Replace(legacyGo, "_ = 6", "_ = 60", 1)})
+		}, "legacy_test.go:24: TestLegacyEmptyAIP: aip:verifies names no scenario IDs\n"},
 		{"removing a legacy citation fails", func(t *testing.T, root string) {
 			writeFiles(t, root, map[string]string{"legacy_test.go": strings.Replace(legacyGo, "// spec: openspec/specs/demo/spec.md#Requirement: Old\n", "", 1)})
 		}, "legacy_test.go:11: TestLegacyC: missing spec citation\n"},
@@ -154,6 +178,9 @@ func TestBaseScope(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := "legacy_test.go:5: TestLegacyA: missing spec citation\nlegacy_test.go:9: TestLegacyB: missing spec citation\n" +
+			"legacy_test.go:14: TestLegacyMalformed: malformed spec citation\n" +
+			"legacy_test.go:19: TestLegacySpacedAIP: write //aip:verifies without a space\n" +
+			"legacy_test.go:24: TestLegacyEmptyAIP: aip:verifies names no scenario IDs\n" +
 			"payload_test.go:9: TestPayload: missing spec citation\nsome tests/legacy space_test.go:5: TestSpaced: missing spec citation\n" +
 			"ui/legacy.test.ts:2: legacy: missing spec citation\nui/legacy.test.ts:5: other: missing spec citation\n"
 		if got := Format(ds); got != want {

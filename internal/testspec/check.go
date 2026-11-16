@@ -5,6 +5,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/doc"
@@ -20,6 +21,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 )
+
+var errMalformedCitation = errors.New("malformed spec citation")
 
 // Diagnostic identifies an invalid test citation.
 type Diagnostic struct {
@@ -46,8 +49,8 @@ const aipDirective = "aip:verifies"
 var vitestScanner string
 
 // Check checks supported test sources under root. Build tags do not exclude Go tests.
-// A nonempty base limits missing-citation diagnostics to tests changed since the
-// merge base of base and HEAD (see changedLines); every other diagnostic still applies.
+// A nonempty base limits missing and malformed citation diagnostics to tests changed since the
+// merge base of base and HEAD (see changedLines); unresolved target and source diagnostics still apply.
 func Check(ctx context.Context, root, base string) ([]Diagnostic, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -140,13 +143,16 @@ func Check(ctx context.Context, root, base string) ([]Diagnostic, error) {
 			diagnostics = append(diagnostics, Diagnostic{d.File, d.Line, d.Error})
 			continue
 		}
+		touched := changed == nil || changed[d.File].touches(d)
 		found := false
 		for _, c := range d.Comments {
 			text := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
 			if strings.HasPrefix(text, aipDirective) {
 				if !strings.HasPrefix(c.Text, "//"+aipDirective) {
 					found = true
-					diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": write //aip:verifies without a space"})
+					if touched {
+						diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": write //aip:verifies without a space"})
+					}
 					continue
 				}
 				rest := strings.TrimPrefix(c.Text, "//"+aipDirective)
@@ -156,7 +162,9 @@ func Check(ctx context.Context, root, base string) ([]Diagnostic, error) {
 				found = true
 				ids := strings.Fields(rest)
 				if len(ids) == 0 {
-					diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": aip:verifies names no scenario IDs"})
+					if touched {
+						diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": aip:verifies names no scenario IDs"})
+					}
 					continue
 				}
 				if !indexed {
@@ -179,11 +187,11 @@ func Check(ctx context.Context, root, base string) ([]Diagnostic, error) {
 			}
 			found = true
 			ref := strings.TrimSpace(strings.TrimPrefix(text, "spec:"))
-			if err := resolve(root, ref); err != nil {
+			if err := resolve(root, ref); err != nil && (touched || !errors.Is(err, errMalformedCitation)) {
 				diagnostics = append(diagnostics, Diagnostic{d.File, c.Line, d.Name + ": " + err.Error()})
 			}
 		}
-		if !found && (changed == nil || changed[d.File].touches(d)) {
+		if !found && touched {
 			diagnostics = append(diagnostics, Diagnostic{d.File, d.Line, d.Name + ": missing spec citation"})
 		}
 	}
@@ -255,8 +263,11 @@ func testName(name, prefix string) bool {
 
 func resolve(root, ref string) error {
 	path, heading, ok := strings.Cut(ref, "#")
-	if !ok || !strings.HasPrefix(heading, "Requirement: ") || strings.TrimSpace(strings.TrimPrefix(heading, "Requirement: ")) == "" {
-		return fmt.Errorf("malformed spec citation")
+	if !ok {
+		return resolveShorthand(root, ref)
+	}
+	if !strings.HasPrefix(heading, "Requirement: ") || strings.TrimSpace(strings.TrimPrefix(heading, "Requirement: ")) == "" {
+		return errMalformedCitation
 	}
 	if filepath.IsAbs(path) || strings.Contains(path, "\\") || filepath.ToSlash(filepath.Clean(path)) != path || strings.Contains(path, ":") || strings.HasPrefix(path, "../") {
 		return fmt.Errorf("unsafe spec path")
@@ -272,16 +283,69 @@ func resolve(root, ref string) error {
 	if err != nil {
 		return err
 	}
+	count := countRequirement(data, heading)
+	if count != 1 {
+		return fmt.Errorf("requirement resolves %d times: %s", count, ref)
+	}
+	return nil
+}
+
+func resolveShorthand(root, ref string) error {
+	capability, title, ok := strings.Cut(ref, " / ")
+	capability = strings.TrimSpace(capability)
+	title = strings.TrimSpace(title)
+	if !ok || capability == "" || title == "" || capability == "." || capability == ".." || strings.ContainsAny(capability, "/\\:") {
+		return errMalformedCitation
+	}
+	heading := "Requirement: " + title
+	canonical := filepath.Join(root, "openspec", "specs", capability, "spec.md")
+	var canonicalErr error
+	if data, err := readSpec(root, canonical); err == nil {
+		if count := countRequirement(data, heading); count == 1 {
+			return nil
+		} else if count > 1 {
+			return fmt.Errorf("requirement resolves %d times: %s", count, ref)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		canonicalErr = err
+	}
+	matches, _ := fs.Glob(os.DirFS(root), "openspec/changes/*/specs/*/spec.md")
+	count := 0
+	var inflightErr error
+	for _, m := range matches {
+		parts := strings.Split(filepath.ToSlash(m), "/")
+		if len(parts) != 6 || parts[2] == "archive" || parts[4] != capability {
+			continue
+		}
+		data, err := readSpec(root, filepath.Join(root, filepath.FromSlash(m)))
+		if err != nil {
+			if inflightErr == nil {
+				inflightErr = err
+			}
+			continue
+		}
+		count += countRequirement(data, heading)
+	}
+	if canonicalErr != nil {
+		return canonicalErr
+	}
+	if inflightErr != nil {
+		return inflightErr
+	}
+	if count != 1 {
+		return fmt.Errorf("requirement resolves %d times: %s", count, ref)
+	}
+	return nil
+}
+
+func countRequirement(data, heading string) int {
 	count := 0
 	EachUnfencedLine(data, func(line string) {
 		if line == "### "+heading {
 			count++
 		}
 	})
-	if count != 1 {
-		return fmt.Errorf("requirement resolves %d times: %s", count, ref)
-	}
-	return nil
+	return count
 }
 
 // readSpec resolves symlinks, refuses paths leaving root, and returns UTF-8 content.

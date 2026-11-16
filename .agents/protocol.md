@@ -66,7 +66,7 @@ Shared truth lives in the repository's versioned code, `openspec/` specs and cha
 
 ## Test-to-spec attribution
 
-Run `ateam test-spec` (or `task test:spec`) to deterministically validate every Go `Test`, `Fuzz`, and executable `Example` declaration and every Vitest `it`/`test` declaration. Attach one or more line comments directly to the declaration, naming existing repository-relative specifications and exact requirement headings:
+Run `ateam test-spec` (or `task test:spec`) to deterministically validate every Go `Test`, `Fuzz`, and executable `Example` declaration and every Vitest `it`/`test` declaration. Attach one or more line comments directly to the declaration, naming an existing repository-relative specification and exact requirement heading (or the `<capability> / <exact title>` shorthand):
 
 ```go
 // spec: openspec/specs/harness/spec.md#Requirement: OpenSpec queue and stray Hold detection
@@ -75,7 +75,7 @@ func TestOpenSpecQueueAndCheck(t *testing.T) {
 }
 ```
 
-Multiple requirements use separate `// spec:` lines. Go subtests inherit the top-level declaration; each Vitest test needs its own immediately preceding comment, without inheritance from `describe`. Missing, malformed, dangling, and escaping references fail the gate. Keep references current when requirements move or are renamed. The checker excludes benchmark functions and fixture source inside string literals; generated test source is not exempt. Dependency, VCS, worktree, and build-output directories are excluded. In a repository with uncited legacy tests, `ateam test-spec --base <ref>` reports a missing citation only for tests whose lines or attached comments changed since the merge base of `<ref>` (uncommitted and untracked files included); broken citations still fail everywhere, and an unresolvable `<ref>` or a shallow clone exits 2 ([brownfield guide](../docs/brownfield.md#5-gate-new-tests-first)).
+Multiple requirements use separate `// spec:` lines. `// spec: <capability> / <exact title>` resolves `### Requirement: <exact title>` in `openspec/specs/<capability>/spec.md` first and, when absent there, across non-archived `openspec/changes/<change>/specs/<capability>/spec.md`. Go subtests inherit the top-level declaration; each Vitest test needs its own immediately preceding comment, without inheritance from `describe`. Missing, malformed, dangling, and escaping references fail the gate. Keep references current when requirements move or are renamed. The checker excludes benchmark functions and fixture source inside string literals; generated test source is not exempt. Dependency, VCS, worktree, and build-output directories are excluded. In a repository with uncited legacy tests, `ateam test-spec --base <ref>` reports a missing or malformed citation only for tests whose lines or attached comments changed since the merge base of `<ref>` (uncommitted and untracked files included); dangling target citations and source parse errors still fail everywhere, and an unresolvable `<ref>` or a shallow clone exits 2 ([brownfield guide](../docs/brownfield.md#5-gate-new-tests-first)).
 
 A test may instead (or also) carry `//aip:verifies <IDs>` (no space after `//`; the spaced form is a diagnostic), naming one or more space-separated scenario IDs. Each ID resolves when a line outside code fences in a canonical `openspec/specs/*/spec.md` or in-flight `openspec/changes/<change>/specs/*/spec.md` (never `archive/`) is `#### Scenario: <ID>` followed by a space or end of line; an empty or unknown ID fails.
 

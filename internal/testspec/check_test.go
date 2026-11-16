@@ -104,6 +104,45 @@ func TestReferenceRefusals(t *testing.T) {
 	})
 }
 
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Attached test citations
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Safe requirement resolution
+func TestCapabilityShorthand(t *testing.T) {
+	for _, tc := range []struct {
+		name, ref, want string
+		files           map[string]string
+	}{
+		{"canonical match", "demo / Works", "", nil},
+		{"title with slash", "demo / Works / Quickly", "", map[string]string{"openspec/specs/demo/spec.md": "### Requirement: Works / Quickly\n"}},
+		{"in-flight fallback when missing from canonical", "demo / New", "", map[string]string{"openspec/changes/c/specs/demo/spec.md": "### Requirement: New\n"}},
+		{"in-flight fallback when canonical capability absent", "fresh / New", "", map[string]string{"openspec/changes/c/specs/fresh/spec.md": "### Requirement: New\n"}},
+		{"canonical wins over in-flight duplicate", "demo / Works", "", map[string]string{"openspec/changes/c/specs/demo/spec.md": "### Requirement: Works\n"}},
+		{"archived change rejected", "demo / Archived", "requirement resolves 0 times: demo / Archived", map[string]string{"openspec/changes/archive/2026-01-01-c/specs/demo/spec.md": "### Requirement: Archived\n"}},
+		{"change named archive rejected", "demo / Archived", "requirement resolves 0 times: demo / Archived", map[string]string{"openspec/changes/archive/specs/demo/spec.md": "### Requirement: Archived\n"}},
+		{"duplicate in canonical rejected", "demo / Works", "requirement resolves 2 times: demo / Works", map[string]string{"openspec/specs/demo/spec.md": "### Requirement: Works\n### Requirement: Works\n"}},
+		{"duplicate across in-flight changes rejected", "demo / New", "requirement resolves 2 times: demo / New", map[string]string{
+			"openspec/changes/a/specs/demo/spec.md": "### Requirement: New\n",
+			"openspec/changes/b/specs/demo/spec.md": "### Requirement: New\n",
+		}},
+		{"missing requirement rejected", "demo / Absent", "requirement resolves 0 times: demo / Absent", nil},
+		{"nested capability rejected as malformed", "sub/demo / Works", "malformed spec citation", nil},
+		{"dotdot capability rejected as malformed", ".. / Works", "malformed spec citation", nil},
+		{"no spaces around slash rejected as malformed", "demo/Works", "malformed spec citation", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := fixture(t, "package p\n// spec: "+tc.ref+"\nfunc TestWorks(t *testing.T) {}", "### Requirement: Works\n")
+			writeFiles(t, root, tc.files)
+			ds, err := Check(context.Background(), root, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := Format(ds)
+			if tc.want == "" && got != "" || tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Fatalf("shorthand verdict: got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // spec: openspec/specs/test-attribution/spec.md#Requirement: Deterministic discovery and verification
 func TestDiscoveryAndDeterminism(t *testing.T) {
 	root := fixture(t, "package p\nfunc TestZ(t *testing.T) {}\n", "### Requirement: Works\n")
