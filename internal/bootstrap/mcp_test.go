@@ -347,3 +347,91 @@ func TestClientContextCompactionLimits(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Client-readable MCP registration
+func TestCheckRelativeCommandPaths(t *testing.T) {
+	replaceFile := func(t *testing.T, root, rel, oldText, repl string) {
+		t.Helper()
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		updated := strings.ReplaceAll(string(data), oldText, repl)
+		if updated == string(data) {
+			t.Fatalf("replace %q in %s made no change", oldText, rel)
+		}
+		if err := os.WriteFile(p, []byte(updated), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("default bare ateam produces no warnings", func(t *testing.T) {
+		root := t.TempDir()
+		if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
+			t.Fatal(err)
+		}
+		if got := CheckRelativeCommandPaths(root); len(got) != 0 {
+			t.Fatalf("want no warnings on default init, got %v", got)
+		}
+	})
+
+	t.Run("relative hook and MCP commands warn without failing parity", func(t *testing.T) {
+		root := t.TempDir()
+		if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
+			t.Fatal(err)
+		}
+		replaceFile(t, root, ".claude/settings.json", `"ateam hook`, `"scripts/ateam hook`)
+		replaceFile(t, root, ".codex/hooks.json", `"ateam hook`, `"./bin/ateam hook`)
+		replaceFile(t, root, ".gemini/settings.json", `"ateam hook`, `"scripts/ateam hook`)
+		replaceFile(t, root, ".agents/hooks.json", `"ateam hook`, `"scripts/ateam hook`)
+		replaceFile(t, root, ".mcp.json", `"command": "ateam"`, `"command": "scripts/ateam"`)
+		replaceFile(t, root, ".codex/config.toml", `command = "ateam"`, `command = "scripts/ateam"`)
+		replaceFile(t, root, ".gemini/settings.json", `"command": "ateam"`, `"command": "scripts/ateam"`)
+		replaceFile(t, root, ".agents/plugins/ateam/mcp_config.json", `"command": "ateam"`, `"command": "scripts/ateam"`)
+
+		if violations := CheckParity(root); len(violations) != 0 {
+			t.Fatalf("expected 0 parity violations for relative paths, got %v", violations)
+		}
+		got := CheckRelativeCommandPaths(root)
+		want := []string{
+			`.claude/settings.json: hook command "scripts/ateam" is a relative path and resolves from the session working directory, so sessions must start at the checkout root (see https://github.com/C360Studio/ateam#install-a-release-adopters)`,
+			`.codex/hooks.json: hook command "./bin/ateam" is a relative path and resolves from the session working directory, so sessions must start at the checkout root (see https://github.com/C360Studio/ateam#install-a-release-adopters)`,
+			`.gemini/settings.json: hook command "scripts/ateam" is a relative path and resolves from the session working directory, so sessions must start at the checkout root (see https://github.com/C360Studio/ateam#install-a-release-adopters)`,
+			`.agents/hooks.json: hook command "scripts/ateam" is a relative path and resolves from the session working directory, so sessions must start at the checkout root (see https://github.com/C360Studio/ateam#install-a-release-adopters)`,
+			`.mcp.json: MCP command "scripts/ateam" is a relative path and resolves from the session working directory, so sessions must start at the checkout root (see https://github.com/C360Studio/ateam#install-a-release-adopters)`,
+			`.codex/config.toml: MCP command "scripts/ateam" is a relative path and resolves from the session working directory, so sessions must start at the checkout root (see https://github.com/C360Studio/ateam#install-a-release-adopters)`,
+			`.gemini/settings.json: MCP command "scripts/ateam" is a relative path and resolves from the session working directory, so sessions must start at the checkout root (see https://github.com/C360Studio/ateam#install-a-release-adopters)`,
+			`.agents/plugins/ateam/mcp_config.json: MCP command "scripts/ateam" is a relative path and resolves from the session working directory, so sessions must start at the checkout root (see https://github.com/C360Studio/ateam#install-a-release-adopters)`,
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %d warnings %v, want %d %v", len(got), got, len(want), want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("warning[%d] = %q, want %q", i, got[i], want[i])
+			}
+		}
+	})
+
+	t.Run("absolute paths, host variables, tilde paths, and MCP cwd do not warn", func(t *testing.T) {
+		root := t.TempDir()
+		if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
+			t.Fatal(err)
+		}
+		replaceFile(t, root, ".claude/settings.json", `"ateam hook`, `"\"$CLAUDE_PROJECT_DIR\"/scripts/ateam hook`)
+		replaceFile(t, root, ".gemini/settings.json", `"ateam hook`, `"$GEMINI_PROJECT_DIR/scripts/ateam hook`)
+		replaceFile(t, root, ".codex/hooks.json", `"ateam hook`, `"/usr/local/bin/ateam hook`)
+		replaceFile(t, root, ".agents/hooks.json", `"ateam hook`, `"~/bin/ateam hook`)
+		if err := os.WriteFile(filepath.Join(root, ".mcp.json"), []byte(`{"mcpServers":{"ateam":{"type":"stdio","command":"scripts/ateam","args":["mcp"],"cwd":"/repo"}}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		replaceFile(t, root, ".codex/config.toml", `command = "ateam"`, "command = \"scripts/ateam\"\ncwd = \"/repo\"")
+		replaceFile(t, root, ".gemini/settings.json", `"command": "ateam"`, `"command": "$GEMINI_PROJECT_DIR/scripts/ateam"`)
+		replaceFile(t, root, ".agents/plugins/ateam/mcp_config.json", `"command": "ateam"`, `"command": "/usr/local/bin/ateam"`)
+
+		if got := CheckRelativeCommandPaths(root); len(got) != 0 {
+			t.Fatalf("expected 0 warnings for exempt forms, got %v", got)
+		}
+	})
+}

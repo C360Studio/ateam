@@ -95,7 +95,7 @@ GOBIN="$PWD/.tools/bin" go install github.com/c360studio/ateam/cmd/ateam@v0.3.9
 
 Hooks run the command written in the hook config, and `ateam init` writes a bare `ateam`, which resolves on the agent's `PATH`, not to the repository's pin. To run the pinned binary, change the hook commands to its path, for example `"$CLAUDE_PROJECT_DIR"/.tools/bin/ateam hook --event … --agent claude` in `.claude/settings.json`; `ateam doctor` accepts any hook command whose program ends in `/ateam`. In a linked worktree, `$CLAUDE_PROJECT_DIR` is that worktree, whose `.tools/bin` is empty unless you install there too. Either install into each worktree, or commit a small wrapper such as `scripts/ateam` that execs the main checkout's `.tools/bin/ateam` (found from the worktree's `.git` file, without forking `git`, to keep within the hook budget), and name the wrapper in the hook commands.
 
-A program path with a slash, such as `scripts/ateam`, resolves against the hook's or MCP server's working directory, not `PATH`, so it exits 127 in a session started below the checkout root (for example in `ui/`). No host was found to hand hooks the repository root (#339):
+A program path with a slash, such as `scripts/ateam`, resolves against the hook's or MCP server's working directory, not `PATH`, so it exits 127 in a session started below the checkout root (for example in `ui/`). `ateam doctor` warns (without failing `--check`) when a hook command or an `ateam` MCP registration without `cwd` uses such a relative path (#378). No host was found to hand hooks the repository root (#339):
 
 | Host | Hook working directory and variable | Wiring |
 | --- | --- | --- |

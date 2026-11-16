@@ -614,6 +614,7 @@ func runDoctor(repoRoot string, args []string) int {
 	warnings = append(warnings, bootstrap.CheckUnarchivedOpenSpecChanges(repoRoot)...)
 	warnings = append(warnings, bootstrap.CheckMergeMethodDocs(repoRoot)...)
 	warnings = append(warnings, bootstrap.CheckDeprecatedPolicyKeys(repoRoot)...)
+	warnings = append(warnings, bootstrap.CheckRelativeCommandPaths(repoRoot)...)
 	latencyWarning, latencyViolation := hookLatencyFindings(hookUs)
 	if latencyWarning != "" {
 		warnings = append(warnings, latencyWarning)
