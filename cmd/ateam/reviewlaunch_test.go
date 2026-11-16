@@ -132,6 +132,26 @@ func TestLoadHostManifest(t *testing.T) {
 			}
 		})
 	}
+	t.Run("shipped-herdr-gemini", func(t *testing.T) {
+		shipped, err := loadHostManifest(repoRoot, "herdr")
+		if err != nil || shipped == nil {
+			t.Fatalf("shipped herdr manifest = %+v, %v", shipped, err)
+		}
+		geminiValues := map[string]string{
+			"pr":        "277",
+			"prompt":    "/review-pr 277",
+			"sha":       "0123456789abcdef0123456789abcdef01234567",
+			"agent":     "gemini",
+			"model":     "gemini-4-carbon",
+			"effort":    "high",
+			"return_to": "pane-1",
+		}
+		expanded := expandArgs([]string{shipped.Launch.Tool}, geminiValues)[0]
+		if !strings.Contains(expanded, "provider gemini, model gemini-4-carbon, reasoning effort high") ||
+			!strings.Contains(expanded, "gemini -m M has no CLI effort flag and runs at its CLI default effort rather than high") {
+			t.Fatalf("shipped herdr gemini launch tool does not disclose CLI default effort caveat:\n%s", expanded)
+		}
+	})
 }
 
 // spec: openspec/specs/model-review/spec.md#Requirement: Review request spec
