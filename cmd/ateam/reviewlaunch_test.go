@@ -108,6 +108,30 @@ func TestLoadHostManifest(t *testing.T) {
 			}
 		})
 	}
+
+	repoRoot := filepath.Join("..", "..")
+	values := map[string]string{
+		"pr":        "277",
+		"prompt":    "/review-pr 277",
+		"sha":       "0123456789abcdef0123456789abcdef01234567",
+		"agent":     "codex",
+		"model":     "gpt-6-astra",
+		"effort":    "low",
+		"return_to": "conv-1",
+	}
+	for _, host := range []string{"enjoy", "t3code", "herdr"} {
+		t.Run("shipped-"+host, func(t *testing.T) {
+			shipped, err := loadHostManifest(repoRoot, host)
+			if err != nil || shipped == nil || shipped.Launch.Tool == "" {
+				t.Fatalf("shipped %s manifest = %+v, %v; want non-empty Launch.Tool", host, shipped, err)
+			}
+			expanded := expandArgs([]string{shipped.Launch.Tool}, values)[0]
+			wantInPrompt := "provider codex, model gpt-6-astra, reasoning effort low"
+			if !strings.Contains(expanded, wantInPrompt) || !strings.Contains(expanded, "reviewed-by: line") {
+				t.Fatalf("shipped %s launch tool does not state launch settings in reviewer prompt:\n%s", host, expanded)
+			}
+		})
+	}
 }
 
 // spec: openspec/specs/model-review/spec.md#Requirement: Review request spec

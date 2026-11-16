@@ -1012,6 +1012,10 @@ When `.agents/hosts/<host>.toml` exists for the detected host, ateam SHALL read 
 - **WHEN** the manifest is not valid TOML or `launch` is not an array of strings
 - **THEN** `ateam review request` exits non-zero with a fixed-text reason
 
+#### Scenario: Shipped host manifests name the selected reviewer run
+- **WHEN** `.agents/hosts/enjoy.toml`, `.agents/hosts/t3code.toml`, or `.agents/hosts/herdr.toml` expands `[launch] tool`
+- **THEN** the reviewer prompt names `{agent}`, `{model}`, and `{effort}` and tells the reviewer to use them in `reviewed-by:`
+
 ### Requirement: Review record in the forge cache and pickup
 `ateam state sync` SHALL fetch the comments of open pull requests whose head branch has a local worktree, inside the existing comment budget, and keep the newest review record's sha, verdict, agent, model and effort on the PR card. Pickup and session-start SHALL print that record on the worktree's line from the cache alone, with no network call.
 

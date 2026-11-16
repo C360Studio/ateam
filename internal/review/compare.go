@@ -209,9 +209,20 @@ func (p Policy) EligibleReviewers(implementers []Run) []Candidate {
 	return out
 }
 
-// bandValue returns the provider's first native effort value in band, or "".
+// bandValue returns the provider's default native effort value in band, or "".
+// For the low band it prefers "low" when present so host launches do not default
+// to "none" or "minimal", which hosts such as Enjoy and GPT-6 Astra / Sol / Gemini
+// models reject, while Compare still accepts "none" and "minimal" (#379).
 func (p Policy) bandValue(provider string, band int) string {
-	if values := p.bandsOf(provider)[band]; len(values) > 0 {
+	values := p.bandsOf(provider)[band]
+	if band == 0 {
+		for _, v := range values {
+			if strings.EqualFold(v, "low") {
+				return v
+			}
+		}
+	}
+	if len(values) > 0 {
 		return values[0]
 	}
 	return ""
