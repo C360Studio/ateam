@@ -159,6 +159,13 @@ func samePath(a, b string) bool {
 // remote branch still points at the local head, its origin branch. Every other linked worktree is listed
 // with the reason it was kept. force overrides only the occupancy check. It reports whether any git step failed.
 func Prune(ctx context.Context, root string, st *State, agent string, dryRun, force bool, w io.Writer) (failed bool) {
+	if st != nil && strings.TrimSpace(st.BoardSyncError) != "" {
+		syncedDisplay := "never"
+		if activeSync := st.SyncedAtFor(st.Forge); !activeSync.IsZero() {
+			syncedDisplay = activeSync.UTC().Format(time.RFC3339)
+		}
+		fmt.Fprintf(w, "WARNING: Forge board sync failed (serving cached board, synced=%s): %s\n", syncedDisplay, strings.TrimSpace(st.BoardSyncError))
+	}
 	for _, wt := range st.Git.Worktrees {
 		branch := strings.TrimSpace(wt.Branch)
 		name := branch

@@ -439,7 +439,7 @@ func runStateSync(repoRoot string, args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	st, err := state.Refresh(ctx, repoRoot, false)
 	if err != nil {
