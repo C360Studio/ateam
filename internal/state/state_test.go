@@ -129,6 +129,46 @@ func TestScanShortcutsAnyCaseAndSkipsTestArtifacts(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Inline shortcut inventory
+func TestScanShortcutsRustPythonAndNestedBuildDirs(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"src/lib.rs":                       "// shortcut: blocking read, switch to async when the bus lands\n",
+		"tools/gen.py":                     "# shortcut: single-threaded, parallelize past 10k files\n",
+		"target/debug/build/out.rs":        "// shortcut: cargo output at the root, never scanned\n",
+		"firmware/pilot/target/gen/out.rs": "// shortcut: nested cargo output, never scanned\n",
+		"firmware/pilot/src/main.rs":       "fn main() {}\n",
+		".venv/lib/site.py":                "# shortcut: virtualenv, never scanned\n",
+		"tools/__pycache__/gen.cpython.py": "# shortcut: bytecode cache dir, never scanned\n",
+	}
+	for name, body := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := ScanShortcuts(dir)
+	if err != nil {
+		t.Fatalf("ScanShortcuts: %v", err)
+	}
+	got := map[string]string{}
+	for _, it := range items {
+		got[it.File] = it.Limit
+	}
+	want := map[string]string{"src/lib.rs": "blocking read", "tools/gen.py": "single-threaded"}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want only %v", items, want)
+	}
+	for f, limit := range want {
+		if got[f] != limit {
+			t.Errorf("%s: limit %q, want %q (all: %+v)", f, got[f], limit, items)
+		}
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Inline shortcut inventory
 func FuzzContainsShortcutFold(f *testing.F) {
 	for _, seed := range []string{
 		"", ":", "shortcut:", "SHORTCUT:", "ShortCut:", "// shortcut", "shortcuts:", "hortcut:",

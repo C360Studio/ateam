@@ -42,6 +42,9 @@ var skippedDirs = map[string]bool{
 	"docs":              true,
 	"testdata":          true,
 	"benchmarks":        true,
+	"target":            true,
+	".venv":             true,
+	"__pycache__":       true,
 }
 
 var sourceExts = map[string]bool{
@@ -52,6 +55,8 @@ var sourceExts = map[string]bool{
 	".sh":     true,
 	".yml":    true,
 	".yaml":   true,
+	".rs":     true,
+	".py":     true,
 }
 
 // ScanShortcuts walks root and extracts all // shortcut: <limit>, <when to upgrade> comments.
