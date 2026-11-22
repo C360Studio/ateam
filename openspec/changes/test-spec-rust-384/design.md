@@ -11,7 +11,7 @@ Drafted by claude (claude-opus-5-5, high) as architect; read-only on code. Owner
 - `diff.go:20-33`: `--base` scoping touches lines `Comments[0].Line .. max(End, Line)`; a Rust scanner must report `End` (closing brace) for this to work.
 - `openspec/specs/test-attribution/spec.md:11,22`: attachment rule is "immediately preceding comment group"; block comments never count. `:69`: excluded-directory list has no `target`.
 - `.agents/protocol.md:67-80` and its emitted copy `internal/bootstrap/templates.go:303-305` name Go and Vitest only; `docs/adoption.md:60` likewise.
-- `go.mod` carries no Rust or tree-sitter dependency today.
+- `go.mod` carries no Rust or tree-sitter dependency today. Sibling precedent: semsource parses Rust with `github.com/smacker/go-tree-sitter` (its `go.mod:16`), built with `CGO_ENABLED=1` (its `Dockerfile:20`), which is option C below.
 
 ## Goals / Non-Goals
 
@@ -39,7 +39,7 @@ Adopter seam: with A, a Rust repo needs nothing installed beyond the `ateam` bin
 | B. Any path whose last segment is `test` | Picks up `async_std::test`, `actix_rt::test`, `sqlx::test` | A non-test proc-macro named `test` would need a citation |
 | C. A, plus fail closed on known test-generating macros (`rstest`, `test_case`, `wasm_bindgen_test`) | No silent gaps for the common crates | Adopters using them cannot pass the gate until supported |
 
-**OPEN-Q (owner ruling): A, B, or C?** Draft recommends **B**: the issue's two forms plus the async-runtime family at no added code, documented as "any attribute path ending in `test`".
+**Ruled B (owner, 2026-11-22):** any attribute path whose last segment is `test` (`test`, `tokio::test`, `async_std::test`, `sqlx::test`, with any arguments), documented as such.
 
 ### D3. Attachment
 
@@ -47,7 +47,7 @@ Rust stacks attributes and doc comments between prose and `fn`. Options: (A) the
 
 ### D4. Fail-closed forms
 
-A test attribute followed by something other than an `fn` item, a function named by a macro metavariable (`fn $name`), or an unterminated string/comment/brace produces a `declaration.Error` (exit 1), the same as a Go parse error (`check.go:214-220`). Alternative: skip silently. Skipping keeps `macro_rules!` test generators passing but hides them; failing closed matches the existing Vitest rule for unsupported call forms. **Recommended: fail closed**, with the protocol naming the escape hatch (cite a hand-written wrapper test).
+A test attribute followed by something other than an `fn` item, a function named by a macro metavariable (`fn $name`), or an unterminated string/comment/brace produces a `declaration.Error` (exit 1), the same as a Go parse error (`check.go:214-220`). Alternative: skip silently. Skipping keeps `macro_rules!` test generators passing but hides them; failing closed matches the existing Vitest rule for unsupported call forms. **Ruled fail closed (owner, 2026-11-22)**, with the protocol naming the escape hatch (cite a hand-written wrapper test).
 
 ### D5. Declaration name and scope
 
@@ -65,6 +65,5 @@ No data migration. Released in v0.4.3; adopters on a pin bump see Rust tests bec
 
 ## Open Questions
 
-1. **OPEN-Q (owner): D2 attribute set: A, B (recommended) or C?**
-2. Owner confirm D4 fail-closed for macro-generated tests (recommended) vs silent skip.
-3. Non-blocking: should `benches/` `#[bench]` functions be selected? Draft: no, matching Go's benchmark exclusion.
+1. Resolved: D2 B and D4 fail closed (owner, 2026-11-22).
+2. Non-blocking: should `benches/` `#[bench]` functions be selected? Draft: no, matching Go's benchmark exclusion.

@@ -1,4 +1,5 @@
 # Proposal: test-spec-rust-384
+Approved-by: Coby Leuschke (2026-11-22) sha256:7bec170ee188
 
 ## Track
 
@@ -10,7 +11,7 @@
 
 ## What Changes
 
-1. Discover `.rs` files anywhere outside excluded directories (adding `target`), independent of Cargo workspace membership, and select functions whose attribute stack carries a test attribute (`#[test]`, `#[tokio::test]`, with arguments), in inline `#[cfg(test)] mod` blocks and `tests/*.rs` alike.
+1. Discover `.rs` files anywhere outside excluded directories (adding `target`), independent of Cargo workspace membership, and select functions whose attribute stack carries an attribute whose path ends in `test` (`#[test]`, `#[tokio::test]`, `#[async_std::test]`, any arguments), in inline `#[cfg(test)] mod` blocks and `tests/*.rs` alike.
 2. Attach citations with the Go rule: the contiguous `//` line-comment group directly above the declaration; attributes and `///` doc comments inside the stack do not break attachment, a blank line does.
 3. Parse with a small Go-native Rust lexer (comments, nested block comments, strings, raw strings, char literals, braces) so tests inside strings or macro bodies are handled deterministically, no Rust toolchain required. `--base` scoping uses the function's closing brace.
 4. New Requirement *Rust test declarations* in `test-attribution`; *Deterministic test-to-spec attribution* in `harness` names Rust; protocol § *Test-to-spec attribution* and `docs/adoption.md` name Rust and its limits.
