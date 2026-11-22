@@ -9,4 +9,4 @@
 - [x] 2.1 Add the Rust section to `docs/adoption.md`, fix its `ateam test-spec` and `ateam mutate` rows, and point `docs/brownfield.md` at it.
 - [x] 2.2 Reword the Go-only spots in `internal/bootstrap/templates.go` (rules rows, protocol mutation and generated-check steps, limits sentence) and name `cargo-mutants` in `.agents/protocol.md`.
 - [x] 2.3 Add the harness scenario; check a fresh `ateam init` fixture with `ateam doctor --check`.
-- [ ] 2.4 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
+- [x] 2.4 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
