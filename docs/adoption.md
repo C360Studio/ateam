@@ -11,9 +11,9 @@ See [bringing ateam into an existing repository](brownfield.md) for a worked pat
 | `ateam init` | Writes the same templates regardless of language across Claude Code, Codex CLI, Gemini CLI, and Antigravity (`agy` via `.agents/hooks.json` and `.agents/plugins/ateam/`), including ~500k token context/auto-compaction defaults where supported (`.claude/settings.json`, `.codex/config.toml`, `.gemini/settings.json`). Leaves existing role contracts under `.agents/contracts/` in place; [link them to the base contracts](brownfield.md#existing-specialist-contracts). Does not inspect manifests to select a toolchain, create a Taskfile, install tools, or migrate existing configuration. Existing client configuration is always preserved, including with `--force`; that flag replaces generated documents and adapters, first copying a hand-written `AGENTS.md`, `CLAUDE.md`, `.agents/protocol.md` or `.agents/rules-index.md` to `<name>.ateam-backup-<YYYYMMDD-HHMMSS>`; missing files are added and ignore entries are appended. |
 | Hooks, modes, pickup/handoff, forge state, board | Operate on repository/session metadata rather than a language compiler. This is architectural portability, not evidence of complete support for every project or agent version. |
 | OpenSpec tracks (`spec-queue`, `spec-check`) | Language-independent workflow files under `openspec/`. Non-trivial changes declare `quick` (`proposal.md` + `tasks.md`, no `design.md`) or `design` (adds `design.md` via `/design` and `.agents/contracts/architect.md` when a Requirement, cross-capability change, adopter surface, boot/durability path, or gate file is in scope), gated on `Approved-by: <name> (<YYYY-MM-DD>) sha256:<12 hex>` in `proposal.md` (bound to the digest of `proposal.md` and `design.md`; `spec-check` fails once it is stale) and Task 1's `Hold: OPEN-Q proposal awaits owner approval`. `ateam state spec-check` enforces task-scoped `Hold:` placement in Go, warns without failing past 60 lines (`proposal.md`) or 120 lines (`design.md`), and runs `openspec validate --all --strict --no-interactive` when `node_modules/.bin/openspec` or `openspec` on `PATH` exists (printing a skip notice otherwise). `ateam init` writes `openspec/config.yaml` as `schema: spec-driven` plus the `rules: design:` that `.agents/skills/design/SKILL.md` also carries, so `openspec instructions design` shows them; an existing `openspec/config.yaml` is left untouched. Triggers are reviewed by humans/agents, not diff-parsed, and `ateam review gate` prints a non-blocking note when a code PR's OpenSpec change lacks `Approved-by:`. |
-| `ateam test-spec` | Validates attached `// spec:` references on Go Test/Fuzz/executable Example and Vitest declarations against exact OpenSpec requirement headings. This is syntactic attribution, not semantic coverage. A brownfield repository starts with `--base <ref>`, which gates only tests changed since `<ref>` ([brownfield guide](brownfield.md#5-gate-new-tests-first)). Other test frameworks/languages need project-owned enforcement; initialization does not create a Taskfile gate. See [the protocol](../.agents/protocol.md#test-to-spec-attribution). |
+| `ateam test-spec` | Validates attached `// spec:` references on Go Test/Fuzz/executable Example, Vitest, and Rust (`#[test]`-style attribute) declarations against exact OpenSpec requirement headings. This is syntactic attribution, not semantic coverage. A brownfield repository starts with `--base <ref>`, which gates only tests changed since `<ref>` ([brownfield guide](brownfield.md#5-gate-new-tests-first)). Other test frameworks/languages need project-owned enforcement; initialization does not create a Taskfile gate. See [the protocol](../.agents/protocol.md#test-to-spec-attribution). |
 | `ateam review` | Optional project-approved model comparisons and independent review evidence. Requires explicit policy; does not launch models, enforce a runtime sandbox, or install branch protection. See [model review](model-review.md). |
-| `ateam mutate` | Requires a non-test `.go` target, an external mutant copy, and a working Go test environment. Rejects other source extensions before starting tests. There is no Python, Rust, or JavaScript mutation runner. |
+| `ateam mutate` | Requires a non-test `.go` target, an external mutant copy, and a working Go test environment. Rejects other source extensions before starting tests. Rust adopters run `cargo-mutants` instead ([Rust repositories](#rust-repositories)); there is no Python or JavaScript recipe. |
 | `ateam state debt` | Scans only `.go`, `.ts`, `.js`, `.svelte`, `.sh`, `.yml`, `.yaml`, `.rs`, `.py`. Skips `_test.go` and `.test.ts`, plus generated/dependency directories at any depth such as `vendor`, `node_modules`, `dist`, `build`, `target`, `.venv`, and `__pycache__`. Extensionless `Dockerfile` and `.toml` (`Cargo.toml`) are not scanned by decision (#383): keep build-file shortcuts in a scanned script or source file. Java, JSX, and TSX files are skipped, not diagnosed as unsupported. |
 | Shortcut syntax | A line must begin with optional whitespace followed by `//`, `#`, or `--`, then `shortcut:`. The first comma separates the limit from its revisit trigger. This is a text scan, not a language parser; trailing code comments and HTML comments are not recognized. |
 | `ateam task` / `ateam_task` | Requires a project-owned `Taskfile.yml` and the Task executable to run targets. Target discovery asks `task --list-all --json`, so Task v3 `includes:` targets are listed and accepted (#206); when the Task executable is absent or fails, it falls back to two-space-indented top-level tasks in the root `Taskfile.yml`. Missing Taskfiles or unknown targets produce errors. |
@@ -21,6 +21,45 @@ See [bringing ateam into an existing repository](brownfield.md) for a worked pat
 | `ateam bench` | Runs built-in offline self-tests (`--selftest`, `--rescore`) and paired Go benchmark experiments (`run`, `compare`, `rescore`) with command or native API adapters (`claude`, `codex`, `gemini`) and versioned instruction bundles ([benchmarks/README.md](../benchmarks/README.md)). Does not benchmark arbitrary non-Go repositories or prove general agent performance gains on real project work. |
 
 Sources: [scanner](../internal/state/shortcut.go), [initialization](../internal/bootstrap/bootstrap.go), [task runner](../internal/taskrunner/taskrunner.go), [mutation runner](../internal/mutate/mutate.go), [CLI](../cmd/ateam/main.go), and [benchmark fixtures](../internal/bench/bench.go).
+
+## Rust repositories
+
+What a Cargo repository gets, as of v0.4.3. Owner rulings are on #385 and #386; the first adopter was a Cargo workspace with one crate excluded from it.
+
+**Works unchanged.** Hooks, MCP, modes, pickup/handoff, forge state and the merge gate, OpenSpec tracks, and `ateam doctor` read repository and session metadata, not a compiler.
+
+**Rust-aware.** `ateam state debt` scans `.rs` and skips `target/` at any depth. `ateam test-spec` gates every function whose outer attribute path ends in `test` (`#[test]`, `#[tokio::test]`, `#[async_std::test]`), found by path whether or not its crate is a workspace member, with no Rust toolchain; macro-generated tests fail closed ([protocol](../.agents/protocol.md#test-to-spec-attribution)).
+
+**Mutation evidence: `cargo-mutants`.** `ateam mutate` stays Go-only. Install `cargo-mutants` yourself and run it on the code a test covers, for example `cargo mutants --file src/frame.rs`. It mutates a copy of the tree, so the working tree stays untouched, and writes each outcome under `mutants.out/` (gitignore it). Report its outcomes in ateam's vocabulary:
+
+| `cargo-mutants` | Report as |
+| --- | --- |
+| `caught` | `detection` |
+| `missed` | `survivor` |
+| `unviable` (does not build) | `invalid` |
+| `timeout`, or the unmutated baseline fails | `inconclusive` |
+
+A repository that builds only in Docker runs `cargo mutants` inside its build container; that is a documented limit, not a blocker.
+
+**Worktrees and excluded crates.** The Claim rule puts worktrees under `.worktrees/` inside the repository. A crate listed in the root manifest's `exclude` then fails with "current package believes it's in a workspace when it's not": cargo skips the worktree's root manifest and walks up to the main checkout's. Add an empty `[workspace]` table to the excluded crate's `Cargo.toml`; member crates are unaffected. An excluded crate also keeps its own `Cargo.lock`; commit it, or `task verify` leaves the tree dirty.
+
+**A `task verify` that passed:**
+
+```yaml
+verify:
+  cmds:
+    - cargo clippy --workspace -- -D warnings
+    - cargo test --workspace
+    - cargo check -p firmware-core --target thumbv7em-none-eabihf   # no_std crates on the embedded target
+    - cargo check --manifest-path boards/pilot/Cargo.toml --features board-a   # excluded crate, per board feature
+    - ateam state spec-check
+    - ateam test-spec
+    - ateam doctor --check
+```
+
+Docker-only: replace the `cargo` lines with `docker build --target test .` (a stage that runs clippy and tests) plus the container smoke tests, and keep the three `ateam` lines on the host.
+
+**Generated instructions.** `ateam init` writes the same text for every language; tool names in it are labelled examples (Go: `gofmt`, `go vet`, `revive`, `testing.F`; Rust: `rustfmt`, `clippy`, `proptest`, `cargo-mutants`). Replace `.agents/rules-index.md` whole with your own rows, as the [brownfield guide](brownfield.md) describes. ateam ships no Rust developer or reviewer contract: add one as an [existing specialist contract](brownfield.md#existing-specialist-contracts) (for example `.agents/contracts/rust-reviewer.md`) that opens by pointing at the base contract.
 
 ## What the host governs
 
