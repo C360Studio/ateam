@@ -85,7 +85,12 @@ func scanRustSource(rel string, data []byte) []declaration {
 		}
 		if isTest {
 			d := rustTestItem(rel, toks, i, mods)
-			d.Start = run[0].tok.line // adding or editing only an attribute still touches the test
+			for _, e := range run { // the item's first attribute, so adding or editing only an attribute touches the test
+				if e.tok.text == "#[" {
+					d.Start = e.tok.line
+					break
+				}
+			}
 			if d.Error == "" {
 				prev := t.line
 				for k := len(run) - 1; k >= 0; k-- {

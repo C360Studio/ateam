@@ -80,11 +80,11 @@ func TestRustSelectionAndAttachment(t *testing.T) {
 		want      []declaration
 	}{
 		{"stacked attributes and doc comment", citation + "#[test]\n/// Doc line.\n#[ignore]\n#[should_panic(expected = \"]\")]\npub(crate) fn stacked() {\n}\n",
-			[]declaration{{File: "x.rs", Line: 6, End: 7, Start: 1, Name: "stacked", Comments: []comment{{1, strings.TrimSuffix(citation, "\n")}, {3, "/// Doc line."}}}}},
+			[]declaration{{File: "x.rs", Line: 6, End: 7, Start: 2, Name: "stacked", Comments: []comment{{1, strings.TrimSuffix(citation, "\n")}, {3, "/// Doc line."}}}}},
 		{"citation between attributes", "#[test]\n" + citation + "fn between() {}\n",
 			[]declaration{{File: "x.rs", Line: 3, End: 3, Start: 1, Name: "between", Comments: []comment{{2, strings.TrimSuffix(citation, "\n")}}}}},
 		{"blank line detaches", citation + "\n#[test]\nfn detached() {}\n",
-			[]declaration{{File: "x.rs", Line: 4, End: 4, Start: 1, Name: "detached"}}},
+			[]declaration{{File: "x.rs", Line: 4, End: 4, Start: 3, Name: "detached"}}},
 		{"trailing code comment does not attach", "let x = 1; " + citation + "#[test]\nfn trailing() {}\n",
 			[]declaration{{File: "x.rs", Line: 3, End: 3, Start: 2, Name: "trailing"}}},
 		{"runtime path ending in test", "#[async_std::test]\nasync fn rt() {}\n#[sqlx :: test]\nasync unsafe fn db() {}\n",
@@ -149,6 +149,8 @@ func TestRustBaseScopeCoversAttributes(t *testing.T) {
 	}{
 		{"adding only a test attribute fails", "fn hidden() {}\n", "#[test]\nfn hidden() {}\n", "src/lib.rs:2: hidden: missing spec citation\n"},
 		{"adding a cited test attribute passes", "fn hidden() {}\n", citation + "#[test]\nfn hidden() {}\n", ""},
+		{"editing a detached header passes", "// License 2025\n\n#[test]\nfn legacy_header() {}\n", "// License 2026\n\n#[test]\nfn legacy_header() {}\n", ""},
+		{"editing an attached comment fails", "// Checks parsing.\n#[test]\nfn noted() {}\n", "// Checks framing.\n#[test]\nfn noted() {}\n", "src/lib.rs:3: noted: missing spec citation\n"},
 		{"removing the sole citation fails", citation + "#[test]\nfn kept() {}\n", "#[test]\nfn kept() {}\n", "src/lib.rs:2: kept: missing spec citation\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
