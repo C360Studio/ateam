@@ -95,7 +95,7 @@ Commands:
   review <subcmd>     Configure model routes and validate commit-bound independent review
   doctor [--check]    Verify multi-agent parity, MCP schema token budget, and hook latency
   bench [flags]       Offline self-tests or paired experiments (run, rescore, compare, export)
-  test-spec [--base <ref>]  Check Go and Vitest test-to-spec citations (--base: only tests changed since <ref>)
+  test-spec [--base <ref>]  Check Go, Vitest, and Rust test-to-spec citations (--base: only tests changed since <ref>)
   mutate [flags]      Run non-destructive Go -overlay mutation check (-pkg, -test, -file, -mutant, -expect/-expect-text)
   serve [flags]       Start embedded SvelteKit PM Board HTTP server (default 127.0.0.1:8420)`)
 }
