@@ -85,6 +85,7 @@ func scanRustSource(rel string, data []byte) []declaration {
 		}
 		if isTest {
 			d := rustTestItem(rel, toks, i, mods)
+			d.Start = run[0].tok.line // adding or editing only an attribute still touches the test
 			if d.Error == "" {
 				prev := t.line
 				for k := len(run) - 1; k >= 0; k-- {
@@ -119,18 +120,24 @@ func scanRustSource(rel string, data []byte) []declaration {
 	if len(mods) > 0 {
 		return []declaration{{File: rel, Line: 1, Error: "parse Rust: unclosed brace"}}
 	}
+	for _, e := range run {
+		if e.test {
+			return append(out, declaration{File: rel, Line: e.tok.line, Error: "test attribute is not on a fn item"})
+		}
+	}
 	return out
 }
 
-// rustTestPath reports whether attribute tokens start with a path whose last segment is `test`.
+// rustTestPath reports whether attribute tokens start with a path whose last segment is `test`, ignoring
+// comments and raw-identifier prefixes (`#[ /* c */ r#test]` is a test).
 func rustTestPath(toks []rustToken) bool {
 	last := ""
 	for _, t := range toks {
 		if t.kind == rustIdent {
-			last = t.text
+			last = strings.TrimPrefix(t.text, "r#")
 			continue
 		}
-		if t.kind == rustPunct && t.text == ":" {
+		if t.kind == rustLineComment || t.kind == rustBlockComment || (t.kind == rustPunct && t.text == ":") {
 			continue
 		}
 		break

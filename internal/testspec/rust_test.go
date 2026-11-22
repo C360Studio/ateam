@@ -51,6 +51,7 @@ func TestRustInlineAndIntegrationTests(t *testing.T) {
 		"target/debug/build/gen.rs":            "#[test]\nfn generated() {}\n",
 		"firmware/pilot/target/release/gen.rs": "#[test]\nfn nested_generated() {}\n",
 		"crates/core/src/fixtures.rs":          "const SRC: &str = r#\"say \"\n#[test]\nfn fake() {}\n\"#;\nconst ESC: &str = r\"\\\";\n// #[test] fn also_fake() {}\n/* #[test] /* nested */ fn fake_block() {} */\n",
+		"crates/core/src/odd.rs":               "#[ /* note */ test]\nfn odd_comment() {}\n#[r#test]\nfn odd_raw() {}\n#[tokio:: /* x */ r#test]\nasync fn odd_path() {}\n",
 		"crates/core/src/lifetimes.rs":         "fn f<'a>(x: &'a str) -> char { let _ = '\\''; let _ = b'}'; 'x' }\n",
 	})
 	ds, err := Check(context.Background(), root, "")
@@ -60,6 +61,9 @@ func TestRustInlineAndIntegrationTests(t *testing.T) {
 	want := strings.Join([]string{
 		"crates/core/src/lib.rs:18: tests::uncited: missing spec citation",
 		"crates/core/src/lib.rs:20: tests::dangling: requirement resolves 0 times: openspec/specs/demo/spec.md#Requirement: Missing",
+		"crates/core/src/odd.rs:2: odd_comment: missing spec citation",
+		"crates/core/src/odd.rs:4: odd_raw: missing spec citation",
+		"crates/core/src/odd.rs:6: odd_path: missing spec citation",
 		"crates/core/tests/wire.rs:12: uncited: missing spec citation",
 		"crates/core/tests/wire.rs:14: dangling: requirement resolves 0 times: openspec/specs/demo/spec.md#Requirement: Missing",
 		"firmware/pilot/src/main.rs:3: outside_workspace: missing spec citation",
@@ -76,18 +80,18 @@ func TestRustSelectionAndAttachment(t *testing.T) {
 		want      []declaration
 	}{
 		{"stacked attributes and doc comment", citation + "#[test]\n/// Doc line.\n#[ignore]\n#[should_panic(expected = \"]\")]\npub(crate) fn stacked() {\n}\n",
-			[]declaration{{File: "x.rs", Line: 6, End: 7, Name: "stacked", Comments: []comment{{1, strings.TrimSuffix(citation, "\n")}, {3, "/// Doc line."}}}}},
+			[]declaration{{File: "x.rs", Line: 6, End: 7, Start: 1, Name: "stacked", Comments: []comment{{1, strings.TrimSuffix(citation, "\n")}, {3, "/// Doc line."}}}}},
 		{"citation between attributes", "#[test]\n" + citation + "fn between() {}\n",
-			[]declaration{{File: "x.rs", Line: 3, End: 3, Name: "between", Comments: []comment{{2, strings.TrimSuffix(citation, "\n")}}}}},
+			[]declaration{{File: "x.rs", Line: 3, End: 3, Start: 1, Name: "between", Comments: []comment{{2, strings.TrimSuffix(citation, "\n")}}}}},
 		{"blank line detaches", citation + "\n#[test]\nfn detached() {}\n",
-			[]declaration{{File: "x.rs", Line: 4, End: 4, Name: "detached"}}},
+			[]declaration{{File: "x.rs", Line: 4, End: 4, Start: 1, Name: "detached"}}},
 		{"trailing code comment does not attach", "let x = 1; " + citation + "#[test]\nfn trailing() {}\n",
-			[]declaration{{File: "x.rs", Line: 3, End: 3, Name: "trailing"}}},
+			[]declaration{{File: "x.rs", Line: 3, End: 3, Start: 2, Name: "trailing"}}},
 		{"runtime path ending in test", "#[async_std::test]\nasync fn rt() {}\n#[sqlx :: test]\nasync unsafe fn db() {}\n",
-			[]declaration{{File: "x.rs", Line: 2, End: 2, Name: "rt"}, {File: "x.rs", Line: 4, End: 4, Name: "db"}}},
+			[]declaration{{File: "x.rs", Line: 2, End: 2, Start: 1, Name: "rt"}, {File: "x.rs", Line: 4, End: 4, Start: 3, Name: "db"}}},
 		{"non-test attributes", "#[testing]\nfn a() {}\n#[test_case(1)]\nfn b() {}\n#[cfg(test)]\nmod m { fn c() {} }\n#[cfg_attr(test, test)]\nfn d() {}\n", nil},
 		{"raw identifier and nested mods", "mod a {\n    mod b {\n        #[test]\n        fn r#match() {\n        }\n    }\n}\n",
-			[]declaration{{File: "x.rs", Line: 4, End: 5, Name: "a::b::match"}}},
+			[]declaration{{File: "x.rs", Line: 4, End: 5, Start: 3, Name: "a::b::match"}}},
 		{"inner attribute is not a test", "#![test]\nfn notatest() {}\n", nil},
 	}
 	for _, tc := range cases {
@@ -103,14 +107,16 @@ func TestRustSelectionAndAttachment(t *testing.T) {
 // spec: test-attribution / Rust test declarations
 func TestRustFailsClosed(t *testing.T) {
 	for name, tc := range map[string]struct{ src, want string }{
-		"macro-generated name": {"macro_rules! t {\n    ($n:ident) => {\n        #[test]\n        fn $n() {}\n    };\n}\n", "macro-generated tests are unsupported"},
-		"attribute on non-fn":  {"#[test]\nstruct S;\n", "test attribute is not on a fn item"},
-		"no body":              {"#[test]\nfn decl();\n", "decl: test fn has no body"},
-		"unterminated string":  {"#[test]\nfn s() { let _ = \"open; }\n", "parse Rust: unterminated string"},
-		"unterminated raw":     {"const X: &str = r##\"x\"#;\n", "parse Rust: unterminated raw string"},
-		"unclosed block":       {"/* /* */\n", "parse Rust: unterminated block comment"},
-		"unbalanced braces":    {"fn a() {}\n}\n", "parse Rust: unbalanced closing brace"},
-		"unclosed brace":       {"mod a {\n", "parse Rust: unclosed brace"},
+		"macro-generated name":          {"macro_rules! t {\n    ($n:ident) => {\n        #[test]\n        fn $n() {}\n    };\n}\n", "macro-generated tests are unsupported"},
+		"attribute on non-fn":           {"#[test]\nstruct S;\n", "test attribute is not on a fn item"},
+		"no body":                       {"#[test]\nfn decl();\n", "decl: test fn has no body"},
+		"unterminated string":           {"#[test]\nfn s() { let _ = \"open; }\n", "parse Rust: unterminated string"},
+		"unterminated raw":              {"const X: &str = r##\"x\"#;\n", "parse Rust: unterminated raw string"},
+		"unclosed block":                {"/* /* */\n", "parse Rust: unterminated block comment"},
+		"unbalanced braces":             {"fn a() {}\n}\n", "parse Rust: unbalanced closing brace"},
+		"unclosed brace":                {"mod a {\n", "parse Rust: unclosed brace"},
+		"attribute at EOF":              {"#[test]\n", "test attribute is not on a fn item"},
+		"attribute then comment at EOF": {"fn a() {}\n#[test]\n// trailing\n", "test attribute is not on a fn item"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := scanRustSource("x.rs", []byte(tc.src))
@@ -132,6 +138,34 @@ func TestRustBaseScopeUsesClosingBrace(t *testing.T) {
 	}
 	if (lineSet{lines: map[int]bool{7: true}}).touches(ds[0]) {
 		t.Fatal("a change after the closing brace touched the test")
+	}
+}
+
+// spec: test-attribution / Rust test declarations
+// spec: openspec/specs/test-attribution/spec.md#Requirement: Diff-scoped attribution
+func TestRustBaseScopeCoversAttributes(t *testing.T) {
+	for _, tc := range []struct {
+		name, before, after, want string
+	}{
+		{"adding only a test attribute fails", "fn hidden() {}\n", "#[test]\nfn hidden() {}\n", "src/lib.rs:2: hidden: missing spec citation\n"},
+		{"adding a cited test attribute passes", "fn hidden() {}\n", citation + "#[test]\nfn hidden() {}\n", ""},
+		{"removing the sole citation fails", citation + "#[test]\nfn kept() {}\n", "#[test]\nfn kept() {}\n", "src/lib.rs:2: kept: missing spec citation\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := fixture(t, "package p\n", "### Requirement: Works\n")
+			writeTree(t, root, map[string]string{"src/lib.rs": tc.before, "src/legacy.rs": "#[test]\nfn legacy() {}\n"})
+			git(t, root, "init", "-q", "-b", "main")
+			git(t, root, "add", ".")
+			git(t, root, "commit", "-q", "-m", "base")
+			writeTree(t, root, map[string]string{"src/lib.rs": tc.after})
+			ds, err := Check(context.Background(), root, "HEAD")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := Format(ds); got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
 	}
 }
 

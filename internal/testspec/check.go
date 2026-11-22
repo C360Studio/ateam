@@ -37,7 +37,8 @@ type comment struct {
 type declaration struct {
 	File     string    `json:"file"`
 	Line     int       `json:"line"`
-	End      int       `json:"end"` // last line of the declaration, for --base scoping
+	End      int       `json:"end"`             // last line of the declaration, for --base scoping
+	Start    int       `json:"start,omitempty"` // first line of leading syntax such as Rust attributes, for --base scoping
 	Name     string    `json:"name"`
 	Comments []comment `json:"comments"`
 	Error    string    `json:"error"`

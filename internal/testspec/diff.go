@@ -25,6 +25,9 @@ func (s lineSet) touches(d declaration) bool {
 	if len(d.Comments) > 0 {
 		start = d.Comments[0].Line
 	}
+	if d.Start > 0 && d.Start < start {
+		start = d.Start
+	}
 	for line := start; line <= max(d.End, d.Line); line++ {
 		if s.lines[line] {
 			return true
