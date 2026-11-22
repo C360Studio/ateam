@@ -62,7 +62,7 @@ func TestInitRepoAndParitySensitivity(t *testing.T) {
 		sub := t.TempDir()
 		_, _ = InitRepo(context.Background(), sub, Options{})
 		data, _ := os.ReadFile(filepath.Join(sub, "AGENTS.md"))
-		edited := strings.Replace(string(data), "| `verify` | Go packages pass `gofmt`, `go vet`, and `revive` with zero warnings | `Taskfile.yml` |\n", "", 1)
+		edited := strings.Replace(string(data), "| `verify` | Source passes the project's formatter, vet and linter with zero warnings (Go: `gofmt`, `go vet`, `revive`; Rust: `rustfmt`, `clippy`) | `Taskfile.yml` |\n", "", 1)
 		_ = os.WriteFile(filepath.Join(sub, "AGENTS.md"), []byte(edited), 0o644)
 		requireViolation(t, CheckParity(sub), "AGENTS.md", ".agents/rules-index.md", "1. Ponytail decision ladder and code discipline")
 	})

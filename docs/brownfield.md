@@ -3,7 +3,8 @@
 This is the path for a repository that already has its own `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json`, a
 `Taskfile.yml`, and CI. `ateam init` never overwrites those. `ateam doctor --check` then lists, one line at a time,
 what you merge by hand; when it exits 0 you are done. Boundaries (Go-first, no language detection, parity is not
-integration) are in the [adoption guide](adoption.md); read them first.
+integration) are in the [adoption guide](adoption.md); read them first. A Cargo repository also reads
+[Rust repositories](adoption.md#rust-repositories).
 
 Every output below was recorded on the v0.3.2 candidate (`eeda39d`, the commit that landed this guide; the adopter
 checks from #158, #159 and #152 are in it) against a scratch repository: a hand-written `AGENTS.md` and `CLAUDE.md`, a
