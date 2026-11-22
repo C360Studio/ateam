@@ -15,4 +15,4 @@
 ## 3. Docs and specs
 
 - [x] 3.1 Update `.agents/protocol.md:67-80` and its template copy in `internal/bootstrap/templates.go`, and `docs/adoption.md:60`. Check: fresh `ateam init` fixture shows Rust.
-- [ ] 3.2 `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
+- [x] 3.2 `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
