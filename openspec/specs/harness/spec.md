@@ -412,7 +412,7 @@ The README and adoption documentation SHALL identify ATeam as an opinionated lab
 
 ### Requirement: Deterministic test-to-spec attribution
 
-ATeam SHALL enforce attached machine-readable requirement citations for supported Go and Vitest tests through an offline deterministic gate in `task verify`. Missing, malformed, unsafe, or unresolved citations and parse failures SHALL fail verification. Attribution SHALL NOT be presented as semantic coverage proof. Detailed discovery, syntax, and resolution rules are specified by the test-attribution capability.
+ATeam SHALL enforce attached machine-readable requirement citations for supported Go, Vitest, and Rust tests through an offline deterministic gate in `task verify`. Missing, malformed, unsafe, or unresolved citations and parse failures SHALL fail verification. Attribution SHALL NOT be presented as semantic coverage proof. Detailed discovery, syntax, and resolution rules are specified by the test-attribution capability.
 
 #### Scenario: Valid multiple requirement citations
 

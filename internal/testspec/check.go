@@ -37,7 +37,8 @@ type comment struct {
 type declaration struct {
 	File     string    `json:"file"`
 	Line     int       `json:"line"`
-	End      int       `json:"end"` // last line of the declaration, for --base scoping
+	End      int       `json:"end"`             // last line of the declaration, for --base scoping
+	Start    int       `json:"start,omitempty"` // first line of leading syntax such as Rust attributes, for --base scoping
 	Name     string    `json:"name"`
 	Comments []comment `json:"comments"`
 	Error    string    `json:"error"`
@@ -82,7 +83,7 @@ func Check(ctx context.Context, root, base string) ([]Diagnostic, error) {
 		rel = filepath.ToSlash(rel)
 		if entry.IsDir() {
 			switch entry.Name() {
-			case ".git", ".worktrees", "node_modules", "vendor", ".svelte-kit", ".enjoy-logs":
+			case ".git", ".worktrees", "node_modules", "vendor", ".svelte-kit", ".enjoy-logs", "target":
 				return filepath.SkipDir
 			}
 			switch rel {
@@ -98,16 +99,20 @@ func Check(ctx context.Context, root, base string) ([]Diagnostic, error) {
 				jsTest = true
 			}
 		}
-		if !goTest && !jsTest {
+		rustSource := strings.HasSuffix(rel, ".rs")
+		if !goTest && !jsTest && !rustSource {
 			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			declarations = append(declarations, declaration{File: rel, Line: 1, Error: "symlink test source is not supported"})
 			return nil
 		}
-		if goTest {
+		switch {
+		case goTest:
 			declarations = append(declarations, scanGo(root, rel)...)
-		} else {
+		case rustSource:
+			declarations = append(declarations, scanRust(root, rel)...)
+		default:
 			jsFiles = append(jsFiles, rel)
 		}
 		return nil

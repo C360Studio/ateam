@@ -373,7 +373,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 | `task review:route -- ...` | Check configured model routing, forwarding optional CLI arguments |
 | `task review:check -- --pr N --record-comment ID [...]` | Validate current PR review evidence and an optional owner exception |
 | `task fmt` / `task fmt:check` | Format Go files / fail if any Go file is unformatted |
-| `task test:spec` | Validate attached test-to-spec references in Go and Vitest tests |
+| `task test:spec` | Validate attached test-to-spec references in Go, Vitest, and Rust tests |
 | `task spec:check` | Validate `openspec/` specs and changes |
 | `task spec:queue` | Show in-flight `openspec/changes/*` progress and holds |
 | `task tidy:check` | Fail if `go.mod` or `go.sum` is not tidy |
@@ -418,7 +418,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 │   ├── review/                # Stronger-model review routing and forge evidence checks
 │   ├── state/                 # Git, OpenSpec, shortcut, and GitHub/Gitea state engine
 │   ├── taskrunner/            # Taskfile.yml parser and runner
-│   ├── testspec/              # Go and Vitest test-to-spec attribution checker
+│   ├── testspec/              # Go, Vitest, and Rust test-to-spec attribution checker
 │   └── web/                   # HTTP server, REST API, webhook handlers, and embedded UI
 └── ui/                        # Svelte 5 + SvelteKit source for the web board
 ```

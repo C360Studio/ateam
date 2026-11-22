@@ -47,7 +47,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 - In Antigravity (`agy`), switch modes with `ateam state mode <level>` or `/ponytail` because `PreInvocation` stdin omits prompt text.
 - When an external blocker stops a task, the agent adds `Hold: <reason>` under that task in `tasks.md` (`ateam state spec-queue`).
 - When the agent defers an edge case in code, it adds `// shortcut: <limit>, <when to upgrade>` (`ateam state debt`).
-- When you maintain `openspec/specs/`, the agent links Go and Vitest tests with `// spec:` comments (`ateam test-spec`).
+- When you maintain `openspec/specs/`, the agent links Go, Vitest, and Rust tests with `// spec:` comments (`ateam test-spec`).
 - For new Go branches or parsers, `ateam mutate` tests a mutant copy in `/tmp` without modifying your worktree.
 
 ## 4. Pause, compact, or switch agents

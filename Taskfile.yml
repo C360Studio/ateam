@@ -72,7 +72,7 @@ tasks:
         fi
 
   test:spec:
-    desc: Check deterministic Go and Vitest test-to-spec attribution
+    desc: Check deterministic Go, Vitest, and Rust test-to-spec attribution
     cmds:
       - go run ./cmd/ateam test-spec
       - npm --prefix ui run test:unit -- scripts/testspec.test.js
