@@ -1,4 +1,5 @@
 # Proposal: debt-scan-rust-python-383
+Approved-by: Coby Leuschke (2026-11-22) sha256:8cb33b506e0a
 
 ## Track
 
