@@ -291,77 +291,74 @@ func lexRust(data []byte) ([]rustToken, *rustLexError) {
 				i++
 			}
 		case c == '_' || c >= 0x80 || unicode.IsLetter(rune(c)) || unicode.IsDigit(rune(c)):
-			k := i
-			for k < len(src) {
-				r, size := utf8.DecodeRuneInString(src[k:])
-				if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
-					break
-				}
-				k += size
-			}
-			if k == i { // an invalid or non-identifier rune
+			if rustIdentEnd(src, i) == i { // an invalid or non-identifier rune
 				_, size := utf8.DecodeRuneInString(src[i:])
 				toks = append(toks, rustToken{rustPunct, src[i : i+size], line, line})
 				i += size
 				continue
 			}
-			word := src[i:k]
-			if word == "r" || word == "br" || word == "cr" {
-				hashes := k
-				for hashes < len(src) && src[hashes] == '#' {
-					hashes++
-				}
-				if hashes < len(src) && src[hashes] == '"' {
-					closer := "\"" + strings.Repeat("#", hashes-k)
-					end := strings.Index(src[hashes+1:], closer)
-					if end < 0 {
-						return nil, fail(startLine, "raw string")
-					}
-					advance(hashes + 1 + end + len(closer))
-					toks = append(toks, rustToken{rustLiteral, src[start:i], startLine, line})
-					continue
-				}
-				if word == "r" && hashes == k+1 && hashes < len(src) {
-					// raw identifier r#name
-					m := hashes
-					for m < len(src) {
-						r, size := utf8.DecodeRuneInString(src[m:])
-						if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
-							break
-						}
-						m += size
-					}
-					if m > hashes {
-						toks = append(toks, rustToken{rustIdent, src[i:m], line, line})
-						i = m
-						continue
-					}
-				}
+			kind, end, unterminated := lexRustWord(src, i)
+			if unterminated != "" {
+				return nil, fail(startLine, unterminated)
 			}
-			if (word == "b" || word == "c") && k < len(src) && src[k] == '"' {
-				end, ok := rustQuoted(src, k+1, '"')
-				if !ok {
-					return nil, fail(startLine, "string")
-				}
-				advance(end)
-				toks = append(toks, rustToken{rustLiteral, src[start:i], startLine, line})
-				continue
-			}
-			if word == "b" && k < len(src) && src[k] == '\'' {
-				if end, ok := rustCharEnd(src, k+1); ok {
-					advance(end)
-					toks = append(toks, rustToken{rustLiteral, src[start:i], startLine, line})
-					continue
-				}
-			}
-			toks = append(toks, rustToken{rustIdent, word, line, line})
-			i = k
+			advance(end)
+			toks = append(toks, rustToken{kind, src[start:end], startLine, line})
 		default:
 			toks = append(toks, rustToken{rustPunct, string(c), line, line})
 			i++
 		}
 	}
 	return toks, nil
+}
+
+// lexRustWord lexes the identifier-like token at i: an identifier, a raw identifier, or a prefixed raw, byte or C
+// string or byte char. It returns the token kind and end index, or the name of an unterminated literal.
+func lexRustWord(src string, i int) (rustKind, int, string) {
+	k := rustIdentEnd(src, i)
+	word := src[i:k]
+	if word == "r" || word == "br" || word == "cr" {
+		hashes := k
+		for hashes < len(src) && src[hashes] == '#' {
+			hashes++
+		}
+		if hashes < len(src) && src[hashes] == '"' {
+			closer := "\"" + strings.Repeat("#", hashes-k)
+			end := strings.Index(src[hashes+1:], closer)
+			if end < 0 {
+				return 0, 0, "raw string"
+			}
+			return rustLiteral, hashes + 1 + end + len(closer), ""
+		}
+		if word == "r" && hashes == k+1 {
+			if m := rustIdentEnd(src, hashes); m > hashes {
+				return rustIdent, m, "" // raw identifier r#name
+			}
+		}
+	}
+	if (word == "b" || word == "c") && k < len(src) && src[k] == '"' {
+		end, ok := rustQuoted(src, k+1, '"')
+		if !ok {
+			return 0, 0, "string"
+		}
+		return rustLiteral, end, ""
+	}
+	if word == "b" && k < len(src) && src[k] == '\'' {
+		if end, ok := rustCharEnd(src, k+1); ok {
+			return rustLiteral, end, ""
+		}
+	}
+	return rustIdent, k, ""
+}
+
+func rustIdentEnd(src string, i int) int {
+	for i < len(src) {
+		r, size := utf8.DecodeRuneInString(src[i:])
+		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			break
+		}
+		i += size
+	}
+	return i
 }
 
 // rustQuoted returns the index after the closing quote of a string body starting at i.
