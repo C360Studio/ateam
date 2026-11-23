@@ -270,6 +270,11 @@ Shortcut scanning SHALL report the source path, line, limit, and revisit trigger
 - **WHEN** `.rs` or `.py` files carry shortcut comments, including copies under `target`, `.venv`, or `__pycache__` directories at any depth
 - **THEN** the inventory reports the source files and omits every file under those directories
 
+#### Scenario: Rust doc comments and bracketed commas
+
+- **WHEN** a shortcut follows `///`, `//!`, or `/// //`, or its limit contains a comma inside parentheses or brackets
+- **THEN** the inventory reports it and splits the limit from the revisit trigger at the first comma outside those brackets
+
 ### Requirement: Task target discovery and validation
 
 Task execution SHALL discover top-level targets in the project Taskfile and reject unknown targets before invoking the task runner.

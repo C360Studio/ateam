@@ -9,4 +9,4 @@
 - [x] 2.1 Accept `///`, `//!` and a nested `//` in `shortcutPattern`; split the limit at the first top-level comma with the first-comma fallback.
 - [x] 2.2 Tests for each form, the bracketed comma, and the unbalanced fallback; a fuzz target against a reference model; mutation checks.
 - [x] 2.3 Update the `docs/adoption.md` shortcut-syntax row and the harness scenario.
-- [ ] 2.4 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
+- [x] 2.4 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
