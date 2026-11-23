@@ -18,7 +18,8 @@ type ShortcutItem struct {
 	Raw            string `json:"raw"`
 }
 
-var shortcutPattern = regexp.MustCompile(`(?i)^\s*(?://|#|--)\s*shortcut:\s*(.+)$`)
+// shortcutPattern accepts `//`, rustdoc `///` and `//!` (optionally followed by a nested `//`), `#`, and `--` (#396).
+var shortcutPattern = regexp.MustCompile(`(?i)^\s*(?://[/!]?(?:\s*//)?|#|--)\s*shortcut:\s*(.+)$`)
 
 var skippedDirs = map[string]bool{
 	".git":              true,
@@ -120,9 +121,8 @@ func scanFileShortcuts(absPath, relPath string) ([]ShortcutItem, error) {
 			continue
 		}
 		limit, trigger := body, "not specified"
-		if parts := strings.SplitN(body, ",", 2); len(parts) == 2 {
-			limit = strings.TrimSpace(parts[0])
-			trigger = strings.TrimSpace(parts[1])
+		if l, t, ok := splitLimit(body); ok {
+			limit, trigger = strings.TrimSpace(l), strings.TrimSpace(t)
 		}
 		out = append(out, ShortcutItem{
 			File:           relPath,
@@ -133,6 +133,30 @@ func scanFileShortcuts(absPath, relPath string) ([]ShortcutItem, error) {
 		})
 	}
 	return out, scanner.Err()
+}
+
+// splitLimit splits a shortcut body at its first comma outside () and [], so a limit may hold a bracketed list; when
+// no comma is outside brackets (unbalanced input), it falls back to the first comma (#396).
+func splitLimit(body string) (limit, trigger string, ok bool) {
+	depth := 0
+	for i, r := range body {
+		switch r {
+		case '(', '[':
+			depth++
+		case ')', ']':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				return body[:i], body[i+1:], true
+			}
+		}
+	}
+	if i := strings.IndexByte(body, ','); i >= 0 {
+		return body[:i], body[i+1:], true
+	}
+	return body, "", false
 }
 
 // containsShortcutFold reports whether data contains "shortcut:" in any ASCII case without copying data:

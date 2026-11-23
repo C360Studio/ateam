@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -166,6 +167,84 @@ func TestScanShortcutsRustPythonAndNestedBuildDirs(t *testing.T) {
 			t.Errorf("%s: limit %q, want %q (all: %+v)", f, got[f], limit, items)
 		}
 	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Inline shortcut inventory
+func TestScanShortcutsRustdocAndBracketedCommas(t *testing.T) {
+	dir := t.TempDir()
+	src := strings.Join([]string{
+		"/// shortcut: in-process only, add a socket transport when the link lands",
+		"//! shortcut: host clock only, add a hardware timer at board bring-up",
+		"/// // shortcut: nested doc form, keep until rustfmt rewrites it",
+		"// shortcut: raw frames (0x30..=0x3F, centre 0x800) are rejected, add rescaling when a receiver needs it",
+		"// shortcut: list [a, b] and (c, d) kept, split after them",
+		"// shortcut: unbalanced (open, still splits at the first comma",
+		"fn main() {}",
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "lib.rs"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items, err := ScanShortcuts(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type pair struct {
+		line           int
+		limit, trigger string
+	}
+	want := []pair{
+		{1, "in-process only", "add a socket transport when the link lands"},
+		{2, "host clock only", "add a hardware timer at board bring-up"},
+		{3, "nested doc form", "keep until rustfmt rewrites it"},
+		{4, "raw frames (0x30..=0x3F, centre 0x800) are rejected", "add rescaling when a receiver needs it"},
+		{5, "list [a, b] and (c, d) kept", "split after them"},
+		{6, "unbalanced (open", "still splits at the first comma"},
+	}
+	var got []pair
+	for _, it := range items {
+		got = append(got, pair{it.Line, it.Limit, it.RevisitTrigger})
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got  %+v\nwant %+v", got, want)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Inline shortcut inventory
+func FuzzSplitLimit(f *testing.F) {
+	for _, seed := range []string{"a, b", "a (b, c), d", "a [b, c], d", "a (b, c", "a) b, c", "no comma", "", ",", "((,)),x", "]]],a"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, body string) {
+		// Reference model: the first comma whose prefix closes every bracket it opens (closers without an
+		// opener ignored), else the first comma.
+		want := -1
+		for k := 0; k < len(body) && want < 0; k++ {
+			if body[k] != ',' {
+				continue
+			}
+			open := 0
+			for _, c := range []byte(body[:k]) {
+				if c == '(' || c == '[' {
+					open++
+				} else if (c == ')' || c == ']') && open > 0 {
+					open--
+				}
+			}
+			if open == 0 {
+				want = k
+			}
+		}
+		if want < 0 {
+			want = strings.IndexByte(body, ',')
+		}
+		limit, trigger, ok := splitLimit(body)
+		if ok != (want >= 0) {
+			t.Fatalf("splitLimit(%q) ok=%v, want split at %d", body, ok, want)
+		}
+		if ok && (limit != body[:want] || trigger != body[want+1:]) {
+			t.Fatalf("splitLimit(%q) = %q | %q, want split at %d", body, limit, trigger, want)
+		}
+	})
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Inline shortcut inventory
