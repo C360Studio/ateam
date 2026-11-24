@@ -6,6 +6,9 @@ context: |
   Supported forges: GitHub (gh / REST API) and Gitea (tea / REST API v1).
 
 rules:
+  proposal:
+    - "Open with a '## Decisions you are making by approving' section: one bullet per decision saying in plain words what triggers it and what changes for the user, with no identifiers or constants."
+    - "Stay under 60 lines; task spec:check warns past the limit, and fails a change with a design.md whose proposal has no decision bullet."
   design:
     - "Write design.md only on the design track (.agents/protocol.md § 2 Clarify); a quick-track change has none."
     - "Context is an inventory of file:line claims you opened in this session, not remembered; run git log -S before calling anything dead."

@@ -76,7 +76,7 @@ func TestParseApproval(t *testing.T) {
 func TestCheckOpenSpecApprovalStates(t *testing.T) {
 	t.Setenv("PATH", gitOnlyPath(t)) // git, but no host openspec validating these fixtures
 	const (
-		proposal = "# Change\n\nApproved-by:\n\n## Why\n"
+		proposal = "# Change\n\nApproved-by:\n\n## Decisions you are making by approving\n\n- Nothing changes for any user of this fixture.\n\n## Why\n"
 		design   = "# Design\n\nD1 A.\n"
 		tasks    = "## 1. Tasks\n\n- [ ] 1.1 Do it\n"
 	)
