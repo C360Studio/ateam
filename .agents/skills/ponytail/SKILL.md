@@ -20,7 +20,7 @@ Read the task and the code it touches. List every place your change must reach: 
 
 Take the first option that fully works:
 
-1. **Does it need to exist?** Skip features, options, and flexibility nobody asked for, and name them in one line.
+1. **Does it need to exist?** Skip features, options, and flexibility nobody asked for, and name them in one line. Name the caller or spec scenario that needs it today; if there is none, do not build it.
 2. **Already in this codebase?** Use existing helpers, components, and patterns the way surrounding code does.
 3. **Standard library or platform feature?** Use Go stdlib or native browser capabilities before writing custom widgets.
 4. **An installed dependency?** Use it; never add a dependency for a few lines.
@@ -34,6 +34,7 @@ Take the first option that fully works:
 - When a change touches interacting input cases, a stated law (round-trip, idempotence), or an order-dependent history, record whether generated checks (`testing.F` fuzzing or PBT) are used or why named examples suffice, verify boundary reach and assertion activation, and check histories against a test-owned reference model.
 - Any deliberate shortcut with a known limit carries an inline comment: `// shortcut: <the limit>, <when to upgrade>`.
 - Never cut: validation at trust boundaries, error handling that prevents data loss, context cancellation, security, or accessibility.
+- Defensive code names the concrete failure it prevents and how that failure occurs. A defence that turns a transient fault into a safety action is itself a hazard and needs the same justification as a feature.
 
 ## 4. Levels and Actions
 
