@@ -564,6 +564,9 @@ type GitStatus struct {
 	DefaultRemoteHead    string `json:"default_remote_head,omitempty"`
 	DefaultAheadOfRemote int    `json:"default_ahead_of_remote,omitempty"`
 	DefaultBehindRemote  int    `json:"default_behind_remote,omitempty"`
+	// WholeReview is what landed on DefaultRemoteRef since the newest review/whole/ tag (#399); nil when
+	// there is no remote default branch to count against.
+	WholeReview *WholeReview `json:"whole_review,omitempty"`
 	// DefaultBranch is default_branch from .agents/ateam.json; empty keeps main and master both default (#333).
 	DefaultBranch string `json:"default_branch,omitempty"`
 }
@@ -2826,6 +2829,8 @@ func SnapshotGit(ctx context.Context, root string) GitStatus {
 				gs.DefaultAheadOfRemote, _ = strconv.Atoi(counts[0])
 				gs.DefaultBehindRemote, _ = strconv.Atoi(counts[1])
 			}
+			wr := snapshotWholeReview(ctx, root, "refs/remotes/origin/"+b)
+			gs.WholeReview = &wr
 			break
 		}
 	}
@@ -3070,6 +3075,9 @@ func BuildPickupSummary(st *State) string {
 			diskBuild = BuildLabel()
 		}
 		buildField = fmt.Sprintf("build=%s mcp=%s", diskBuild, strings.TrimSpace(st.MCPBuild))
+	}
+	if st.Git.WholeReview != nil {
+		holdsDisplay += " | since-review=" + st.Git.WholeReview.String()
 	}
 	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%s | shortcuts=%d | holds=%s | %s | synced=%s (closed capped at %d)\n",
 		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, summaryDirtyField(st.Git), len(st.Shortcuts), holdsDisplay, buildField, syncedDisplay, closedItemCap)

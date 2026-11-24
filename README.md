@@ -353,6 +353,7 @@ Repository selection is shared by clients of one server. Writes include `X-ATeam
 | `ateam state holds` | Scan `openspec/` and markdown files for `Hold:` items |
 | `ateam state debt` | Scan source files for `// shortcut: <limit>, <when to upgrade>` comments |
 | `ateam state spec-queue` | List in-flight `openspec/changes/*` with task counts and caveats (`HALT`, `RED`, `BLOCKED`, `WONTDO`, `OPEN-Q`) |
+| `ateam review whole --at <sha> [--note TEXT] [--no-push]` | Record a whole-repository review as an annotated `review/whole/<date>-<short sha>` tag on a default-branch commit and push it to `origin`; the pickup line's `since-review=` then shows the first-parent commits and `+added/-deleted` lines landed since (`never` before the first record). Advice only: nothing gates on it |
 | `ateam state spec-check` | Validate `openspec/` specs and changes, ensure `Hold:` lines live inside task items, warn (without failing) when `proposal.md` exceeds 60 lines, `design.md` exceeds 120, a delta Requirement exceeds 500 characters or a scenario step 60 words, and fail a change with a `design.md` whose `proposal.md` has no `## Decisions you are making by approving` bullet; strict validation runs the repo-pinned `node_modules/.bin/openspec`, else `openspec` on `PATH`, and is skipped with a notice when neither exists |
 | `ateam state sync [--forge github\|gitea]` | Sync open issues and PRs from GitHub or Gitea into `.ateam/state.json` |
 | `ateam state mode [on\|off]` | Get or set the Ponytail discipline mode |
