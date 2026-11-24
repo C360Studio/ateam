@@ -2,7 +2,7 @@
 
 ## 1. Approval
 
-- [ ] 1.1 Owner approves proposal.md and design.md together. Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves proposal.md and design.md together (`Approved-by: Coby Leuschke (2026-11-24) sha256:1e9db993a0a3`; D1 B, D2 B, D3 drop).
 
 ## 2. Implementation
 

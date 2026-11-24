@@ -1,4 +1,5 @@
 # Proposal: gemini-neon-hydrogen-405
+Approved-by: Coby Leuschke (2026-11-24) sha256:1e9db993a0a3
 
 ## Track
 
