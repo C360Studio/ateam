@@ -10,4 +10,4 @@
 - [x] 2.2 Oracle definition in `.agents/protocol.md` § 3 and `defaultProtocolMD`.
 - [x] 2.3 Oracle question and evidence words in `.agents/contracts/reviewer.md` and `reviewerContractFor`.
 - [x] 2.4 Bootstrap test asserting each new sentence in generated output; mutation check per sentence.
-- [ ] 2.5 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
+- [x] 2.5 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
