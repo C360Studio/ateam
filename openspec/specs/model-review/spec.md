@@ -313,4 +313,3 @@ The reviewer contract SHALL define the findings that block approval and require 
 #### Scenario: Re-review message
 - **WHEN** `ateam review request --reviewer-session` sends the re-review text
 - **THEN** the text asks the reviewer to confirm its prior findings closed and review `<record>..<head>`, and does not ask for the full base-to-head diff
-
