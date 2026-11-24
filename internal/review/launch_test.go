@@ -50,7 +50,7 @@ func TestEligibleReviewers(t *testing.T) {
 		{"frontier-low-band-defaults-to-low", true, []string{"claude:fable:low"},
 			[]Candidate{c("codex", "gpt-6-astra", "low", "low"), c("gemini", "gemini-4-carbon", "low", "low")}},
 		{"workhorse-cross", true, []string{"claude:sonnet:medium"},
-			[]Candidate{c("codex", "gpt-6-astra", "medium", "mid"), c("gemini", "gemini-4-carbon", "medium", "mid"), c("codex", "gpt-6.1-sol", "medium", "mid"), c("codex", "gpt-6-sol", "medium", "mid"), c("gemini", "gemini-4-argon", "medium", "mid")}},
+			[]Candidate{c("codex", "gpt-6-astra", "medium", "mid"), c("gemini", "gemini-4-carbon", "medium", "mid"), c("codex", "gpt-6.1-sol", "medium", "mid"), c("codex", "gpt-6-sol", "medium", "mid"), c("gemini", "gemini-4-argon", "medium", "mid"), c("gemini", "gemini-4-neon", "medium", "mid")}},
 		{"two-implementers", true, []string{"claude:sonnet:low", "codex:gpt-6-astra:medium"},
 			[]Candidate{c("gemini", "gemini-4-carbon", "medium", "mid")}},
 		{"same-provider-allowed", false, []string{"codex:gpt-6-astra:xhigh"},
