@@ -1,5 +1,5 @@
 # Proposal: adopter-wording-400
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-24) sha256:c91a35a21303
 
 ## Track
 
