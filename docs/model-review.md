@@ -52,6 +52,8 @@ ateam review route
 
 Setup validates the policy structure and creates `.agents/review-policy.json`, canonical contracts and `.agents/routes/developer.md` / `reviewer.md` launch cards. Claude routes get a thin skill pointer; Gemini CLI routes get a custom-command pointer; Codex reads the canonical card directly. Gemini CLI is not Antigravity. There is no fabricated universal native-agent configuration.
 
+Antigravity (`agy`) puts the effort in the model ID (`agy models` lists `gemini-4-neon-xhigh`). Write it split in PR lines and run arguments, like `reviewed-by: gemini (gemini-4-neon, xhigh)` or `gemini:gemini-4-neon:xhigh`. The suffixed ID reads as `unranked`. Orchestrator modes (`gemini-pro-orchestrator*`) mix models and stay unranked: name the model that ran.
+
 Setup checks all destinations and reserved pointers for non-selected providers before writing, preserves existing custom configurations and refuses symbolic-link destinations. Identical setup is idempotent. Local contract additions are allowed when canonical obligations remain intact. Unexpected I/O failures may leave the reported subset of new files; reconcile those files and retry. Setup never overwrites conflicts, even during a policy change: inspect and explicitly reconcile tracked policy/cards/pointers as a reviewed change. Doctor always checks the canonical role contracts, rejects orphan route cards/pointers without a policy, and checks configured policy validity and instruction drift; it does not certify runtime model selection or review approval. A structurally valid ceiling policy can be installed even though its route is ineligible without an exception.
 
 `review route` checks model intent before work. After escalation, supply **all** actual implementation model IDs:
