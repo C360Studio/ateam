@@ -318,16 +318,18 @@ func TestHoldMarkerNamesItsLeadingCaveat(t *testing.T) {
 func TestProposalLengthWarning(t *testing.T) {
 	// Fixtures are not strict-valid; keep a host openspec on PATH out of a length check (#205).
 	t.Setenv("PATH", t.TempDir())
+	// Two lines that satisfy the decisions check (#398), so only the length warning can appear.
+	const decided = "## Decisions you are making by approving\n- Nothing changes for any user here.\n"
 	for _, tc := range []struct {
 		name     string
 		proposal string
 		warn     bool
 	}{
-		{"60 lines", strings.Repeat("line\n", 60), false},
-		{"60 lines, no final newline", strings.Repeat("line\n", 59) + "line", false},
-		{"61 lines", strings.Repeat("line\n", 61), true},
-		{"61 lines, no final newline", strings.Repeat("line\n", 60) + "line", true},
-		{"60 lines plus a trailing blank line", strings.Repeat("line\n", 60) + "\n", true},
+		{"60 lines", decided + strings.Repeat("line\n", 58), false},
+		{"60 lines, no final newline", decided + strings.Repeat("line\n", 57) + "line", false},
+		{"61 lines", decided + strings.Repeat("line\n", 59), true},
+		{"61 lines, no final newline", decided + strings.Repeat("line\n", 58) + "line", true},
+		{"60 lines plus a trailing blank line", decided + strings.Repeat("line\n", 58) + "\n", true},
 	} {
 		dir := t.TempDir()
 		changeDir := filepath.Join(dir, "openspec", "changes", "long")

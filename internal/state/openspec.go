@@ -11,9 +11,10 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/c360studio/ateam/internal/testspec"
-	"unicode/utf8"
 )
 
 // HoldItem represents an active Hold: marker inside an open Markdown task.
@@ -51,6 +52,11 @@ type OpenSpecChange struct {
 	proposalLines int
 	// designLines is the line count of design.md (0 when missing), for the design length warning.
 	designLines int
+	// hasProposal and hasDesign say which of proposal.md and design.md exist; a design.md marks the design track.
+	hasProposal, hasDesign bool
+	// hasDecisions says proposal.md has the decisions heading; decisions holds its bullets (#398).
+	hasDecisions bool
+	decisions    []string
 }
 
 // maxProposalLines is the one-page limit for proposal.md; spec:check warns, never fails, past it.
@@ -58,6 +64,109 @@ const maxProposalLines = 60
 
 // maxDesignLines is the design-track limit for design.md; spec:check warns, never fails, past it.
 const maxDesignLines = 120
+
+// decisionsHeading is the proposal section that says in plain words what the owner decides by approving (#398).
+// spec:check fails without it on the design track and warns on the quick track.
+const decisionsHeading = "## Decisions you are making by approving"
+
+// minDecisionWords is the fewest words a decision bullet carries outside code spans and numbers before spec:check warns.
+const minDecisionWords = 5
+
+// maxRequirementChars matches OpenSpec's MAX_REQUIREMENT_TEXT_LENGTH, so a delta Requirement warns here, while
+// the change is open, exactly when it would fail strict validation after archive.
+const maxRequirementChars = 500
+
+// maxScenarioStepWords is the longest scenario step (a WHEN/THEN/AND line) before spec:check warns.
+const maxScenarioStepWords = 60
+
+// ParseDecisions reports whether proposal text has the decisions heading (case-insensitive, outside code
+// fences, which testspec.EachUnfencedLine matches by delimiter and length) and returns the bullets under it,
+// up to the next `## ` heading.
+func ParseDecisions(text string) (found bool, bullets []string) {
+	inSection := false
+	testspec.EachUnfencedLine(text, func(raw string) {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "## ") {
+			inSection = strings.EqualFold(line, decisionsHeading)
+			found = found || inSection
+			return
+		}
+		if !inSection {
+			return
+		}
+		for _, marker := range []string{"- ", "* "} {
+			if item, ok := strings.CutPrefix(line, marker); ok {
+				bullets = append(bullets, strings.TrimSpace(item))
+				return
+			}
+		}
+	})
+	return found, bullets
+}
+
+// plainWords counts the words of s outside backtick code spans that contain a letter, so identifiers in
+// backticks and bare numbers do not count as a plain-language statement.
+func plainWords(s string) int {
+	var b strings.Builder
+	inCode := false
+	for _, r := range s {
+		if r == '`' {
+			inCode = !inCode
+			b.WriteRune(' ')
+			continue
+		}
+		if !inCode {
+			b.WriteRune(r)
+		}
+	}
+	n := 0
+	for _, w := range strings.Fields(b.String()) {
+		if strings.IndexFunc(w, unicode.IsLetter) >= 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// deltaLengthWarnings returns a warning for each ADDED or MODIFIED Requirement over maxRequirementChars and
+// each scenario step over maxScenarioStepWords in the change's spec deltas.
+func deltaLengthWarnings(root, change string) ([]string, error) {
+	paths, err := filepath.Glob(filepath.Join(root, "openspec", "changes", change, "specs", "*", "spec.md"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	var out []string
+	for _, abs := range paths {
+		rel, err := filepath.Rel(root, abs)
+		if err != nil {
+			return nil, err
+		}
+		rel = filepath.ToSlash(rel)
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read %s", rel)
+		}
+		sp, err := ParseSpecMarkdown(filepath.Base(filepath.Dir(abs)), rel, data)
+		if err != nil {
+			return nil, err
+		}
+		for _, req := range sp.Requirements {
+			// shortcut: counts runes where OpenSpec counts UTF-16 units; they differ only past the BMP, when an emoji-heavy Requirement appears.
+			if n := utf8.RuneCountInString(req.Statement); n > maxRequirementChars {
+				out = append(out, fmt.Sprintf("warning: %s: Requirement %q is %d characters, over the limit of %d; move detail into scenarios or split it", rel, req.Name, n, maxRequirementChars))
+			}
+			for _, sc := range req.Scenarios {
+				for _, step := range sc.Steps {
+					if n := len(strings.Fields(step)); n > maxScenarioStepWords {
+						out = append(out, fmt.Sprintf("warning: %s: Requirement %q scenario %q has a %d-word step, over the limit of %d", rel, req.Name, sc.Name, n, maxScenarioStepWords))
+					}
+				}
+			}
+		}
+	}
+	return out, nil
+}
 
 // ParseProposal returns the first `Approved-by:` header value outside code fences and the
 // physical line count (a final newline ends the last line; it does not start another).
@@ -342,6 +451,7 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 		switch {
 		case err == nil:
 			ch.ApprovedBy, ch.proposalLines = ParseProposal(prop)
+			ch.hasDecisions, ch.decisions = ParseDecisions(string(prop))
 		case !os.IsNotExist(err):
 			return nil, fmt.Errorf("queue unavailable: cannot read %s", propRel)
 		}
@@ -354,6 +464,7 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 		case !os.IsNotExist(err):
 			return nil, fmt.Errorf("queue unavailable: cannot read %s", designRel)
 		}
+		ch.hasProposal, ch.hasDesign = hasProposal, design != nil
 		if hasProposal {
 			ch.Approval = approvalOf(prop, design) // design is nil when design.md is absent
 			if ch.Approval.State == ApprovalStale {
@@ -597,7 +708,13 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	if stale {
 		return out.String(), 1, fmt.Errorf("stale approval")
 	}
+	if missingDecisions(changes, &out) {
+		return out.String(), 1, fmt.Errorf("missing decisions section")
+	}
 	for _, ch := range changes {
+		if err := reviewabilityWarnings(root, ch, &out); err != nil {
+			return out.String(), 2, err
+		}
 		if ch.proposalLines > maxProposalLines {
 			fmt.Fprintf(&out, "warning: openspec/changes/%s/proposal.md has %d lines, over the one-page limit of %d; move detail to tasks.md or design.md\n", ch.Name, ch.proposalLines, maxProposalLines)
 		}
@@ -613,6 +730,42 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	}
 	fmt.Fprintf(&out, "holds: ok (%d tasks.md read)\n", readCount)
 	return out.String(), 0, nil
+}
+
+// missingDecisions reports each open change whose proposal.md has no decisions bullet, failing on the design
+// track (a design.md exists) and warning on the quick track; it returns true when any change fails.
+func missingDecisions(changes []OpenSpecChange, out *strings.Builder) bool {
+	failed := false
+	for _, ch := range changes {
+		if !ch.hasProposal || (ch.hasDecisions && len(ch.decisions) > 0) {
+			continue
+		}
+		msg := fmt.Sprintf("openspec/changes/%s/proposal.md: no %q section with a bullet; list in plain words what the owner decides by approving", ch.Name, decisionsHeading)
+		if ch.hasDesign {
+			fmt.Fprintf(out, "%s (required on the design track)\n", msg)
+			failed = true
+		} else {
+			fmt.Fprintf(out, "warning: %s\n", msg)
+		}
+	}
+	return failed
+}
+
+// reviewabilityWarnings writes the change's decision-bullet and delta-length warnings.
+func reviewabilityWarnings(root string, ch OpenSpecChange, out *strings.Builder) error {
+	for _, d := range ch.decisions {
+		if plainWords(d) < minDecisionWords {
+			fmt.Fprintf(out, "warning: openspec/changes/%s/proposal.md: decision %q has fewer than %d plain words; say what changes for the user, not only names or numbers\n", ch.Name, d, minDecisionWords)
+		}
+	}
+	warnings, err := deltaLengthWarnings(root, ch.Name)
+	if err != nil {
+		return err
+	}
+	for _, w := range warnings {
+		out.WriteString(w + "\n")
+	}
+	return nil
 }
 
 // ParseSpecMarkdown parses a canonical openspec/specs/<name>/spec.md file into Purpose, Requirements, and Scenarios.
@@ -653,7 +806,8 @@ func ParseSpecMarkdown(specName, relPath string, data []byte) (OpenSpecSpec, err
 			switch {
 			case strings.HasPrefix(heading, "purpose"):
 				section = "purpose"
-			case strings.HasPrefix(heading, "requirements"):
+			case strings.HasPrefix(heading, "requirements"), heading == "added requirements", heading == "modified requirements":
+				// A change's spec delta lists Requirements under ADDED/MODIFIED headings (#398).
 				section = "requirements"
 			default:
 				section = heading
