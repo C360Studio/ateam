@@ -13,4 +13,4 @@
 
 ## 3. Close
 
-- [ ] 3.1 `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
+- [x] 3.1 `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
