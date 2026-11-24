@@ -714,34 +714,12 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	if stale {
 		return out.String(), 1, fmt.Errorf("stale approval")
 	}
-	undecided := false
-	for _, ch := range changes {
-		if !ch.hasProposal || (ch.hasDecisions && len(ch.decisions) > 0) {
-			continue
-		}
-		msg := fmt.Sprintf("openspec/changes/%s/proposal.md: no %q section with a bullet; list in plain words what the owner decides by approving", ch.Name, decisionsHeading)
-		if ch.hasDesign {
-			fmt.Fprintf(&out, "%s (required on the design track)\n", msg)
-			undecided = true
-		} else {
-			fmt.Fprintf(&out, "warning: %s\n", msg)
-		}
-	}
-	if undecided {
+	if missingDecisions(changes, &out) {
 		return out.String(), 1, fmt.Errorf("missing decisions section")
 	}
 	for _, ch := range changes {
-		for _, d := range ch.decisions {
-			if plainWords(d) < minDecisionWords {
-				fmt.Fprintf(&out, "warning: openspec/changes/%s/proposal.md: decision %q has fewer than %d plain words; say what changes for the user, not only names or numbers\n", ch.Name, d, minDecisionWords)
-			}
-		}
-		warnings, err := deltaLengthWarnings(root, ch.Name)
-		if err != nil {
+		if err := reviewabilityWarnings(root, ch, &out); err != nil {
 			return out.String(), 2, err
-		}
-		for _, w := range warnings {
-			out.WriteString(w + "\n")
 		}
 		if ch.proposalLines > maxProposalLines {
 			fmt.Fprintf(&out, "warning: openspec/changes/%s/proposal.md has %d lines, over the one-page limit of %d; move detail to tasks.md or design.md\n", ch.Name, ch.proposalLines, maxProposalLines)
@@ -758,6 +736,42 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	}
 	fmt.Fprintf(&out, "holds: ok (%d tasks.md read)\n", readCount)
 	return out.String(), 0, nil
+}
+
+// missingDecisions reports each open change whose proposal.md has no decisions bullet, failing on the design
+// track (a design.md exists) and warning on the quick track; it returns true when any change fails.
+func missingDecisions(changes []OpenSpecChange, out *strings.Builder) bool {
+	failed := false
+	for _, ch := range changes {
+		if !ch.hasProposal || (ch.hasDecisions && len(ch.decisions) > 0) {
+			continue
+		}
+		msg := fmt.Sprintf("openspec/changes/%s/proposal.md: no %q section with a bullet; list in plain words what the owner decides by approving", ch.Name, decisionsHeading)
+		if ch.hasDesign {
+			fmt.Fprintf(out, "%s (required on the design track)\n", msg)
+			failed = true
+		} else {
+			fmt.Fprintf(out, "warning: %s\n", msg)
+		}
+	}
+	return failed
+}
+
+// reviewabilityWarnings writes the change's decision-bullet and delta-length warnings.
+func reviewabilityWarnings(root string, ch OpenSpecChange, out *strings.Builder) error {
+	for _, d := range ch.decisions {
+		if plainWords(d) < minDecisionWords {
+			fmt.Fprintf(out, "warning: openspec/changes/%s/proposal.md: decision %q has fewer than %d plain words; say what changes for the user, not only names or numbers\n", ch.Name, d, minDecisionWords)
+		}
+	}
+	warnings, err := deltaLengthWarnings(root, ch.Name)
+	if err != nil {
+		return err
+	}
+	for _, w := range warnings {
+		out.WriteString(w + "\n")
+	}
+	return nil
 }
 
 // ParseSpecMarkdown parses a canonical openspec/specs/<name>/spec.md file into Purpose, Requirements, and Scenarios.
