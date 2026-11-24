@@ -398,7 +398,7 @@ func execStateTool(ctx context.Context, root string, rawArgs json.RawMessage, co
 		out, _ := state.FormatOpenSpecQueue(st.OpenSpecQueue)
 		return out, false
 	case "spec_check":
-		out, code, err := state.CheckOpenSpec(ctx, root)
+		out, code, err := state.RunSpecCheck(ctx, root, "")
 		if err != nil || code != 0 {
 			return fmt.Sprintf("%s\n%v", out, err), true
 		}

@@ -139,7 +139,7 @@ func runState(repoRoot string, args []string) int {
 	case "spec-queue", "spec_queue":
 		return runSpecQueue(repoRoot)
 	case "spec-check", "spec_check":
-		return runSpecCheck(repoRoot)
+		return runSpecCheck(repoRoot, args[1:])
 	case "holds":
 		return runStateHolds(repoRoot)
 	case "debt":
@@ -187,7 +187,7 @@ Subcommands:
   holds        List unticked Hold: items as JSON
   debt         List // shortcut: comments as JSON
   spec-queue   Show in-flight OpenSpec changes with their holds and caveats
-  spec-check   Validate OpenSpec changes and fail on a Hold: outside every task
+  spec-check   Validate OpenSpec changes, fail on a Hold: outside every task, and on a design_paths change without a design.md ([--base <ref>])
   sync         Sync issues and PRs from the configured forges
   mode [mode]  Show or set the Ponytail mode (on|off)
   writer --json
@@ -206,8 +206,17 @@ func runSpecQueue(repoRoot string) int {
 	return 0
 }
 
-func runSpecCheck(repoRoot string) int {
-	out, code, err := state.CheckOpenSpec(context.Background(), repoRoot)
+func runSpecCheck(repoRoot string, args []string) int {
+	fs := flag.NewFlagSet("spec-check", flag.ContinueOnError)
+	base := fs.String("base", "", "diff design_paths against the merge base of this ref and HEAD (default: origin's default branch)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "ateam state spec-check: unexpected argument; usage: ateam state spec-check [--base <ref>]")
+		return 2
+	}
+	out, code, err := state.RunSpecCheck(context.Background(), repoRoot, *base)
 	if code == 2 {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return 2

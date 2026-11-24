@@ -332,3 +332,29 @@ func TestReviewerChecksAlias(t *testing.T) {
 		t.Fatalf("reviewer_checks without models: err = %v", err)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Design-track trigger paths
+func TestDesignPathsPolicy(t *testing.T) {
+	with := func(paths string) []byte {
+		return []byte(strings.Replace(tiersPolicy, `"cross_provider":false`, `"cross_provider":false,"design_paths":`+paths, 1))
+	}
+	p, err := ParsePolicy(with(`["src/arming.rs","src/*/out.rs","src/actuator/**"]`))
+	if err != nil || len(p.DesignPaths) != 3 {
+		t.Fatalf("valid design_paths: %v %v", p.DesignPaths, err)
+	}
+	for name, paths := range map[string]string{
+		"bad pattern":  `["src/[arming.rs"]`,
+		"absolute":     `["/src/arming.rs"]`,
+		"dot relative": `["./src/arming.rs"]`,
+		"backslash":    `["src\\arming.rs"]`,
+		"empty":        `[""]`,
+		"only subtree": `["/**"]`,
+		"duplicate":    `["src/a.rs","src/a.rs"]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParsePolicy(with(paths)); err == nil || !strings.Contains(err.Error(), "design_paths") {
+				t.Fatalf("design_paths %s: err = %v, want a design_paths error", paths, err)
+			}
+		})
+	}
+}

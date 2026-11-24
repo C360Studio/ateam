@@ -29,7 +29,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
+      # Full history so spec-check can diff design_paths against the PR base (#401).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -55,6 +58,13 @@ jobs:
       - run: task build
 
       - run: ./bin/ateam doctor --check
+
+      # task verify diffs against origin's default branch; a PR is checked against its own base (#401).
+      # The base ref reaches the shell as data through env, never as generated script text (#408 review).
+      - if: github.event_name == 'pull_request'
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+        run: ./bin/ateam state spec-check --base "origin/$PR_BASE_REF"
 
       - run: task verify
 

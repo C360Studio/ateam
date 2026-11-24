@@ -144,6 +144,14 @@ Statuses are `eligible` (configured routes pass policy eligibility), `blocked` (
 
 This is a read-only view of local configuration, not trusted default-branch PR approval evidence or live model identity. It does not launch agents, edit policy, apply owner exceptions, or verify generated route-card drift. Effort remains separate from model strength and Ponytail mode.
 
+## Design-track trigger paths (`design_paths`)
+
+A repository names the files where a small diff has a large consequence as `design_paths`, a list of repository-relative slash globs in `.agents/review-policy.json`. Each glob uses Go `path.Match` syntax, and a trailing `/**` covers everything below a directory. Example: `"design_paths": ["src/arming.rs", "src/actuator/**"]`. The list is in the policy, not `.agents/ateam.json`, because deleting an entry weakens a gate. Only the owner's gate approval changes it.
+
+`ateam state spec-check [--base <ref>]` diffs the merge base of the ref and `HEAD` against the working tree, untracked files included. A changed path that matches a glob fails the check unless the same diff adds or modifies an `openspec/changes/*/design.md` or `openspec/changes/archive/*/design.md`. The failure names the path and the glob. Without `--base`, spec-check tries `origin/<default_branch>`, then `origin/main` or `origin/master`. When none resolves, or the clone is too shallow for a merge base, it prints `design paths: not checked` and does not fail. An explicit `--base` that cannot resolve fails. In CI, check out full history (`fetch-depth: 0`) and pass the PR base, as ateam's own `ci.yml` does. Set `PR_BASE_REF: ${{ github.base_ref }}` in the step's `env` and run `ateam state spec-check --base "origin/$PR_BASE_REF"`. Never interpolate the expression straight into `run:`, because a branch name can contain `$(...)`. The MCP `spec_check` action runs the same check against the default base.
+
+The check confirms that a design exists in the diff, not that it covers the path. Review judges that.
+
 ## Review record mode (`review_record`)
 
 This section is about the merge gate's review record, not the dormant path. `.agents/review-policy.json` takes an optional `"review_record"`: `"pr-comment"` (the default when the key is absent) or `"aip"`. Policy validation rejects any other value (owner ruling on #130, 2026-10-26; ADR 0002 addendum).
