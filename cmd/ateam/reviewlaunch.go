@@ -386,7 +386,7 @@ func returnFlag(id string) string {
 // rereviewText is the whole message a re-review sends the reviewing session
 // (#372): fixed text over validated ids, never anything from the record body.
 func rereviewText(pr int, recordSHA, head, session, returnTo string) string {
-	return fmt.Sprintf("PR #%d moved to %s after your REQUEST CHANGES at %s; check out %s detached, review the full base-to-head diff and %s..%s, rerun task verify, post a new record, then run ateam review notify --record <record file> --from %s --return-to %s %d; if your context is past your handoff threshold, run ateam review notify --decline --return-to %s %d instead",
+	return fmt.Sprintf("PR #%d moved to %s after your REQUEST CHANGES at %s; check out %s detached, confirm each finding of your record is closed, review %s..%s (the full base-to-head diff only when it touches files your last review did not), rerun task verify, post a new record, then run ateam review notify --record <record file> --from %s --return-to %s %d; if your context is past your handoff threshold, run ateam review notify --decline --return-to %s %d instead",
 		pr, head, recordSHA, head, recordSHA, head, session, returnTo, pr, returnTo, pr)
 }
 

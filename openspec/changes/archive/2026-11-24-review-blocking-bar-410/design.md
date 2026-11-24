@@ -46,4 +46,4 @@ None: wording and one message string. Open records stay valid.
 
 ## Open Questions
 
-- **Owner ruling:** does a breach of a never-cut rule (D1, item 4) block? Recommended yes, since AGENTS.md already says those are never cut; the #410 bar listed only the first three items.
+- Resolved by the owner on 2026-11-24: a breach of a never-cut rule (D1, item 4) blocks.

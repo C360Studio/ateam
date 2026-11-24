@@ -1,5 +1,5 @@
 # Proposal: review-blocking-bar-410
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-24) sha256:44eac0eb82eb
 
 ## Track
 

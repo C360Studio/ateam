@@ -3,9 +3,7 @@
 ## Purpose
 
 Define explicit project model routing, stronger independent review, scoped owner exceptions and current evidence validation across GitHub and Gitea.
-
 ## Requirements
-
 ### Requirement: Stronger independent reviewer
 
 On the dormant `review route` / `review check` path, ATeam SHALL require a reviewer run that contributed no implementation and whose actual model is explicitly approved as stronger than every implementation model in the governing project policy. Reasoning effort SHALL be recorded separately and SHALL NOT substitute for model superiority. Same-provider review SHALL be permitted by default; configured cross-provider review SHALL be an additional constraint.
@@ -304,3 +302,15 @@ ATeam SHALL accept a governing policy that declares `model_tiers` (`frontier`, `
 #### Scenario: Reviewer unreachable
 - **WHEN** the manifest's `notify` command fails for the reviewer session
 - **THEN** the fresh launch spec is printed with `rereview: unreachable`
+
+### Requirement: Review blocking bar and round scope
+The reviewer contract SHALL define the findings that block approval and require every other finding to be listed as non-blocking. From the second round, the reviewer SHALL first confirm each prior finding closed and then read the commits since its last record, reading the full diff only when those commits touch files outside it or on request.
+
+#### Scenario: Corner already caught
+- **WHEN** a finding is refused by an existing later check and the spec makes no load-bearing promise about the earlier refusal
+- **THEN** the record lists it as non-blocking and the verdict can be `APPROVE`
+
+#### Scenario: Re-review message
+- **WHEN** `ateam review request --reviewer-session` sends the re-review text
+- **THEN** the text asks the reviewer to confirm its prior findings closed and review `<record>..<head>`, and does not ask for the full base-to-head diff
+
