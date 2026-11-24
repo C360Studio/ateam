@@ -216,8 +216,7 @@ func runSpecCheck(repoRoot string, args []string) int {
 		fmt.Fprintln(os.Stderr, "ateam state spec-check: unexpected argument; usage: ateam state spec-check [--base <ref>]")
 		return 2
 	}
-	ctx := context.Background()
-	out, code, err := state.CheckOpenSpec(ctx, repoRoot)
+	out, code, err := state.RunSpecCheck(context.Background(), repoRoot, *base)
 	if code == 2 {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return 2
@@ -230,18 +229,7 @@ func runSpecCheck(repoRoot string, args []string) int {
 		}
 		return 1
 	}
-	report, failures, err := state.CheckDesignPaths(ctx, repoRoot, *base)
-	if err != nil {
-		fmt.Fprint(os.Stderr, out)
-		fmt.Fprintln(os.Stderr, err.Error())
-		return 1
-	}
-	if len(failures) > 0 {
-		fmt.Fprint(os.Stderr, out)
-		fmt.Fprintln(os.Stderr, strings.Join(failures, "\n"))
-		return 1
-	}
-	fmt.Print(out + report)
+	fmt.Print(out)
 	return 0
 }
 

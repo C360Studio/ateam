@@ -60,8 +60,11 @@ jobs:
       - run: ./bin/ateam doctor --check
 
       # task verify diffs against origin's default branch; a PR is checked against its own base (#401).
+      # The base ref reaches the shell as data through env, never as generated script text (#408 review).
       - if: github.event_name == 'pull_request'
-        run: ./bin/ateam state spec-check --base "origin/${{ github.base_ref }}"
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+        run: ./bin/ateam state spec-check --base "origin/$PR_BASE_REF"
 
       - run: task verify
 

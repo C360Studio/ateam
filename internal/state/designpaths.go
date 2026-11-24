@@ -167,3 +167,20 @@ func sortedKeys(m map[string]bool) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// RunSpecCheck is spec-check as both the CLI and the MCP spec_check action run it: OpenSpec validation, then
+// design_paths (#401). A design_paths failure is appended to out, so a caller that prints out on failure shows it.
+func RunSpecCheck(ctx context.Context, root, base string) (string, int, error) {
+	out, code, err := CheckOpenSpec(ctx, root)
+	if code != 0 || err != nil {
+		return out, code, err
+	}
+	report, failures, err := CheckDesignPaths(ctx, root, base)
+	if err != nil {
+		return out + err.Error() + "\n", 1, err
+	}
+	if len(failures) > 0 {
+		return out + strings.Join(failures, "\n") + "\n", 1, fmt.Errorf("design paths: %d changed path(s) need a design.md in the same diff", len(failures))
+	}
+	return out + report, 0, nil
+}

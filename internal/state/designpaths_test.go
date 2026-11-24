@@ -81,6 +81,15 @@ func TestCheckDesignPaths(t *testing.T) {
 		{"deleted trigger file", func(t *testing.T, root string) {
 			designGit(t, root, "rm", "-q", "src/arming.rs")
 		}, []string{"src/arming.rs"}},
+		{"rename out of a trigger path", func(t *testing.T, root string) {
+			designGit(t, root, "mv", "src/arming.rs", "src/safe.rs")
+			designGit(t, root, "commit", "-qm", "rename")
+		}, []string{"src/arming.rs"}},
+		{"rename elsewhere does not hide a trigger edit", func(t *testing.T, root string) {
+			designGit(t, root, "mv", "docs/readme.md", "docs/guide.md")
+			designWrite(t, root, "src/arming.rs", "fn arm() { 6 }\n")
+			designGit(t, root, "commit", "-qam", "rename and edit")
+		}, []string{"src/arming.rs"}},
 		{"in-flight design satisfies", func(t *testing.T, root string) {
 			designWrite(t, root, "src/arming.rs", "fn arm() { disarm() }\n")
 			designWrite(t, root, "openspec/changes/arm-1/design.md", "# Design\n")
