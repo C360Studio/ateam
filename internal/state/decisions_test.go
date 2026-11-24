@@ -59,6 +59,9 @@ func TestProposalDecisionsSection(t *testing.T) {
 		{"heading in another case, star bullet", "# P\n\n## decisions YOU are making by approving\n\n* Users see a queue limit\n", design, 0, nil, true},
 		{"code and numbers only", "# P\n\n" + heading + "- `MaxQueue` = 64\n", design, 0, []string{"warning: openspec/changes/c1/proposal.md: decision \"`MaxQueue` = 64\" " + fewWords}, false},
 		{"four plain words", "# P\n\n" + heading + "- Users see queue limit `MaxQueue` 64\n", "", 0, []string{fewWords}, false},
+		{"heading inside a four-backtick fence holding a three-backtick fence", "# P\n\n````markdown\n```markdown\n" + heading + goodValue + "```\n````\n", design, 1, []string{missing}, false},
+		{"heading inside a tilde fence holding a backtick line", "# P\n\n~~~\n```\n" + heading + goodValue + "~~~\n", design, 1, []string{missing}, false},
+		{"real section after a closed four-backtick fence", "# P\n\n````\n```\n````\n\n" + heading + goodValue, design, 0, nil, true},
 		{"bullets after the next heading do not count", "# P\n\n" + heading + "## Why\n\n" + goodValue, design, 1, []string{missing}, false},
 	} {
 		dir := writeChange(t, map[string]string{

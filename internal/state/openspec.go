@@ -80,33 +80,27 @@ const maxRequirementChars = 500
 const maxScenarioStepWords = 60
 
 // ParseDecisions reports whether proposal text has the decisions heading (case-insensitive, outside code
-// fences) and returns the bullets under it, up to the next `## ` heading.
+// fences, which testspec.EachUnfencedLine matches by delimiter and length) and returns the bullets under it,
+// up to the next `## ` heading.
 func ParseDecisions(text string) (found bool, bullets []string) {
-	inFence, inSection := false, false
-	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+	inSection := false
+	testspec.EachUnfencedLine(text, func(raw string) {
 		line := strings.TrimSpace(raw)
-		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
-			inFence = !inFence
-			continue
-		}
-		if inFence {
-			continue
-		}
 		if strings.HasPrefix(line, "## ") {
 			inSection = strings.EqualFold(line, decisionsHeading)
 			found = found || inSection
-			continue
+			return
 		}
 		if !inSection {
-			continue
+			return
 		}
 		for _, marker := range []string{"- ", "* "} {
 			if item, ok := strings.CutPrefix(line, marker); ok {
 				bullets = append(bullets, strings.TrimSpace(item))
-				break
+				return
 			}
 		}
-	}
+	})
 	return found, bullets
 }
 

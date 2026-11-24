@@ -27,6 +27,7 @@ var adopterWording = map[string][]string{
 		"A helper that mirrors the control flow of the code under test is not an oracle",
 	},
 	".agents/contracts/architect.md": {
+		"Keep the repository read-only except the change's `design.md`, the premises in its `tasks.md` and the bullets under `## Decisions you are making by approving` in its `proposal.md`;",
 		"List each decision the design asks the owner to make in `proposal.md` under `## Decisions you are making by approving`",
 	},
 	".agents/skills/design/SKILL.md": {
