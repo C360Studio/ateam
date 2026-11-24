@@ -442,6 +442,7 @@ func (f *failFirst) run(ctx context.Context, argv []string) error {
 }
 
 // spec: openspec/specs/model-review/spec.md#Requirement: Re-review to the reviewing session
+// spec: openspec/specs/model-review/spec.md#Requirement: Review blocking bar and round scope
 func TestReviewRequestRereview(t *testing.T) {
 	const prHead = "fedcba9876543210fedcba9876543210fedcba98"
 	const older = "0123456789abcdef0123456789abcdef01234567"
@@ -450,8 +451,8 @@ func TestReviewRequestRereview(t *testing.T) {
 	defer func() { readPullBody = prev }()
 	manifest := "[launch]\ncommand = [\"hostctl\", \"start\", \"{agent}\", \"{return_to}\"]\n[notify]\ncommand = [\"hostctl\", \"send\", \"{return_to}\"]\n"
 	reviewer := review.RecordComment{SHA: older[:7], Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "xhigh"}
-	msg := "PR #42 moved to " + prHead + " after your REQUEST CHANGES at 0123456; check out " + prHead + " detached, review the full base-to-head diff and 0123456.." + prHead +
-		", rerun task verify, post a new record, then run ateam review notify --record <record file> --from conv-7 --return-to impl-1 42; if your context is past your handoff threshold, run ateam review notify --decline --return-to impl-1 42 instead"
+	msg := "PR #42 moved to " + prHead + " after your REQUEST CHANGES at 0123456; check out " + prHead + " detached, confirm each finding of your record is closed, review 0123456.." + prHead +
+		" (the full base-to-head diff only when it touches files your last review did not), rerun task verify, post a new record, then run ateam review notify --record <record file> --from conv-7 --return-to impl-1 42; if your context is past your handoff threshold, run ateam review notify --decline --return-to impl-1 42 instead"
 	at := func(r review.RecordComment, f func(*review.RecordComment)) *review.RecordComment { f(&r); return &r }
 	for _, tc := range []struct {
 		name     string
