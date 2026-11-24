@@ -14,13 +14,13 @@ func adrPolicy() Policy {
 		Version: 1,
 		ModelTiers: ModelTiers{
 			Frontier:  []string{"claude:opus", "claude:claude-opus-5-5", "claude:fable", "claude:claude-fable-5-1", "codex:gpt-6-astra", "gemini:gemini-4-carbon"},
-			Workhorse: []string{"claude:sonnet", "claude:claude-sonnet-5-5", "codex:gpt-6.1-sol", "codex:gpt-6-sol", "gemini:gemini-4-argon"},
-			Light:     []string{"claude:haiku", "claude:claude-haiku-4-5", "claude:claude-haiku-4-5-20251001", "codex:gpt-6-luna", "codex:gpt-5.4", "gemini:gemini-3.8-flash", "gemini:gemini-3.1-pro"},
+			Workhorse: []string{"claude:sonnet", "claude:claude-sonnet-5-5", "codex:gpt-6.1-sol", "codex:gpt-6-sol", "gemini:gemini-4-argon", "gemini:gemini-4-neon"},
+			Light:     []string{"claude:haiku", "claude:claude-haiku-4-5", "claude:claude-haiku-4-5-20251001", "codex:gpt-6-luna", "codex:gpt-5.4", "gemini:gemini-3.8-flash", "gemini:gemini-4-hydrogen"},
 		},
 		EffortBands: EffortBands{
 			Claude: Bands{Low: []string{"low"}, Mid: []string{"medium"}, High: []string{"high", "xhigh", "max"}},
 			Codex:  Bands{Low: []string{"none", "minimal", "low"}, Mid: []string{"medium"}, High: []string{"high", "xhigh", "max"}},
-			Gemini: Bands{Low: []string{"minimal", "low"}, Mid: []string{"medium"}, High: []string{"high"}},
+			Gemini: Bands{Low: []string{"minimal", "low"}, Mid: []string{"medium"}, High: []string{"high", "xhigh"}},
 		},
 	}
 }
