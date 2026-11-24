@@ -45,26 +45,36 @@ func parseShortstat(s string) (added, deleted int) {
 	return added, deleted
 }
 
-// snapshotWholeReview counts first-parent commits and diff lines from the newest review tag reachable
-// from tip to tip. "Newest" is the tag with the fewest first-parent commits before tip; equal counts
-// go to the later tag name, which sorts by date.
+// firstParentIndex maps each commit on ref's first-parent chain to its distance from ref (ref itself is 0).
+// A commit that reached the branch through a merge's second parent is absent: it never was the branch.
+func firstParentIndex(ctx context.Context, root, ref string) map[string]int {
+	index := map[string]int{}
+	for i, sha := range strings.Fields(runGitOutput(ctx, root, "rev-list", "--first-parent", ref)) {
+		index[sha] = i
+	}
+	return index
+}
+
+// snapshotWholeReview counts first-parent commits and diff lines from the newest review tag on tip's
+// first-parent chain to tip. "Newest" is the tag closest to tip on that chain; tags on one commit go to
+// the later name, which sorts by date. Tags on merged side branches or off the branch are ignored.
 func snapshotWholeReview(ctx context.Context, root, tip string) WholeReview {
+	chain := firstParentIndex(ctx, root, tip)
 	var best WholeReview
 	bestCommit := ""
-	tags := runGitOutput(ctx, root, "tag", "--list", wholeReviewTagPrefix+"*", "--merged", tip,
-		"--sort=refname", "--format=%(refname:short)")
+	tags := runGitOutput(ctx, root, "tag", "--list", wholeReviewTagPrefix+"*", "--sort=refname", "--format=%(refname:short)")
 	for _, tag := range strings.Fields(tags) {
-		// The date is the one RecordWholeReview put in the name: review/whole/<YYYY-MM-DD>-<short sha>.
-		date := strings.TrimPrefix(tag, wholeReviewTagPrefix)
-		if len(date) > 10 {
-			date = date[:10]
-		}
 		commit := runGitLine(ctx, root, "rev-list", "-n", "1", tag)
-		count, err := strconv.Atoi(runGitLine(ctx, root, "rev-list", "--count", "--first-parent", commit+".."+tip))
-		if commit == "" || err != nil {
+		count, onChain := chain[commit]
+		if !onChain {
 			continue
 		}
 		if best.Tag == "" || count <= best.Commits {
+			// The date is the one RecordWholeReview put in the name: review/whole/<YYYY-MM-DD>-<short sha>.
+			date := strings.TrimPrefix(tag, wholeReviewTagPrefix)
+			if len(date) > 10 {
+				date = date[:10]
+			}
 			best = WholeReview{Tag: tag, Date: date, Commits: count}
 			bestCommit = commit
 		}
@@ -76,7 +86,7 @@ func snapshotWholeReview(ctx context.Context, root, tip string) WholeReview {
 }
 
 // RecordWholeReview creates the annotated tag review/whole/<date>-<short sha> at commit `at`, which must
-// be on the default branch, and pushes it to origin unless push is false. It returns the tag name.
+// be on the default branch's first-parent chain, and pushes it to origin unless push is false. It returns the tag name.
 func RecordWholeReview(ctx context.Context, root, at, note string, push bool, now time.Time) (string, error) {
 	sha, err := gitCombined(ctx, root, "rev-parse", "--verify", "--quiet", at+"^{commit}")
 	if err != nil || sha == "" {
@@ -84,13 +94,13 @@ func RecordWholeReview(ctx context.Context, root, at, note string, push bool, no
 	}
 	branch := ""
 	for _, ref := range defaultBranchRefs(root) {
-		if _, err := gitCombined(ctx, root, "merge-base", "--is-ancestor", sha, ref); err == nil {
+		if _, ok := firstParentIndex(ctx, root, ref)[sha]; ok {
 			branch = ref
 			break
 		}
 	}
 	if branch == "" {
-		return "", fmt.Errorf("review whole: %s is not on the default branch (%s)", sha[:7], strings.Join(defaultBranchRefs(root), ", "))
+		return "", fmt.Errorf("review whole: %s is not on the default branch's first-parent history (%s)", sha[:7], strings.Join(defaultBranchRefs(root), ", "))
 	}
 	tag := wholeReviewTagPrefix + now.Format("2006-01-02") + "-" + sha[:7]
 	msg := "Whole-repository review at " + sha

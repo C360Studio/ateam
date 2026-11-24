@@ -166,3 +166,29 @@ func TestWholeReviewCountsMergeCommitOnce(t *testing.T) {
 		t.Fatalf("after one merge: %+v, want 1 commit, +2/-0", got)
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Whole-repository review marker
+func TestWholeReviewIgnoresMergedSideMarker(t *testing.T) {
+	// Review of PR #409: D reached main only as a merge's second parent, so it never was the branch. A
+	// marker on it is refused, and a forged one neither wins by date nor replaces the mainline baseline.
+	ctx := context.Background()
+	dir, a, _, d := wholeReviewRepo(t)
+	aTag := record(t, dir, a, "2026-11-01")
+	gitIn(t, dir, "merge", "-q", "--no-ff", "-m", "Merge side", "side")
+	gitIn(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+	now := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+	if _, err := RecordWholeReview(ctx, dir, d, "", false, now); err == nil || !strings.Contains(err.Error(), "first-parent history") {
+		t.Fatalf("merged side commit: err = %v, want refusal", err)
+	}
+	if tags := gitIn(t, dir, "tag", "--list", "review/whole/*"); tags != aTag {
+		t.Fatalf("refusal changed tags: %q", tags)
+	}
+
+	gitIn(t, dir, "tag", "-a", "review/whole/2026-11-10-"+d[:7], d, "-m", "forged")
+	// Hand derived from A to the merge: B, C and the merge commit are first-parent; b.txt +2, a.txt +1/-1, side.txt +1.
+	want := WholeReview{Tag: aTag, Date: "2026-11-01", Commits: 3, Added: 4, Deleted: 1}
+	if got := *SnapshotGit(ctx, dir).WholeReview; got != want {
+		t.Fatalf("selected %+v, want the first-parent marker %+v", got, want)
+	}
+}
