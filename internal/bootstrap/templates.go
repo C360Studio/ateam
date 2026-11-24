@@ -297,7 +297,7 @@ Shared truth lives in the repository's versioned code, ` + "`openspec/`" + ` spe
 
 ## 3. Mutation & Property-Based Testing (PBT) Discipline
 
-1. **Independent oracle & wrong behavior first:** State the correct behavior and one plausible wrong behavior; compute expected outcomes from an independent oracle or reference model, never by repeating production logic.
+1. **Independent oracle & wrong behavior first:** State the correct behavior and one plausible wrong behavior; compute expected outcomes from an independent oracle or reference model, never by repeating production logic. An independent oracle's expected values are literals, a hand derivation shown in the test, or data from a named external source; a test-owned reference model counts only when it is derived from the requirement. A helper that mirrors the control flow of the code under test is not an oracle: it kills every mutant and still cannot detect a wrong design.
 2. **Non-destructive mutation check (` + "`task mutate:check`" + ` / ` + "`ateam mutate`" + `):** Never run ` + "`git checkout --`" + `, ` + "`git restore`" + `, ` + "`git stash`" + `, ` + "`git clean`" + `, or ` + "`git reset --hard`" + ` to undo a mutant. Use a tool that mutates a copy: Go ` + "`task mutate:check`" + ` (` + "`go test -overlay`" + `), Rust ` + "`cargo mutants`" + ` (copies the tree; ` + "`caught`" + ` is ` + "`detection`" + `, ` + "`missed`" + ` ` + "`survivor`" + `, ` + "`unviable`" + ` ` + "`invalid`" + `, ` + "`timeout`" + ` ` + "`inconclusive`" + `), or ` + "`cp`" + ` + ` + "`shasum -a 256`" + ` before/after, and report ` + "`detection`" + `, ` + "`survivor`" + `, ` + "`invalid`" + `, or ` + "`inconclusive`" + `.
 3. **Generated checks (Fuzz targets & PBT):** When touching interacting inputs, stated laws (round-trip, idempotence), or order-dependent histories, record whether a fuzz or property test (Go ` + "`testing.F`" + `, Rust ` + "`proptest`" + `) is used or why named examples suffice, verify boundary reach and assertion activation, and compare histories against a test-owned reference model.
 ## Test-to-spec attribution
@@ -463,12 +463,14 @@ Read the task and the code it touches. List callers, tests, fixtures, config, an
 
 ## 2. The 6-Step Decision Ladder (Smallest Complete Change)
 
-1. **Does it need to exist?** Skip unrequested features and options; name them in one line.
+1. **Does it need to exist?** Skip unrequested features and options; name them in one line. Name the caller or spec scenario that needs it today; if there is none, do not build it.
 2. **Already in this codebase?** Reuse existing helpers, components, and patterns.
 3. **Standard library or platform feature?** Prefer the project language’s standard library or native browser capabilities.
 4. **An installed dependency?** Use what is already installed; never add a dependency for a few lines.
 5. **Can it be one clear line?** Write flat, readable code.
 6. **Otherwise:** Write the minimum complete change, test every non-trivial branch with an independent oracle proven via ` + "`task mutate:check`" + ` (or ` + "`cp`" + ` + SHA-256), use generated checks (fuzz or property tests) when touching interacting inputs/laws/histories, and mark deliberate limits with ` + "`// shortcut: <the limit>, <when to upgrade>`" + `.
+
+Defensive code names the concrete failure it prevents and how that failure occurs. A defence that turns a transient fault into a safety action is itself a hazard and needs the same justification as a feature.
 `,
 	"preflight": `---
 name: preflight

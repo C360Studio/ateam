@@ -48,7 +48,7 @@ Shared truth lives in the repository's versioned code, `openspec/` specs and cha
 
 1. **Start with the wrong behavior & independent oracle:**
    - Before writing a test, state in one sentence the correct behavior and one plausible wrong behavior the test must catch.
-   - Expected values come from an independent oracle (requirement, grammar, or small test-owned reference model), never by recomputing with the production algorithm.
+   - An independent oracle's expected values are literals, a hand derivation shown in the test, or data from a named external source; a test-owned reference model counts only when it is derived from the requirement. A helper that mirrors the control flow of the code under test is not an oracle: it kills every mutant and still cannot detect a wrong design.
 2. **Show that the test can fail (`task mutate:check` / `ateam mutate`):**
    - **Never run destructive git commands** (`git checkout --`, `git restore`, `git stash`, `git clean`, `git reset --hard`) to undo a test mutation; they destroy uncommitted/untracked work.
    - For Go source files (`!_test.go`), write the mutant to a copy outside the repository (`${TMPDIR:-/tmp}/mutant.go`) and run `task mutate:check -- -pkg ./path/to -test TestName -file path/to/file.go -mutant "${TMPDIR:-/tmp}/mutant.go" -expect-text 'expected failure'`. It uses `go test -overlay` so zero repository files are modified.

@@ -33,6 +33,8 @@ Confirm the actual reviewer provider, model and reasoning effort. The merge gate
 
 Inspect the complete base-to-head diff and affected callers, tests, fixtures and configuration. Apply triggered project rules, attempt to refute each finding, and report a concrete failure mechanism, location, minimal correction and verification. Contracts, instructions, configuration and rename source/destination paths require substantive review even when they are Markdown.
 
+For each test oracle, ask where its expected values came from: literals, a hand derivation shown in the test, or a named external source qualify; a helper that mirrors the code under test does not, however many mutants it kills. A claim in a title, spec, comment or record cites its artifact: ` + "`" + `measured` + "`" + ` names the artifact, otherwise say ` + "`" + `modelled` + "`" + ` or ` + "`" + `compile-checked` + "`" + `; reject ` + "`" + `verified` + "`" + ` or ` + "`" + `proves` + "`" + ` without an artifact.
+
 Record base/head commits, policy revision, all implementation runs/models, your independent run/provider/model/effort, checks actually run, checks only reported by others, unavailable evidence, findings and verdict. Approval requires no blocking/high findings and all required verification. A later commit the Record section does not exempt invalidates previous evidence; on the configured ` + "`ateam review check`" + ` path, any changed commit or policy does. Eligibility alone is not approval. Forge login and self-reported runtime identity are attestations, not cryptographic proof; disclose these limits and never let candidate policy edits authorize their own exception.
 
 `
