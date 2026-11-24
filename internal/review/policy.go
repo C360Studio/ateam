@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"path"
 	"strings"
 )
 
@@ -33,6 +34,11 @@ type Policy struct {
 	// absent), a person or scheduled workflow, or LaunchAgent, the implementing
 	// session through its host manifest (#295). It does not change CrossProvider.
 	ReviewLaunch string `json:"review_launch,omitempty"`
+	// DesignPaths lists slash-path globs (path.Match, plus a trailing /** for a
+	// subtree) whose change needs an OpenSpec design.md in the same diff (#401).
+	// It lives here, not in .agents/ateam.json, because removing an entry
+	// weakens a gate that spec-check enforces.
+	DesignPaths []string `json:"design_paths,omitempty"`
 }
 
 // Review launch modes for ateam review request.
@@ -158,6 +164,9 @@ func ValidatePolicy(p Policy) error {
 	case "", LaunchManual, LaunchAgent:
 	default:
 		return fmt.Errorf("review_launch %q must be %q or %q", p.ReviewLaunch, LaunchManual, LaunchAgent)
+	}
+	if err := validateDesignPaths(p.DesignPaths); err != nil {
+		return err
 	}
 	// Supplied tiers or bands are validated together, with or without models.
 	if p.HasTiers() || p.HasBands() {
@@ -314,4 +323,24 @@ func (p Policy) ValidateRouting() error {
 	dev, _ := p.Model(p.Routes.Developer.Model)
 	reviewer, _ := p.Model(p.Routes.Reviewer.Model)
 	return Eligible(p, []Run{{ID: "developer", Model: dev.ID, Provider: dev.Provider, Effort: p.Routes.Developer.Effort}}, Run{ID: "reviewer", Model: reviewer.ID, Provider: reviewer.Provider, Effort: p.Routes.Reviewer.Effort})
+}
+
+// validateDesignPaths rejects a glob spec-check could never match, so a typo
+// fails at load instead of silently checking nothing.
+func validateDesignPaths(globs []string) error {
+	seen := map[string]bool{}
+	for _, g := range globs {
+		pattern := strings.TrimSuffix(g, "/**")
+		if pattern == "" || strings.HasPrefix(g, "/") || strings.HasPrefix(g, "./") || strings.Contains(g, "\\") {
+			return fmt.Errorf("design_paths entry %q must be a repository-relative slash path glob", g)
+		}
+		if _, err := path.Match(pattern, ""); err != nil {
+			return fmt.Errorf("design_paths entry %q: %w", g, err)
+		}
+		if seen[g] {
+			return fmt.Errorf("design_paths entry %q appears twice", g)
+		}
+		seen[g] = true
+	}
+	return nil
 }
