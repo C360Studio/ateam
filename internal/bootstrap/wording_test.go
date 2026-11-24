@@ -12,6 +12,10 @@ import (
 // expected sentences are literals copied from the approved proposal's wording,
 // not derived from the templates.
 var adopterWording = map[string][]string{
+	"AGENTS.md": {
+		"Name the caller or spec scenario that needs it today; if there is none, do not build it.",
+		"Defensive code names the concrete failure it prevents and how that failure occurs.",
+	},
 	".agents/skills/ponytail/SKILL.md": {
 		"Name the caller or spec scenario that needs it today; if there is none, do not build it.",
 		"Defensive code names the concrete failure it prevents and how that failure occurs.",
