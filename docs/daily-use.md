@@ -90,6 +90,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 3. To enforce review records, `main` rulesets, and `class:flake` blocks in CI, wire in `ateam review gate <pr-number>` ([merge gate setup](adoption.md#the-merge-gate-on-github-and-gitea)).
 4. After the PR merges, the claiming agent removes `.worktrees/<agent>-<topic>` and deletes the remote branch; `ateam state prune` does both for every merged, clean worktree on its prefix that no other session holds or handed off in the last 30 minutes (`--dry-run` lists them first).
 5. An agent MUST NOT delete a worktree that belongs to another agent or contains uncommitted or unpushed work.
+6. When an epic or milestone closes, read the repository as one system and record it with `ateam review whole --at <sha>` (an annotated `review/whole/<date>-<short sha>` tag, pushed unless `--no-push`). Per-PR review sees one diff at a time; the pickup line's `since-review=<n> commits, +<a>/-<d> lines (<date>)`, or `since-review=never`, shows how much has landed since the last whole read. It is advice, not a gate.
 
 ## What to expect day to day
 

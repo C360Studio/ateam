@@ -20,7 +20,7 @@ import (
 
 func runReview(root string, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... (--reviewer AGENT:MODEL:EFFORT | --reviewer-record FILE) | gate [--awaiting] [PR] | request [--implementer AGENT:MODEL:EFFORT]... [--reviewer AGENT:MODEL:EFFORT] [--return-to ID] [--reviewer-session ID] [--fresh] [--dry-run] PR | notify (--record FILE [--from ID] | --decline) [--return-to ID] PR")
+		fmt.Fprintln(os.Stderr, "usage: ateam review setup --policy FILE | route [--developer-models IDS] | check --pr N --record-comment ID [--exception-comment ID] | compare --implementer AGENT:MODEL:EFFORT... (--reviewer AGENT:MODEL:EFFORT | --reviewer-record FILE) | gate [--awaiting] [PR] | request [--implementer AGENT:MODEL:EFFORT]... [--reviewer AGENT:MODEL:EFFORT] [--return-to ID] [--reviewer-session ID] [--fresh] [--dry-run] PR | notify (--record FILE [--from ID] | --decline) [--return-to ID] PR | whole --at SHA [--note TEXT] [--no-push]")
 		return 2
 	}
 	var err error
@@ -42,6 +42,8 @@ func runReview(root string, args []string) int {
 		err = reviewRoute(root, args[1:])
 	case "check":
 		err = reviewCheck(root, args[1:])
+	case "whole":
+		err = reviewWhole(root, args[1:])
 	default:
 		err = fmt.Errorf("unknown review command %q", args[0])
 	}
@@ -491,4 +493,30 @@ func statusWriteWarnings(repoRoot string) []string {
 		return nil
 	}
 	return []string{"last commit status write failed (" + strings.TrimSpace(st.StatusWriteError) + "); check that the write token (ATEAM_TOKEN_WRITE) can set commit statuses, or set ATEAM_COMMIT_STATUSES=0"}
+}
+
+// reviewWhole records a whole-repository review as a review/whole/ tag (#399).
+func reviewWhole(root string, args []string) error {
+	fs := flag.NewFlagSet("review whole", flag.ContinueOnError)
+	at := fs.String("at", "", "reviewed commit on the default branch (required)")
+	note := fs.String("note", "", "text or link stored in the tag message, such as the findings issue")
+	noPush := fs.Bool("no-push", false, "create the tag without pushing it to origin")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*at) == "" || fs.NArg() != 0 {
+		return fmt.Errorf("usage: ateam review whole --at SHA [--note TEXT] [--no-push]")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	tag, err := state.RecordWholeReview(ctx, root, *at, *note, !*noPush, time.Now())
+	if err != nil {
+		return err
+	}
+	if *noPush {
+		fmt.Printf("created %s (not pushed; run git push origin refs/tags/%s)\n", tag, tag)
+	} else {
+		fmt.Printf("created and pushed %s\n", tag)
+	}
+	return nil
 }
