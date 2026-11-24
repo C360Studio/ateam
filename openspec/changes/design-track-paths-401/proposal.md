@@ -1,4 +1,5 @@
 # Proposal: design-track-paths-401
+Approved-by: Coby Leuschke (2026-11-24) sha256:54b8897bec59
 
 ## Decisions you are making by approving
 

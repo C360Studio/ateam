@@ -2,7 +2,7 @@
 
 ## 1. Approval
 
-- [ ] 1.1 Owner approves proposal.md and design.md together and rules on Q1 and Q2. Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves proposal.md and design.md together (`Approved-by: Coby Leuschke (2026-11-24) sha256:54b8897bec59`; Q1: D1 B, review-policy.json; Q2: CI wiring in this PR).
 
 ## 2. Implementation
 
