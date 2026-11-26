@@ -152,6 +152,8 @@ func runState(repoRoot string, args []string) int {
 		return runStateSync(repoRoot, args[1:])
 	case "pickup":
 		return runStatePickup(repoRoot, args[1:])
+	case "next":
+		return runStateNext(repoRoot)
 	case "read-handoff":
 		return runStateReadHandoff(repoRoot, args[1:])
 	case "prune":
@@ -180,6 +182,7 @@ Subcommands:
   status       Refresh state and print it as JSON (default)
   board        Refresh state with a forge sync and print the PM board as JSON (--scope open|done|all, --limit, --after)
   pickup       Refresh state and print the pickup summary (--agent, --session)
+  next         Sync and print the next issue in milestone order, why earlier ones were skipped, and unplaced issues
   handoff      Record the five-field handoff checkpoint (see ateam state handoff -h)
   read-handoff <agent>@<branch>
                Print another slot's handoff without changing state
@@ -496,7 +499,29 @@ func runStateSnapshot(repoRoot, sub string) int {
 		fmt.Fprintf(os.Stderr, "ateam state %s: %v\n", sub, err)
 		return 1
 	}
-	printJSON(st)
+	// next is computed, never cached, so the status JSON gains it without a field in .ateam/state.json (#418).
+	printJSON(struct {
+		*state.State
+		Next state.NextResult `json:"next"`
+	}{st, st.ComputeNext()})
+	return 0
+}
+
+// runStateNext exits 1 only when there is no synced forge data to compute from; "none" with a reason is a result.
+func runStateNext(repoRoot string) int {
+	st, err := state.RefreshWithBestEffortSync(context.Background(), repoRoot, 30*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state next: %v\n", err)
+		return 1
+	}
+	res := st.ComputeNext()
+	fmt.Print(res.Format())
+	if msg := strings.TrimSpace(st.BoardSyncError); msg != "" {
+		fmt.Fprintf(os.Stderr, "WARNING: forge sync failed, computed from the cache: %s\n", msg)
+	}
+	if res.None == state.NextNotSynced {
+		return 1
+	}
 	return 0
 }
 

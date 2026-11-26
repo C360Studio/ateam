@@ -33,7 +33,7 @@ Report in one concise block:
 1. **Verified worktree, branch, and `HEAD` SHA** (plus any uncommitted or unpushed delta)
 2. **Active holds, blockers, or drift** since the last handoff SHA
 3. **Write ownership status** and usable verification evidence
-4. **Next authorized step** under the Ponytail decision ladder
+4. **Next authorized step** under the Ponytail decision ladder: continue the unit a handoff names as in hand, else take the issue `ateam state next` names (the pickup line's `next=`), never an order recalled from a handoff
 
 Continue directly into the next authorized step when no blocking hold or unclarified scope boundary applies.
 

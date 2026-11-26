@@ -18,7 +18,7 @@ This guide covers day-to-day work in a repository that uses default `ateam` sett
 1. Start Claude Code, Codex CLI, Gemini CLI, or Antigravity (`agy`) in your repository.
 2. On startup, `ateam hook` injects your branch, `HEAD`, `Hold:` count, shortcuts, and the Ponytail ladder when its mode is `on` ([hook flow](hook-flow.md)).
 3. When you resume earlier work or switch agent CLIs, run `/pickup` ([pickup skill](../.agents/skills/pickup/SKILL.md)) or `ateam state pickup`.
-4. `ateam state pickup` reconciles live Git worktrees and GitHub or Gitea state against the last checkpoint.
+4. `ateam state pickup` reconciles live Git worktrees and GitHub or Gitea state against the last checkpoint. Its `next=` field, and `ateam state next` in full, name the one next issue every session shares: the first startable issue in the earliest milestone, ordered by an `Order: #a -> #b` line in each milestone description and an `After: <milestone title>` line naming the milestone it follows. `Depends on: #n` lines in an issue's body or comments hold it back, and an open PR whose body says `Closes`, `Fixes`, `Resolves` or `Addresses #n` claims it. When the order cannot be read, `next=none (<reason>)` names nothing; issues no `Order:` line places are listed as unplaced.
 5. When you want a browser board for issues, holds, and shortcuts, run `ateam serve` and open `http://127.0.0.1:8420`.
 6. When you want to refresh cached GitHub or Gitea issues and PRs manually, run `ateam state sync`.
 
