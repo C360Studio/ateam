@@ -13,13 +13,15 @@
 ## Goals / Non-Goals
 
 **Goals:** make label and milestone drift visible at every session start; one command a person or host workflow runs to list it.
+Owner rulings 2026-11-26 (#416 comment): D1 A, D3 A, D4 A (widening filed as #421), Q5 default 15.
+
 **Non-Goals:** fixing labels, gating anything, scheduling, judge placement (#417).
 
 ## Decisions
 
 ### D1. Blocker grammar
 
-- **A (recommended): `Depends on: #n` only**, the form #418 already parses. A `status:blocked` issue that names its blocker another way (`Blocked by #n`, prose) is reported as Q2, "names no readable blocker", which tells the author to use the one form.
+- **A (owner ruling): `Depends on: #n` only**, the form #418 already parses. A `status:blocked` issue that names its blocker another way (`Blocked by #n`, prose) is reported as Q2, "names no readable blocker", which tells the author to use the one form.
 - **B: also accept `Blocked by #n`.** Friendlier, but two grammars for one fact, and `next` (#418) would need the second form too or the two answers diverge.
 - *Adopter seam:* an adopter using `Blocked by` sees Q2 findings until they switch. Doing nothing leaves them as advice.
 
@@ -35,16 +37,16 @@
 
 ### D3. Where milestone data comes from (Q5, Q6)
 
-- **A (recommended): one open-milestones call per sync** (`gh api repos/{o}/{r}/milestones?state=open`; Gitea `GET /repos/{o}/{r}/milestones?state=open`). It returns `open_issues` and `closed_issues` per milestone, so Q5 and Q6 do not depend on the 50-item closed cap. It costs one request per sync, and the hook stays cache-only.
+- **A (owner ruling): one open-milestones call per sync** (`gh api repos/{o}/{r}/milestones?state=open`; Gitea `GET /repos/{o}/{r}/milestones?state=open`). It returns `open_issues` and `closed_issues` per milestone, so Q5 and Q6 do not depend on the 50-item closed cap. It costs one request per sync, and the hook stays cache-only.
 - **B: count from cards only.** No new call, but Q6 is impossible (a finished milestone has no open card), and Q5 already works from open cards.
 - **C: drop Q5 and Q6.** Smallest, but loses the adopter's overloaded-milestone finding.
 - *Adopter seam:* a token that can read issues can read milestones on both forges. A failed call leaves Q5 and Q6 out and shows `queue=unavailable`, never zero.
 
 ### D4. Q3's decision grammar
 
-- **A (recommended): keep `Decision:` / `Ruling:` as is.** Q3 then misses rulings phrased `Owner decision …`, a false negative that is quiet but harmless (advice only).
+- **A (owner ruling): keep `Decision:` / `Ruling:` as is.** Q3 then misses rulings phrased `Owner decision …`, a false negative that is quiet but harmless (advice only).
 - **B: also match `Owner decision` and `Owner ruling(s)` prefixes.** Catches this repository's own phrasing, but changes the board's Decision column for every adopter, which needs its own Requirement change.
-- Recommendation A; file B as a follow-up if Q3 stays empty while labels are stale.
+- B is filed as #421.
 
 ### D5. Surfaces
 
@@ -64,7 +66,4 @@ Additive. On this repository today the expected findings are Q4 for none (#347 w
 
 ## Open Questions
 
-1. **Owner ruling:** D1: `Depends on:` only (A), or also `Blocked by` (B)?
-2. **Owner ruling:** D3: add the milestones call (A), cards only (B), or drop Q5 and Q6 (C)?
-3. **Owner ruling:** D4: keep the decision grammar (A), or widen it (B)?
-4. **Owner ruling:** Q5 default threshold: 15?
+None. The owner ruled D1, D3 and D4 A and the Q5 default of 15 on 2026-11-26; D2 and D5 follow the recommendation on approval.
