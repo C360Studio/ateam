@@ -1,0 +1,14 @@
+# Tasks: coordinator-417
+
+## 1. Approval
+
+- [x] 1.1 Owner approves the proposal and design (`Approved-by: Coby Leuschke (2026-11-26) sha256:c435bbfb2d11`, re-approved after the dogfood moved to #424; first approved at sha256:bf0ac7bdbf7e), written by claude on the owner's instruction; rulings D1 A, D2 A, D3 A, D4 A, D5 A.
+
+## 2. Implementation
+
+- [x] 2.1 Contract (premise `.agents/contracts/architect.md:1-9` shape, `docs/adr/0003-roles-and-routes.md:24-30`): write `.agents/contracts/coordinator.md` covering the write scope from D3, the stop list (every owner gate: proposal approval, `gate-change-approved`, `status:needs-decision`, a third REQUEST CHANGES, milestone scope or order, release, red `main`), batching, and the D2 worktree. Accept: review against this design's D2–D5. Done: `.agents/contracts/coordinator.md` covers D2–D5 and the stop list.
+- [x] 2.2 Skill (premise `.agents/skills/pickup/SKILL.md` numbered-heading shape, `.agents/hosts/*.toml` `[launch]`): write `.agents/skills/coordinate/SKILL.md` with the loop (`ateam state next`, `queue-check`, developer launch per D4, `ateam review request`, relay, gate wait, batched prompt, `owner-prompts:`), plus `.claude/skills/coordinate/SKILL.md` and `.gemini/commands/coordinate.toml`. Accept: `ateam doctor --check` green with `coordinate` treated as canonical. Done: `.agents/skills/coordinate/SKILL.md` plus both adapters; `ateam doctor --check` exits 0 with `adopter_skills: []`.
+- [x] 2.3 Bootstrap (premise `internal/bootstrap/bootstrap.go:30`, `internal/bootstrap/templates.go:607-611`): add `coordinate` to `canonicalSkills`, and add the contract and skill bodies to the templates. Accept: an init test into an empty directory finds the contract, the skill and both adapters with the expected link text; a mutation that drops the contract template is detected. Done: `TestInitShipsCoordinatorAsCanonical`; `task mutate:check` gives `detection` for each of three mutants: drop the contract template entry, drop the `owner-prompts:` marker, drop `coordinate` from `canonicalSkills`.
+- [x] 2.4 Docs (premise `docs/adr/0003-roles-and-routes.md:24-41`, `openspec/specs/harness/spec.md:606`): add the ADR 0003 catalog and route rows (`frontier`/`high` with no `workhorse` exception, since it routes and never implements); `.agents/README.md`; `docs/daily-use.md`; and the spec delta. Accept: `task spec:check` green. Done: ADR 0003 catalog and route rows plus Status amendment, `.agents/README.md`, `docs/daily-use.md` § 6 step 6, and the spec delta; `task spec:check` green.
+- [x] 2.5 Dogfood moved to #424 (owner ruling 2026-11-26): the first coordinated PR records `owner-prompts:`, counted on #417. Nothing to do in this change.
+- [x] 2.6 Run `task verify`, `ateam doctor --check` and `ateam bench --selftest`, then archive this change.

@@ -603,11 +603,11 @@ CI SHALL enforce the pinned verification workflow and aggregate `Required` check
 
 ### Requirement: Adopter skills and adapter aliases
 
-`ateam doctor` SHALL apply its canonical-skill checks only to the five skills ateam generates (`pickup`, `handoff`, `preflight`, `ponytail`, `review-pr`), and SHALL check other skills and adapters only for links that resolve.
+`ateam doctor` SHALL apply its canonical-skill checks only to the seven skills ateam generates (`pickup`, `handoff`, `preflight`, `ponytail`, `review-pr`, `design`, `coordinate`), and SHALL check other skills and adapters only for links that resolve.
 
 #### Scenario: Adopter skill
 
-- **WHEN** `.agents/skills/` holds a skill that is not one of the five canonical skills and that no canonical adapter aliases
+- **WHEN** `.agents/skills/` holds a skill that is not one of the seven canonical skills and that no canonical adapter aliases
 - **THEN** doctor requires no numbered heading, procedure markers, adapters, line cap or checkbox rule for it, and lists it under `adopter_skills` in its JSON output (an empty list when there is none)
 
 #### Scenario: Dangling adapter link
@@ -1406,3 +1406,17 @@ Session-start SHALL decide whether another writer is active from the cached writ
 
 - **WHEN** another session's lease past the TTL names another host or PID namespace
 - **THEN** session-start prints no warning and writes the writer lease
+
+### Requirement: Optional coordinator role
+
+`ateam init` SHALL write a coordinator contract and a canonical `coordinate` skill. The coordinator SHALL route milestone work from `ateam state next` through developer and reviewer runs, and SHALL stop at every owner gate. It SHALL never fill `Approved-by:`, apply `gate-change-approved`, write `reviewed-by:`, or change labels or milestones.
+
+#### Scenario: Init writes the coordinator files
+
+- **WHEN** `ateam init` runs in an empty directory
+- **THEN** it writes `.agents/contracts/coordinator.md`, `.agents/skills/coordinate/SKILL.md`, `.claude/skills/coordinate/SKILL.md` and `.gemini/commands/coordinate.toml`, and `ateam doctor --check` applies the canonical-skill checks to `coordinate`
+
+#### Scenario: Owner gates are batched and counted
+
+- **WHEN** a coordinated pull request reaches an owner gate
+- **THEN** the coordinator stops that unit, puts the question in one message with every other pending owner question, and the pull request body's `owner-prompts:` line counts each message that covered it
