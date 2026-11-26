@@ -1,5 +1,5 @@
 # Proposal: coordinator-417
-Approved-by: Coby Leuschke (2026-11-26) sha256:bf0ac7bdbf7e
+Approved-by: Coby Leuschke (2026-11-26) sha256:c435bbfb2d11
 
 ## Track
 
@@ -35,5 +35,5 @@ ateam lists architect, developer, reviewer and judge (ADR 0003), but nobody owns
 ## Definition of Done
 
 - Bootstrap tests show `ateam init` writes the contract, the skill and both adapters, and `ateam doctor --check` applies the canonical-skill checks to `coordinate`.
-- One coordinated run on this repository merges at least one PR, and that PR body carries `owner-prompts:`.
+- The first coordinated run is #424's: its PR carries `owner-prompts:`, and the count is recorded on #417. This was moved out of this change on 2026-11-26 because #424 depends on this one merging.
 - `task verify`, `ateam doctor --check` and `ateam bench --selftest` are green, and the change is archived before ready.
