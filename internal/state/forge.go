@@ -416,16 +416,17 @@ func fetchGiteaRESTCards(ctx context.Context, root string, cfg ForgeConfig) ([]B
 		}
 		for j := range merged[i] {
 			item := &merged[i][j]
-			if _, count := parseIssueComments(item.Comments); count == 0 {
+			_, count := parseIssueComments(item.Comments)
+			if count == 0 {
 				continue
 			}
 			commentsURL := fmt.Sprintf("%s/issues/%d/comments", repoAPI, item.Number)
 			wg.Go(func() {
 				slots <- struct{}{}
 				defer func() { <-slots }()
-				comments := fetchGiteaIssueComments(ctx, client, token, commentsURL)
-				// nil is a failed fetch (an empty page decodes to a non-nil slice); its Depends on: lines are unknown.
-				item.CommentsUnread = comments == nil
+				comments, complete := fetchGiteaAllIssueComments(ctx, client, token, commentsURL, count)
+				// A failed or short read leaves Depends on: lines unknown, and next must not hand out the issue (D5).
+				item.CommentsUnread = !complete
 				for _, c := range comments {
 					item.CommentBodies = append(item.CommentBodies, c.Body)
 				}
@@ -573,6 +574,27 @@ func fetchGiteaIssueComments(ctx context.Context, client *http.Client, token, co
 		return nil
 	}
 	return comments
+}
+
+// giteaCommentPageLimit is the page size asked for; a server with a lower MAX_RESPONSE_ITEMS returns fewer, which the
+// loop tolerates by paging until it holds want comments or a page comes back empty.
+const giteaCommentPageLimit = 50
+
+// fetchGiteaAllIssueComments pages an issue's comments until it holds want of them. complete is false when a page
+// fails or the pages run out first, so a Depends on: line on an unread page cannot go missing silently.
+func fetchGiteaAllIssueComments(ctx context.Context, client *http.Client, token, commentsURL string, want int) ([]forgeComment, bool) {
+	var all []forgeComment
+	for page := 1; len(all) < want; page++ {
+		got := fetchGiteaIssueComments(ctx, client, token, fmt.Sprintf("%s?page=%d&limit=%d", commentsURL, page, giteaCommentPageLimit))
+		if got == nil {
+			return all, false
+		}
+		if len(got) == 0 {
+			return all, false
+		}
+		all = append(all, got...)
+	}
+	return all, true
 }
 
 func fetchTeaCLICards(ctx context.Context, root string) ([]BoardCard, error) {

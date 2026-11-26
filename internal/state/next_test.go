@@ -71,6 +71,12 @@ func nextCases() []struct {
 				{Number: 1, Reason: "closed"}, {Number: 2, Reason: "in milestone B"}}, NoOrder: []string{"B"}},
 		},
 		{
+			// Review of PR #419: A keeps its description through unplaced #9 after its last ordered issue moved to B.
+			name:  "moving the last ordered issue finishes its old milestone",
+			cards: []BoardCard{issue(9, "A", "Order: #1"), issue(1, "B", "After: A\nOrder: #1")},
+			want:  NextResult{Milestone: "B", Number: 1, Title: "issue 1", Unplaced: []int{9}},
+		},
+		{
 			name:  "nothing startable stops in the milestone",
 			cards: []BoardCard{issue(1, "A", descA, label("status:blocked")), issue(4, "B", "After: A\nOrder: #4")},
 			want: NextResult{Milestone: "A", None: "all of A skipped", Skipped: []NextSkip{
@@ -279,5 +285,56 @@ func TestGiteaSyncFillsNextFields(t *testing.T) {
 	}
 	if c := byID["GT-PR-9"]; !reflect.DeepEqual(c.Claims, []int{3}) {
 		t.Errorf("PR claims = %v", c.Claims)
+	}
+}
+
+// spec: harness / Shared computed next issue
+func TestGiteaDependencyCommentsArePagedOrMarkedUnread(t *testing.T) {
+	// Review of PR #419: a Depends on: line past the first comment page must be read, and a short or failed read
+	// must leave the issue unread rather than look dependency-free.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		page := q.Get("page")
+		switch {
+		case r.URL.Path == "/api/v1/repos/c360/ateam/issues/2/comments" && page == "1":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"body": "a"}, {"body": "b"}})
+		case r.URL.Path == "/api/v1/repos/c360/ateam/issues/2/comments" && page == "2":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"body": "Depends on: #1"}})
+		case r.URL.Path == "/api/v1/repos/c360/ateam/issues/3/comments" && page == "1":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"body": "a"}})
+		case r.URL.Path == "/api/v1/repos/c360/ateam/issues/4/comments" && page == "1":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"body": "a"}})
+		case r.URL.Path == "/api/v1/repos/c360/ateam/issues/4/comments" && page == "2":
+			w.WriteHeader(http.StatusInternalServerError)
+		case strings.HasSuffix(r.URL.Path, "/issues") && q.Get("state") == "open" && page == "1":
+			ms := map[string]any{"title": "A", "description": "Order: #2 -> #3 -> #4"}
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"number": 2, "title": "two", "state": "open", "comments": 3, "milestone": ms},
+				{"number": 3, "title": "three", "state": "open", "comments": 2, "milestone": ms},
+				{"number": 4, "title": "four", "state": "open", "comments": 2, "milestone": ms},
+			})
+		default:
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cards, err := SyncForgeBoard(ctx, t.TempDir(), ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "c360", Repo: "ateam"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]BoardCard{}
+	for _, c := range cards {
+		byID[c.ID] = c
+	}
+	if c := byID["GT-2"]; !reflect.DeepEqual(c.DependsOn, []int{1}) || c.CommentsUnread {
+		t.Errorf("issue #2 (dependency on page 2) = DependsOn %v unread %v, want [1] false", c.DependsOn, c.CommentsUnread)
+	}
+	if c := byID["GT-3"]; !c.CommentsUnread {
+		t.Errorf("issue #3 (pages ran out before the count) unread = false, want true")
+	}
+	if c := byID["GT-4"]; !c.CommentsUnread {
+		t.Errorf("issue #4 (page 2 failed) unread = false, want true")
 	}
 }

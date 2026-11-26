@@ -220,7 +220,8 @@ func earliestMilestone(orders map[string][]int, issues map[int]BoardCard, descs 
 	var candidates []string
 	for title, order := range orders {
 		for _, n := range order {
-			if _, ok := issues[n]; ok {
+			// An ordered issue moved to another milestone no longer keeps this one unfinished; the walk would skip it.
+			if c, ok := issues[n]; ok && c.Milestone == title {
 				candidates = append(candidates, title)
 				break
 			}
