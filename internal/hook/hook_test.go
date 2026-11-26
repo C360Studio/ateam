@@ -1211,7 +1211,8 @@ func TestSessionStartRenderedTextCannotGateWriterLease(t *testing.T) {
 			if err := state.Save(dir, st); err != nil {
 				t.Fatal(err)
 			}
-			out, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-mine"}`))
+			// The fixture's claude@main slot renders in full only for a claude session, whatever host runs the test.
+			out, err := HandleWithAgent(dir, "session-start", "claude", strings.NewReader(`{"session_id":"sess-mine"}`))
 			if err != nil {
 				t.Fatal(err)
 			}
