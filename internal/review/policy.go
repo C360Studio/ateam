@@ -39,6 +39,10 @@ type Policy struct {
 	// It lives here, not in .agents/ateam.json, because removing an entry
 	// weakens a gate that spec-check enforces.
 	DesignPaths []string `json:"design_paths,omitempty"`
+	// HoldMyBeer lets a judge's `Judged-by:` line in an OpenSpec proposal count as
+	// approval (#424); absent means false. It lives here because turning it on
+	// moves owner decisions to an agent, so it is a gate-file change.
+	HoldMyBeer bool `json:"hold_my_beer,omitempty"`
 }
 
 // Review launch modes for ateam review request.

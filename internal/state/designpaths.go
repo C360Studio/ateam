@@ -15,8 +15,9 @@ import (
 	"github.com/c360studio/ateam/internal/review"
 )
 
-// designPathsPolicy is read from the checkout being checked; editing it is itself a gate-file change.
-const designPathsPolicy = ".agents/review-policy.json"
+// reviewPolicyFile is read from the checkout being checked (design_paths, hold_my_beer); editing it is itself a
+// gate-file change.
+const reviewPolicyFile = ".agents/review-policy.json"
 
 // CheckDesignPaths applies the policy's design_paths globs (#401): every changed path matching one needs an
 // added or modified openspec/changes/**/design.md in the same diff. The diff runs from the merge base of base
@@ -24,16 +25,16 @@ const designPathsPolicy = ".agents/review-policy.json"
 // when that cannot resolve, the check reports that it did not run instead of passing silently. It returns
 // the report, the paths that failed (one message each) and an error for a check that could not run as asked.
 func CheckDesignPaths(ctx context.Context, root, base string) (string, []string, error) {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(designPathsPolicy)))
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(reviewPolicyFile)))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil, nil
 	}
 	if err != nil {
-		return "", nil, fmt.Errorf("design paths: read %s: %w", designPathsPolicy, err)
+		return "", nil, fmt.Errorf("design paths: read %s: %w", reviewPolicyFile, err)
 	}
 	policy, err := review.ParsePolicy(data)
 	if err != nil {
-		return "", nil, fmt.Errorf("design paths: %s: %w", designPathsPolicy, err)
+		return "", nil, fmt.Errorf("design paths: %s: %w", reviewPolicyFile, err)
 	}
 	if len(policy.DesignPaths) == 0 {
 		return "", nil, nil

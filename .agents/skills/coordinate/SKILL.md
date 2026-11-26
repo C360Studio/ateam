@@ -25,6 +25,10 @@ When a developer hands off at ready-for-review, run `ateam review request <pr> -
 
 When any unit waits on an owner gate, send one message that lists every waiting gate: the PR or issue, the question in plain words, and what you need (for a proposal, the digest `task spec:queue` prints). Then add 1 to the `owner-prompts: <n>` line of each PR that message covers, creating the line at `owner-prompts: 1`, with `gh pr edit <pr> --body-file <file>` (Gitea: `PATCH /repos/{owner}/{repo}/pulls/{index}`). Continue other units while you wait.
 
+## Hold-my-beer Mode
+
+Only while `.agents/review-policy.json` sets `"hold_my_beer": true`, and only for the gates the coordinator contract lists for a judge: collect the evidence (the proposal and design paths, the review records, or the milestone and issue numbers), run `ateam review compare` for the judge run against every run it rules on, and start the judge with your host's launch tool at ADR 0003's `frontier`, `high` default and this prompt: `Read .agents/contracts/judge.md fully. Question: <one question>. Evidence: <paths and links>. Compare: <ateam review compare output>.` On a third `Verdict: REQUEST CHANGES`, ask the judge whether each open finding blocks: the developer run fixes the findings it rules blocking and files the rest as follow-up issues, then request a fresh review as in step 3. When the judge answers "cannot decide", put its question in the owner message in step 4 and end the run.
+
 ## 5. Hand Off
 
 From your coordinator worktree, run `ateam state handoff`: Goal names the milestone you are coordinating, Addresses lists each unit in flight with its PR and the gate it waits on, and Constraints names your provider, model and effort. End with 1–2 lines naming what you skipped or did not check and any residual risk.

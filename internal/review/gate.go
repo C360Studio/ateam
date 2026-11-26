@@ -407,7 +407,8 @@ func (g *gateRun) review(ctx context.Context) (bool, error) {
 }
 
 // approvalNotes prints a note for each OpenSpec change the pull request touches
-// whose proposal.md at head has no filled Approved-by: (#182). The proposal is
+// whose proposal.md at head has no filled Approved-by: (#182), naming the judge
+// when a Judged-by: line is filled instead (#424). The proposal is
 // documentation read from the pull request's tree, and a note never changes
 // the verdict, so a failed read is a note too, never unavailable.
 func (g *gateRun) approvalNotes(ctx context.Context, head string, files []gateFile) {
@@ -418,9 +419,18 @@ func (g *gateRun) approvalNotes(ctx context.Context, head string, files []gateFi
 			g.say("note: %s was not read, so its Approved-by is unchecked: %v", path, err)
 			continue
 		}
-		if testspec.ApprovedBy(string(data)) == "" {
-			g.say("note: OpenSpec change %s has no Approved-by; the spec was not human-reviewed", dir[strings.LastIndex(dir, "/")+1:])
+		if testspec.ApprovedBy(string(data)) != "" {
+			continue
 		}
+		id := dir[strings.LastIndex(dir, "/")+1:]
+		if judge := testspec.JudgedBy(string(data)); judge != "" {
+			if f := strings.Fields(judge); len(f) > 1 && strings.HasPrefix(f[len(f)-1], "sha256:") {
+				judge = strings.TrimSpace(strings.TrimSuffix(judge, f[len(f)-1]))
+			}
+			g.say("note: OpenSpec change %s was judged by %s, not owner-reviewed", id, judge)
+			continue
+		}
+		g.say("note: OpenSpec change %s has no Approved-by; the spec was not human-reviewed", id)
 	}
 }
 

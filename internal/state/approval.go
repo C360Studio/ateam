@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c360studio/ateam/internal/review"
 	"github.com/c360studio/ateam/internal/testspec"
 )
 
@@ -19,6 +20,9 @@ const (
 	ApprovalApproved   = "approved"   // filled, and its digest matches proposal.md and design.md
 	ApprovalStale      = "stale"      // filled with a digest that no longer matches
 	ApprovalUnbound    = "unbound"    // filled without a digest (D4 A: warns, never fails)
+	// ApprovalJudged is a `Judged-by:` line bound to the current digest, counted only while the review policy sets
+	// hold_my_beer and `Approved-by:` is empty (#424 D2 A). It is never the owner's approval.
+	ApprovalJudged = "judged"
 )
 
 // Approval is what a change's `Approved-by:` line says and whether it still holds.
@@ -31,15 +35,22 @@ type Approval struct {
 	// "uncommitted".
 	File string `json:"file,omitempty"`
 	At   string `json:"at,omitempty"`
+	// JudgedBy is the filled `Judged-by:` value, whatever the opt-in says, so spec-check can fail it while the opt-in
+	// is off. Judged says Name and Digest come from that line: `Approved-by:` is empty and hold_my_beer is on.
+	JudgedBy string `json:"judged_by,omitempty"`
+	Judged   bool   `json:"judged,omitempty"`
 }
 
 var digestTokenRe = regexp.MustCompile(`^sha256:([0-9a-f]+)$`)
 
-// approvalLine returns the index of the first `Approved-by:` line outside code fences, or -1. A candidate line is
-// unfenced when appending it to the lines before it adds one line to what testspec.EachUnfencedLine visits.
-func approvalLine(lines []string) int {
+// approvalLine returns the index of the first `Approved-by:` line outside code fences, or -1.
+func approvalLine(lines []string) int { return headerLine(lines, "Approved-by:") }
+
+// headerLine returns the index of the first line outside code fences starting with prefix, or -1. A candidate line
+// is unfenced when appending it to the lines before it adds one line to what testspec.EachUnfencedLine visits.
+func headerLine(lines []string, prefix string) int {
 	for i, line := range lines {
-		if !strings.HasPrefix(strings.TrimSpace(line), "Approved-by:") {
+		if !strings.HasPrefix(strings.TrimSpace(line), prefix) {
 			continue
 		}
 		if i == 0 {
@@ -55,11 +66,15 @@ func approvalLine(lines []string) int {
 	return -1
 }
 
-// ApprovalDigest is the 12-hex sha256 an approval binds to: proposal.md without its `Approved-by:` line, then
-// design.md when present (nil when absent), each LF-normalized and length-prefixed (#272 D1 A).
+// ApprovalDigest is the 12-hex sha256 an approval binds to: proposal.md without its `Approved-by:` and
+// `Judged-by:` lines (#424), then design.md when present (nil when absent), each LF-normalized and length-prefixed
+// (#272 D1 A). Filling either line never changes the digest the other binds to.
 func ApprovalDigest(proposal, design []byte) string {
 	lines := strings.Split(strings.ReplaceAll(string(proposal), "\r\n", "\n"), "\n")
 	if i := approvalLine(lines); i >= 0 {
+		lines = append(lines[:i:i], lines[i+1:]...)
+	}
+	if i := headerLine(lines, "Judged-by:"); i >= 0 {
 		lines = append(lines[:i:i], lines[i+1:]...)
 	}
 	h := sha256.New()
@@ -82,22 +97,36 @@ func parseApproval(value string) (name, digest string) {
 	return value, ""
 }
 
-// approvalOf classifies a change's approval from its proposal.md and design.md (nil when absent).
-func approvalOf(proposal, design []byte) Approval {
+// approvalOf classifies a change's approval from its proposal.md and design.md (nil when absent). A filled
+// `Approved-by:` wins; otherwise a filled `Judged-by:` counts only when holdMyBeer reports the opt-in on, and it is
+// called only then, so a proposal without a judge's line never reads the policy.
+func approvalOf(proposal, design []byte, holdMyBeer func() bool) Approval {
 	value, _ := ParseProposal(proposal)
-	a := Approval{Current: ApprovalDigest(proposal, design)}
+	a := Approval{Current: ApprovalDigest(proposal, design), JudgedBy: testspec.JudgedBy(string(proposal))}
+	if value == "" && a.JudgedBy != "" && holdMyBeer() {
+		value, a.Judged = a.JudgedBy, true
+	}
 	a.Name, a.Digest = parseApproval(value)
 	switch {
 	case a.Name == "" && a.Digest == "":
 		a.State = ApprovalUnapproved
 	case a.Digest == "":
 		a.State = ApprovalUnbound
+	case a.Digest == a.Current && a.Judged:
+		a.State = ApprovalJudged
 	case a.Digest == a.Current:
 		a.State = ApprovalApproved
 	default:
 		a.State = ApprovalStale
 	}
 	return a
+}
+
+// holdMyBeerOn reports whether a review policy's bytes set hold_my_beer (#424). Absent or invalid bytes are off, so
+// a judge's line then fails spec-check instead of counting as approval; doctor --check reports an invalid policy.
+func holdMyBeerOn(policy []byte) bool {
+	p, err := review.ParsePolicy(policy)
+	return err == nil && p.HoldMyBeer
 }
 
 // staleSource names the file a stale approval's change touched and where: "uncommitted" when the working tree

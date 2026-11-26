@@ -218,7 +218,7 @@ func TestApproveEdits(t *testing.T) {
 			if after := ApprovalDigest(p, []byte(design)); after != before {
 				t.Fatalf("digest moved from %s to %s", before, after)
 			}
-			if a := approvalOf(p, []byte(design)); a.State != ApprovalApproved {
+			if a := approvalOf(p, []byte(design), optInOff); a.State != ApprovalApproved {
 				t.Fatalf("approval after ApproveEdits = %+v, want approved", a)
 			}
 			if _, _, err := ParseTasksMarkdown("tasks.md", tasks); err != nil {
@@ -254,10 +254,144 @@ func FuzzApproveEditsKeepsDigest(f *testing.F) {
 		if err != nil {
 			return // no unfenced header to fill
 		}
-		if a := approvalOf(p, nil); a.State != ApprovalApproved || a.Digest != ApprovalDigest(proposal, nil) {
+		if a := approvalOf(p, nil, optInOff); a.State != ApprovalApproved || a.Digest != ApprovalDigest(proposal, nil) {
 			t.Fatalf("approval after ApproveEdits = %+v, want approved at %s", a, ApprovalDigest(proposal, nil))
 		}
 	})
+}
+
+func optInOff() bool { return false }
+
+// spec: harness / Judge approvals under the hold-my-beer opt-in
+func TestApprovalOfJudgedBy(t *testing.T) {
+	// Every proposal below drops both header lines to "# C\n\n\nWhy\n", pinned in TestApprovalDigest as
+	// dc711ee07ab1 (printf 'proposal.md 10\n# C\n\n\nWhy\n' | shasum -a 256 | cut -c1-12).
+	const (
+		current = "dc711ee07ab1"
+		judge   = "codex (gpt-6-astra, high)"
+	)
+	doc := func(approved, judged string) string {
+		return "# C\n\nApproved-by:" + approved + "\nJudged-by:" + judged + "\n\nWhy\n"
+	}
+	fenced := "# C\n\nApproved-by:\n\nWhy\n```\nJudged-by: " + judge + " sha256:" + current + "\n```\n"
+	for _, tc := range []struct {
+		name, proposal string
+		on             bool
+		state, who     string // who: the Name the counted line gives
+		judged         bool   // Judged: the Judged-by line is the one counted
+		judgedBy       string
+		reads          int // how often the policy is read: never without a filled Judged-by line
+	}{
+		{"owner only, on", doc(" Ann (2026-11-26) sha256:"+current, ""), true, ApprovalApproved, "Ann (2026-11-26)", false, "", 0},
+		{"owner only, off", doc(" Ann (2026-11-26) sha256:"+current, ""), false, ApprovalApproved, "Ann (2026-11-26)", false, "", 0},
+		{"judge only, on", doc("", " "+judge+" sha256:"+current), true, ApprovalJudged, judge, true, judge + " sha256:" + current, 1},
+		{"judge only, off", doc("", " "+judge+" sha256:"+current), false, ApprovalUnapproved, "", false, judge + " sha256:" + current, 1},
+		{"both, on: owner wins", doc(" Ann (2026-11-26) sha256:"+current, " "+judge+" sha256:"+current), true, ApprovalApproved, "Ann (2026-11-26)", false, judge + " sha256:" + current, 0},
+		{"both, off", doc(" Ann (2026-11-26) sha256:"+current, " "+judge+" sha256:"+current), false, ApprovalApproved, "Ann (2026-11-26)", false, judge + " sha256:" + current, 0},
+		{"stale judge, on", doc("", " "+judge+" sha256:000000000000"), true, ApprovalStale, judge, true, judge + " sha256:000000000000", 1},
+		{"stale judge, off", doc("", " "+judge+" sha256:000000000000"), false, ApprovalUnapproved, "", false, judge + " sha256:000000000000", 1},
+		{"unbound judge, on", doc("", " "+judge), true, ApprovalUnbound, judge, true, judge, 1},
+		{"unbound judge, off", doc("", " "+judge), false, ApprovalUnapproved, "", false, judge, 1},
+		{"fenced judge, on", fenced, true, ApprovalUnapproved, "", false, "", 0},
+		{"fenced judge, off", fenced, false, ApprovalUnapproved, "", false, "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reads := 0
+			a := approvalOf([]byte(tc.proposal), nil, func() bool { reads++; return tc.on })
+			if a.State != tc.state || a.Name != tc.who || a.Judged != tc.judged || a.JudgedBy != tc.judgedBy || reads != tc.reads {
+				t.Fatalf("approvalOf = %+v after %d policy reads; want state %s, name %q, judged %v, judged_by %q, %d reads",
+					a, reads, tc.state, tc.who, tc.judged, tc.judgedBy, tc.reads)
+			}
+			if tc.name != "fenced judge, on" && tc.name != "fenced judge, off" && a.Current != current {
+				t.Fatalf("current digest %s, want %s", a.Current, current)
+			}
+		})
+	}
+}
+
+// spec: harness / Judge approvals under the hold-my-beer opt-in
+func TestApprovalDigestIgnoresBothLines(t *testing.T) {
+	// Literal oracle: dropping both headers leaves "# C\n\n\nWhy\n", pinned as dc711ee07ab1 in TestApprovalDigest.
+	for name, proposal := range map[string]string{
+		"both empty":    "# C\n\nApproved-by:\nJudged-by:\n\nWhy\n",
+		"judge filled":  "# C\n\nApproved-by:\nJudged-by: codex (gpt-6-astra, high) sha256:dc711ee07ab1\n\nWhy\n",
+		"owner filled":  "# C\n\nApproved-by: Ann (2026-11-26) sha256:dc711ee07ab1\nJudged-by:\n\nWhy\n",
+		"both filled":   "# C\n\nApproved-by: Ann (2026-11-26)\nJudged-by: codex (gpt-6-astra, high)\n\nWhy\n",
+		"judge first":   "# C\n\nJudged-by: codex (gpt-6-astra, high)\nApproved-by:\n\nWhy\n",
+		"judge, CRLF":   "# C\r\n\r\nApproved-by:\r\nJudged-by: x\r\n\r\nWhy\r\n",
+		"no judge line": "# C\n\nApproved-by:\n\nWhy\n",
+	} {
+		if got := ApprovalDigest([]byte(proposal), nil); got != "dc711ee07ab1" {
+			t.Errorf("%s: digest %s, want dc711ee07ab1", name, got)
+		}
+	}
+	// Only the first unfenced Judged-by: line is dropped: a second one, or a fenced one, is proposal text.
+	if got := ApprovalDigest([]byte("# C\n\nApproved-by:\nJudged-by:\n\nWhy\nJudged-by:\n"), nil); got == "dc711ee07ab1" {
+		t.Error("a second Judged-by: line was dropped from the digest too")
+	}
+}
+
+// spec: harness / Judge approvals under the hold-my-beer opt-in
+func TestCheckOpenSpecJudgedBy(t *testing.T) {
+	t.Setenv("PATH", gitOnlyPath(t)) // git, but no host openspec validating these fixtures
+	const (
+		proposal = "# Change\n\nApproved-by:\nJudged-by:\n\n## Decisions you are making by approving\n\n- Nothing changes for any user of this fixture.\n\n## Why\n"
+		tasks    = "## 1. Tasks\n\n- [ ] 1.1 Do it\n"
+		policy   = `{"version":1,"model_tiers":{"frontier":["claude:opus"]},"effort_bands":{"claude":{"high":["high"]},"codex":{"high":["high"]},"gemini":{"high":["high"]}},"cross_provider":true,"hold_my_beer":true}`
+	)
+	digest := ApprovalDigest([]byte(proposal), nil)
+	judged := strings.Replace(proposal, "Judged-by:", "Judged-by: codex (gpt-6-astra, high) sha256:"+digest, 1)
+	both := strings.Replace(judged, "Approved-by:", "Approved-by: Ann (2026-11-26) sha256:"+digest, 1)
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-q", "-b", "main")
+	writeRepoFile(t, repo, "openspec/config.yaml", "schema: spec-driven\n")
+	for id, body := range map[string]string{"judged": judged, "both": both, "owner": strings.Replace(proposal, "Approved-by:", "Approved-by: Ann (2026-11-26) sha256:"+digest, 1)} {
+		writeRepoFile(t, repo, "openspec/changes/"+id+"/proposal.md", body)
+		writeRepoFile(t, repo, "openspec/changes/"+id+"/tasks.md", tasks)
+	}
+	gitIn(t, repo, "add", "-A")
+	gitIn(t, repo, "commit", "-q", "-m", "judge")
+
+	out, code, err := CheckOpenSpec(context.Background(), repo)
+	if code != 1 || err == nil || err.Error() != "judged approval without hold_my_beer" {
+		t.Fatalf("opt-in off: code=%d err=%v, want exit 1 naming the missing opt-in; out=%s", code, err, out)
+	}
+	for _, id := range []string{"judged", "both"} {
+		want := "openspec/changes/" + id + "/proposal.md: judged approval without hold_my_beer (Judged-by: is filled, but .agents/review-policy.json does not set \"hold_my_beer\": true); remove the line or have the owner approve\n"
+		if !strings.Contains(out, want) {
+			t.Errorf("opt-in off: missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "changes/owner/") {
+		t.Errorf("opt-in off: the owner-only change is reported:\n%s", out)
+	}
+
+	writeRepoFile(t, repo, ".agents/review-policy.json", policy)
+	if out, code, err = CheckOpenSpec(context.Background(), repo); code != 0 || err != nil {
+		t.Fatalf("opt-in on: code=%d err=%v out=%s", code, err, out)
+	}
+	changes, err := ScanOpenSpecQueue(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue, _ := FormatOpenSpecQueue(changes)
+	for _, want := range []string{
+		"judged " + strings.Repeat(" ", 36) + "0/1  judged by codex (gpt-6-astra, high) sha256:" + digest + ", not owner-approved\n",
+		"both " + strings.Repeat(" ", 38) + "0/1  approved sha256:" + digest + "\n",
+	} {
+		if !strings.Contains(queue, want) {
+			t.Errorf("queue missing %q:\n%s", want, queue)
+		}
+	}
+
+	// With the opt-in on, a judged approval goes stale on the same digest rule as an owner's.
+	writeRepoFile(t, repo, "openspec/changes/judged/proposal.md", judged+"\nOne more line.\n")
+	out, code, err = CheckOpenSpec(context.Background(), repo)
+	now := ApprovalDigest([]byte(judged+"\nOne more line.\n"), nil)
+	want := "openspec/changes/judged/proposal.md: judged approval sha256:" + digest + " is stale; proposal.md changed since (uncommitted); re-approve with sha256:" + now + "\n"
+	if code != 1 || err == nil || !strings.Contains(out, want) {
+		t.Fatalf("stale judged: code=%d err=%v, want exit 1 with %q; out=%s", code, err, want, out)
+	}
 }
 
 // gitOnlyPath is a PATH holding only a link to git, so a test can hide a host openspec while keeping git.

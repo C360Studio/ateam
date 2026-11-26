@@ -79,7 +79,10 @@ type touchedChange struct {
 	Proposal   string // repository-relative proposal.md path
 	ApprovedBy string
 	OpenQ      bool
-	Stale      bool // ApprovedBy carries a digest that no longer matches proposal.md and design.md at the head (#272)
+	Stale      bool // the counted line carries a digest that no longer matches proposal.md and design.md at the head (#272)
+	// Judged names the judge, without its digest, when an empty ApprovedBy gives way to a `Judged-by:` line under
+	// the head's hold_my_beer opt-in (#424).
+	Judged string
 }
 
 // statusInputs is what the D3 chooser decides from; every field is already known locally or from one sync.
@@ -111,7 +114,7 @@ func chooseStatuses(in statusInputs) []CommitStatus {
 		first := in.Changes[0]
 		var firstWaiting, firstStale *touchedChange
 		for i, ch := range in.Changes {
-			if strings.TrimSpace(ch.ApprovedBy) == "" || ch.OpenQ {
+			if (strings.TrimSpace(ch.ApprovedBy) == "" && ch.Judged == "") || ch.OpenQ {
 				waiting = append(waiting, ch.ID)
 				if firstWaiting == nil {
 					firstWaiting = &in.Changes[i]
@@ -123,6 +126,10 @@ func chooseStatuses(in statusInputs) []CommitStatus {
 				if firstStale == nil {
 					firstStale = &in.Changes[i]
 				}
+				continue
+			}
+			if ch.Judged != "" {
+				approved = append(approved, "judged by "+ch.Judged+": "+ch.ID)
 				continue
 			}
 			name, _ := parseApproval(ch.ApprovedBy)
@@ -283,7 +290,14 @@ func touchedChanges(ctx context.Context, dir, baseRef, head string) []touchedCha
 		ch := touchedChange{ID: path.Base(d), Proposal: d + "/proposal.md"}
 		if hasProposal {
 			ch.ApprovedBy, _ = ParseProposal(proposal)
-			ch.Stale = approvalOf(proposal, design).State == ApprovalStale
+			a := approvalOf(proposal, design, func() bool {
+				policy, _ := gitOutput(ctx, dir, "show", head+":"+reviewPolicyFile)
+				return holdMyBeerOn(policy)
+			})
+			ch.Stale = a.State == ApprovalStale
+			if a.Judged {
+				ch.Judged = a.Name
+			}
 		}
 		if hasTasks {
 			if parsed, _, err := ParseTasksMarkdown(d+"/tasks.md", tasks); err == nil {
