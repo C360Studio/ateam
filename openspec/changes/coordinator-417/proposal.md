@@ -1,4 +1,5 @@
 # Proposal: coordinator-417
+Approved-by: Coby Leuschke (2026-11-26) sha256:bf0ac7bdbf7e
 
 ## Track
 
