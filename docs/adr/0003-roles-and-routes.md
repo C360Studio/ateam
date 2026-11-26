@@ -1,6 +1,6 @@
 # ADR 0003: Role catalog and default routes
 
-- **Status:** Accepted (owner, 2026-10-27)
+- **Status:** Accepted (owner, 2026-10-27); amended 2026-11-26 to add the `coordinator` row (#417)
 - **Date:** 2026-10-27
 - **Deciders:** repository owner
 - **Builds on:** [ADR 0001](0001-review-gate-scope.md) (routes are attestations), [ADR 0002](0002-model-tiers-and-effort-bands.md) (tiers, bands, the not-weaker rule)
@@ -25,6 +25,7 @@ This repository documents two roles as contracts, developer and reviewer (`.agen
 | `architect` | `.agents/contracts/architect.md` | The change's `design.md` and the premises in its `tasks.md` | Implement, rule, or edit any other file |
 | `developer` | `.agents/contracts/developer.md` | The complete change: code, callers, tests, fixtures, OpenSpec task evidence | Review its own work, or lower its model to make review possible |
 | `reviewer` | `.agents/contracts/reviewer.md` | One review record comment on the pull request | Edit the deliverable it grades |
+| `coordinator` | `.agents/contracts/coordinator.md` | Its handoff, PR comments relaying review results or the owner's batched questions, and a PR body's `owner-prompts:` line | Implement, review, rule, fill `Approved-by:`, apply `gate-change-approved`, change labels or milestones, or release |
 | `judge` | None: the owner's prompt states the one question | A ruling on that question, posted where the owner asks | Sweep, implement, or rule on anything it was not asked |
 
 A judge answers one question over evidence already collected, read-only, within a small tool budget. The owner opens it as its own session and closes it when the ruling lands; agents do not spawn one.
@@ -38,6 +39,7 @@ Routes name a tier and band from ADR 0002's tables, never a model, so a new mode
 | `architect` | `frontier` / `high` | No |
 | `developer` | `frontier` / `high` | `workhorse` / `high`, only when all four hold (below) |
 | `reviewer` | Not weaker than every implementer run (ADR 0002 § 2); a different agent while `cross_provider` is `true` | No |
+| `coordinator` | `frontier` / `high` | No: it routes and never implements, so the `workhorse` conditions do not apply |
 | `judge` | `frontier` / `high`, one short session | No |
 
 A developer run may take `workhorse` only when:

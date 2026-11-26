@@ -27,7 +27,7 @@ const (
 )
 
 var (
-	canonicalSkills = []string{"pickup", "handoff", "preflight", "ponytail", "review-pr", "design"}
+	canonicalSkills = []string{"pickup", "handoff", "preflight", "ponytail", "review-pr", "design", "coordinate"}
 	requiredHooks   = []string{"session-start", "before-prompt", "pre-compact", "turn-end"}
 )
 
@@ -438,12 +438,13 @@ func isNumberedTitle(title string) bool {
 }
 
 var requiredSkillMarkers = map[string][]string{
-	"design":    {"## 1.", "file:line", "adopter seam"},
-	"handoff":   {"## 1.", "ateam state handoff", "Goal:"},
-	"pickup":    {"## 1.", "ateam state pickup", "Verify Write Ownership"},
-	"ponytail":  {"## 1.", "6-Step Decision Ladder", "// shortcut:"},
-	"preflight": {"## 1.", "task verify", "Record Evidence"},
-	"review-pr": {"## 1.", "reviewed-by:", "Reviewed at"},
+	"coordinate": {"## 1.", "ateam state next", "owner-prompts:"},
+	"design":     {"## 1.", "file:line", "adopter seam"},
+	"handoff":    {"## 1.", "ateam state handoff", "Goal:"},
+	"pickup":     {"## 1.", "ateam state pickup", "Verify Write Ownership"},
+	"ponytail":   {"## 1.", "6-Step Decision Ladder", "// shortcut:"},
+	"preflight":  {"## 1.", "task verify", "Record Evidence"},
+	"review-pr":  {"## 1.", "reviewed-by:", "Reviewed at"},
 }
 
 // aipSkillMarkers are the markers of a skill's review_record: aip variant (#130),

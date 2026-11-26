@@ -35,6 +35,7 @@ Canonical skills live in `.agents/skills/<name>/SKILL.md`:
 - [ponytail](skills/ponytail/SKILL.md): write the smallest complete change that solves the task, track intentional limits with `// shortcut: <limit>, <when to upgrade>`, and end task conclusions and handoffs with 1–2 lines naming what was skipped and any remaining risk.
 - [review-pr](skills/review-pr/SKILL.md): review one pull request as an independent, read-only reviewer on a detached `<agent>-review-pr-<n>` checkout, compare it with your own approach, and post the `reviewed-by:` / `Reviewed at <sha>` record comment that `task merge:check` reads. The manual trigger for a cross-agent review.
 - [design](skills/design/SKILL.md): on the `design` track (protocol § 2 Clarify), draft `design.md` read-only: `file:line` context, at least two options per decision with the adopter seam, and owner-ruling questions marked. It drafts and never rules; the owner approves it with the proposal.
+- [coordinate](skills/coordinate/SKILL.md): optional. Move milestone work from `ateam state next` through developer and reviewer runs, started with the host's own launch tool, from a `<agent>/coordinator` worktree. It stops at every owner gate, batches the owner's questions into one message, and counts them in each PR's `owner-prompts:` line. It never implements, reviews, rules or changes labels and milestones ([coordinator contract](contracts/coordinator.md)).
 
 ## What `ateam doctor` Checks
 

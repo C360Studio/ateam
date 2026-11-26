@@ -1,0 +1,2 @@
+description = "Coordinate milestone work in default mode; routes developer and reviewer runs, stops at every owner gate."
+prompt = "Read .agents/skills/coordinate/SKILL.md fully and follow the canonical coordinate workflow."
