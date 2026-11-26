@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -466,7 +467,10 @@ func ScanOpenSpecQueue(root string) ([]OpenSpecChange, error) {
 		}
 		ch.hasProposal, ch.hasDesign = hasProposal, design != nil
 		if hasProposal {
-			ch.Approval = approvalOf(prop, design) // design is nil when design.md is absent
+			ch.Approval = approvalOf(prop, design, func() bool { // design is nil when design.md is absent
+				policy, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(reviewPolicyFile)))
+				return holdMyBeerOn(policy)
+			})
 			if ch.Approval.State == ApprovalStale {
 				// shortcut: no caller passes a context to the scan; staleSource's git calls carry their own 2s timeout.
 				ch.Approval.File, ch.Approval.At = staleSource(context.Background(), root, path.Dir(propRel))
@@ -593,17 +597,23 @@ func FormatOpenSpecQueue(changes []OpenSpecChange) (string, bool) {
 
 // approvalLabel is the queue's name-line suffix for an approval (D3); unapproved changes already show their hold.
 func approvalLabel(a Approval) string {
+	kind := "approval"
+	if a.Judged {
+		kind = "judged approval"
+	}
 	switch a.State {
 	case ApprovalApproved:
 		return "  approved sha256:" + a.Digest
+	case ApprovalJudged:
+		return "  judged by " + a.Name + " sha256:" + a.Digest + ", not owner-approved"
 	case ApprovalStale:
 		at := "edited at " + a.At
 		if a.At == "uncommitted" {
 			at = "uncommitted"
 		}
-		return "  stale approval (" + a.File + " " + at + ")"
+		return "  stale " + kind + " (" + a.File + " " + at + ")"
 	case ApprovalUnbound:
-		return "  approval unbound"
+		return "  " + kind + " unbound"
 	}
 	return ""
 }
@@ -688,22 +698,9 @@ func CheckOpenSpec(ctx context.Context, root string) (string, int, error) {
 	if misplaced {
 		return out.String(), 1, fmt.Errorf("stray Hold: outside task block")
 	}
-	stale := false
-	for _, ch := range changes {
-		a := ch.Approval
-		switch a.State {
-		case ApprovalStale:
-			stale = true
-			changed := "last commit " + a.At
-			if a.At == "uncommitted" {
-				changed = "uncommitted"
-			}
-			fmt.Fprintf(&out, "openspec/changes/%s/proposal.md: approval sha256:%s is stale; %s changed since (%s); re-approve with sha256:%s\n",
-				ch.Name, a.Digest, a.File, changed, a.Current)
-		case ApprovalUnbound:
-			fmt.Fprintf(&out, "warning: openspec/changes/%s/proposal.md: approval unbound (Approved-by: has no sha256: digest); re-approve with sha256:%s\n",
-				ch.Name, a.Current)
-		}
+	judgedOff, stale := approvalFindings(root, changes, &out)
+	if judgedOff {
+		return out.String(), 1, fmt.Errorf("judged approval without hold_my_beer")
 	}
 	if stale {
 		return out.String(), 1, fmt.Errorf("stale approval")
@@ -899,4 +896,41 @@ func ScanOpenSpecSpecs(root string) ([]OpenSpecSpec, error) {
 		out = append(out, sp)
 	}
 	return out, nil
+}
+
+// approvalFindings writes each change's judged-without-opt-in failure, stale approval and unbound warning to out,
+// and reports whether any judged line lacks the opt-in and whether any approval is stale.
+func approvalFindings(root string, changes []OpenSpecChange, out *strings.Builder) (judgedOff, stale bool) {
+	holdMyBeer := sync.OnceValue(func() bool {
+		policy, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(reviewPolicyFile)))
+		return holdMyBeerOn(policy)
+	})
+	for _, ch := range changes {
+		a := ch.Approval
+		// A judge's line must never stand in for the owner by accident (#424 D2 A), so without the opt-in it fails
+		// even beside a filled Approved-by:.
+		if a.JudgedBy != "" && !holdMyBeer() {
+			judgedOff = true
+			fmt.Fprintf(out, "openspec/changes/%s/proposal.md: judged approval without hold_my_beer (Judged-by: is filled, but %s does not set \"hold_my_beer\": true); remove the line or have the owner approve\n",
+				ch.Name, reviewPolicyFile)
+		}
+		kind, line := "approval", "Approved-by:"
+		if a.Judged {
+			kind, line = "judged approval", "Judged-by:"
+		}
+		switch a.State {
+		case ApprovalStale:
+			stale = true
+			changed := "last commit " + a.At
+			if a.At == "uncommitted" {
+				changed = "uncommitted"
+			}
+			fmt.Fprintf(out, "openspec/changes/%s/proposal.md: %s sha256:%s is stale; %s changed since (%s); re-approve with sha256:%s\n",
+				ch.Name, kind, a.Digest, a.File, changed, a.Current)
+		case ApprovalUnbound:
+			fmt.Fprintf(out, "warning: openspec/changes/%s/proposal.md: %s unbound (%s has no sha256: digest); re-approve with sha256:%s\n",
+				ch.Name, kind, line, a.Current)
+		}
+	}
+	return judgedOff, stale
 }

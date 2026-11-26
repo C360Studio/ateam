@@ -245,6 +245,54 @@ func TestTouchedChangesAtHead(t *testing.T) {
 	}
 }
 
+// spec: harness / Judge approvals under the hold-my-beer opt-in
+func TestJudgedProposalStatus(t *testing.T) {
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-q", "-b", "main")
+	writeRepoFile(t, repo, "README.md", "r\n")
+	gitIn(t, repo, "add", "-A")
+	gitIn(t, repo, "commit", "-q", "-m", "init")
+	gitIn(t, repo, "update-ref", "refs/remotes/origin/main", "main")
+	const (
+		proposal = "# Change\n\nApproved-by:\nJudged-by:\n"
+		policy   = `{"version":1,"model_tiers":{"frontier":["claude:opus"]},"effort_bands":{"claude":{"high":["high"]},"codex":{"high":["high"]},"gemini":{"high":["high"]}},"cross_provider":true,"hold_my_beer":true}`
+	)
+	judged := strings.Replace(proposal, "Judged-by:", "Judged-by: codex (gpt-6-astra, high) sha256:"+ApprovalDigest([]byte(proposal), nil), 1)
+	staleJudged := strings.Replace(proposal, "Judged-by:", "Judged-by: codex (gpt-6-astra, high) sha256:000000000000", 1)
+	branch := func(name string, files map[string]string) string {
+		gitIn(t, repo, "checkout", "-q", "-b", name, "main")
+		for rel, body := range files {
+			writeRepoFile(t, repo, rel, body)
+		}
+		gitIn(t, repo, "add", "-A")
+		gitIn(t, repo, "commit", "-q", "-m", name)
+		sha := gitIn(t, repo, "rev-parse", "HEAD")
+		gitIn(t, repo, "checkout", "-q", "main")
+		return sha
+	}
+	onHead := branch("on", map[string]string{".agents/review-policy.json": policy,
+		"openspec/changes/feat-j/proposal.md": judged, "openspec/changes/feat-j/tasks.md": doneTasks})
+	offHead := branch("off", map[string]string{
+		"openspec/changes/feat-j/proposal.md": judged, "openspec/changes/feat-j/tasks.md": doneTasks})
+	staleHead := branch("stale", map[string]string{".agents/review-policy.json": policy,
+		"openspec/changes/feat-j/proposal.md": staleJudged, "openspec/changes/feat-j/tasks.md": doneTasks})
+	for _, tc := range []struct{ name, head, state, desc string }{
+		{"opt-in on", onHead, "success", "judged by codex (gpt-6-astra, high): feat-j"},
+		{"opt-in off", offHead, "pending", "awaiting owner approval (OPEN-Q): feat-j"},
+		{"stale judged", staleHead, "pending", "approval stale: feat-j"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			changes := touchedChanges(context.Background(), repo, "origin/main", tc.head)
+			got := statusesFor(chooseStatuses(statusInputs{Provider: ForgeGitHub, HeadSHA: tc.head, PRURL: prURL, Changes: changes}), StatusContextProposal)
+			want := []CommitStatus{{Context: "ateam/proposal", State: tc.state, Description: tc.desc,
+				TargetURL: "https://github.com/o/r/blob/" + tc.head + "/openspec/changes/feat-j/proposal.md"}}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("proposal status = %+v (changes %+v), want %+v", got, changes, want)
+			}
+		})
+	}
+}
+
 // fakeGHStatuses installs a gh that logs each call as GH_TOKEN|arg|arg..., answers the combined-status read from
 // $FAKE_STATUS_JSON, and exits $FAKE_POST_EXIT (default 0) on a POST after printing a body that must never leak.
 func fakeGHStatuses(t *testing.T, extra string) string {

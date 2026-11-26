@@ -152,6 +152,15 @@ A repository names the files where a small diff has a large consequence as `desi
 
 The check confirms that a design exists in the diff, not that it covers the path. Review judges that.
 
+## Hold-my-beer mode (`hold_my_beer`)
+
+`.agents/review-policy.json` takes an optional `"hold_my_beer"` boolean, off when absent (#424). Turning it on is a gate-file change the owner approves. While it is on, a coordinator in default mode starts a judge ([judge contract](../.agents/contracts/judge.md)) instead of asking the owner to approve a proposal and its design, answer a design question marked for the owner, rule after a third `Verdict: REQUEST CHANGES`, or set milestone scope and order. Gate-file approval and releases always stay the owner's.
+
+- **Record.** A judge approves a proposal with its own line below `Approved-by:`: `Judged-by: <agent> (<model>, <effort>) sha256:<12 hex>`. The digest leaves out both lines, so it is the one the owner would approve with, and filling either line never changes it. A filled `Approved-by:` wins. The judge also posts one comment holding the question, the evidence it read and the `ateam review compare` output. Rulings that are not on a proposal are only that comment.
+- **Checks.** With the opt-in on, `spec-check` treats a judged approval like an owner's for staleness, `spec-queue` labels it `judged by <agent> (<model>, <effort>)`, and the `ateam/proposal` status reads `judged by <agent> (<model>, <effort>)`. With it off, a filled `Judged-by:` fails `spec-check` with `judged approval without hold_my_beer`, even beside an owner's approval. `task merge:check` notes a judged change as `judged by <agent>, not owner-reviewed` and its verdict is unchanged.
+- **Strength.** The coordinator runs `ateam review compare` for the judge against every run it rules on before it starts the judge, and requires a different agent from the author while `cross_provider` is `true`. Nothing checks this afterwards; the `Judged-by:` line is self-reported, like `reviewed-by:` (ADR 0001).
+- **Review.** A judge never writes a review record or turns a rejection into an approval. After a third rejection it rules which findings block; a fresh reviewer re-reviews, and the pull request still merges only on `Verdict: APPROVE`.
+
 ## Review record mode (`review_record`)
 
 This section is about the merge gate's review record, not the dormant path. `.agents/review-policy.json` takes an optional `"review_record"`: `"pr-comment"` (the default when the key is absent) or `"aip"`. Policy validation rejects any other value (owner ruling on #130, 2026-10-26; ADR 0002 addendum).

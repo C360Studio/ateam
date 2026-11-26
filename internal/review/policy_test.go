@@ -358,3 +358,23 @@ func TestDesignPathsPolicy(t *testing.T) {
 		})
 	}
 }
+
+// spec: harness / Judge approvals under the hold-my-beer opt-in
+func TestHoldMyBeerPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, field string
+		want, ok    bool
+	}{
+		{"absent", ``, false, true},
+		{"true", `,"hold_my_beer":true`, true, true},
+		{"false", `,"hold_my_beer":false`, false, true},
+		{"string", `,"hold_my_beer":"true"`, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := ParsePolicy([]byte(strings.Replace(tiersPolicy, `"cross_provider":false`, `"cross_provider":false`+tc.field, 1)))
+			if (err == nil) != tc.ok || p.HoldMyBeer != tc.want {
+				t.Fatalf("hold_my_beer = %v, err %v; want %v, ok %v", p.HoldMyBeer, err, tc.want, tc.ok)
+			}
+		})
+	}
+}

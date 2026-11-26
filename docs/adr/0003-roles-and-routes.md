@@ -1,6 +1,6 @@
 # ADR 0003: Role catalog and default routes
 
-- **Status:** Accepted (owner, 2026-10-27); amended 2026-11-26 to add the `coordinator` row (#417)
+- **Status:** Accepted (owner, 2026-10-27); amended 2026-11-26 to add the `coordinator` row (#417) and the hold-my-beer judge (#424)
 - **Date:** 2026-10-27
 - **Deciders:** repository owner
 - **Builds on:** [ADR 0001](0001-review-gate-scope.md) (routes are attestations), [ADR 0002](0002-model-tiers-and-effort-bands.md) (tiers, bands, the not-weaker rule)
@@ -26,9 +26,9 @@ This repository documents two roles as contracts, developer and reviewer (`.agen
 | `developer` | `.agents/contracts/developer.md` | The complete change: code, callers, tests, fixtures, OpenSpec task evidence | Review its own work, or lower its model to make review possible |
 | `reviewer` | `.agents/contracts/reviewer.md` | One review record comment on the pull request | Edit the deliverable it grades |
 | `coordinator` | `.agents/contracts/coordinator.md` | Its handoff, PR comments relaying review results or the owner's batched questions, and a PR body's `owner-prompts:` line | Implement, review, rule, fill `Approved-by:`, apply `gate-change-approved`, change labels or milestones, or release |
-| `judge` | None: the owner's prompt states the one question | A ruling on that question, posted where the owner asks | Sweep, implement, or rule on anything it was not asked |
+| `judge` | `.agents/contracts/judge.md` (#424); otherwise the owner's prompt states the one question | A ruling on that question, posted where the owner asks; in hold-my-beer mode, a proposal's `Judged-by:` line with its hold removed, and a milestone's `Order:` line or an issue's milestone | Sweep, implement, rule on anything it was not asked, write `Approved-by:` or a review record, apply `gate-change-approved`, or release |
 
-A judge answers one question over evidence already collected, read-only, within a small tool budget. The owner opens it as its own session and closes it when the ruling lands; agents do not spawn one.
+A judge answers one question over evidence already collected, read-only, within a small tool budget. The owner opens it as its own session and closes it when the ruling lands; agents do not spawn one, except a coordinator in hold-my-beer mode (#424): while `.agents/review-policy.json` sets `"hold_my_beer": true`, the coordinator starts a judge for proposal and design approval, a design question marked for the owner, a third rejected review, and milestone scope or order. Gate-file approval and releases stay the owner's. A judge's approval is its own `Judged-by:` line, which spec-check fails while the opt-in is off.
 
 ### 2. Default route per role
 
@@ -66,7 +66,7 @@ A developer run may take `workhorse` only when:
 
 - **An `architect` or `judge` route in the policy schema or `ateam review route`.** That is `internal/review/`, a gate file (#140). File it once this ADR is accepted and the design track has been used at least once.
 - **Mechanical enforcement.** A route is intent; runtime model identity stays an attestation (ADR 0001). Only the reviewer row is enforced, by the live gate.
-- **A `judge` contract file.** Add one if the role is used in this repository often enough that the owner's prompt stops being enough.
+- ~~**A `judge` contract file.**~~ Resolved by #424: `.agents/contracts/judge.md`, which `ateam init` writes.
 - **Adopter templates.** `ateam init` ships the architect, developer and reviewer contracts but not this ADR; the defaults here are this repository's.
 
 ## Consequences

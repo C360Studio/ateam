@@ -369,7 +369,23 @@ You route work; you never implement, review or rule. Write only your own handoff
 
 Stop a unit at every owner gate: a proposal awaiting ` + "`" + `Approved-by:` + "`" + `, a change touching a gate file, an issue labelled ` + "`" + `status:needs-decision` + "`" + ` or ` + "`" + `status:blocked` + "`" + `, a third ` + "`" + `Verdict: REQUEST CHANGES` + "`" + ` on one pull request, any question of milestone scope or order (an unplaced issue included), and a release. Stop the whole run when ` + "`" + `main` + "`" + ` CI is red or ` + "`" + `ateam state next` + "`" + ` names nothing. Report ` + "`" + `ateam state queue-check` + "`" + ` findings to the owner; do not fix them. Gather every waiting question into one message to the owner rather than one per question, and add 1 to the ` + "`" + `owner-prompts:` + "`" + ` line of each pull request that message covers; a run you had to ask the owner to start counts as a question.
 
+Hold-my-beer mode applies only while ` + "`" + `.agents/review-policy.json` + "`" + ` sets ` + "`" + `"hold_my_beer": true` + "`" + `. Then, instead of asking the owner, start a judge (` + "`" + `.agents/contracts/judge.md` + "`" + `) for a proposal and its design awaiting approval, a design question marked for the owner, a third ` + "`" + `Verdict: REQUEST CHANGES` + "`" + ` on one pull request, and milestone scope or order, an unplaced issue included. A change touching a gate file and a release still stop for the owner. Before you start a judge, run ` + "`" + `ateam review compare --implementer <agent:model:effort>` + "`" + ` for each run it rules on with ` + "`" + `--reviewer <the judge run>` + "`" + `, and start it only when that passes and, while ` + "`" + `cross_provider` + "`" + ` is ` + "`" + `true` + "`" + `, its agent differs from the author's; quote the output in its prompt. A judge's ruling is not an owner prompt and does not change ` + "`" + `owner-prompts:` + "`" + `. End the run and hand back to the owner when a judge answers "cannot decide", ` + "`" + `main` + "`" + ` CI goes red, a unit touches a gate file, or the milestone you started on is finished.
+
 Record your provider, exact model and reasoning effort in your handoff. Model routing for this role is not configured: ` + "`" + `.agents/review-policy.json` + "`" + ` routes only the developer and reviewer. ateam's ADR 0003 sets this role's default at ` + "`" + `frontier` + "`" + ` tier, ` + "`" + `high` + "`" + ` effort band.
+`
+
+// judgeContract is .agents/contracts/judge.md: in hold-my-beer mode a coordinator starts it for one ruling (#424).
+const judgeContract = `# Judge contract
+
+` + "`" + `AGENTS.md` + "`" + ` is loaded by your host; read it only if it is not in context. A coordinator starts you only while ` + "`" + `.agents/review-policy.json` + "`" + ` sets ` + "`" + `"hold_my_beer": true` + "`" + `, to answer one question the owner would otherwise answer. Your prompt names that question, the evidence the coordinator collected and the ` + "`" + `ateam review compare` + "`" + ` output showing you are not weaker than every run you rule on. If the prompt lacks the compare output, say so in your ruling.
+
+Answer only that question, from that evidence, in at most 20 tool calls. Stay read-only except for your record and, on a milestone question, the edit it rules. "Cannot decide" is a valid answer: give it, with the reason, when the evidence does not settle the question, and the owner rules instead. Never implement, review, or rule on anything you were not asked.
+
+Record every ruling as one comment on the pull request or issue it concerns, holding the question, your answer, the evidence paths you read and the compare output. On a proposal, also write ` + "`" + `Judged-by: <agent> (<model>, <effort>) sha256:<12 hex>` + "`" + ` on its own line below ` + "`" + `Approved-by:` + "`" + ` in ` + "`" + `proposal.md` + "`" + `, with the digest ` + "`" + `task spec:queue` + "`" + ` prints, and remove the change's ` + "`" + `Hold: OPEN-Q proposal awaits owner approval` + "`" + ` in the same commit on the change's branch, while the developer run is stopped at that hold. Never write or edit ` + "`" + `Approved-by:` + "`" + `; the owner's approval, if they add one, is the one that counts. On milestone scope or order, edit the milestone's ` + "`" + `Order:` + "`" + ` line or the issue's milestone, and comment on each issue you move with the old and new line.
+
+After a third ` + "`" + `Verdict: REQUEST CHANGES` + "`" + ` on one pull request, rule for each open finding whether it blocks under the bar in ` + "`" + `.agents/contracts/reviewer.md` + "`" + `. Never write a review record or turn a rejection into an approval: a fresh reviewer still re-reviews, and the pull request merges only on ` + "`" + `Verdict: APPROVE` + "`" + `. Never apply ` + "`" + `gate-change-approved` + "`" + `, tag or release; those stay the owner's.
+
+Record your provider, exact model and reasoning effort in your comment. Model routing for this role is not configured: ` + "`" + `.agents/review-policy.json` + "`" + ` routes only the developer and reviewer. ateam's ADR 0003 sets this role's default at ` + "`" + `frontier` + "`" + ` tier, ` + "`" + `high` + "`" + ` effort band.
 `
 
 var canonicalSkillBodies = map[string]string{
@@ -399,6 +415,10 @@ When a developer hands off at ready-for-review, run ` + "`" + `ateam review requ
 ## 4. Ask the Owner Once
 
 When any unit waits on an owner gate, send one message that lists every waiting gate: the PR or issue, the question in plain words, and what you need (for a proposal, the digest ` + "`" + `task spec:queue` + "`" + ` prints). Then add 1 to the ` + "`" + `owner-prompts: <n>` + "`" + ` line of each PR that message covers, creating the line at ` + "`" + `owner-prompts: 1` + "`" + `, with ` + "`" + `gh pr edit <pr> --body-file <file>` + "`" + ` (Gitea: ` + "`" + `PATCH /repos/{owner}/{repo}/pulls/{index}` + "`" + `). Continue other units while you wait.
+
+## Hold-my-beer Mode
+
+Only while ` + "`" + `.agents/review-policy.json` + "`" + ` sets ` + "`" + `"hold_my_beer": true` + "`" + `, and only for the gates the coordinator contract lists for a judge: collect the evidence (the proposal and design paths, the review records, or the milestone and issue numbers), run ` + "`" + `ateam review compare` + "`" + ` for the judge run against every run it rules on, and start the judge with your host's launch tool at ADR 0003's ` + "`" + `frontier` + "`" + `, ` + "`" + `high` + "`" + ` default and this prompt: ` + "`" + `Read .agents/contracts/judge.md fully. Question: <one question>. Evidence: <paths and links>. Compare: <ateam review compare output>.` + "`" + ` On a third ` + "`" + `Verdict: REQUEST CHANGES` + "`" + `, ask the judge whether each open finding blocks: the developer run fixes the findings it rules blocking and files the rest as follow-up issues, then request a fresh review as in step 3. When the judge answers "cannot decide", put its question in the owner message in step 4 and end the run.
 
 ## 5. Hand Off
 
@@ -651,6 +671,7 @@ func defaultTemplateFiles() map[string]string {
 		".agents/contracts/architect.md":        architectContract,
 		".agents/contracts/coordinator.md":      coordinatorContract,
 		".agents/contracts/developer.md":        developerContract,
+		".agents/contracts/judge.md":            judgeContract,
 		".agents/contracts/reviewer.md":         reviewerContract,
 		"AGENTS.md":                             defaultAgentsMD,
 		"CLAUDE.md":                             "# ATeam\n\n@AGENTS.md\n",

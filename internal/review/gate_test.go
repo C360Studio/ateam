@@ -774,6 +774,7 @@ func TestGateVerdict(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Merge check notes an unapproved OpenSpec change
+// spec: harness / Judge approvals under the hold-my-beer opt-in
 func TestGateApprovalNote(t *testing.T) {
 	const (
 		fooTasks  = "openspec/changes/foo/tasks.md"
@@ -798,6 +799,18 @@ func TestGateApprovalNote(t *testing.T) {
 			w.files = []string{fooTasks, "scripts/x.sh"}
 			w.proposals = map[string]string{fooProp: "# p\n\nApproved-by: Owner (2026-10-26)\n"}
 		}, want: []string{"merge-check: ok"}, without: []string{anyNote, "merge-check: note:"}},
+		{name: "judged change", world: func(w *gateWorld) {
+			w.files = []string{fooTasks, fooProp, "scripts/x.sh"}
+			w.proposals = map[string]string{fooProp: "# p\n\nApproved-by:\nJudged-by: codex (gpt-6-astra, high) sha256:dc711ee07ab1\n"}
+		}, want: []string{"merge-check: note: OpenSpec change foo was judged by codex (gpt-6-astra, high), not owner-reviewed\n", "merge-check: ok"}, without: []string{note}},
+		{name: "owner approval beside a judged line", world: func(w *gateWorld) {
+			w.files = []string{fooTasks, "scripts/x.sh"}
+			w.proposals = map[string]string{fooProp: "# p\n\nApproved-by: Owner (2026-11-26)\nJudged-by: codex (gpt-6-astra, high)\n"}
+		}, want: []string{"merge-check: ok"}, without: []string{anyNote}},
+		{name: "judged line only inside a fence", world: func(w *gateWorld) {
+			w.files = []string{fooTasks, "scripts/x.sh"}
+			w.proposals = map[string]string{fooProp: "Approved-by:\n```\nJudged-by: codex (gpt-6-astra, high)\n```\n"}
+		}, want: []string{note}, without: []string{"was judged by"}},
 		{name: "header only inside a fence", world: func(w *gateWorld) {
 			w.files = []string{fooTasks, "scripts/x.sh"}
 			w.proposals = map[string]string{fooProp: "```\nApproved-by: Owner (2026-10-26)\n```\n"}
