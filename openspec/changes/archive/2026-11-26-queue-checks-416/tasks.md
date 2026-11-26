@@ -11,4 +11,4 @@
 - [x] 2.3 Setting (premise `internal/state/settings.go:29-38`): `queue.max_milestone_issues`, default 15, validated by `ateam doctor --check` (a positive integer). Accept: settings test for absent, valid and invalid values.
 - [x] 2.4 Display (premise `internal/state/state.go:3057-3090`, `cmd/ateam/main.go:133-175,624`): `queue=` on the summary line, `ateam state queue-check`, status JSON, and the doctor advice line from the cache. Accept: literal output assertions; the hook path and `doctor --check` make no forge call.
 - [x] 2.5 Guidance: preflight skill, plus its template, names `ateam state queue-check` before a handoff. Also `docs/daily-use.md` and `docs/adoption.md` § Team settings. Accept: bootstrap wording test and `ateam doctor --check`.
-- [ ] 2.6 `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
+- [x] 2.6 `task verify`, `ateam doctor --check`, `ateam bench --selftest`; archive this change.
