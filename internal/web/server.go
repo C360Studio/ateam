@@ -853,8 +853,10 @@ func (s *Server) handleSyncForge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	milestones, milestonesErr := state.SyncForgeMilestones(ctx, root, cfg)
 	if _, err := state.Update(root, func(cur *state.State) error {
 		cur.MergeForgeCards(cards, cfg.Provider)
+		cur.SetForgeMilestones(cfg.Provider, milestones, milestonesErr)
 		return nil
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

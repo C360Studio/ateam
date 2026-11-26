@@ -492,7 +492,7 @@ From [the shared protocol](../../protocol.md), read § 2 step 4 (Verify), § 3 a
 
 ## 1. Select Gates by Diff Scope
 
-Inspect ` + "`git status --short`" + ` and ` + "`git diff --stat`" + `, run ` + "`task test:spec`" + ` for test/spec changes (syntax and reference existence, not semantic coverage), run ` + "`task mutate:check`" + ` for non-trivial refusals/branches, and run ` + "`task verify`" + ` (via ` + "`ateam_task`" + ` or CLI) before any push or completion.
+Inspect ` + "`git status --short`" + ` and ` + "`git diff --stat`" + `, run ` + "`task test:spec`" + ` for test/spec changes (syntax and reference existence, not semantic coverage), run ` + "`task mutate:check`" + ` for non-trivial refusals/branches, and run ` + "`task verify`" + ` (via ` + "`ateam_task`" + ` or CLI) before any push or completion. Before a handoff, run ` + "`ateam state queue-check`" + ` (advice that never fails) and name any queue finding your work caused or can fix.
 
 ## 2. Record Evidence
 

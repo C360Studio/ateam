@@ -29,12 +29,26 @@ const (
 // Settings is the parsed .agents/ateam.json. A zero field means the key is absent and its default applies:
 // MergeMethod "" is squash, DefaultBranch "" keeps main and master both default, and CommitStatuses nil is on.
 type Settings struct {
-	Version        int           `json:"version"`
-	MergeMethod    string        `json:"merge_method,omitempty"`
-	DefaultBranch  string        `json:"default_branch,omitempty"`
-	CommitStatuses *bool         `json:"commit_statuses,omitempty"`
-	Forges         []ForgeConfig `json:"forges,omitempty"`
-	AteamVersion   string        `json:"ateam_version,omitempty"`
+	Version        int            `json:"version"`
+	MergeMethod    string         `json:"merge_method,omitempty"`
+	DefaultBranch  string         `json:"default_branch,omitempty"`
+	CommitStatuses *bool          `json:"commit_statuses,omitempty"`
+	Forges         []ForgeConfig  `json:"forges,omitempty"`
+	AteamVersion   string         `json:"ateam_version,omitempty"`
+	Queue          *QueueSettings `json:"queue,omitempty"`
+}
+
+// QueueSettings tunes the queue checks (#416); only Q5's threshold is a setting.
+type QueueSettings struct {
+	MaxMilestoneIssues int `json:"max_milestone_issues"`
+}
+
+// queueMaxMilestoneIssues is Q5's threshold: the committed value, or the default when the key is absent.
+func (s Settings) queueMaxMilestoneIssues() int {
+	if s.Queue != nil && s.Queue.MaxMilestoneIssues > 0 {
+		return s.Queue.MaxMilestoneIssues
+	}
+	return DefaultQueueMaxMilestoneIssues
 }
 
 // branchNameRe bounds default_branch to plain ref characters, so it can never read as a git option or a range.
@@ -88,6 +102,9 @@ func parseSettings(data []byte) (Settings, error) {
 	}
 	if v := s.AteamVersion; v != "" && !IsReleaseTag(v) {
 		return Settings{}, fmt.Errorf("ateam_version is %q, not one release such as v0.3.9", v)
+	}
+	if s.Queue != nil && s.Queue.MaxMilestoneIssues <= 0 {
+		return Settings{}, fmt.Errorf("queue.max_milestone_issues must be a positive integer, got %d", s.Queue.MaxMilestoneIssues)
 	}
 	if s.Forges != nil && len(s.Forges) == 0 {
 		return Settings{}, fmt.Errorf("forges is an empty list; omit the key to auto-detect the forge")
