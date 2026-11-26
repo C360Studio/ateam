@@ -18,7 +18,7 @@
 
 ## Decisions
 
-Owner rulings 2026-11-26 (#418 comment): milestones are ordered by `After: <title>`; an issue missing from `Order:` is reported and skipped; a milestone with no `Order:` is reported as "no order"; an unmilestoned issue is never next.
+Owner rulings 2026-11-26 (#418 comment): milestones are ordered by `After: <title>`; an issue missing from `Order:` is reported and skipped; a milestone with no `Order:` is reported as "no order"; an unmilestoned issue is never next. Second rulings (same day): D2 A, D3 A, D5 A.
 
 ### D1. Where the inputs are read
 
@@ -29,13 +29,13 @@ Owner rulings 2026-11-26 (#418 comment): milestones are ordered by `After: <titl
 ### D2. Choosing the earliest milestone
 
 - Only open milestones whose description has an `Order:` line are candidates. A milestone is earliest when its `After:` names no open candidate; an `After:` naming a closed or unknown milestone is satisfied.
-- **A (recommended): exactly one earliest, or name nothing.** Two roots report `milestone order ambiguous`, and a loop reports `milestone order cycle`. This matches the owner's "no order means name nothing".
+- **A (owner ruling): exactly one earliest, or name nothing.** Two roots report `milestone order ambiguous`, and a loop reports `milestone order cycle`. This matches the owner's "no order means name nothing".
 - **B: break ties by lowest milestone number.** Never stalls, but silently picks one, which is the drift #418 removes.
 - *Adopter seam:* a repository adopting this adds `After:` to all but one ordered milestone. Today this repository's v0.5.0 and v0.6.0 carry the order only in prose.
 
 ### D3. When nothing in the earliest milestone can start
 
-- **A (recommended): stop there.** Print `next=none (all of <milestone> skipped)` and list the reasons. A milestone gates its release, and working ahead hides why it stalled.
+- **A (owner ruling): stop there.** Print `next=none (all of <milestone> skipped)` and list the reasons. A milestone gates its release, and working ahead hides why it stalled.
 - **B: fall through to the next milestone in `After:` order.** Keeps a second session busy, at the cost of work starting out of milestone order with no ruling.
 - A milestone with no open issue in its `Order:` line counts as done for D2, so the next one becomes earliest.
 
@@ -48,7 +48,7 @@ Owner rulings 2026-11-26 (#418 comment): milestones are ordered by `After: <titl
 ### D5. Dependencies, and comments that were not read
 
 - `Depends on: #n[, #m]` at the start of a line, in the body or in any comment, case-insensitive. A dependency is open when it is in the open set (`forge.go:638`). `Blocked by` stays with #416.
-- **A (recommended): when the sync fell back without comments, name nothing (`dependencies unread`).** A missed dependency would hand out blocked work, a silent failure.
+- **A (owner ruling): when the sync fell back without comments, name nothing (`dependencies unread`).** A missed dependency would hand out blocked work, a silent failure.
 - **B: compute from bodies only and add a warning.** Always answers, but can name an issue that is waiting on another.
 
 ### D6. Output
@@ -69,6 +69,4 @@ Additive. Without `Order:` lines, pickup shows `next=none (no ordered milestone)
 
 ## Open Questions
 
-1. **Owner ruling:** D2 tie: name nothing (A), or lowest milestone number (B)?
-2. **Owner ruling:** D3: stop at the earliest milestone (A), or fall through (B)?
-3. **Owner ruling:** D5: comments unread: name nothing (A), or bodies plus a warning (B)?
+None. D2, D3 and D5 were ruled A by the owner on 2026-11-26; D1, D4 and D6 follow the recommendation on approval.

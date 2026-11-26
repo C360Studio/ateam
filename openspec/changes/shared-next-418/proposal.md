@@ -1,5 +1,5 @@
 # Proposal: shared-next-418
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-26) sha256:79a60d9e4537
 
 ## Track
 
