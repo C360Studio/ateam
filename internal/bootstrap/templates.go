@@ -420,7 +420,7 @@ Pass ` + "`post`" + ` explicitly over MCP: ` + "`post:false`" + ` saves a local-
 Output the canonical 5-field block and instruct the next session to run ` + "`/pickup`" + ` (` + "`ateam state pickup`" + `):
 
 ` + "```text" + `
-Goal: <PR/issue and authorized outcome>
+Goal: <PR/issue in hand and authorized outcome; milestone order lives in the forge (` + "`" + `ateam state next` + "`" + `), not here>
 Addresses: <PR, worktree, branch, checkpoint SHA, evidence locations>
 Constraints: <Decision/hold pointers, local access limits, ownership transfer status>
 Done when: <Acceptance criteria and remaining boundary>
@@ -450,7 +450,7 @@ Confirm the previous writer has handed off or stopped before mutating files in a
 
 ## 3. Reconcile and Continue
 
-Report verified worktree/branch/HEAD SHA, active holds/drift, write ownership status, and the next authorized step under the Ponytail decision ladder.
+Report verified worktree/branch/HEAD SHA, active holds/drift, write ownership status, and the next authorized step under the Ponytail decision ladder: continue the unit a handoff names as in hand, else take the issue ` + "`ateam state next`" + ` names (the pickup line's ` + "`next=`" + `), never an order recalled from a handoff.
 ` + "\n" + t3CardParagraph("Pickup", "../handoff/t3-card.html"),
 	"ponytail": `---
 name: ponytail

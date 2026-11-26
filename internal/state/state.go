@@ -573,20 +573,27 @@ type GitStatus struct {
 
 // BoardCard represents an issue, PR claim, or OpenSpec item on the PM board.
 type BoardCard struct {
-	ID         string   `json:"id"`
-	Number     int      `json:"number,omitempty"`
-	Title      string   `json:"title"`
-	Column     string   `json:"column"` // needs-decision, backlog, in-progress, in-review, blocked, done
-	Type       string   `json:"type"`   // issue, epic, pr, spec
-	Merged     bool     `json:"merged,omitempty"`
-	HeadSHA    string   `json:"head_sha,omitempty"`
-	Labels     []string `json:"labels,omitempty"`
-	Agent      string   `json:"agent,omitempty"`
-	Branch     string   `json:"branch,omitempty"`
-	Spec       string   `json:"spec,omitempty"`
-	Milestone  string   `json:"milestone,omitempty"`
-	HoldReason string   `json:"hold_reason,omitempty"`
-	Decision   string   `json:"decision,omitempty"`
+	ID        string   `json:"id"`
+	Number    int      `json:"number,omitempty"`
+	Title     string   `json:"title"`
+	Column    string   `json:"column"` // needs-decision, backlog, in-progress, in-review, blocked, done
+	Type      string   `json:"type"`   // issue, epic, pr, spec
+	Merged    bool     `json:"merged,omitempty"`
+	HeadSHA   string   `json:"head_sha,omitempty"`
+	Labels    []string `json:"labels,omitempty"`
+	Agent     string   `json:"agent,omitempty"`
+	Branch    string   `json:"branch,omitempty"`
+	Spec      string   `json:"spec,omitempty"`
+	Milestone string   `json:"milestone,omitempty"`
+	// MilestoneDescription carries the milestone's Order: and After: lines; DependsOn is an open issue's
+	// Depends on: issues and Claims the issues an open PR closes or addresses; CommentsUnread means the sync read no
+	// comments for the issue, so DependsOn may be short (#418).
+	MilestoneDescription string `json:"milestone_description,omitempty"`
+	DependsOn            []int  `json:"depends_on,omitempty"`
+	Claims               []int  `json:"claims,omitempty"`
+	CommentsUnread       bool   `json:"comments_unread,omitempty"`
+	HoldReason           string `json:"hold_reason,omitempty"`
+	Decision             string `json:"decision,omitempty"`
 	// Review is the newest review record comment on an open PR whose branch has
 	// a local worktree, as the last sync read it (#295).
 	Review *review.RecordComment `json:"review,omitempty"`
@@ -3079,6 +3086,7 @@ func BuildPickupSummary(st *State) string {
 	if st.Git.WholeReview != nil {
 		holdsDisplay += " | since-review=" + st.Git.WholeReview.String()
 	}
+	holdsDisplay += " | next=" + st.ComputeNext().Field()
 	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%s | shortcuts=%d | holds=%s | %s | synced=%s (closed capped at %d)\n",
 		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, summaryDirtyField(st.Git), len(st.Shortcuts), holdsDisplay, buildField, syncedDisplay, closedItemCap)
 	if strings.TrimSpace(st.MCPStaleTarget) != "" {

@@ -28,7 +28,7 @@ Pass `post` explicitly over MCP: `post:false` saves a local-only checkpoint, and
 Output the canonical 5-field block in the conversation (and post to the draft PR when transferring across sessions):
 
 ```text
-Goal: <PR/issue and authorized outcome>
+Goal: <PR/issue in hand and authorized outcome; milestone order lives in the forge (`ateam state next`), not here>
 Addresses: <PR, worktree, branch, checkpoint SHA, evidence locations>
 Constraints: <Decision/hold pointers, local access limits, ownership transfer status>
 Done when: <Acceptance criteria and remaining boundary>

@@ -237,7 +237,8 @@ type forgeIssuePayload struct {
 		Name string `json:"name"`
 	} `json:"labels"`
 	Milestone *struct {
-		Title string `json:"title"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
 	} `json:"milestone"`
 	PullRequest *struct {
 		Draft  bool `json:"draft"`
@@ -249,6 +250,8 @@ type forgeIssuePayload struct {
 	} `json:"head,omitempty"`
 	Comments      json.RawMessage `json:"comments,omitempty"`
 	CommentBodies []string        `json:"-"`
+	// CommentsUnread marks an issue whose comments the sync could not read, so its Depends on: lines are unknown.
+	CommentsUnread bool `json:"-"`
 	// Review, ReviewURL and HandoffURL are filled only for an open PR whose branch has a local worktree.
 	Review     *review.RecordComment `json:"-"`
 	ReviewURL  string                `json:"-"`
@@ -420,7 +423,10 @@ func fetchGiteaRESTCards(ctx context.Context, root string, cfg ForgeConfig) ([]B
 			wg.Go(func() {
 				slots <- struct{}{}
 				defer func() { <-slots }()
-				for _, c := range fetchGiteaIssueComments(ctx, client, token, commentsURL) {
+				comments := fetchGiteaIssueComments(ctx, client, token, commentsURL)
+				// nil is a failed fetch (an empty page decodes to a non-nil slice); its Depends on: lines are unknown.
+				item.CommentsUnread = comments == nil
+				for _, c := range comments {
 					item.CommentBodies = append(item.CommentBodies, c.Body)
 				}
 			})
@@ -584,6 +590,8 @@ func fetchTeaCLICards(ctx context.Context, root string) ([]BoardCard, error) {
 	}
 	var cards []BoardCard
 	for _, it := range items {
+		// tea lists no comments, so dependencies are unknown and ateam state next names nothing (#418).
+		it.CommentsUnread = true
 		cards = append(cards, mapForgeItemToCard(it, false, "gitea"))
 	}
 	prCmd := exec.CommandContext(cctx, "tea", "pulls", "list", "--output", "json")
@@ -652,21 +660,26 @@ func syncGitHubBoard(ctx context.Context, root string, cfg ForgeConfig) ([]Board
 		forgeIssuePayload
 		IsDraft bool `json:"isDraft"`
 	}
-	const prFields = "number,title,state,isDraft,headRefName,headRefOid,mergedAt,labels,url"
+	const prFields = "number,title,state,isDraft,headRefName,headRefOid,mergedAt,labels,url,body"
 	var openIssues, closedIssues []forgeIssuePayload
 	var openPRs, closedPRs []ghPR
 	// The four lists run at once, so the sync costs the slowest call rather than the sum (the pickup budget is 10s per forge).
 	err := runConcurrently(ctx,
 		func(ctx context.Context) error {
 			out, err := ghList(ctx, issueTimeout, "issue", "list", "--state", "open", "--limit", openLimit, "--json", "number,title,state,labels,milestone,url,body,comments")
+			commentsUnread := false
 			if err != nil {
 				out, err = ghList(ctx, 10*time.Second, "issue", "list", "--state", "open", "--limit", openLimit, "--json", "number,title,state,labels,milestone,url,body")
 				if err != nil {
 					return fmt.Errorf("gh issue list failed: %w", err)
 				}
+				commentsUnread = true
 			}
 			if err := json.Unmarshal(out, &openIssues); err != nil {
 				return fmt.Errorf("parse gh issue list JSON: %w", err)
+			}
+			for i := range openIssues {
+				openIssues[i].CommentsUnread = commentsUnread
 			}
 			return nil
 		},
@@ -777,9 +790,17 @@ func mapForgeItemToCard(it forgeIssuePayload, isPR bool, forgeName string) Board
 		}
 	}
 	col := classifyCardColumn(strings.ToLower(it.State), isPR, draft, labels)
-	ms := ""
+	ms, msDesc := "", ""
 	if it.Milestone != nil {
-		ms = it.Milestone.Title
+		ms, msDesc = it.Milestone.Title, it.Milestone.Description
+	}
+	var dependsOn, claims []int
+	open := strings.EqualFold(it.State, "open")
+	if open && isPR {
+		claims = parseClaims(it.Body)
+	} else if open {
+		bodies, _ := parseIssueComments(it.Comments)
+		dependsOn = parseDependsOn(append(append([]string{it.Body}, bodies...), it.CommentBodies...)...)
 	}
 	u := it.HTMLURL
 	if u == "" {
@@ -793,24 +814,29 @@ func mapForgeItemToCard(it forgeIssuePayload, isPR bool, forgeName string) Board
 		prefix += "-PR"
 	}
 	return BoardCard{
-		ID:         fmt.Sprintf("%s-%d", prefix, it.Number),
-		Number:     it.Number,
-		Title:      it.Title,
-		Column:     col,
-		Type:       cardType,
-		Merged:     merged,
-		HeadSHA:    headSHA,
-		Labels:     labels,
-		Agent:      inferAgentFromBranch(branch),
-		Branch:     branch,
-		Milestone:  ms,
-		Decision:   extractDecisionSummary(it, labels),
-		Review:     it.Review,
-		ReviewURL:  it.ReviewURL,
-		HandoffURL: it.HandoffURL,
-		Forge:      forgeName,
-		URL:        u,
-		UpdatedAt:  time.Now().UTC(),
+		ID:        fmt.Sprintf("%s-%d", prefix, it.Number),
+		Number:    it.Number,
+		Title:     it.Title,
+		Column:    col,
+		Type:      cardType,
+		Merged:    merged,
+		HeadSHA:   headSHA,
+		Labels:    labels,
+		Agent:     inferAgentFromBranch(branch),
+		Branch:    branch,
+		Milestone: ms,
+		Decision:  extractDecisionSummary(it, labels),
+		// shortcut: every card copies its milestone's description; keep one per milestone if open issues reach the hundreds.
+		MilestoneDescription: msDesc,
+		DependsOn:            dependsOn,
+		Claims:               claims,
+		CommentsUnread:       open && !isPR && it.CommentsUnread,
+		Review:               it.Review,
+		ReviewURL:            it.ReviewURL,
+		HandoffURL:           it.HandoffURL,
+		Forge:                forgeName,
+		URL:                  u,
+		UpdatedAt:            time.Now().UTC(),
 	}
 }
 
