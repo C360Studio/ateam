@@ -508,7 +508,8 @@ func TestWriterLeaseHerdrIdentity(t *testing.T) {
 func TestPickupWarningNamesHerdrPane(t *testing.T) {
 	t.Setenv("ATEAM_SESSION_ID", "")
 	livePID := os.Getpid()
-	base := WriterLease{Agent: "codex", SessionID: "other", PID: livePID, LastSeen: time.Now().UTC()}
+	host, pidNS := processPlace()
+	base := WriterLease{Agent: "codex", SessionID: "other", PID: livePID, LastSeen: time.Now().UTC(), Host: host, PIDNamespace: pidNS}
 
 	withPane := base
 	withPane.HerdrPaneID = "p_9"
@@ -529,7 +530,7 @@ func TestPickupWarningNamesHerdrPane(t *testing.T) {
 	}
 
 	// #40: Dead PID must report (exited) and must NOT warn as an active competing writer.
-	exitedLease := WriterLease{Agent: "claude", SessionID: "other", PID: 999999, LastSeen: time.Now().UTC()}
+	exitedLease := WriterLease{Agent: "claude", SessionID: "other", PID: 999999, LastSeen: time.Now().UTC(), Host: host, PIDNamespace: pidNS}
 	exitedOut := BuildPickupSummary(&State{Writer: &exitedLease, CurrentSessionID: "mine"})
 	if !strings.Contains(exitedOut, "pid=999999 (exited)") || strings.Contains(exitedOut, "WARNING: another writer may be active") {
 		t.Fatalf("exited PID lease should not warn as active writer:\n%s", exitedOut)

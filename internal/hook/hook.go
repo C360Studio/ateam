@@ -101,8 +101,10 @@ func Probe(root, flagEvent string) (Output, error) {
 }
 
 // refreshWriterLease is best-effort: a lease write never fails a hook. A read-only session writes none (#315).
-func refreshWriterLease(root, agent, sessionID string, readOnly bool) {
-	if !readOnly {
+// refreshWriterLease leaves another session's live lease in place, so a session session-start kept off the lease
+// does not take it on its first prompt (#287 D3).
+func refreshWriterLease(root, agent, sessionID string, readOnly bool, st *state.State) {
+	if !readOnly && state.CompetingWriter(st) == nil {
 		_, _ = state.WriteWriterLease(root, agent, sessionID)
 	}
 }
@@ -150,8 +152,7 @@ func handle(root, flagEvent, flagAgent string, stdin io.Reader, envSessionID str
 		st.HoldScanError = strings.Join(scanErrs, "; ")
 		reconcileSessionStartHandoffs(root, flagAgent, br, sha, wtHeadChanged, st)
 		ctxText := state.BuildPickupSummary(st)
-		// Line start only: task lease values can hold this text but no newline, and must not gate the lease (#284).
-		if !readOnly && sessionID != "" && !strings.Contains(ctxText, "\nWARNING: another writer may be active") {
+		if !readOnly && sessionID != "" && state.CompetingWriter(st) == nil {
 			_, _ = state.WriteWriterLease(root, flagAgent, sessionID)
 		}
 		if buildWarning := checkSessionBuildProvenance(root, sha); buildWarning != "" {
@@ -166,7 +167,7 @@ func handle(root, flagEvent, flagAgent string, stdin io.Reader, envSessionID str
 		return buildOutputForAgent(flagAgent, "SessionStart", ctxText), nil
 
 	case "before-prompt":
-		refreshWriterLease(root, flagAgent, sessionID, readOnly)
+		refreshWriterLease(root, flagAgent, sessionID, readOnly, st)
 		mcpWarnings := checkSessionStaleMCPOnce(root, sessionID, sha)
 		// shortcut: Antigravity PreInvocation stdin omits prompt text, switch Ponytail mode via ateam state mode or /ponytail skill in agy
 		promptText := firstNonEmpty(in.Prompt, in.UserPrompt)
@@ -284,7 +285,7 @@ func handle(root, flagEvent, flagAgent string, stdin io.Reader, envSessionID str
 		return buildOutputForAgent(flagAgent, "PreCompact", "Auto-handoff checkpoint saved before compaction:\n"+state.FormatFiveFieldPrompt(*updated.LastHandoff)), nil
 
 	case "turn-end":
-		refreshWriterLease(root, flagAgent, sessionID, readOnly)
+		refreshWriterLease(root, flagAgent, sessionID, readOnly, st)
 		holds, holdErr := state.ScanHolds(root)
 		if _, err := state.Update(root, func(cur *state.State) error {
 			if holdErr == nil {
