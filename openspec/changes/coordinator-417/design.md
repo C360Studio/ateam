@@ -4,7 +4,7 @@ Drafted by claude (opus, medium) in the architect role. Read-only on the deliver
 
 ## Context
 
-- `docs/adr/0003-roles-and-routes.md:24-30`: the catalog has four roles (architect, developer, reviewer, judge) and no coordinator. `:30`: "agents do not spawn one" (a judge). The second change for #417 amends that line; this change does not.
+- `docs/adr/0003-roles-and-routes.md:24-30`: the catalog has four roles (architect, developer, reviewer, judge) and no coordinator. `:30`: "agents do not spawn one" (a judge). #424 amends that line; this change does not.
 - `internal/bootstrap/bootstrap.go:30`: `canonicalSkills` lists six skills, `design` among them. `internal/bootstrap/templates.go:607-611,625-633`: `ateam init` writes three contracts and, for each canonical skill, the canonical file plus a Claude and a Gemini adapter. Init has no optional-file mechanism: every template is always written.
 - `openspec/specs/harness/spec.md:606`: *Adopter skills and adapter aliases* still says "the five skills" and leaves out `design`, which the code already counts. This change corrects that count.
 - `.agents/protocol.md:96-104`: unattended and fan-out runs. Each run gets its own worktree, handoffs are keyed `agent@branch` (`internal/state/state.go:693`), and a gate-file change hands off.
@@ -15,7 +15,7 @@ Drafted by claude (opus, medium) in the architect role. Read-only on the deliver
 ## Goals / Non-Goals
 
 **Goals:** a written role that moves milestone work from `next` to merge with no owner prompt it could have avoided, batches the prompts it cannot avoid, and counts them.
-**Non-Goals:** judges and `Judged-by:` (the second change), any gate-file edit, a scheduler, a new runtime, and label or milestone writes.
+**Non-Goals:** judges and `Judged-by:` (#424), any gate-file edit, a scheduler, a new runtime, and label or milestone writes.
 
 ## Decisions
 

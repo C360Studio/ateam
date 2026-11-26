@@ -2,7 +2,7 @@
 
 ## Track
 
-`design`: adds a harness Requirement, a new contract and skill that `ateam init` ships to adopting repositories, and a row in ADR 0003's role catalog. This is the first of two changes for #417 (owner ruling 2026-11-26). Hold-my-beer, where a judge stands in for the owner, is the second change.
+`design`: adds a harness Requirement, a new contract and skill that `ateam init` ships to adopting repositories, and a row in ADR 0003's role catalog. This is the first of two changes for #417 (owner ruling 2026-11-26). Hold-my-beer, where a judge stands in for the owner, is the second change (#424).
 
 ## Decisions you are making by approving
 
@@ -29,7 +29,7 @@ ateam lists architect, developer, reviewer and judge (ADR 0003), but nobody owns
 ## Scope & Non-Goals
 
 - **In-bounds:** the files above, plus `.agents/README.md`, `AGENTS.md`/`.agents/rules-index.md` if a rule row is needed, and `docs/daily-use.md`.
-- **Non-goals:** judges, `Judged-by:`, the policy opt-in, and the ADR 0003 judge amendment, all in the second change. Out of scope here: any edit to a gate file, including `.agents/hosts/`; a scheduler; a new ateam runtime or command; changing labels or milestones.
+- **Non-goals:** judges, `Judged-by:`, the policy opt-in, and the ADR 0003 judge amendment, all in #424. Out of scope here: any edit to a gate file, including `.agents/hosts/`; a scheduler; a new ateam runtime or command; changing labels or milestones.
 
 ## Definition of Done
 
