@@ -48,17 +48,7 @@ func classifyWriterLease(lease *WriterLease) (state, reason string) {
 		return WriterStateUnknown, "lease incomplete"
 	}
 	withinTTL := time.Since(lease.LastSeen) < writerLeaseTTL
-	host, pidNamespace := processPlace()
-	elsewhere := ""
-	switch {
-	case lease.Host == "":
-		elsewhere = "no host recorded"
-	case lease.Host != host:
-		elsewhere = "other host"
-	case lease.PIDNamespace != pidNamespace:
-		elsewhere = "other pid namespace"
-	}
-	if elsewhere != "" {
+	if elsewhere := leaseElsewhere(lease); elsewhere != "" {
 		if withinTTL {
 			return WriterStateUnknown, elsewhere
 		}
@@ -75,6 +65,55 @@ func classifyWriterLease(lease *WriterLease) (state, reason string) {
 		return WriterStateUnknown, "pid alive past ttl"
 	}
 	return WriterStateLive, ""
+}
+
+// leaseElsewhere names why the lease's PID means nothing here, or returns "" when the lease was written in this
+// host and PID namespace.
+func leaseElsewhere(lease *WriterLease) string {
+	host, pidNamespace := processPlace()
+	switch {
+	case lease.Host == "":
+		return "no host recorded"
+	case lease.Host != host:
+		return "other host"
+	case lease.PIDNamespace != pidNamespace:
+		return "other pid namespace"
+	}
+	return ""
+}
+
+// CompetingWriter returns the cached lease when another session may be writing, or nil. Session-start and the
+// prompt hooks read it to leave that lease in place, and pickup prints its warning from it, so no rendered text
+// decides ownership (#287). A lease from elsewhere counts within the TTL without a PID check (#286).
+func CompetingWriter(st *State) *WriterLease {
+	w := st.Writer
+	if w == nil || w.LastSeen.IsZero() || time.Since(w.LastSeen) >= writerLeaseTTL {
+		return nil
+	}
+	leaseSession := strings.TrimSpace(w.SessionID)
+	if leaseSession == "" {
+		return nil
+	}
+	curSession := strings.TrimSpace(st.CurrentSessionID)
+	if curSession == "" {
+		curSession = ResolveEnvSessionID()
+	}
+	if curSession != "" && leaseSession == curSession {
+		return nil
+	}
+	if os.Getenv("HERDR_ENV") == "1" && w.HerdrPaneID != "" && w.HerdrPaneID == strings.TrimSpace(os.Getenv("HERDR_PANE_ID")) {
+		return nil
+	}
+	if leaseElsewhere(w) != "" {
+		return w
+	}
+	if !IsProcessAlive(w.PID) {
+		return nil
+	}
+	if curSession == "" && w.PID > 0 && (w.PID == ResolveClientPID() || w.PID == os.Getpid()) {
+		return nil
+	}
+	return w
 }
 
 // VersionInfo lets a client tell an older ATeam, whose `version` prints text, from a failed command (#284).

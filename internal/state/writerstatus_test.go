@@ -3,6 +3,7 @@ package state
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -75,5 +76,49 @@ func TestWriteWriterLeaseRecordsPlaceAndReadsLive(t *testing.T) {
 	}
 	if got := ReadWriterStatus(dir); got.State != WriterStateUnknown || got.Reason != "lease unreadable" {
 		t.Fatalf("corrupt lease = %s/%q, want unknown/lease unreadable", got.State, got.Reason)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Session start takes the writer lease from the lease itself
+func TestCompetingWriter(t *testing.T) {
+	t.Setenv("ATEAM_SESSION_ID", "")
+	t.Setenv("HERDR_ENV", "1")
+	t.Setenv("HERDR_PANE_ID", "p_mine")
+	host, pidNS := processPlace()
+	now := time.Now().UTC()
+	local := WriterLease{Agent: "codex", SessionID: "other", PID: os.Getpid(), LastSeen: now, Host: host, PIDNamespace: pidNS}
+	with := func(f func(*WriterLease)) *WriterLease {
+		l := local
+		f(&l)
+		return &l
+	}
+	for _, tc := range []struct {
+		name  string
+		lease *WriterLease
+		want  bool
+	}{
+		{"no lease", nil, false},
+		{"local live other session", &local, true},
+		{"local exited", with(func(l *WriterLease) { l.PID = 999999 }), false},
+		{"local no pid", with(func(l *WriterLease) { l.PID = 0 }), false},
+		{"local past ttl", with(func(l *WriterLease) { l.LastSeen = now.Add(-time.Hour) }), false},
+		{"no session recorded", with(func(l *WriterLease) { l.SessionID = "" }), false},
+		{"same session", with(func(l *WriterLease) { l.SessionID = "mine" }), false},
+		{"same herdr pane", with(func(l *WriterLease) { l.HerdrPaneID = "p_mine" }), false},
+		{"other host, exited pid", with(func(l *WriterLease) { l.Host = "another-host-287"; l.PID = 999999 }), true},
+		{"other pid namespace", with(func(l *WriterLease) { l.PIDNamespace = "pid:[1]"; l.PID = 999999 }), true},
+		{"no host recorded", with(func(l *WriterLease) { l.Host = ""; l.PID = 999999 }), true},
+		{"other host past ttl", with(func(l *WriterLease) { l.Host = "another-host-287"; l.LastSeen = now.Add(-time.Hour) }), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CompetingWriter(&State{Writer: tc.lease, CurrentSessionID: "mine"})
+			if (got != nil) != tc.want {
+				t.Fatalf("CompetingWriter = %+v, want competing %v", got, tc.want)
+			}
+			warned := strings.Contains(BuildPickupSummary(&State{Writer: tc.lease, CurrentSessionID: "mine"}), "WARNING: another writer may be active")
+			if warned != tc.want {
+				t.Fatalf("summary warning = %v, want %v", warned, tc.want)
+			}
+		})
 	}
 }

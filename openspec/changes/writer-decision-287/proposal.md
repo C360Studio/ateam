@@ -1,5 +1,5 @@
 # Proposal: writer-decision-287
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-26) sha256:7e1551003816
 
 ## Track
 

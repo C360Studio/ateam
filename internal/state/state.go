@@ -3124,22 +3124,15 @@ func BuildPickupSummary(st *State) string {
 		if st.Writer.HerdrPaneID != "" {
 			pane = fmt.Sprintf(" (herdr pane %s)", st.Writer.HerdrPaneID)
 		}
-		pidAlive := IsProcessAlive(st.Writer.PID)
 		pidSuffix := ""
-		if st.Writer.PID > 0 && !pidAlive {
+		if elsewhere := leaseElsewhere(st.Writer); elsewhere != "" {
+			pidSuffix = " (" + elsewhere + ")"
+		} else if st.Writer.PID > 0 && !IsProcessAlive(st.Writer.PID) {
 			pidSuffix = " (exited)"
 		}
 		fmt.Fprintf(&b, "Writer lease: agent=%s session=%s pid=%d%s last_seen=%s ago%s\n",
 			st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, pidSuffix, age, pane)
-		curSession := strings.TrimSpace(st.CurrentSessionID)
-		if curSession == "" {
-			curSession = ResolveEnvSessionID()
-		}
-		leaseSession := strings.TrimSpace(st.Writer.SessionID)
-		sameSession := curSession != "" && leaseSession == curSession
-		sameClientPID := curSession == "" && st.Writer.PID > 0 && (st.Writer.PID == ResolveClientPID() || st.Writer.PID == os.Getpid())
-		sameHerdrPane := os.Getenv("HERDR_ENV") == "1" && st.Writer.HerdrPaneID != "" && st.Writer.HerdrPaneID == strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
-		if time.Since(st.Writer.LastSeen) < writerLeaseTTL && pidAlive && leaseSession != "" && !sameSession && !sameClientPID && !sameHerdrPane {
+		if CompetingWriter(st) != nil {
 			fmt.Fprintf(&b, "WARNING: another writer may be active (agent=%s, session=%s, pid=%d, last_seen=%s ago)%s\n",
 				st.Writer.Agent, st.Writer.SessionID, st.Writer.PID, age, pane)
 		}

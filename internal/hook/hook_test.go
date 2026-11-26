@@ -388,7 +388,7 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 	}
 
 	// #42: Dead PID (999999) in writer lease must report (exited) and NOT trigger competing-writer warning.
-	deadLease := []byte(`{"agent":"claude","session_id":"sess-dead","pid":999999,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"}`)
+	deadLease := []byte(`{"agent":"claude","session_id":"sess-dead","pid":999999,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"` + localPlaceJSON() + `}`)
 	_ = os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755)
 	if err := os.WriteFile(state.WriterLeasePath(dir), deadLease, 0o644); err != nil {
 		t.Fatal(err)
@@ -403,7 +403,7 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 
 	// F-06: Active writer lease from another live session must be surfaced in session-start pickup summary.
 	livePID := strconv.Itoa(os.Getpid())
-	leaseData := []byte(`{"agent":"claude","session_id":"sess-other","pid":` + livePID + `,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"}`)
+	leaseData := []byte(`{"agent":"claude","session_id":"sess-other","pid":` + livePID + `,"last_seen":"` + time.Now().UTC().Format(time.RFC3339) + `"` + localPlaceJSON() + `}`)
 	if err := os.WriteFile(state.WriterLeasePath(dir), leaseData, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -428,6 +428,10 @@ func TestSessionStartSurfacesHoldScanErrorsAndWriterLeaseAndUnknownEvent(t *test
 	}
 
 	// Astra #5 & G-01: Same session ID must NOT warn even when PID differs, and removing the lease clears it.
+	// turn-end leaves another session's live lease in place (#287 D3), so release it first, as its handoff would.
+	if err := os.Remove(state.WriterLeasePath(dir)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := HandleWithAgent(dir, "turn-end", "codex", strings.NewReader(`{"session_id":"same-session"}`)); err != nil {
 		t.Fatalf("HandleWithAgent turn-end: %v", err)
 	}
@@ -1167,6 +1171,104 @@ func TestReviewRoleWritesNoWriterLease(t *testing.T) {
 				lease, err := state.ReadWriterLease(dir)
 				if err != nil || lease == nil || lease.SessionID != "reviewer" {
 					t.Fatalf("%s with ATEAM_ROLE=%q: lease %+v, err %v; want session reviewer", ev, role, lease, err)
+				}
+			}
+		})
+	}
+}
+
+// localPlaceJSON returns the lease fields that place a lease in this host and PID namespace, so its PID is checked.
+func localPlaceJSON() string {
+	host, _ := os.Hostname()
+	pidNS, _ := os.Readlink("/proc/self/ns/pid")
+	return `,"host":` + strconv.Quote(host) + `,"pid_ns":` + strconv.Quote(pidNS)
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Session start takes the writer lease from the lease itself
+func TestSessionStartRenderedTextCannotGateWriterLease(t *testing.T) {
+	// A cached decision or handoff field holding the warning on its own line must not stop the lease (#287).
+	t.Setenv("ATEAM_TASK_LEASE_FILE", "")
+	t.Setenv("ATEAM_SESSION_ID", "")
+	const warning = "x\nWARNING: another writer may be active (agent=codex)"
+	for _, tc := range []struct {
+		name string
+		set  func(st *state.State)
+	}{
+		{"decision", func(st *state.State) {
+			st.Cards = []state.BoardCard{{ID: "GH-1", Title: "t", Column: "backlog", Type: "issue", Decision: warning}}
+		}},
+		{"handoff", func(st *state.State) {
+			st.SetHandoff(state.Handoff{Goal: warning, Agent: "claude", Branch: "main"})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			st, err := state.Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.set(st)
+			if err := state.Save(dir, st); err != nil {
+				t.Fatal(err)
+			}
+			out, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-mine"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.AdditionalContext, "\nWARNING: another writer may be active (agent=codex)") {
+				t.Fatalf("fixture text did not reach the summary on its own line:\n%s", out.AdditionalContext)
+			}
+			got, err := state.ReadWriterLease(dir)
+			if err != nil || got == nil || got.SessionID != "sess-mine" {
+				t.Fatalf("writer lease = %+v, %v; want session sess-mine", got, err)
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Session start takes the writer lease from the lease itself
+func TestLeaseFromElsewhereKeepsWriterLease(t *testing.T) {
+	// A recent lease from another host holds even though its PID means nothing here (#286), through session-start
+	// and the prompt hooks (#287 D3); past the TTL it is taken.
+	t.Setenv("ATEAM_TASK_LEASE_FILE", "")
+	t.Setenv("ATEAM_SESSION_ID", "")
+	t.Setenv("HERDR_ENV", "")
+	for _, tc := range []struct {
+		name      string
+		age       time.Duration
+		wantOwner string
+	}{
+		{"within ttl", time.Minute, "sess-far"},
+		{"past ttl", time.Hour, "sess-mine"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			_ = os.MkdirAll(filepath.Join(dir, ".ateam"), 0o755)
+			seen := time.Now().UTC().Add(-tc.age).Format(time.RFC3339)
+			lease := `{"agent":"codex","session_id":"sess-far","pid":999999,"last_seen":"` + seen + `","host":"another-host-287","pid_ns":"pid:[1]"}`
+			if err := os.WriteFile(state.WriterLeasePath(dir), []byte(lease), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out, err := Handle(dir, "session-start", strings.NewReader(`{"session_id":"sess-mine"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			warned := strings.Contains(out.AdditionalContext, "WARNING: another writer may be active (agent=codex, session=sess-far")
+			if warned != (tc.wantOwner == "sess-far") {
+				t.Fatalf("warning shown = %v, want %v:\n%s", warned, !warned, out.AdditionalContext)
+			}
+			if strings.Contains(out.AdditionalContext, "(exited)") || !strings.Contains(out.AdditionalContext, "pid=999999 (other host)") {
+				t.Fatalf("writer line should name the place, not a PID status:\n%s", out.AdditionalContext)
+			}
+			for _, ev := range []string{"session-start", "before-prompt", "turn-end"} {
+				if ev != "session-start" {
+					if _, err := Handle(dir, ev, strings.NewReader(`{"session_id":"sess-mine","prompt":"go"}`)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				got, err := state.ReadWriterLease(dir)
+				if err != nil || got == nil || got.SessionID != tc.wantOwner {
+					t.Fatalf("after %s writer lease = %+v, %v; want session %s", ev, got, err, tc.wantOwner)
 				}
 			}
 		})
