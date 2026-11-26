@@ -2,7 +2,7 @@
 
 ## 1. Approval
 
-- [ ] 1.1 Owner approves the proposal and design, with rulings on D1–D5. Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves the proposal and design (`Approved-by: Coby Leuschke (2026-11-26) sha256:9123ed3384d7`), written by claude on the owner's instruction; rulings D1 A, D2 A, D3 A, D4 A, D5 A.
 
 ## 2. Implementation
 
