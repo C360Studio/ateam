@@ -18,6 +18,7 @@ Inspect `git status --short` and `git diff --stat` before choosing gates:
 - **Go packages (`cmd/`, `internal/`):** `task fmt:check`, `task vet`, `task lint`, `task test:unit`, `task bench:selftest`, and `task mutate:check` for non-trivial refusals/branches
 - **SvelteKit UI (`ui/`):** `task ui:check`, `task ui:test`, `task ui:build`
 - **Before any push or completion (Full 4-Gate DoD):** `task verify`
+- **Before a handoff:** `ateam state queue-check` lists queue findings (stale blocker or decision labels, unplaced issues, overloaded or finished milestones). It is advice and never fails; name any finding your work caused or can fix in the handoff.
 
 Execute gates via the `ateam_task` MCP tool (`{"target": "verify"}`) or `task verify`.
 

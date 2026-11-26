@@ -40,7 +40,8 @@ func readListCalls(t *testing.T, log string) (lists, all []string) {
 	}
 	all = strings.Split(strings.TrimSpace(string(data)), "\n")
 	for _, call := range all {
-		if !strings.Contains(call, "comments") {
+		// The open-milestones read (#416) is not a board list.
+		if !strings.Contains(call, "comments") && !strings.Contains(call, "/milestones?") {
 			lists = append(lists, call)
 		}
 	}

@@ -89,7 +89,8 @@ func (f statusFixture) apiCalls(t *testing.T) []string {
 	}
 	var out []string
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		if strings.Contains(line, "|api|") {
+		// The open-milestones read (#416) is a gh api call too, but reads no status.
+		if strings.Contains(line, "|api|") && !strings.Contains(line, "/milestones?") {
 			out = append(out, line)
 		}
 	}

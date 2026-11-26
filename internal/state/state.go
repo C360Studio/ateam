@@ -648,6 +648,11 @@ type State struct {
 	ForgeSyncedAt      map[ForgeProvider]time.Time `json:"forge_synced_at,omitempty"`
 	ForgeSyncTarget    map[ForgeProvider]string    `json:"forge_sync_target,omitempty"`
 	BoardSyncError     string                      `json:"board_sync_error,omitempty"`
+	// ForgeMilestones is each forge's last open-milestones read, for the queue checks (#416).
+	ForgeMilestones map[ForgeProvider]*MilestoneSnapshot `json:"forge_milestones,omitempty"`
+	// QueueMaxMilestoneIssues is queue.max_milestone_issues from .agents/ateam.json as the last refresh read it, so
+	// the session-start hook applies it without reading the file; zero is the default.
+	QueueMaxMilestoneIssues int `json:"queue_max_milestone_issues,omitempty"`
 	// StatusWriteError is the last commit status error in this checkout, cleared by a clean publication; it names
 	// the context, sha and HTTP or gh exit code only, never a body or token (#302).
 	StatusWriteError  string            `json:"status_write_error,omitempty"`
@@ -2557,7 +2562,8 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 	}
 	gs := SnapshotGit(ctx, root)
 	detectedForge := DetectForge(ctx, root, gs.RemoteURL)
-	committedForges := settingsOrDefault(root).Forges
+	settings := settingsOrDefault(root)
+	committedForges := settings.Forges
 	cached.refreshForgeConfig(detectedForge, committedForges)
 	forgeCfg := cached.Forge
 	shortcuts, err := ScanShortcuts(root)
@@ -2577,12 +2583,15 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 		return nil, err
 	}
 	var syncedCards []BoardCard
+	var milestones []MilestoneCount
+	var milestonesErr error
 	if syncRemote {
 		cards, err := SyncForgeBoard(ctx, root, forgeCfg)
 		if err != nil {
 			return nil, err
 		}
 		syncedCards = cards
+		milestones, milestonesErr = SyncForgeMilestones(ctx, root, forgeCfg)
 	}
 	return Update(root, func(st *State) error {
 		st.Git = gs
@@ -2592,8 +2601,10 @@ func Refresh(ctx context.Context, root string, syncRemote bool) (*State, error) 
 		st.HoldScanError = ""
 		st.OpenSpecQueue = queue
 		st.OpenSpecSpecs = specs
+		st.QueueMaxMilestoneIssues = settings.queueMaxMilestoneIssues()
 		if syncRemote {
 			st.MergeForgeCards(syncedCards, forgeCfg.Provider)
+			st.SetForgeMilestones(forgeCfg.Provider, milestones, milestonesErr)
 		}
 		st.ReconcileWorktrees()
 		st.refreshHandoffStaleness(false, false)
@@ -2637,8 +2648,10 @@ func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Dur
 		return st, nil
 	}
 	type syncedForge struct {
-		provider ForgeProvider
-		cards    []BoardCard
+		provider      ForgeProvider
+		cards         []BoardCard
+		milestones    []MilestoneCount
+		milestonesErr error
 	}
 	var (
 		syncedResults []syncedForge
@@ -2647,16 +2660,19 @@ func RefreshWithBestEffortSync(ctx context.Context, root string, maxAge time.Dur
 	for _, cfg := range toSync {
 		sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		cards, syncErr := SyncForgeBoard(sctx, root, cfg)
-		cancel()
 		if syncErr != nil {
+			cancel()
 			syncErrors = append(syncErrors, syncErr.Error())
 			continue
 		}
-		syncedResults = append(syncedResults, syncedForge{provider: cfg.Provider, cards: cards})
+		milestones, milestonesErr := SyncForgeMilestones(sctx, root, cfg)
+		cancel()
+		syncedResults = append(syncedResults, syncedForge{provider: cfg.Provider, cards: cards, milestones: milestones, milestonesErr: milestonesErr})
 	}
 	updated, err := Update(root, func(cur *State) error {
 		for _, res := range syncedResults {
 			cur.MergeForgeCards(res.cards, res.provider)
+			cur.SetForgeMilestones(res.provider, res.milestones, res.milestonesErr)
 		}
 		cur.BoardSyncError = strings.Join(syncErrors, "; ")
 		return nil
@@ -3087,6 +3103,7 @@ func BuildPickupSummary(st *State) string {
 		holdsDisplay += " | since-review=" + st.Git.WholeReview.String()
 	}
 	holdsDisplay += " | next=" + st.ComputeNext().Field()
+	holdsDisplay += " | queue=" + st.ComputeQueue().Field()
 	fmt.Fprintf(&b, "[ateam] mode=%s | forge=%s | branch=%s | head=%s | dirty=%s | shortcuts=%d | holds=%s | %s | synced=%s (closed capped at %d)\n",
 		st.Mode, st.Forge.Provider, st.Git.Branch, st.Git.HeadSHA, summaryDirtyField(st.Git), len(st.Shortcuts), holdsDisplay, buildField, syncedDisplay, closedItemCap)
 	if strings.TrimSpace(st.MCPStaleTarget) != "" {

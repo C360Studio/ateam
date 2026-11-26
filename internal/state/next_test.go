@@ -182,7 +182,7 @@ func TestNextParsers(t *testing.T) {
 // spec: harness / Shared computed next issue
 func TestPickupLineShowsNext(t *testing.T) {
 	st := &State{Forge: ForgeConfig{Provider: ForgeGitHub}}
-	if got := BuildPickupSummary(st); !strings.Contains(got, "| holds=0 | next=none (not synced) | build=") {
+	if got := BuildPickupSummary(st); !strings.Contains(got, "| holds=0 | next=none (not synced) | queue=unavailable | build=") {
 		t.Fatalf("unsynced summary:\n%s", got)
 	}
 	st.MergeForgeCards([]BoardCard{issue(1, "A", descA), issue(4, "B", "Order: #4")}, ForgeGitHub)

@@ -154,6 +154,8 @@ func runState(repoRoot string, args []string) int {
 		return runStatePickup(repoRoot, args[1:])
 	case "next":
 		return runStateNext(repoRoot)
+	case "queue-check", "queue_check":
+		return runStateQueueCheck(repoRoot)
 	case "read-handoff":
 		return runStateReadHandoff(repoRoot, args[1:])
 	case "prune":
@@ -183,6 +185,7 @@ Subcommands:
   board        Refresh state with a forge sync and print the PM board as JSON (--scope open|done|all, --limit, --after)
   pickup       Refresh state and print the pickup summary (--agent, --session)
   next         Sync and print the next issue in milestone order, why earlier ones were skipped, and unplaced issues
+  queue-check  Sync and list queue findings: stale blockers and decision labels, unplaced issues, overloaded or finished milestones
   handoff      Record the five-field handoff checkpoint (see ateam state handoff -h)
   read-handoff <agent>@<branch>
                Print another slot's handoff without changing state
@@ -472,8 +475,10 @@ func runStateSync(repoRoot string, args []string) int {
 		fmt.Fprintf(os.Stderr, "ateam state sync: %v\n", err)
 		return 1
 	}
+	milestones, milestonesErr := state.SyncForgeMilestones(ctx, repoRoot, cfg)
 	if _, err := state.Update(repoRoot, func(cur *state.State) error {
 		cur.MergeForgeCards(cards, cfg.Provider)
+		cur.SetForgeMilestones(cfg.Provider, milestones, milestonesErr)
 		return nil
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "ateam state sync: %v\n", err)
@@ -499,11 +504,13 @@ func runStateSnapshot(repoRoot, sub string) int {
 		fmt.Fprintf(os.Stderr, "ateam state %s: %v\n", sub, err)
 		return 1
 	}
-	// next is computed, never cached, so the status JSON gains it without a field in .ateam/state.json (#418).
+	// next and queue are computed, never cached, so the status JSON gains them without a field in .ateam/state.json
+	// (#418, #416).
 	printJSON(struct {
 		*state.State
-		Next state.NextResult `json:"next"`
-	}{st, st.ComputeNext()})
+		Next  state.NextResult  `json:"next"`
+		Queue state.QueueResult `json:"queue"`
+	}{st, st.ComputeNext(), st.ComputeQueue()})
 	return 0
 }
 
@@ -520,6 +527,25 @@ func runStateNext(repoRoot string) int {
 		fmt.Fprintf(os.Stderr, "WARNING: forge sync failed, computed from the cache: %s\n", msg)
 	}
 	if res.None == state.NextNotSynced {
+		return 1
+	}
+	return 0
+}
+
+// runStateQueueCheck exits 0 with or without findings, so a host workflow can tell findings from a missing sync,
+// which exits 1.
+func runStateQueueCheck(repoRoot string) int {
+	st, err := state.RefreshWithBestEffortSync(context.Background(), repoRoot, 30*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam state queue-check: %v\n", err)
+		return 1
+	}
+	res := st.ComputeQueue()
+	fmt.Print(res.Format())
+	if msg := strings.TrimSpace(st.BoardSyncError); msg != "" {
+		fmt.Fprintf(os.Stderr, "WARNING: forge sync failed, computed from the cache: %s\n", msg)
+	}
+	if res.Unavailable == state.NextNotSynced {
 		return 1
 	}
 	return 0
@@ -671,6 +697,12 @@ func runDoctor(repoRoot string, args []string) int {
 	warnings = append(warnings, statusWriteWarnings(repoRoot)...)
 	codexTrust, codexTrustWarnings := bootstrap.CodexHookTrust(repoRoot)
 	warnings = append(warnings, codexTrustWarnings...)
+	// The queue line is advice from the cache only: doctor runs in task verify on CI, so it makes no forge call and
+	// never turns a finding into a violation (#416 design D5).
+	queueLine := ""
+	if cached, err := state.Load(repoRoot); err == nil {
+		queueLine = cached.ComputeQueue().DoctorLine()
+	}
 
 	adopterSkills, skillAliases := bootstrap.SkillInventory(repoRoot)
 
@@ -698,6 +730,9 @@ func runDoctor(repoRoot string, args []string) int {
 	}
 	if pin != "" {
 		report["pin"] = pin
+	}
+	if queueLine != "" {
+		report["queue"] = queueLine
 	}
 	printJSON(report)
 	if !passed {

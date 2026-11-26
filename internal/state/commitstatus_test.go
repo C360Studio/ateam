@@ -526,7 +526,8 @@ func TestBestEffortSyncWritesNoStatus(t *testing.T) {
 		t.Fatalf("best-effort sync made no GitHub cards (error %q); the test proves nothing", st.BoardSyncError)
 	}
 	for _, c := range readCalls(t, log) {
-		if len(c) > 1 && c[1] == "api" {
+		// The open-milestones read (#416) is the one gh api call a sync makes; it reads no status.
+		if len(c) > 1 && c[1] == "api" && !strings.Contains(strings.Join(c, " "), "/milestones?") {
 			t.Fatalf("best-effort sync called gh api: %q", c)
 		}
 	}
