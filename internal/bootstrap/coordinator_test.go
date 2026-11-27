@@ -101,14 +101,23 @@ func TestInitShipsJudgeContract(t *testing.T) {
 			"Never write a review record or turn a rejection into an approval",
 			"Never apply `gate-change-approved`, tag or release",
 			"comment on each issue you move with the old and new line",
+			// status-label-route-443 D1-D4.
+			"put your answer on a line starting `Ruling:` in your comment, and remove that label",
+			"every issue its `Depends on:` lines name is closed and every pull request they name is merged",
+			"if any issue is open, or any pull request is open or closed without merging, answer \"cannot decide\"",
+			"Never add a label, and never remove one you were not asked about: `gate-change-approved` and `class:flake` stay the owner's.",
 		},
 		".agents/contracts/coordinator.md": {
 			"A change touching a gate file and a release still stop for the owner.",
+			"an issue labelled `status:needs-decision`, and an issue labelled `status:blocked` that `ateam state queue-check` reports with every `Depends on:` issue closed.",
+			"Any other `status:blocked` issue stays an owner gate and does not end the run.",
 			"run `ateam review compare --implementer <agent:model:effort>` for each run it rules on with `--reviewer <the judge run>`",
 			"End the run and hand back to the owner when a judge answers \"cannot decide\", `main` CI goes red, a unit touches a gate file, or the milestone you started on is finished.",
 		},
 		".agents/skills/coordinate/SKILL.md": {
 			"the developer run fixes the findings it rules blocking and files the rest as follow-up issues, then request a fresh review",
+			"or a status-labelled issue's number with its `ateam state queue-check` finding)",
+			"After a judge removes a status label, run `ateam state sync`, so `ateam state next` can name the issue.",
 		},
 	} {
 		body := read(dir, rel)
@@ -120,5 +129,33 @@ func TestInitShipsJudgeContract(t *testing.T) {
 	}
 	if v := CheckParity(dir); len(v) != 0 {
 		t.Fatalf("fresh init has violations: %v", v)
+	}
+}
+
+// spec: model-review / Owner decision after the third rejecting review
+func TestInitShipsRoundsContinueRule(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitRepo(context.Background(), dir, Options{}); err != nil {
+		t.Fatalf("InitRepo: %v", err)
+	}
+	// Literals from the approved proposal's D2: who writes the continue line, and who never does.
+	for rel, want := range map[string][]string{
+		".agents/contracts/coordinator.md": {"review records, `Approved-by:` or a `review-rounds-continue:` line;"},
+		".agents/contracts/judge.md":       {"end that comment with the line `review-rounds-continue: <n>` outside code fences"},
+		".agents/skills/coordinate/SKILL.md": {
+			"`ateam review request` refuses the next round until the owner posts a `review-rounds-continue: <n>` line naming that count",
+			"never post the line yourself",
+			"which the judge's `review-rounds-continue: <n>` line allows",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
 	}
 }

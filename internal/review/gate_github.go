@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/url"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,14 +21,31 @@ import (
 // shortcut: GitHub reads exec gh so the fake-gh suite stays the parity oracle; move to REST when that suite is ported to httptest
 type ghSource struct{}
 
-// gh runs one read and returns its stdout; a failed run is unavailable.
+// ghClientError is the status gh prints for a 4xx answer ("gh: Not Found
+// (HTTP 404)"). Such an answer is the forge's reply, which fileAt reads as an
+// answer, so it is never retried.
+var ghClientError = regexp.MustCompile(`\(HTTP 4\d\d\)`)
+
+// gh runs one read and returns its stdout; a run that still fails after
+// gateRetry's attempts is unavailable. A 4xx answer and a missing gh binary
+// are read once.
 func (ghSource) gh(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "gh", args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	var out []byte
+	retry := true
+	err := gateRetry(ctx, func() error {
+		cmd := exec.CommandContext(ctx, "gh", args...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		var err error
+		out, err = cmd.Output()
+		if err != nil {
+			retry = !errors.Is(err, exec.ErrNotFound) && !ghClientError.Match(stderr.Bytes())
+			return fmt.Errorf("the read of %s failed (gh %s): %s", name, strings.Join(args, " "), strings.TrimSpace(stderr.String()))
+		}
+		return nil
+	}, func(error) bool { return retry })
 	if err != nil {
-		return nil, fmt.Errorf("the read of %s failed (gh %s): %s", name, strings.Join(args, " "), strings.TrimSpace(stderr.String()))
+		return nil, err
 	}
 	return out, nil
 }

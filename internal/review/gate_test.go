@@ -6,16 +6,28 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+// TestMain keeps gateRetry's attempts and drops its waits, so a test that
+// serves a failing read still sees every attempt without sleeping a minute.
+func TestMain(m *testing.M) {
+	gateRetryWaits = []time.Duration{0, 0, 0}
+	os.Exit(m.Run())
+}
 
 // gateWorld is one pull request and its repository, described once and served
 // by both forges, so a scenario expects the same lines from either.
@@ -57,6 +69,11 @@ type gateWorld struct {
 	proposalsMissing []string
 	// awaiting runs the awaiting probe (GateOptions.Awaiting, #262) instead.
 	awaiting bool
+	// ghFail and giteaFail answer a gh argv or Gitea path with HTTP 500 that
+	// many times before its real answer (#441); calls, when non-nil, gets the
+	// number of times each was read.
+	ghFail, giteaFail map[string]int
+	calls             map[string]int
 	// headChecks are job results at head: GitHub check runs, Gitea commit
 	// statuses with the context "Merge check / <name> (pull_request)".
 	headChecks []worldCheck
@@ -134,6 +151,11 @@ func worldCommitJSON(c worldCommit) map[string]any {
 const fakeGHScript = `#!/bin/sh
 for f in "$FAKE_GH_DIR"/*.argv; do
   if [ "$(cat "$f")" = "$*" ]; then
+    echo >> "${f%.argv}.calls"
+    if [ -f "${f%.argv}.fails" ] && [ "$(cat "${f%.argv}.fails")" -gt 0 ]; then
+      echo $(($(cat "${f%.argv}.fails") - 1)) > "${f%.argv}.fails"
+      echo "gh: Server Error: Sorry, this diff is temporarily unavailable due to heavy server load. (HTTP 500)" >&2; exit 1
+    fi
     if [ -f "${f%.argv}.err" ]; then cat "${f%.argv}.err" >&2; exit 1; fi
     cat "${f%.argv}.out"; exit 0
   fi
@@ -228,10 +250,40 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 		}
 		answers[argv] = []byte("null")
 	}
+	bases := writeGHAnswers(t, dir, w, answers, errs)
+	var out bytes.Buffer
+	code := Gate(context.Background(), &out, ForgeConfig{Provider: "github"}, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(dir, "no-policy.json"), Checks: w.checks, Awaiting: w.awaiting, Actions: w.event != "", Event: w.event})
+	if w.calls != nil {
+		for argv, base := range bases {
+			if b, err := os.ReadFile(base + ".calls"); err == nil {
+				w.calls[argv] = len(b)
+			}
+		}
+	}
+	return code, out.String()
+}
+
+// writeGHAnswers writes each argv's answer for fakeGHScript, with its error
+// text and the number of HTTP 500s before it (w.ghFail), and returns each
+// argv's file base so the caller can read its .calls.
+func writeGHAnswers(t *testing.T, dir string, w gateWorld, answers map[string][]byte, errs map[string]string) map[string]string {
+	t.Helper()
+	for argv := range w.ghFail {
+		if _, ok := answers[argv]; !ok {
+			t.Fatalf("ghFail names no read: %s", argv)
+		}
+	}
 	i := 0
+	bases := map[string]string{}
 	for argv, out := range answers {
 		i++
 		base := filepath.Join(dir, strconv.Itoa(i))
+		bases[argv] = base
+		if n, ok := w.ghFail[argv]; ok {
+			if err := os.WriteFile(base+".fails", []byte(strconv.Itoa(n)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if err := os.WriteFile(base+".argv", []byte(argv), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -244,9 +296,7 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 			}
 		}
 	}
-	var out bytes.Buffer
-	code := Gate(context.Background(), &out, ForgeConfig{Provider: "github"}, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(dir, "no-policy.json"), Checks: w.checks, Awaiting: w.awaiting, Actions: w.event != "", Event: w.event})
-	return code, out.String()
+	return bases
 }
 
 // giteaServer serves w as Gitea v1 does: lists paginated with X-Total-Count,
@@ -346,6 +396,8 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 	for path, body := range w.proposals {
 		objects["/contents/"+path] = map[string]any{"type": "file", "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(body))}
 	}
+	var mu sync.Mutex
+	fails := maps.Clone(w.giteaFail)
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "token "+gateToken {
 			http.Error(rw, "unauthorized", http.StatusUnauthorized)
@@ -354,6 +406,19 @@ func giteaServer(t *testing.T, w gateWorld) *httptest.Server {
 		path, ok := strings.CutPrefix(r.URL.Path, prefix)
 		if !ok {
 			http.NotFound(rw, r)
+			return
+		}
+		mu.Lock()
+		if w.calls != nil {
+			w.calls[path]++
+		}
+		fail := fails[path] > 0
+		if fail {
+			fails[path]--
+		}
+		mu.Unlock()
+		if fail {
+			http.Error(rw, "temporarily unavailable", http.StatusInternalServerError)
 			return
 		}
 		if status := w.giteaStatus[path]; status != 0 {
@@ -984,5 +1049,94 @@ func TestGateRecordBoundaries(t *testing.T) {
 		if got := gateDesignated(tc.body, commits); !slices.Equal(got, tc.idxs) {
 			t.Errorf("gateDesignated(%q) = %v, want %v", tc.body, got, tc.idxs)
 		}
+	}
+}
+
+// spec: harness / Gate reads retry transient forge failures
+func TestGateReadRetry(t *testing.T) {
+	// #441: a read that fails briefly must not decide the run, a read that
+	// keeps failing must still be unavailable after four attempts, and a 4xx
+	// answer the gate reads as an answer must be read once.
+	ghFiles := fmt.Sprintf("api --paginate repos/{owner}/{repo}/pulls/%d/files?per_page=100", gatePR)
+	gtFiles := fmt.Sprintf("/pulls/%d/files", gatePR)
+	const archived = "openspec/changes/archive/2026-10-26-bar/proposal.md"
+	ghArchived := "api repos/{owner}/{repo}/contents/" + archived + "?ref=" + shaA
+	gtArchived := "/contents/" + archived
+	_, ghHealthy := runGitHub(t, healthyWorld())
+	_, gtHealthy := runGitea(t, healthyWorld())
+	for _, tc := range []struct {
+		name  string
+		run   func(*testing.T, gateWorld) (int, string)
+		world func(*gateWorld)
+		read  string
+		calls int
+		code  int
+		same  string // when set, the output must equal this healthy run's
+		want  string
+	}{
+		{name: "github files read fails twice then answers", run: runGitHub, world: func(w *gateWorld) { w.ghFail = map[string]int{ghFiles: 2} }, read: ghFiles, calls: 3, same: ghHealthy},
+		{name: "github files read fails every attempt", run: runGitHub, world: func(w *gateWorld) { w.ghFail = map[string]int{ghFiles: 99} }, read: ghFiles, calls: 4, code: 2, want: "merge-check: unavailable: the read of"},
+		{name: "github 404 proposal read once", run: runGitHub, world: func(w *gateWorld) {
+			w.files = []string{"openspec/changes/archive/2026-10-26-bar/tasks.md", "scripts/x.sh"}
+			w.proposalsMissing = []string{archived}
+		}, read: ghArchived, calls: 1, want: "OpenSpec change 2026-10-26-bar has no Approved-by"},
+		{name: "gitea files read fails twice then answers", run: runGitea, world: func(w *gateWorld) { w.giteaFail = map[string]int{gtFiles: 2} }, read: gtFiles, calls: 3, same: gtHealthy},
+		{name: "gitea files read fails every attempt", run: runGitea, world: func(w *gateWorld) { w.giteaFail = map[string]int{gtFiles: 99} }, read: gtFiles, calls: 4, code: 2, want: "merge-check: unavailable: the read of"},
+		{name: "gitea 404 proposal read once", run: runGitea, world: func(w *gateWorld) {
+			w.files = []string{"openspec/changes/archive/2026-10-26-bar/tasks.md", "scripts/x.sh"}
+		}, read: gtArchived, calls: 1, want: "OpenSpec change 2026-10-26-bar has no Approved-by"},
+		{name: "gitea 403 branch protection read once", run: runGitea, world: func(w *gateWorld) {
+			w.giteaStatus = map[string]int{"/branch_protections/main": http.StatusForbidden}
+		}, read: "/branch_protections/main", calls: 1, want: "merge-check: ok"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := healthyWorld()
+			tc.world(&w)
+			w.calls = map[string]int{}
+			code, out := tc.run(t, w)
+			if code != tc.code || (tc.same != "" && out != tc.same) || !strings.Contains(out, tc.want) {
+				t.Errorf("exit %d, want %d with %q (healthy run %q):\n%s", code, tc.code, tc.want, tc.same, out)
+			}
+			if got := w.calls[tc.read]; got != tc.calls {
+				t.Errorf("read %s %d times, want %d", tc.read, got, tc.calls)
+			}
+		})
+	}
+}
+
+// spec: harness / Gate reads retry transient forge failures
+func TestGiteaTransient(t *testing.T) {
+	// Which Gitea read errors are worth another attempt (#441, design D1 B).
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"500", fmt.Errorf("read: %w", &forgeStatusError{code: 500}), true},
+		{"503", &forgeStatusError{code: 503}, true},
+		{"403 is an answer", &forgeStatusError{code: 403}, false},
+		{"404 is an answer", &forgeStatusError{code: 404}, false},
+		{"429 is an answer", &forgeStatusError{code: 429}, false},
+		{"no response", fmt.Errorf("read review evidence: %w", &url.Error{Op: "Get", URL: "https://x", Err: errors.New("connection reset")}), true},
+		{"body does not decode", errors.New("decode review evidence: unexpected end of JSON input"), false},
+	} {
+		if got := giteaTransient(tc.err); got != tc.want {
+			t.Errorf("%s: giteaTransient = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// spec: harness / Gate reads retry transient forge failures
+func TestGateRetryStopsOnContext(t *testing.T) {
+	// A cancelled run stops waiting at once and reports the last failure.
+	saved := gateRetryWaits
+	gateRetryWaits = []time.Duration{time.Hour}
+	t.Cleanup(func() { gateRetryWaits = saved })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	err := gateRetry(ctx, func() error { calls++; return errors.New("HTTP 500") }, func(error) bool { return true })
+	if err == nil || calls != 1 {
+		t.Fatalf("gateRetry = %v after %d calls, want the error after 1", err, calls)
 	}
 }

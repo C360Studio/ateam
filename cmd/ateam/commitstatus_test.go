@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/c360studio/ateam/internal/review"
 	"github.com/c360studio/ateam/internal/state"
 )
 
@@ -349,6 +353,90 @@ func TestStateHandoffPostOutcome(t *testing.T) {
 		calls := f.apiCalls(t)
 		if len(calls) != 2 || !strings.Contains(calls[1], "|target_url=https://github.com/o/r/pull/7#issuecomment-41") {
 			t.Fatalf("gh api calls = %q, want a status linking the existing comment", calls)
+		}
+	})
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+func TestReviewNotifySetsRecordStatus(t *testing.T) {
+	// notify runs in the reviewer's checkout of a GitHub PR and hands the parsed record to the status writer, whose own
+	// tests are in internal/state; the writer is faked so no gh runs and nothing here waits on a clock.
+	type call struct {
+		provider state.ForgeProvider
+		sha      string
+		verdict  string
+	}
+	fake := func(t *testing.T, err error) *[]call {
+		t.Helper()
+		var calls []call
+		orig := recordCommitStatus
+		recordCommitStatus = func(_ context.Context, _ string, cfg state.ForgeConfig, rec review.RecordComment) (state.StatusResult, error) {
+			calls = append(calls, call{cfg.Provider, rec.SHA, rec.Verdict})
+			if err != nil {
+				return state.StatusResult{Errors: 1}, err
+			}
+			return state.StatusResult{Posted: 1}, nil
+		}
+		t.Cleanup(func() { recordCommitStatus = orig })
+		return &calls
+	}
+	notify := func(t *testing.T, f statusFixture, verdict string, args ...string) (int, string, string) {
+		t.Helper()
+		writeLaunchFile(t, f.wt, ".agents/hosts/toolhost.toml", "[notify]\ntool = \"call send_message to {return_to}\"\n")
+		writeLaunchFile(t, f.wt, "record.md", "reviewed-by: codex (gpt-6-astra, xhigh)\nReviewed at "+f.head[:7]+"\nVerdict: "+verdict+"\n")
+		var out bytes.Buffer
+		code, stderr := captureBenchError(t, func() int {
+			return reviewNotify(context.Background(), f.wt, append(args, "7"), envOf(map[string]string{"ATEAM_HOST": "toolhost"}), &out, (&recorder{}).run)
+		})
+		return code, out.String(), stderr
+	}
+	record := func(f statusFixture) []string {
+		return []string{"--record", filepath.Join(f.wt, "record.md"), "--return-to", "impl-1"}
+	}
+
+	for _, verdict := range []string{"APPROVE", "REQUEST CHANGES"} {
+		t.Run(verdict, func(t *testing.T) {
+			f := newStatusFixture(t, `{"statuses":[]}`)
+			calls := fake(t, nil)
+			code, out, stderr := notify(t, f, verdict, record(f)...)
+			if code != 0 || stderr != "" || !strings.HasPrefix(out, "notify: call send_message to impl-1; message: review record for PR #7 landed at "+f.head[:7]) {
+				t.Fatalf("notify = %d, stdout %q, stderr %q; want 0, the tool line, silent", code, out, stderr)
+			}
+			if want := []call{{state.ForgeGitHub, f.head[:7], verdict}}; !reflect.DeepEqual(*calls, want) {
+				t.Fatalf("status writer calls = %+v, want %+v", *calls, want)
+			}
+			if got := f.apiCalls(t); len(got) != 0 {
+				t.Fatalf("notify ran gh api itself: %q", got)
+			}
+		})
+	}
+
+	t.Run("disabled", func(t *testing.T) {
+		f := newStatusFixture(t, `{"statuses":[]}`)
+		t.Setenv("ATEAM_COMMIT_STATUSES", "0")
+		calls := fake(t, nil)
+		if code, _, _ := notify(t, f, "APPROVE", record(f)...); code != 0 || len(*calls) != 0 {
+			t.Fatalf("notify = %d, status writer calls %+v; want 0 and none", code, *calls)
+		}
+	})
+
+	t.Run("decline", func(t *testing.T) {
+		f := newStatusFixture(t, `{"statuses":[]}`)
+		calls := fake(t, nil)
+		if code, _, _ := notify(t, f, "APPROVE", "--decline", "--return-to", "impl-1"); code != 0 || len(*calls) != 0 {
+			t.Fatalf("notify --decline = %d, status writer calls %+v; want 0 and none", code, *calls)
+		}
+	})
+
+	t.Run("write rejected", func(t *testing.T) {
+		f := newStatusFixture(t, `{"statuses":[]}`)
+		fake(t, errors.New("ateam/review-record on "+f.head[:7]+": gh exit 4"))
+		code, out, stderr := notify(t, f, "APPROVE", record(f)...)
+		if code != 0 || !strings.HasPrefix(out, "notify: call send_message to impl-1;") {
+			t.Fatalf("notify = %d, stdout %q; want 0 and the message still printed", code, out)
+		}
+		if want := "ateam review: notify: warning: commit status: ateam/review-record on " + f.head[:7] + ": gh exit 4 (posted 0, unchanged 0, errors 1)\n"; stderr != want {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
 		}
 	})
 }

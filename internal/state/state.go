@@ -597,6 +597,10 @@ type BoardCard struct {
 	// Review is the newest review record comment on an open PR whose branch has
 	// a local worktree, as the last sync read it (#295).
 	Review *review.RecordComment `json:"review,omitempty"`
+	// Rejections are the REQUEST CHANGES records the last sync read on such a PR, oldest first, and RoundsContinue
+	// the count its newest review-rounds-continue: line names; ateam review request reads both (#411).
+	Rejections     []ReviewRound `json:"rejections,omitempty"`
+	RoundsContinue int           `json:"rounds_continue,omitempty"`
 	// ReviewURL and HandoffURL link the newest record and handoff-block comments the last sync read; they feed
 	// commit status target URLs only and are never cached (#302).
 	ReviewURL  string    `json:"-"`
@@ -604,6 +608,12 @@ type BoardCard struct {
 	Forge      string    `json:"forge,omitempty"` // github, gitea, local
 	URL        string    `json:"url,omitempty"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// ReviewRound is one review record a sync read, with its comment's link (#411).
+type ReviewRound struct {
+	review.RecordComment
+	URL string `json:"url,omitempty"`
 }
 
 // WriterLease tracks the most recent active agent writer in .ateam/writer.json.

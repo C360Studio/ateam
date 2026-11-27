@@ -169,6 +169,10 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 		fmt.Fprintln(os.Stderr, "ateam review: --reviewer-session must be 1 to 128 of A-Z a-z 0-9 . _ : -")
 		return 2
 	}
+	if why := roundsStop(cachedCard(root, requestForge(ctx, root), pr)); why != "" {
+		fmt.Fprintln(os.Stderr, "ateam review: "+why)
+		return 2
+	}
 	var policy review.Policy
 	data, err := readReviewFile(filepath.Join(root, ".agents", "review-policy.json"))
 	switch {
@@ -277,7 +281,7 @@ func encodeSpec(out io.Writer, spec launchSpec) int {
 // to a reviewer run the merge gate still accepts against these implementers.
 // The notify command runs, as a launch command does, only under review_launch: agent.
 func rereview(ctx context.Context, root string, spec *launchSpec, policy review.Policy, m *hostManifest, session string, dryRun bool, run launchRunner) string {
-	rec := cachedRecord(root, spec.PR)
+	rec := cachedRecord(ctx, root, spec.PR)
 	switch {
 	case rec == nil:
 		return "no cached record; run ateam state sync"
@@ -318,17 +322,58 @@ func rereview(ctx context.Context, root string, spec *launchSpec, policy review.
 
 // cachedRecord is the newest review record the last ateam state sync cached
 // for the pull request, or nil.
-func cachedRecord(root string, pr int) *review.RecordComment {
+func cachedRecord(ctx context.Context, root string, pr int) *review.RecordComment {
+	if c := cachedCard(root, requestForge(ctx, root), pr); c != nil {
+		return c.Review
+	}
+	return nil
+}
+
+// requestForge is the forge readPullBody reads the PR from, "github" or "gitea", or "" when none resolves; tests
+// substitute it.
+var requestForge = func(ctx context.Context, root string) string {
+	cfg, _, err := gateForge(ctx, root, false)
+	if err != nil {
+		return ""
+	}
+	return cfg.Provider
+}
+
+// cachedCard is the PR's card from forge in the sync cache, or nil. The cache keeps both forges' cards (MergeForgeCards),
+// so a number alone could pick the other forge's PR and stop, or let through, the wrong review round (PR #438 review).
+func cachedCard(root, forge string, pr int) *state.BoardCard {
 	st, err := state.Load(root)
 	if err != nil {
 		return nil
 	}
-	for _, c := range st.Cards {
-		if c.Type == "pr" && c.Number == pr && c.Review != nil {
-			return c.Review
+	for i, c := range st.Cards {
+		if c.Type == "pr" && c.Number == pr && c.Forge == forge {
+			return &st.Cards[i]
 		}
 	}
 	return nil
+}
+
+// roundsStop says why another review round waits for the owner, or returns "": the last sync read three or more
+// REQUEST CHANGES records on the PR and no review-rounds-continue: line naming that count (#411). It reads the cache,
+// so a round requested before the sync that reads the third record still runs; the coordinator's own stop covers it.
+func roundsStop(c *state.BoardCard) string {
+	if c == nil || len(c.Rejections) < 3 || c.RoundsContinue == len(c.Rejections) {
+		return ""
+	}
+	n := len(c.Rejections)
+	var b strings.Builder
+	fmt.Fprintf(&b, "PR #%d has %d REQUEST CHANGES records, so the next review round waits for the owner's decision; to allow one more round, the owner, or a judge the coordinator started, posts this line in a PR comment:\n%s %d\n",
+		c.Number, n, state.RoundsContinuePrefix, n)
+	for i, r := range c.Rejections {
+		who := cmp.Or(r.Agent, "unnamed agent")
+		if r.Model != "" {
+			who += " (" + r.Model + ", " + cmp.Or(r.Effort, "no effort") + ")"
+		}
+		fmt.Fprintf(&b, "  REQUEST CHANGES %d: at %s by %s %s\n", i+1, r.SHA, who, r.URL)
+	}
+	fmt.Fprintf(&b, "  PR head at the last sync: %s", cmp.Or(c.HeadSHA, "unknown"))
+	return b.String()
 }
 
 // chooseReviewer is the --reviewer run, else the first eligible one, refused
@@ -444,6 +489,7 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 		}
 		sha = rec.SHA
 		msg = notifyText(pr, sha, session, target)
+		publishRecordStatus(ctx, root, rec)
 	}
 	if host == "cli" {
 		if target == "" {
@@ -475,6 +521,30 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 		fmt.Fprintf(out, "notify: host %s has no notify in .agents/hosts/%s.toml; send %q to %q\n", host, host, msg, target)
 	}
 	return 0
+}
+
+// recordCommitStatus is state.RecordCommitStatus. Notify's tests replace it so they run no fake gh: a freshly written
+// one can outlast the status call timeout on a loaded machine (#414 review). Its own tests live in internal/state.
+var recordCommitStatus = state.RecordCommitStatus
+
+// publishRecordStatus sets ateam/review-record on the reviewed commit (#414), so the PR shows the verdict even when
+// auto-merge lands before the author's next sync. It is informational: a failure is one warning, and the notify still
+// goes out with its usual exit code.
+func publishRecordStatus(ctx context.Context, root string, rec review.RecordComment) {
+	if !state.CommitStatusesEnabled(root) {
+		return
+	}
+	st, err := state.Refresh(ctx, root, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam review: notify: warning: commit status: %v\n", err)
+		return
+	}
+	if st.Forge.Provider != state.ForgeGitHub && st.Forge.Provider != state.ForgeGitea {
+		return
+	}
+	if res, err := recordCommitStatus(ctx, root, st.Forge, rec); err != nil {
+		fmt.Fprintf(os.Stderr, "ateam review: notify: warning: commit status: %v (%s)\n", err, res)
+	}
 }
 
 // hostManifestList is " (one of: a, b)" naming the hosts with a manifest in

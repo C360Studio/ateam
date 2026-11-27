@@ -654,6 +654,7 @@ func runDoctor(repoRoot string, args []string) int {
 		return 1
 	}
 	violations := bootstrap.CheckParity(repoRoot)
+	violations = append(violations, bootstrap.CheckVerifyTarget(context.Background(), repoRoot)...)
 	tokens, bytesLen, _ := mcpserver.EstimateSchemaTokens()
 	if tokens >= mcpserver.MaxSchemaTokens {
 		violations = append(violations, fmt.Sprintf("MCP schema budget exceeded: %d tokens >= %d", tokens, mcpserver.MaxSchemaTokens))
