@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -638,5 +639,51 @@ func TestGiteaSyncFetchesCommentsConcurrentlyWithinLimit(t *testing.T) {
 		if want := fmt.Sprintf("Decision: issue %d", c.Number); c.Decision != want {
 			t.Errorf("card #%d Decision = %q, want %q", c.Number, c.Decision, want)
 		}
+	}
+}
+
+// Each want is the input line itself or "", written by hand from the Recorded decision lines Requirement (#421).
+// spec: harness / Recorded decision lines
+func TestFindDecisionLineGrammar(t *testing.T) {
+	cases := []struct{ text, want string }{
+		{"Decision: use Gitea v1 issues", "Decision: use Gitea v1 issues"},
+		{"ruling: keep it", "ruling: keep it"},
+		{"__Decision:__ ship it", "__Decision:__ ship it"},
+		{"**Owner ruling (2026-10-30):** keep the cap", "**Owner ruling (2026-10-30):** keep the cap"},
+		{"Owner decision 2026-11-26: placed in v0.4.7", "Owner decision 2026-11-26: placed in v0.4.7"},
+		{"Owner rulings on #415's open questions (2026-11-27, via Enjoy):", "Owner rulings on #415's open questions (2026-11-27, via Enjoy):"},
+		{"  OWNER DECISION, 2026-10-22: stop the run", "OWNER DECISION, 2026-10-22: stop the run"},
+		{"Owner decision needed: pick A or B", ""},
+		{"Owner decision on #240: file the flake first", ""},
+		{"> Owner ruling (2026-10-30): quoted", ""},
+		{"The owner decision 2026-11-26 was to wait", ""},
+		{"Decision pending 2026-11-26", ""},
+		{"Owner decision due 20261126", ""},
+		{"intro\r\nOwner decision needed: x\n**Ruling:** y", "**Ruling:** y"},
+	}
+	for _, tc := range cases {
+		if got := findDecisionLine(tc.text); got != tc.want {
+			t.Errorf("findDecisionLine(%q) = %q, want %q", tc.text, got, tc.want)
+		}
+	}
+}
+
+// spec: harness / Recorded decision lines
+func TestRecordedDecisionFeedsQueueCheck(t *testing.T) {
+	const desc = "Order: #1"
+	ms := &MilestoneSnapshot{Items: []MilestoneCount{{Title: "A", OpenIssues: 1}}}
+	undated := forgeIssuePayload{Body: "Owner decision needed: pick A or B"}
+	dated := forgeIssuePayload{Body: undated.Body, CommentBodies: []string{"Owner decision needed: pick A or B", "**Owner ruling (2026-10-30):** keep the cap"}}
+
+	card := issue(1, "A", desc, withLabels("status:needs-decision"))
+	card.Decision = extractDecisionSummary(undated, card.Labels)
+	if got := computeQueue([]BoardCard{card}, "github", ms, DefaultQueueMaxMilestoneIssues); len(got.Findings) != 0 {
+		t.Fatalf("undated owner question: findings = %+v, want none", got.Findings)
+	}
+
+	card.Decision = extractDecisionSummary(dated, card.Labels)
+	want := []QueueFinding{{Rule: "Q3", Issue: 1, Message: "status:needs-decision, but a decision is recorded: **Owner ruling (2026-10-30):** keep the cap"}}
+	if got := computeQueue([]BoardCard{card}, "github", ms, DefaultQueueMaxMilestoneIssues); !reflect.DeepEqual(got.Findings, want) {
+		t.Fatalf("dated owner ruling: findings = %+v, want %+v", got.Findings, want)
 	}
 }
