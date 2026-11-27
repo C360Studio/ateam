@@ -2,8 +2,7 @@
 
 ## 1. Approval
 
-- [ ] 1.1 Owner approves the proposal and design and rules on Open Questions 1 and 2.
-  Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves the proposal and design (`Approved-by: Coby Leuschke (2026-11-27) sha256:163f963d087d`), written by claude on the owner's instruction ("approved #402 #414 #415", relayed by coordinator conversation 45c5de6858632f6bda0895de68071a67, then "Retry the #402 approval commit" in this conversation); rulings D1 A and D2 A are on PR #434.
 
 ## 2. Implementation
 

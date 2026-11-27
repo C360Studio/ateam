@@ -1,5 +1,5 @@
 # Proposal: pull-request-target-402
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-27) sha256:163f963d087d
 
 ## Track
 
