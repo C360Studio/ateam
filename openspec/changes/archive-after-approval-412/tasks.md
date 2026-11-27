@@ -10,5 +10,5 @@
 - [x] 2.2 `AGENTS.md` Close bullet and Close rule row, `.agents/rules-index.md` row, `closeRuleRow` (`templates.go:714`); keep the parity prefix `| \`review\` | A PR archives` (`parity_test.go:162`) or update it; `AGENTS.md` stays under 24,000 bytes.
 - [x] 2.3 `docs/daily-use.md` § 5 step 4 and § 6 steps 1–2.
 - [x] 2.4 Bootstrap test on the generated protocol and Close row for the new order and the Gitea exception, with a mutation check per sentence.
-- [ ] 2.5 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
+- [x] 2.5 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
 - [ ] 2.6 After the approving review record: archive this change in a document-only commit, then arm auto-merge.
