@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,8 +34,9 @@ const (
 // maxStatusDescription is GitHub's commit status description limit in bytes.
 const maxStatusDescription = 140
 
-// statusCallTimeout bounds each commit status read or write.
-const statusCallTimeout = 1500 * time.Millisecond
+// statusCallTimeout bounds each commit status read or write. A var only so tests that run a freshly written fake gh,
+// whose first exec can outlast it on a loaded machine, can lift it.
+var statusCallTimeout = 1500 * time.Millisecond
 
 // CommitStatus is one commit status to set on a PR head.
 type CommitStatus struct {
@@ -95,6 +97,9 @@ type statusInputs struct {
 	HandoffURL string
 	Record     *review.RecordComment
 	RecordURL  string
+	// RecordCurrent says every commit after a record behind the head is one the GitHub merge gate lets through
+	// without a new review (#414), so the record's verdict still describes the head.
+	RecordCurrent bool
 }
 
 // chooseStatuses applies the D3 table (design.md), first match wins per context. A context with nothing to say is
@@ -169,8 +174,9 @@ func chooseStatuses(in statusInputs) []CommitStatus {
 	if r := in.Record; r != nil {
 		at := sha7(r.SHA)
 		st := CommitStatus{Context: StatusContextRecord, State: "pending", TargetURL: link(in.RecordURL)}
+		atHead := SameCommitSHA(r.SHA, in.HeadSHA)
 		switch {
-		case !SameCommitSHA(r.SHA, in.HeadSHA):
+		case !atHead && !in.RecordCurrent:
 			st.Description = "record at " + at + " is behind head " + head7
 		case r.Verdict == "APPROVE" || r.Verdict == "REQUEST CHANGES":
 			st.State = "success"
@@ -178,6 +184,9 @@ func chooseStatuses(in statusInputs) []CommitStatus {
 				st.State = "failure"
 			}
 			st.Description = r.Verdict + " self-reported by " + recordReviewer(*r) + " at " + at
+			if !atHead {
+				st.Description += ", current at head " + head7
+			}
 		default:
 			st.Description = "record at " + at + " has no single verdict"
 		}
@@ -547,16 +556,100 @@ type statusTarget struct {
 
 func publishTarget(ctx context.Context, root string, cfg ForgeConfig, t statusTarget) (StatusResult, error) {
 	statuses := chooseStatuses(statusInputs{
-		Provider:   cfg.Provider,
-		HeadSHA:    t.headSHA,
-		PRURL:      t.prURL,
-		Changes:    touchedChanges(ctx, t.dir, t.baseRef, t.headSHA),
-		Handoff:    t.handoff,
-		HandoffURL: t.handoffURL,
-		Record:     t.record,
-		RecordURL:  t.recordURL,
+		Provider:      cfg.Provider,
+		HeadSHA:       t.headSHA,
+		PRURL:         t.prURL,
+		Changes:       touchedChanges(ctx, t.dir, t.baseRef, t.headSHA),
+		Handoff:       t.handoff,
+		HandoffURL:    t.handoffURL,
+		Record:        t.record,
+		RecordURL:     t.recordURL,
+		RecordCurrent: t.record != nil && recordStillCurrent(ctx, cfg.Provider, t.dir, t.baseRef, t.record.SHA, t.headSHA),
 	})
 	return PublishCommitStatuses(ctx, root, cfg, t.headSHA, statuses)
+}
+
+// recordStillCurrent reports whether, on GitHub, record is an ancestor of head and every commit between them that is
+// not on baseRef is one the merge gate accepts after a review record: a merge of main touching none of the PR's files,
+// or a non-merge commit changing documents only. It copies gateCommitAllowed, gateIsDoc and gateMergeMain
+// (internal/review/gate.go), which are unexported and gate files; drift only mislabels an informational status. Any
+// git failure, such as a commit missing from this checkout, gives false: the status stays "behind head". Gitea gives
+// false because its gate wants a new review after any later commit.
+func recordStillCurrent(ctx context.Context, provider ForgeProvider, dir, baseRef, record, head string) bool {
+	record, head, baseRef = strings.TrimSpace(record), strings.TrimSpace(head), strings.TrimSpace(baseRef)
+	if provider != ForgeGitHub || record == "" || head == "" || baseRef == "" {
+		return false
+	}
+	if _, ok := gitOutput(ctx, dir, "merge-base", "--is-ancestor", record, head); !ok {
+		return false
+	}
+	revs, ok := gitOutput(ctx, dir, "rev-list", "--parents", head, "^"+record, "^"+baseRef)
+	if !ok {
+		return false
+	}
+	var prFiles []string
+	for line := range strings.Lines(strings.TrimSpace(string(revs))) {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return false
+		}
+		sha := fields[0]
+		files, ok := commitFiles(ctx, dir, sha+"^1", sha)
+		if !ok {
+			return false
+		}
+		if len(fields) == 2 {
+			if len(files) == 0 || slices.ContainsFunc(files, func(f string) bool { return !statusIsDoc(f) }) {
+				return false
+			}
+			continue
+		}
+		subject, ok := gitOutput(ctx, dir, "show", "-s", "--format=%s", sha)
+		if !ok || !statusMergeMain.MatchString(strings.TrimSpace(string(subject))) {
+			return false
+		}
+		if prFiles == nil {
+			base, ok := gitOutput(ctx, dir, "merge-base", baseRef, head)
+			if !ok {
+				return false
+			}
+			if prFiles, ok = commitFiles(ctx, dir, strings.TrimSpace(string(base)), head); !ok {
+				return false
+			}
+		}
+		if slices.ContainsFunc(files, func(f string) bool { return slices.Contains(prFiles, f) }) {
+			return false
+		}
+	}
+	return true
+}
+
+// commitFiles lists the names changed from a to b, a rename's old and new names both. -z keeps each name's bytes:
+// without it git C-quotes a non-ASCII or newline name ("docs/guide-\303\251.md"), which no longer ends in .md.
+func commitFiles(ctx context.Context, dir, a, b string) ([]string, bool) {
+	out, ok := gitOutput(ctx, dir, "diff", "--name-only", "--no-renames", "-z", a, b)
+	if !ok {
+		return nil, false
+	}
+	files := []string{}
+	for name := range strings.SplitSeq(string(out), "\x00") {
+		if name != "" {
+			files = append(files, name)
+		}
+	}
+	return files, true
+}
+
+// statusMergeMain copies gateMergeMain (internal/review/gate.go).
+var statusMergeMain = regexp.MustCompile(`(?i)^merge\b.*\b(origin/)?main\b`)
+
+// statusIsDoc copies gateIsDoc (internal/review/gate.go): a .md name, or an openspec/ .yml, .yaml or .json name,
+// outside the reviewer's own instructions.
+func statusIsDoc(name string) bool {
+	doc := strings.HasSuffix(name, ".md") ||
+		(strings.HasPrefix(name, "openspec/") && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".json")))
+	return doc && !strings.HasPrefix(name, ".claude/agents/") && !strings.HasPrefix(name, ".agents/contracts/") &&
+		!strings.HasPrefix(name, ".agents/skills/review-pr/")
 }
 
 // statusPublishLimit caps concurrent PR publications in a sync, as giteaCommentFetchLimit caps comment reads.
@@ -641,6 +734,24 @@ func HandoffCommitStatuses(ctx context.Context, root string, st *State, post Han
 		}
 	}
 	res, err := publishTarget(ctx, root, st.Forge, t)
+	return res, recordStatusOutcome(root, res, err)
+}
+
+// RecordCommitStatus publishes only ateam/review-record on the commit rec names, as the D3 chooser gives it when that
+// commit is the head (#414): ateam review notify runs it at the reviewer's commit, the earliest point the verdict is
+// known, so the status no longer waits for the author's next sync, which never comes once auto-merge lands. The record
+// sha is resolved in root, because a record may name a short sha and the forge wants the full one. The outcome is
+// recorded for doctor (D7 A).
+func RecordCommitStatus(ctx context.Context, root string, cfg ForgeConfig, rec review.RecordComment) (StatusResult, error) {
+	full, ok := gitOutput(ctx, root, "rev-parse", "--verify", "--quiet", strings.TrimSpace(rec.SHA)+"^{commit}")
+	if !ok || strings.TrimSpace(rec.SHA) == "" {
+		err := fmt.Errorf("%s: reviewed commit %s is not in this checkout", StatusContextRecord, sha7(rec.SHA))
+		return StatusResult{Errors: 1}, recordStatusOutcome(root, StatusResult{Errors: 1}, err)
+	}
+	sha := strings.TrimSpace(string(full))
+	// With no change and no handoff, the chooser yields the record context alone.
+	statuses := chooseStatuses(statusInputs{Provider: cfg.Provider, HeadSHA: sha, Record: &rec})
+	res, err := PublishCommitStatuses(ctx, root, cfg, sha, statuses)
 	return res, recordStatusOutcome(root, res, err)
 }
 

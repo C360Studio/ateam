@@ -61,6 +61,12 @@ func listWithTask(ctx context.Context, root string) ([]Target, error) {
 	}
 	out := make([]Target, 0, len(listed.Tasks))
 	for _, t := range listed.Tasks {
+		// Task before the task key (3.43.3, pinned in CI) lists only name, which is a label: when one is set, so it
+		// is not a key `task <target>` accepts; an empty key falls back to the file scan rather than listing nothing
+		// runnable (#415).
+		if t.Task == "" {
+			return nil, fmt.Errorf("task --list-all --json listed a task without a task key")
+		}
 		out = append(out, Target{Name: t.Task, Desc: t.Desc})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
