@@ -2,7 +2,7 @@
 
 ## 1. Approval
 
-- [ ] 1.1 Owner approves the proposal (`Approved-by:` with the digest `task spec:queue` prints). Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves the proposal (`Approved-by: Coby Leuschke (2026-11-27) sha256:1b9e66830cc2`), written by claude on the owner's instruction in the Enjoy conversation of 2026-11-27.
 
 ## 2. Implementation
 
