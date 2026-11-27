@@ -2,7 +2,7 @@
 
 ### Requirement: Merge check on pull_request_target
 
-On GitHub Actions, `ateam review gate` SHALL treat `pull_request_target` as a pull-request run and apply the same rules as `pull_request`, including the awaiting probe. On Gitea Actions it SHALL exit 2 naming why. Any other event SHALL still exit 2.
+On GitHub Actions, `ateam review gate` SHALL treat `pull_request_target` as a pull-request run and apply the same rules as `pull_request`, including the awaiting probe. On Gitea Actions it SHALL stop with exit 1 naming why, as any other unhandled event does.
 
 #### Scenario: Base-branch trigger on GitHub
 
@@ -12,4 +12,4 @@ On GitHub Actions, `ateam review gate` SHALL treat `pull_request_target` as a pu
 #### Scenario: Base-branch trigger on Gitea
 
 - **WHEN** the same event is set on a Gitea repository
-- **THEN** the gate exits 2 and says `pull_request_target` is not supported on Gitea
+- **THEN** the gate exits 1 and says `pull_request_target` is not supported on Gitea

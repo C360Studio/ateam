@@ -46,7 +46,8 @@ type GateOptions struct {
 	// Actions is GITHUB_ACTIONS=true (Gitea Actions sets it too); only then is
 	// Event read.
 	Actions bool
-	// Event is GITHUB_EVENT_NAME: pull_request or push.
+	// Event is GITHUB_EVENT_NAME: pull_request, push, or pull_request_target
+	// (GitHub only, #402).
 	Event string
 	// PolicyPath is .agents/review-policy.json of the checkout being judged from.
 	PolicyPath string
@@ -290,6 +291,16 @@ func (g *gateRun) kind() (bool, error) {
 		switch g.opts.Event {
 		case "pull_request":
 			how = g.actions + ", pull_request event"
+		case "pull_request_target":
+			// #402: the base branch's workflow judges the pull request, so a
+			// private repository's gate cannot be rewritten by the pull request.
+			// Gitea names a status context after the event, and headPassed reads
+			// only giteaMergeContext, so the awaiting probe would miss a pass.
+			if g.actions == "Gitea Actions" {
+				g.say("inside %s on event pull_request_target", g.actions)
+				return false, gateDie("pull_request_target is not supported on Gitea: its commit status contexts carry the event, and the merge check reads the (pull_request) contexts; run it on pull_request")
+			}
+			how = g.actions + ", pull_request_target event"
 		case "push":
 			g.say("push run (%s, push event); the known-flake check does not apply, the up-to-date rule is checked", g.actions)
 			g.say("the review check does not apply to a push run; no pull request is read")

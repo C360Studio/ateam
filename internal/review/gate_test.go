@@ -21,12 +21,14 @@ import (
 // by both forges, so a scenario expects the same lines from either.
 type gateWorld struct {
 	draft, bot bool
-	body       string
-	files      []string
-	commits    []worldCommit // oldest first; the last is head
-	comments   []string
-	labels     []string
-	issues     []worldIssue // open issues
+	// event, when set, is GITHUB_EVENT_NAME inside Actions (#402).
+	event    string
+	body     string
+	files    []string
+	commits  []worldCommit // oldest first; the last is head
+	comments []string
+	labels   []string
+	issues   []worldIssue // open issues
 	// required: main requires the Required check; strict: and the up-to-date setting.
 	required, strict bool
 	// checks and giteaChecks are GateOptions.Checks on each forge; ghContexts
@@ -243,7 +245,7 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 		}
 	}
 	var out bytes.Buffer
-	code := Gate(context.Background(), &out, ForgeConfig{Provider: "github"}, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(dir, "no-policy.json"), Checks: w.checks, Awaiting: w.awaiting})
+	code := Gate(context.Background(), &out, ForgeConfig{Provider: "github"}, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(dir, "no-policy.json"), Checks: w.checks, Awaiting: w.awaiting, Actions: w.event != "", Event: w.event})
 	return code, out.String()
 }
 
@@ -413,7 +415,7 @@ func runGitea(t *testing.T, w gateWorld) (int, string) {
 	srv := giteaServer(t, w)
 	var out bytes.Buffer
 	cfg := ForgeConfig{Provider: "gitea", BaseURL: srv.URL, Owner: gateOwner, Repo: gateRepo, Token: gateToken}
-	code := Gate(context.Background(), &out, cfg, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(t.TempDir(), "no-policy.json"), Checks: w.giteaChecks, Awaiting: w.awaiting})
+	code := Gate(context.Background(), &out, cfg, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(t.TempDir(), "no-policy.json"), Checks: w.giteaChecks, Awaiting: w.awaiting, Actions: w.event != "", Event: w.event})
 	// Messages name API paths, never the forge host (owner ruling 6 on #143).
 	if host := strings.TrimPrefix(srv.URL, "http://"); strings.Contains(out.String(), host) {
 		t.Errorf("gitea output names the forge host %s\n%s", host, out.String())
@@ -686,6 +688,53 @@ func TestGateGitea(t *testing.T) {
 				}
 				if strings.Contains(out, "strict=unverified") != strings.Contains(out, "\n::warning::the up-to-date rule is unverified") {
 					t.Errorf("%s: strict=unverified and its ::warning:: line must appear together\n%s", run.forge, out)
+				}
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Merge check on pull_request_target
+func TestGateEvent(t *testing.T) {
+	// #402: pull_request_target is a pull-request run on GitHub, judged by the
+	// pull_request rule; Gitea refuses it, and an unknown event stays refused,
+	// both as a usage stop (exit 1), never a pass.
+	contentCommit := worldCommit{sha: shaContent, message: "fix: adjust script", parents: []string{shaA}, files: []string{"scripts/x.sh"}}
+	giteaRefusal := &forgeWant{1, []string{"pull_request_target is not supported on Gitea", "(pull_request) contexts"}}
+	for _, tc := range []struct {
+		name          string
+		event         string
+		world         func(w *gateWorld)
+		github, gitea *forgeWant
+	}{
+		{"target, record at head", "pull_request_target", func(*gateWorld) {},
+			&forgeWant{0, []string{"pull-request run for #12 (GitHub Actions, pull_request_target event)", "reviewing agent: codex", "merge-check: ok"}}, giteaRefusal},
+		{"target, content commit after the record", "pull_request_target", func(w *gateWorld) { w.commits = append(w.commits, contentCommit) },
+			&forgeWant{1, []string{"(GitHub Actions, pull_request_target event)", "older than content commit " + shaContent}}, giteaRefusal},
+		{"target, awaiting probe with no line", "pull_request_target", func(w *gateWorld) { w.body, w.comments, w.awaiting = "", nil, true },
+			&forgeWant{0, []string{"awaiting its review", "awaiting=true\n"}}, giteaRefusal},
+		{"pull_request, record at head", "pull_request", func(*gateWorld) {},
+			&forgeWant{0, []string{"(GitHub Actions, pull_request event)", "merge-check: ok"}},
+			&forgeWant{0, []string{"(Gitea Actions, pull_request event)", "merge-check: ok"}}},
+		{"unknown event", "workflow_run", func(*gateWorld) {},
+			&forgeWant{1, []string{"event workflow_run has no rule here"}}, &forgeWant{1, []string{"event workflow_run has no rule here"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := healthyWorld()
+			tc.world(&w)
+			w.event = tc.event
+			for forge, run := range map[string]struct {
+				want *forgeWant
+				run  func(*testing.T, gateWorld) (int, string)
+			}{"github": {tc.github, runGitHub}, "gitea": {tc.gitea, runGitea}} {
+				code, out := run.run(t, w)
+				if code != run.want.code {
+					t.Errorf("%s: exit %d, want %d\n%s", forge, code, run.want.code, out)
+				}
+				for _, l := range run.want.lines {
+					if !strings.Contains(out, l) {
+						t.Errorf("%s: output lacks %q\n%s", forge, l, out)
+					}
 				}
 			}
 		})
