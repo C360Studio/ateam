@@ -11,5 +11,5 @@
 - [x] 2.3 `.agents/skills/coordinate/SKILL.md:30` and `templates.go:423`: the issue and its `queue-check` finding in the evidence list.
 - [x] 2.4 `docs/model-review.md:157`: both labels in the judge's list and a *Labels* bullet.
 - [x] 2.5 New literals in `TestInitShipsJudgeContract` (`coordinator_test.go:94`), each shown able to fail with `task mutate:check` on `templates.go`.
-- [ ] 2.6 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
+- [x] 2.6 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
 - [ ] 2.7 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
