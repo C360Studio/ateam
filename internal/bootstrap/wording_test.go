@@ -8,13 +8,20 @@ import (
 	"testing"
 )
 
-// adopterWording pins the rules from an adopter's review (#400, #398). The
+// adopterWording pins the rules from an adopter's review (#400, #398) and the
+// Close rule's archive after approval (#412). The
 // expected sentences are literals copied from the approved proposal's wording,
 // not derived from the templates.
+const closeArchiveRow = "A PR archives its completed OpenSpec change in a document-only commit after its approving review record and before auto-merge is armed (on Gitea, before it is marked ready);"
+
 var adopterWording = map[string][]string{
 	"AGENTS.md": {
 		"Name the caller or spec scenario that needs it today; if there is none, do not build it.",
 		"Defensive code names the concrete failure it prevents and how that failure occurs.",
+		closeArchiveRow,
+	},
+	".agents/rules-index.md": {
+		closeArchiveRow,
 	},
 	".agents/skills/ponytail/SKILL.md": {
 		"Name the caller or spec scenario that needs it today; if there is none, do not build it.",
@@ -26,6 +33,8 @@ var adopterWording = map[string][]string{
 		"section whose bullets say in plain words what each decision triggers and changes for the user",
 		"expected values are literals, a hand derivation shown in the test, or data from a named external source",
 		"A helper that mirrors the control flow of the code under test is not an oracle",
+		"Once the latest review record approves, move the change to `openspec/changes/archive/<date>-<id>/` in one commit touching only documents, which on GitHub needs no new record, and only then arm auto-merge.",
+		"On Gitea, where every commit after the record needs a new one, make that move before the PR is marked ready.",
 	},
 	".agents/contracts/architect.md": {
 		"Keep the repository read-only except the change's `design.md`, the premises in its `tasks.md` and the bullets under `## Decisions you are making by approving` in its `proposal.md`;",
