@@ -102,6 +102,10 @@ func TestChooseStatusesD3Table(t *testing.T) {
 			want: []CommitStatus{{Context: "ateam/review-record", State: "pending", Description: "record at abc1234 has no single verdict", TargetURL: prURL}}},
 		{name: "record: no verdict", ctx: StatusContextRecord, in: statusInputs{Record: rec("abc1234", "")},
 			want: []CommitStatus{{Context: "ateam/review-record", State: "pending", Description: "record at abc1234 has no single verdict", TargetURL: prURL}}},
+		{name: "record: behind head, later commits pass the gate", ctx: StatusContextRecord, in: statusInputs{Record: rec("0123456", "APPROVE"), RecordCurrent: true},
+			want: []CommitStatus{{Context: "ateam/review-record", State: "success", Description: "APPROVE self-reported by codex (gpt-6-astra, xhigh) at 0123456, current at head abc1234", TargetURL: prURL}}},
+		{name: "record: REQUEST CHANGES carries over", ctx: StatusContextRecord, in: statusInputs{Record: rec("0123456", "REQUEST CHANGES"), RecordCurrent: true},
+			want: []CommitStatus{{Context: "ateam/review-record", State: "failure", Description: "REQUEST CHANGES self-reported by codex (gpt-6-astra, xhigh) at 0123456, current at head abc1234", TargetURL: prURL}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.in.HeadSHA = headFull
@@ -160,6 +164,99 @@ const (
 	doneTasks        = "## 1. Approval\n\n- [x] 1.1 Owner approves (#1).\n"
 	openQTasks       = "## 1. Approval\n\n- [ ] 1.1 Owner approves (#1). Hold: OPEN-Q proposal awaits owner approval\n"
 )
+
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+func TestRecordStillCurrent(t *testing.T) {
+	// The expected answers are the GitHub merge gate's later-commit rule (protocol § 4): a docs-only non-merge commit
+	// or a merge of main touching none of the PR's files keeps a record; anything else needs a new review.
+	const libGo = "package lib\n\n// a\n\n// b\n\n// c\n"
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-q", "-b", "main")
+	writeRepoFile(t, repo, "README.md", "# r\n")
+	writeRepoFile(t, repo, "lib.go", libGo)
+	gitIn(t, repo, "add", "-A")
+	gitIn(t, repo, "commit", "-q", "-m", "init")
+	gitIn(t, repo, "update-ref", "refs/remotes/origin/main", "main")
+	commit := func(msg string, files map[string]string) string {
+		for rel, body := range files {
+			writeRepoFile(t, repo, rel, body)
+		}
+		gitIn(t, repo, "add", "-A")
+		gitIn(t, repo, "commit", "-q", "-m", msg)
+		return gitIn(t, repo, "rev-parse", "HEAD")
+	}
+	// mainAdvances moves main (and origin/main) by one commit and returns to branch.
+	mainAdvances := func(branch, rel, body string) {
+		gitIn(t, repo, "checkout", "-q", "main")
+		commit("main moves", map[string]string{rel: body})
+		gitIn(t, repo, "update-ref", "refs/remotes/origin/main", "main")
+		gitIn(t, repo, "checkout", "-q", branch)
+	}
+	// pr starts a branch from main with one reviewed code commit and returns its sha.
+	pr := func(name string) string {
+		gitIn(t, repo, "checkout", "-q", "-b", name, "main")
+		return commit("feat "+name, map[string]string{"feat_" + name + ".go": "package lib\n"})
+	}
+
+	pr("docs")
+	docsRec := commit("change", map[string]string{"openspec/changes/x/proposal.md": "# p\n"})
+	gitIn(t, repo, "mv", "openspec/changes/x", "openspec/changes/archive")
+	commit("archive", map[string]string{"openspec/changes/archive/x/notes.yaml": "a: 1\n"})
+	// Non-ASCII and newline names, which git C-quotes without -z, are still documents (#414 review).
+	docsHead := commit("docs", map[string]string{"docs/guide.md": "# g\n", "docs/guide-é.md": "# é\n", "docs/line\nbreak.md": "# n\n"})
+
+	codeRec := pr("code")
+	codeHead := commit("code after record", map[string]string{"lib.go": "package lib // changed\n"})
+
+	agentsRec := pr("agents")
+	agentsHead := commit("reviewer contract", map[string]string{".agents/contracts/reviewer.md": "# c\n"})
+
+	cleanRec := pr("clean")
+	mainAdvances("clean", "other.go", "package lib\n")
+	gitIn(t, repo, "merge", "-q", "--no-ff", "-m", "Merge branch 'main' into clean", "main")
+	cleanHead := gitIn(t, repo, "rev-parse", "HEAD")
+
+	pr("dirty")
+	dirtyRec := commit("pr edits lib.go", map[string]string{"lib.go": strings.Replace(libGo, "// a", "// a pr", 1)})
+	mainAdvances("dirty", "lib.go", strings.Replace(libGo, "// c", "// c main", 1))
+	gitIn(t, repo, "merge", "-q", "--no-ff", "-m", "Merge branch 'main' into dirty", "main")
+	dirtyHead := gitIn(t, repo, "rev-parse", "HEAD")
+
+	otherRec := pr("other")
+	gitIn(t, repo, "checkout", "-q", "-b", "side", "main")
+	commit("side", map[string]string{"side.md": "# s\n"})
+	gitIn(t, repo, "checkout", "-q", "other")
+	gitIn(t, repo, "merge", "-q", "--no-ff", "-m", "Merge branch 'side' into other", "side")
+	otherHead := gitIn(t, repo, "rev-parse", "HEAD")
+
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name         string
+		record, head string
+		baseRef      string
+		provider     ForgeProvider
+		want         bool
+	}{
+		{"docs-only commits: a rename into archive, non-ASCII and newline names", docsRec, docsHead, "origin/main", ForgeGitHub, true},
+		{"short record sha", docsRec[:7], docsHead, "origin/main", ForgeGitHub, true},
+		{"code commit after the record", codeRec, codeHead, "origin/main", ForgeGitHub, false},
+		{"markdown under the reviewer's contracts is code", agentsRec, agentsHead, "origin/main", ForgeGitHub, false},
+		{"clean merge of main", cleanRec, cleanHead, "origin/main", ForgeGitHub, true},
+		{"merge of main touching a PR file", dirtyRec, dirtyHead, "origin/main", ForgeGitHub, false},
+		{"merge of a branch that is not main", otherRec, otherHead, "origin/main", ForgeGitHub, false},
+		{"record missing from the checkout", "0123456789abcdef0123456789abcdef01234567", docsHead, "origin/main", ForgeGitHub, false},
+		{"record not an ancestor of head", codeHead, docsHead, "origin/main", ForgeGitHub, false},
+		{"no base ref", docsRec, docsHead, "", ForgeGitHub, false},
+		{"Gitea wants a new review after any commit", docsRec, docsHead, "origin/main", ForgeGitea, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := recordStillCurrent(ctx, tc.provider, repo, tc.baseRef, tc.record, tc.head); got != tc.want {
+				t.Fatalf("recordStillCurrent = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
 
 // spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestTouchedChangesAtHead(t *testing.T) {
@@ -695,4 +792,45 @@ func TestPostPRHandoffCommentReturnsPRHead(t *testing.T) {
 			t.Fatalf("post = %+v, %v; want %+v", post, err, want)
 		}
 	})
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+func TestRecordCommitStatus(t *testing.T) {
+	// The fake gh is a freshly written script; lift the per-call bound so its first exec on a loaded machine cannot
+	// turn a write into a timeout (#414 review).
+	orig := statusCallTimeout
+	statusCallTimeout = time.Minute
+	t.Cleanup(func() { statusCallTimeout = orig })
+	t.Setenv("ATEAM_TOKEN_WRITE", "fake-write")
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-q", "-b", "main")
+	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	head := gitIn(t, repo, "rev-parse", "HEAD")
+	cfg := ForgeConfig{Provider: ForgeGitHub, Owner: "o", Repo: "r"}
+	rec := review.RecordComment{SHA: head[:7], Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "high"}
+
+	log := fakeGHStatuses(t, "")
+	setStatusJSON(t, `{"statuses":[]}`)
+	res, err := RecordCommitStatus(context.Background(), repo, cfg, rec)
+	if err != nil || res != (StatusResult{Posted: 1}) {
+		t.Fatalf("RecordCommitStatus = %+v, %v; want posted 1", res, err)
+	}
+	// The short Reviewed at sha is written as the full one, and only the record context is written.
+	want := []string{"fake-write", "api", "-X", "POST", "repos/o/r/statuses/" + head, "-f", "state=failure", "-f", "context=ateam/review-record",
+		"-f", "description=REQUEST CHANGES self-reported by codex (gpt-6-astra, high) at " + head[:7]}
+	if calls := readCalls(t, log); len(calls) != 2 || !reflect.DeepEqual(calls[1], want) {
+		t.Fatalf("gh calls = %q, want the status read then %q", calls, want)
+	}
+
+	if err := os.Remove(log); err != nil {
+		t.Fatal(err)
+	}
+	rec.SHA = "0123456789abcdef0123456789abcdef01234567"
+	res, err = RecordCommitStatus(context.Background(), repo, cfg, rec)
+	if want := "ateam/review-record: reviewed commit 0123456 is not in this checkout"; err == nil || err.Error() != want || res != (StatusResult{Errors: 1}) {
+		t.Fatalf("missing commit = %+v, %v; want errors 1 and %q", res, err, want)
+	}
+	if calls := readCalls(t, log); len(calls) != 0 {
+		t.Fatalf("a missing commit still called gh: %q", calls)
+	}
 }

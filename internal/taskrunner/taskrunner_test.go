@@ -178,6 +178,8 @@ func TestListTargetsFallsBackWhenTaskCLIFails(t *testing.T) {
 		// Valid JSON on a failed exit must still be distrusted, so only the exit status triggers the fallback.
 		"exit status": "echo '{\"tasks\":[{\"name\":\"stale\"}]}'\nexit 1\n",
 		"bad json":    "echo 'not json'\n",
+		// Task 3.43.3 (pinned in CI) emits name, a label: when one is set, and no task key (#415).
+		"name only": "echo '{\"tasks\":[{\"name\":\"Format code\",\"desc\":\"Format Go code\"}]}'\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := writeTaskfile(t, includesTaskfile)
