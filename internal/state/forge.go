@@ -928,11 +928,16 @@ func extractDecisionSummary(it forgeIssuePayload, labels []string) string {
 	return ""
 }
 
+// decisionDateRe marks an "Owner decision"/"Owner ruling" line as a ruling: the dateless form is how an owner question
+// reads ("Owner decision needed: ..."), and Q3 must not report an issue still waiting on the owner as decided (#421).
+var decisionDateRe = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
+
 func findDecisionLine(text string) string {
 	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		line := strings.TrimSpace(raw)
-		lower := strings.ToLower(line)
-		if strings.HasPrefix(lower, "decision:") || strings.HasPrefix(lower, "ruling:") {
+		lower := strings.ToLower(strings.TrimLeft(line, "*_"))
+		owner := strings.HasPrefix(lower, "owner decision") || strings.HasPrefix(lower, "owner ruling")
+		if strings.HasPrefix(lower, "decision:") || strings.HasPrefix(lower, "ruling:") || (owner && decisionDateRe.MatchString(line)) {
 			if len(line) > 120 {
 				line = line[:120]
 			}
