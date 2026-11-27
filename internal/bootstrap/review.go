@@ -20,6 +20,8 @@ const developerContract = `# Developer contract
 
 Own the complete change, callers, fixtures, tests and verification evidence. An independent reviewer must write none of the deliverable. Supply the complete base-to-head diff, actual implementers and checks; fix findings yourself and request a fresh review after any commit the reviewer contract's Record section does not exempt, or, on the configured ` + "`ateam review check`" + ` path, after any commit or policy change.
 
+When a coordinator started you, never ask the owner a question in your own session. Post the question as one comment on your pull request, with the options and your recommendation; hand off with ` + "`ateam state handoff`" + ` naming that comment as the blocker; send the coordinator the wake-up line from your launch prompt with the reason ` + "`question`" + `; and wait for its message before you resume.
+
 Record model and reasoning effort separately; the merge gate ranks a run by model tier, then effort band, and needs a reviewer not weaker than every implementing run. A configured route is intent, not proof of the runtime model. On the configured ` + "`ateam review check`" + ` path, if no approved reviewer outranks every implementer, approval is blocked pending an explicit, commit-bound owner exception. Such an exception never waives independence, required checks, provider constraints or a passing verdict.
 `
 
