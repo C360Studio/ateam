@@ -10,7 +10,7 @@ This guide covers day-to-day work in a repository that uses default `ateam` sett
 | Clarify | Confirm scope, pick `quick` or `design`, and sign `Approved-by:`. | The agent inspects the tree, drafts `proposal.md` + `tasks.md` (plus read-only `design.md` on `design`), and pauses on Task 1's `OPEN-Q` hold. |
 | Claim and build | Steer `/ponytail` mode; run parallel tasks in separate worktrees. | The agent claims `.worktrees/<agent>-<topic>`, opens a draft PR, writes code and tests, and tracks holds/shortcuts. |
 | Pause or switch | Run `/handoff` (or `ateam state handoff --goal "..."`) before stopping. | `ateam` saves `.ateam/state.json`, clears the writer lease, and comments on the open PR. |
-| Ready and review | Open a fresh session and run `/review-pr <pr>`. | The implementer runs `/preflight`, archives specs, and marks ready; the reviewer verifies and posts `reviewed-by:`. |
+| Ready and review | Open a fresh session and run `/review-pr <pr>`. | The implementer runs `/preflight` and marks ready; the reviewer verifies and posts `reviewed-by:`; after approval the implementer archives the OpenSpec change (on Gitea, before ready). |
 | Merge and clean up | Squash-merge the approved PR (or arm auto-merge). | After merge, the claiming agent deletes its worktree and remote branch (`ateam state prune`). |
 
 ## 1. Start or resume a session
@@ -74,7 +74,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 1. Before marking a PR ready, the agent MUST pass `/preflight` ([preflight skill](../.agents/skills/preflight/SKILL.md)).
 2. Preflight runs your `task verify` target, plus `ateam test-spec` or `ateam mutate` when those checks apply.
 3. When a PR edits `AGENTS.md`, `CLAUDE.md`, or `.agents/`, run `ateam doctor --check` to verify setup parity.
-4. Before marking the PR ready, the agent MUST commit moving completed `openspec/changes/<id>/` work to `openspec/changes/archive/<YYYY-MM-DD>-<id>/`.
+4. The agent marks the PR ready with its OpenSpec change still under `openspec/changes/<id>/` and the change's last task, the archive, open; a `REQUEST CHANGES` round appends its tasks there. On Gitea, the agent instead moves the change to `openspec/changes/archive/<YYYY-MM-DD>-<id>/` before marking the PR ready.
 5. On any code PR, the agent adds `implemented-by: <agent> (<model>, <effort>)` to the PR description and runs `gh pr ready`.
 6. Open a fresh agent session with an equal or stronger model that wrote none of the PR.
 7. By default, any provider may review; add `.agents/review-policy.json` only when you want tier or cross-provider rules ([model review](model-review.md)).
@@ -85,7 +85,7 @@ For each task, the agent creates `.worktrees/<agent>-<topic>` on branch `<agent>
 
 ## 6. Merge and clean up
 
-1. Once your checks pass and the review approves, merge the PR with the configured method (`squash` by default, so `gh pr merge --squash`; `merge_method` in [`.agents/ateam.json`](adoption.md#team-settings) selects `--merge` or `--rebase`) or merge on Gitea with the matching `do` value.
+1. Once the review approves a PR that lands an OpenSpec change, the agent moves the change to `openspec/changes/archive/<YYYY-MM-DD>-<id>/` in one document-only commit, which needs no new review on GitHub. Then, once your checks pass, merge the PR with the configured method (`squash` by default, so `gh pr merge --squash`; `merge_method` in [`.agents/ateam.json`](adoption.md#team-settings) selects `--merge` or `--rebase`) or merge on Gitea with the matching `do` value.
 2. When your repository enables branch protection and auto-merge, arm `gh pr merge --<method> --auto` (or Gitea `merge_when_checks_succeed`) instead.
 3. To enforce review records, `main` rulesets, and `class:flake` blocks in CI, wire in `ateam review gate <pr-number>` ([merge gate setup](adoption.md#the-merge-gate-on-github-and-gitea)).
 4. After the PR merges, the claiming agent removes `.worktrees/<agent>-<topic>` and deletes the remote branch; `ateam state prune` does both for every merged, clean worktree on its prefix that no other session holds or handed off in the last 30 minutes (`--dry-run` lists them first).
