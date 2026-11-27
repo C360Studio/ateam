@@ -1448,6 +1448,25 @@ A `Judged-by:` line in `proposal.md` SHALL count as approval only while `.agents
 - **WHEN** a code pull request touches a change whose `proposal.md` has an empty `Approved-by:` and a filled `Judged-by:`
 - **THEN** the merge check notes that the change was judged by the named agent, not owner-reviewed, and its exit status is unchanged
 
+### Requirement: Recorded decision lines
+
+An issue's recorded decision SHALL be the first matching line of its newest comment that has one, else of its body, else a label starting `decision:`. After trimming whitespace and leading `*` or `_`, a line SHALL match when it starts, ignoring case, with `Decision:` or `Ruling:`, or with `Owner decision` or `Owner ruling` and contains a `YYYY-MM-DD` date. `ateam state queue-check` and the session-start summary SHALL read it.
+
+#### Scenario: A dated owner ruling is recorded
+
+- **WHEN** an issue's newest comment has the line `**Owner ruling (2026-10-30):** keep the cap`
+- **THEN** that line is the issue's recorded decision
+
+#### Scenario: An undated owner phrase is not a decision
+
+- **WHEN** a `status:needs-decision` issue's body has the line `Owner decision needed: pick A or B` and no comment has a matching line
+- **THEN** the issue has no recorded decision and `ateam state queue-check` does not report it as decided
+
+#### Scenario: The existing prefixes still match
+
+- **WHEN** an issue comment has the line `Decision: use Gitea v1 issues`
+- **THEN** that line is the issue's recorded decision
+
 ### Requirement: Merge check on pull_request_target
 
 On GitHub Actions, `ateam review gate` SHALL treat `pull_request_target` as a pull-request run and apply the same rules as `pull_request`, including the awaiting probe. On Gitea Actions it SHALL stop with exit 1 naming why, as any other unhandled event does.
