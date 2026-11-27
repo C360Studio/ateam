@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -49,6 +50,20 @@ func TestCheckVerifyTarget(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
 		run(t)
 	})
+	// Task 3.43.3, pinned in CI, lists only name (a label: when set) and no task key; discovery must fall back to the
+	// file scan rather than read empty keys and reject this repository's own verify (#415 round 1).
+	t.Run("Task without the task key", func(t *testing.T) {
+		bin := t.TempDir()
+		fake := filepath.Join(bin, "task")
+		if err := os.WriteFile(fake, []byte("#!/bin/sh\necho '{\"tasks\":[{\"name\":\"Run all gates\",\"desc\":\"\"}]}'\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command(fake).CombinedOutput(); err != nil { // the first exec of a new file on macOS can be slow
+			t.Fatalf("prewarm %s: %v\n%s", fake, err, out)
+		}
+		t.Setenv("PATH", bin)
+		run(t)
+	})
 	t.Run("task CLI", func(t *testing.T) {
 		if _, err := exec.LookPath("task"); err != nil {
 			t.Skip("task executable not on PATH")
@@ -63,6 +78,14 @@ func TestCheckVerifyTargetFlattenedInclude(t *testing.T) {
 		t.Skip("task executable not on PATH: only Task resolves includes")
 	}
 	dir := t.TempDir()
+	probe := exec.Command("task", "--taskfile", "Taskfile.yml", "--list-all", "--json")
+	probe.Dir = dir
+	if err := os.WriteFile(filepath.Join(dir, "Taskfile.yml"), []byte("version: '3'\ntasks:\n  check:\n    cmds:\n      - 'true'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := probe.Output(); err != nil || !strings.Contains(string(out), `"task":`) {
+		t.Skip("this Task lists no task key (3.43.3, pinned in CI), so discovery falls back to the file scan, which does not resolve includes")
+	}
 	files := map[string]string{
 		"Taskfile.yml": "version: '3'\nincludes:\n  ci:\n    taskfile: ./ci.yml\n    flatten: true\ntasks:\n  check:\n    cmds:\n      - go test ./...\n",
 		"ci.yml":       "version: '3'\ntasks:\n  verify:\n    cmds:\n      - echo ok\n",
