@@ -248,6 +248,24 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 		}
 		answers[argv] = []byte("null")
 	}
+	bases := writeGHAnswers(t, dir, w, answers, errs)
+	var out bytes.Buffer
+	code := Gate(context.Background(), &out, ForgeConfig{Provider: "github"}, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(dir, "no-policy.json"), Checks: w.checks, Awaiting: w.awaiting})
+	if w.calls != nil {
+		for argv, base := range bases {
+			if b, err := os.ReadFile(base + ".calls"); err == nil {
+				w.calls[argv] = len(b)
+			}
+		}
+	}
+	return code, out.String()
+}
+
+// writeGHAnswers writes each argv's answer for fakeGHScript, with its error
+// text and the number of HTTP 500s before it (w.ghFail), and returns each
+// argv's file base so the caller can read its .calls.
+func writeGHAnswers(t *testing.T, dir string, w gateWorld, answers map[string][]byte, errs map[string]string) map[string]string {
+	t.Helper()
 	for argv := range w.ghFail {
 		if _, ok := answers[argv]; !ok {
 			t.Fatalf("ghFail names no read: %s", argv)
@@ -276,16 +294,7 @@ func runGitHub(t *testing.T, w gateWorld) (int, string) {
 			}
 		}
 	}
-	var out bytes.Buffer
-	code := Gate(context.Background(), &out, ForgeConfig{Provider: "github"}, GateOptions{PR: strconv.Itoa(gatePR), PolicyPath: filepath.Join(dir, "no-policy.json"), Checks: w.checks, Awaiting: w.awaiting})
-	if w.calls != nil {
-		for argv, base := range bases {
-			if b, err := os.ReadFile(base + ".calls"); err == nil {
-				w.calls[argv] = len(b)
-			}
-		}
-	}
-	return code, out.String()
+	return bases
 }
 
 // giteaServer serves w as Gitea v1 does: lists paginated with X-Total-Count,
