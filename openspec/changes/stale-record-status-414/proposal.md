@@ -1,5 +1,5 @@
 # Proposal: stale-record-status-414
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-27) sha256:f877e87755dd
 
 ## Track
 
