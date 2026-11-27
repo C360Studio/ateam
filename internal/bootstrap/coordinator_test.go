@@ -122,3 +122,31 @@ func TestInitShipsJudgeContract(t *testing.T) {
 		t.Fatalf("fresh init has violations: %v", v)
 	}
 }
+
+// spec: model-review / Owner decision after the third rejecting review
+func TestInitShipsRoundsContinueRule(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitRepo(context.Background(), dir, Options{}); err != nil {
+		t.Fatalf("InitRepo: %v", err)
+	}
+	// Literals from the approved proposal's D2: who writes the continue line, and who never does.
+	for rel, want := range map[string][]string{
+		".agents/contracts/coordinator.md": {"review records, `Approved-by:` or a `review-rounds-continue:` line;"},
+		".agents/contracts/judge.md":       {"end that comment with the line `review-rounds-continue: <n>` outside code fences"},
+		".agents/skills/coordinate/SKILL.md": {
+			"`ateam review request` refuses the next round until the owner posts a `review-rounds-continue: <n>` line naming that count",
+			"never post the line yourself",
+			"which the judge's `review-rounds-continue: <n>` line allows",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
+	}
+}
