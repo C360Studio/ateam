@@ -14,7 +14,7 @@ From [the shared protocol](../../protocol.md), read § 2 step 4 (Verify), § 3 a
 Inspect `git status --short` and `git diff --stat` before choosing gates:
 
 - **Test or specification changes:** `task test:spec`; review whether each reference matches the assertions, since the gate proves syntax and target existence only.
-- **Docs or skill definitions only:** `task fmt:check`, `ateam doctor` (`ateam init --check`), and `git diff --check`
+- **Docs or skill definitions only:** `task fmt:check`, `ateam doctor --check`, and `git diff --check`
 - **Go packages (`cmd/`, `internal/`):** `task fmt:check`, `task vet`, `task lint`, `task test:unit`, `task bench:selftest`, and `task mutate:check` for non-trivial refusals/branches
 - **SvelteKit UI (`ui/`):** `task ui:check`, `task ui:test`, `task ui:build`
 - **Before any push or completion (Full 4-Gate DoD):** `task verify`

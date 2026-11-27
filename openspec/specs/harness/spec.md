@@ -334,6 +334,11 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 - **THEN** init writes `"context": {"fileName": "AGENTS.md"}` and no top-level `contextFileName`, because Gemini CLI reads only the nested key
 - **AND** doctor accepts only a `context.fileName` of `AGENTS.md`; a file that names `AGENTS.md` only in the top-level `contextFileName` fails with `missing context.fileName AGENTS.md (Gemini CLI ignores the top-level contextFileName)`
 
+#### Scenario: Quoted ateam commands parse
+
+- **WHEN** `AGENTS.md`, `.agents/protocol.md`, a contract under `.agents/contracts/` or a skill under `.agents/skills/` quotes an inline `ateam` command
+- **THEN** `task verify` fails when ateam's own flag definitions would reject it: an unknown flag, a flag after the first positional argument, or a value flag missing its value before the next token; a span ending on a value flag is accepted as a reference to that flag
+
 ### Requirement: Board state and authenticated API access
 
 The board SHALL expose state and support card creation, movement, handoff, and mode updates through its API, with the static application served at the root. Without an API token, protected reads and writes SHALL accept only loopback clients; when a token is configured, every client SHALL supply it. Board helpers SHALL group cards into all six canonical columns, filter by text, agent, forge, and column, and format five-field pickup prompts deterministically.
