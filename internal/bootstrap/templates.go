@@ -410,7 +410,7 @@ For the issue ` + "`" + `next` + "`" + ` names, start a developer run with your 
 
 ## 3. Request and Relay Review
 
-When a developer hands off at ready-for-review, run ` + "`" + `ateam review request <pr> --return-to <your id>` + "`" + ` and follow the tool text it prints. On the reviewer's notify, run ` + "`" + `ateam state sync` + "`" + ` and read the verdict. On ` + "`" + `Verdict: APPROVE` + "`" + `, confirm the reviewer added its ` + "`" + `reviewed-by:` + "`" + ` line to the PR description, then start or message the developer run to close per protocol § 2 step 5. On ` + "`" + `Verdict: REQUEST CHANGES` + "`" + `, pass the ` + "`" + `ateam review request --reviewer-session` + "`" + ` line to the developer run and post a PR comment linking the record; on the third one for that PR, stop the unit for the owner.
+When a developer hands off at ready-for-review, run ` + "`" + `ateam review request --return-to <your id> <pr>` + "`" + ` and follow the tool text it prints. On the reviewer's notify, run ` + "`" + `ateam state sync` + "`" + ` and read the verdict. On ` + "`" + `Verdict: APPROVE` + "`" + `, confirm the reviewer added its ` + "`" + `reviewed-by:` + "`" + ` line to the PR description, then start or message the developer run to close per protocol § 2 step 5. On ` + "`" + `Verdict: REQUEST CHANGES` + "`" + `, pass the ` + "`" + `ateam review request --reviewer-session` + "`" + ` line to the developer run and post a PR comment linking the record; on the third one for that PR, stop the unit for the owner.
 
 ## 4. Ask the Owner Once
 
