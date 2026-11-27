@@ -103,7 +103,8 @@ func TestInitShipsJudgeContract(t *testing.T) {
 			"comment on each issue you move with the old and new line",
 			// status-label-route-443 D1-D4.
 			"put your answer on a line starting `Ruling:` in your comment, and remove that label",
-			"quote each one's state in your comment, and only then remove that label; if one is still open, answer \"cannot decide\"",
+			"every issue its `Depends on:` lines name is closed and every pull request they name is merged",
+			"if any issue is open, or any pull request is open or closed without merging, answer \"cannot decide\"",
 			"Never add a label, and never remove one you were not asked about: `gate-change-approved` and `class:flake` stay the owner's.",
 		},
 		".agents/contracts/coordinator.md": {

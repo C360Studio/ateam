@@ -12,4 +12,11 @@
 - [x] 2.4 `docs/model-review.md:157`: both labels in the judge's list and a *Labels* bullet.
 - [x] 2.5 New literals in `TestInitShipsJudgeContract` (`coordinator_test.go:94`), each shown able to fail with `task mutate:check` on `templates.go`.
 - [x] 2.6 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
-- [ ] 2.7 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
+
+## 3. Review round 1
+
+- [x] 3.1 Round-1 P2 (codex record at `cb06fbc`): `judge.md`, `judgeContract` and `docs/model-review.md` require a `Depends on:` issue closed and a pull request merged; an open or closed-unmerged pull request answers "cannot decide". Two new literals in `TestInitShipsJudgeContract`, each shown able to fail.
+
+## 4. Close
+
+- [ ] 4.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
