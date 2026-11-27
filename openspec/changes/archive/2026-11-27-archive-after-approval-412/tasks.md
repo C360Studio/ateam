@@ -11,4 +11,4 @@
 - [x] 2.3 `docs/daily-use.md` § 5 step 4 and § 6 steps 1–2.
 - [x] 2.4 Bootstrap test on the generated protocol and Close row for the new order and the Gitea exception, with a mutation check per sentence.
 - [x] 2.5 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
-- [ ] 2.6 After the approving review record: archive this change in a document-only commit, then arm auto-merge.
+- [x] 2.6 After the approving review record: archive this change in a document-only commit, then arm auto-merge.
