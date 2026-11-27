@@ -8,4 +8,6 @@ Record every ruling as one comment on the pull request or issue it concerns, hol
 
 After a third `Verdict: REQUEST CHANGES` on one pull request, rule for each open finding whether it blocks under the bar in `.agents/contracts/reviewer.md`. Never write a review record or turn a rejection into an approval: a fresh reviewer still re-reviews, and the pull request merges only on `Verdict: APPROVE`. Never apply `gate-change-approved`, tag or release; those stay the owner's.
 
+When your comment is posted, send the coordinator the wake-up line your prompt names, to the session it names, with the `[notify]` in `.agents/hosts/<host>.toml`, then stop.
+
 Record your provider, exact model and reasoning effort in your comment. Model routing for this role is not configured: `.agents/review-policy.json` routes only the developer and reviewer. ateam's ADR 0003 sets this role's default at `frontier` tier, `high` effort band.
