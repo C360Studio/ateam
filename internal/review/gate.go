@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -167,6 +168,35 @@ func Gate(ctx context.Context, out io.Writer, cfg ForgeConfig, opts GateOptions)
 		fmt.Fprintln(out, "merge-check: unavailable: "+err.Error())
 		return 2
 	}
+}
+
+// gateRetryWaits is the pause before each new attempt of a failed forge read:
+// four attempts, about a minute in all, inside the jobs' 5-minute timeout. On
+// 2026-11-27 GitHub answered the pull request files read with HTTP 500 under
+// load, and one such answer made the whole run unavailable (#441). Tests set
+// it to zero waits.
+var gateRetryWaits = []time.Duration{5 * time.Second, 15 * time.Second, 40 * time.Second}
+
+// gateRetry runs read until it succeeds, transient says its error is an
+// answer rather than a fault, the waits run out, or ctx ends, and returns the
+// last error. It never turns a failure into a success: the caller still
+// reports the last error as unavailable.
+func gateRetry(ctx context.Context, read func() error, transient func(error) bool) error {
+	err := read()
+	for _, wait := range gateRetryWaits {
+		if err == nil || !transient(err) {
+			return err
+		}
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return err
+		case <-t.C:
+		}
+		err = read()
+	}
+	return err
 }
 
 func gateSourceFor(cfg ForgeConfig) (gateSource, error) {

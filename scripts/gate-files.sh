@@ -13,6 +13,8 @@
 #
 # Usage: gate-files.sh <pr-number>
 # A read that fails exits 2 naming the read; it never counts as "no gate files".
+# Each read gets four attempts first (#441), so one transient forge error does
+# not decide the check.
 # Needs gh and jq on GitHub. With ATEAM_FORGE=gitea it needs curl and jq and
 # reads Gitea's API v1 at GITHUB_SERVER_URL for GITHUB_REPOSITORY (Gitea
 # Actions sets both) with GITEA_TOKEN (#143).
@@ -26,12 +28,34 @@ case "$pr" in
   '' | *[!0-9]*) echo "gate-files: usage: gate-files.sh <pr-number>" >&2; exit 2 ;;
 esac
 
+# retry runs one read up to four times, waiting 5, 15, then 40 seconds between
+# attempts: on 2026-11-27 GitHub answered the files read with HTTP 500 under
+# load and every PR's check went red on the first try (#441). No read here has
+# a failure that means an answer, so every failure is tried again, and the last
+# one still fails the read. Each attempt's output is kept apart, so pages a
+# failed --paginate attempt printed never reach the next. ATEAM_GATE_RETRY_WAITS
+# replaces the waits for tests; the workflows never set it.
+retry() {
+  local wait out
+  for wait in ${ATEAM_GATE_RETRY_WAITS-5 15 40} ''; do
+    if out=$("$@"); then
+      printf '%s\n' "$out"
+      return 0
+    fi
+    [ -z "$wait" ] && break
+    echo "gate-files: a read of pull request #$pr failed; trying again in ${wait}s" >&2
+    sleep "$wait"
+  done
+  return 1
+}
+
 if [ "${ATEAM_FORGE:-}" = gitea ]; then
   api=${GITHUB_SERVER_URL:-}
   api="${api%/}/api/v1/repos/${GITHUB_REPOSITORY:-}"
   # The token goes to curl on stdin (-H @-), never in its argv, which other
   # users of a shared runner can read; printf is a builtin, so neither is it.
-  get() { printf 'Authorization: token %s\n' "${GITEA_TOKEN:-}" | curl -fsS --max-time 30 -H @- -H 'Accept: application/json' "$api/$1"; }
+  get_once() { printf 'Authorization: token %s\n' "${GITEA_TOKEN:-}" | curl -fsS --max-time 30 -H @- -H 'Accept: application/json' "$api/$1"; }
+  get() { retry get_once "$1"; }
   read_pull() { get "pulls/$pr"; }
   # Every page until an empty one; 200 pages of 50 is past GitHub's 3,000-file
   # ceiling, and reaching it is a failed read, never a short list.
@@ -49,10 +73,10 @@ if [ "${ATEAM_FORGE:-}" = gitea ]; then
   # Gitea's issue comments endpoint returns the whole thread, oldest first.
   read_comments() { get "issues/$pr/comments"; }
 else
-  read_pull() { gh api "repos/{owner}/{repo}/pulls/$pr"; }
-  read_files() { gh api --paginate "repos/{owner}/{repo}/pulls/$pr/files?per_page=100"; }
-  read_labels() { gh pr view "$pr" --json labels --jq '.labels[].name'; }
-  read_comments() { gh api --paginate "repos/{owner}/{repo}/issues/$pr/comments?per_page=100"; }
+  read_pull() { retry gh api "repos/{owner}/{repo}/pulls/$pr"; }
+  read_files() { retry gh api --paginate "repos/{owner}/{repo}/pulls/$pr/files?per_page=100"; }
+  read_labels() { retry gh pr view "$pr" --json labels --jq '.labels[].name'; }
+  read_comments() { retry gh api --paginate "repos/{owner}/{repo}/issues/$pr/comments?per_page=100"; }
 fi
 
 if ! pull=$(read_pull); then

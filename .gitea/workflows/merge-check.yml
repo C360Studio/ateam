@@ -56,7 +56,9 @@ jobs:
           GITEA_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          out=$("$ATEAM" review gate --awaiting "$PR_NUMBER")
+          # The step's shell is bash -e: a bare out=$(…) that fails would end the
+          # step before the gate's "unavailable" line is printed (#441).
+          out=$("$ATEAM" review gate --awaiting "$PR_NUMBER") || { rc=$?; printf '%s\n' "$out"; exit "$rc"; }
           printf '%s\n' "$out"
           printf '%s\n' "$out" | grep -xE 'awaiting=(true|false)' >> "$GITHUB_OUTPUT"
 

@@ -29,12 +29,31 @@ const (
 	maxGateList = 16 << 20
 )
 
+// get reads one Gitea path, retried by gateRetry when no response arrived or
+// the answer was 5xx. A 4xx is an answer (upToDate and fileAt read 403 and
+// 404), and a body that does not decode is the wrong shape; both are read once.
 func (s *giteaSource) get(ctx context.Context, name, path string, out any) (http.Header, error) {
-	h, err := readForgePage(ctx, nil, s.cfg, s.root+path, maxGateList, out)
+	var h http.Header
+	err := gateRetry(ctx, func() error {
+		var err error
+		h, err = readForgePage(ctx, nil, s.cfg, s.root+path, maxGateList, out)
+		return err
+	}, giteaTransient)
 	if err != nil {
 		return nil, fmt.Errorf("the read of %s failed (GET %s): %w", name, path, err)
 	}
 	return h, nil
+}
+
+// giteaTransient says whether a failed read is worth another attempt: a 5xx
+// answer, or a request that got no response (*url.Error, timeouts included).
+func giteaTransient(err error) bool {
+	var status *forgeStatusError
+	if errors.As(err, &status) {
+		return status.code >= http.StatusInternalServerError
+	}
+	var noResponse *url.Error
+	return errors.As(err, &noResponse)
 }
 
 func giteaShape(name, path, what string) error {
