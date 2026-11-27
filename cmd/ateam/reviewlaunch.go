@@ -478,6 +478,10 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 	return 0
 }
 
+// recordCommitStatus is state.RecordCommitStatus. Notify's tests replace it so they run no fake gh: a freshly written
+// one can outlast the status call timeout on a loaded machine (#414 review). Its own tests live in internal/state.
+var recordCommitStatus = state.RecordCommitStatus
+
 // publishRecordStatus sets ateam/review-record on the reviewed commit (#414), so the PR shows the verdict even when
 // auto-merge lands before the author's next sync. It is informational: a failure is one warning, and the notify still
 // goes out with its usual exit code.
@@ -493,7 +497,7 @@ func publishRecordStatus(ctx context.Context, root string, rec review.RecordComm
 	if st.Forge.Provider != state.ForgeGitHub && st.Forge.Provider != state.ForgeGitea {
 		return
 	}
-	if res, err := state.RecordCommitStatus(ctx, root, st.Forge, rec); err != nil {
+	if res, err := recordCommitStatus(ctx, root, st.Forge, rec); err != nil {
 		fmt.Fprintf(os.Stderr, "ateam review: notify: warning: commit status: %v (%s)\n", err, res)
 	}
 }

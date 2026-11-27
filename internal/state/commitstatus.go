@@ -34,8 +34,9 @@ const (
 // maxStatusDescription is GitHub's commit status description limit in bytes.
 const maxStatusDescription = 140
 
-// statusCallTimeout bounds each commit status read or write.
-const statusCallTimeout = 1500 * time.Millisecond
+// statusCallTimeout bounds each commit status read or write. A var only so tests that run a freshly written fake gh,
+// whose first exec can outlast it on a loaded machine, can lift it.
+var statusCallTimeout = 1500 * time.Millisecond
 
 // CommitStatus is one commit status to set on a PR head.
 type CommitStatus struct {
@@ -623,15 +624,16 @@ func recordStillCurrent(ctx context.Context, provider ForgeProvider, dir, baseRe
 	return true
 }
 
-// commitFiles lists the names changed from a to b, a rename's old and new names both.
+// commitFiles lists the names changed from a to b, a rename's old and new names both. -z keeps each name's bytes:
+// without it git C-quotes a non-ASCII or newline name ("docs/guide-\303\251.md"), which no longer ends in .md.
 func commitFiles(ctx context.Context, dir, a, b string) ([]string, bool) {
-	out, ok := gitOutput(ctx, dir, "diff", "--name-only", "--no-renames", a, b)
+	out, ok := gitOutput(ctx, dir, "diff", "--name-only", "--no-renames", "-z", a, b)
 	if !ok {
 		return nil, false
 	}
 	files := []string{}
-	for line := range strings.Lines(strings.TrimSpace(string(out))) {
-		if name := strings.TrimSpace(line); name != "" {
+	for name := range strings.SplitSeq(string(out), "\x00") {
+		if name != "" {
 			files = append(files, name)
 		}
 	}

@@ -203,7 +203,8 @@ func TestRecordStillCurrent(t *testing.T) {
 	docsRec := commit("change", map[string]string{"openspec/changes/x/proposal.md": "# p\n"})
 	gitIn(t, repo, "mv", "openspec/changes/x", "openspec/changes/archive")
 	commit("archive", map[string]string{"openspec/changes/archive/x/notes.yaml": "a: 1\n"})
-	docsHead := commit("docs", map[string]string{"docs/guide.md": "# g\n"})
+	// Non-ASCII and newline names, which git C-quotes without -z, are still documents (#414 review).
+	docsHead := commit("docs", map[string]string{"docs/guide.md": "# g\n", "docs/guide-é.md": "# é\n", "docs/line\nbreak.md": "# n\n"})
 
 	codeRec := pr("code")
 	codeHead := commit("code after record", map[string]string{"lib.go": "package lib // changed\n"})
@@ -237,7 +238,7 @@ func TestRecordStillCurrent(t *testing.T) {
 		provider     ForgeProvider
 		want         bool
 	}{
-		{"docs-only commits, a rename into archive included", docsRec, docsHead, "origin/main", ForgeGitHub, true},
+		{"docs-only commits: a rename into archive, non-ASCII and newline names", docsRec, docsHead, "origin/main", ForgeGitHub, true},
 		{"short record sha", docsRec[:7], docsHead, "origin/main", ForgeGitHub, true},
 		{"code commit after the record", codeRec, codeHead, "origin/main", ForgeGitHub, false},
 		{"markdown under the reviewer's contracts is code", agentsRec, agentsHead, "origin/main", ForgeGitHub, false},
@@ -791,4 +792,45 @@ func TestPostPRHandoffCommentReturnsPRHead(t *testing.T) {
 			t.Fatalf("post = %+v, %v; want %+v", post, err, want)
 		}
 	})
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+func TestRecordCommitStatus(t *testing.T) {
+	// The fake gh is a freshly written script; lift the per-call bound so its first exec on a loaded machine cannot
+	// turn a write into a timeout (#414 review).
+	orig := statusCallTimeout
+	statusCallTimeout = time.Minute
+	t.Cleanup(func() { statusCallTimeout = orig })
+	t.Setenv("ATEAM_TOKEN_WRITE", "fake-write")
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-q", "-b", "main")
+	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	head := gitIn(t, repo, "rev-parse", "HEAD")
+	cfg := ForgeConfig{Provider: ForgeGitHub, Owner: "o", Repo: "r"}
+	rec := review.RecordComment{SHA: head[:7], Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "high"}
+
+	log := fakeGHStatuses(t, "")
+	setStatusJSON(t, `{"statuses":[]}`)
+	res, err := RecordCommitStatus(context.Background(), repo, cfg, rec)
+	if err != nil || res != (StatusResult{Posted: 1}) {
+		t.Fatalf("RecordCommitStatus = %+v, %v; want posted 1", res, err)
+	}
+	// The short Reviewed at sha is written as the full one, and only the record context is written.
+	want := []string{"fake-write", "api", "-X", "POST", "repos/o/r/statuses/" + head, "-f", "state=failure", "-f", "context=ateam/review-record",
+		"-f", "description=REQUEST CHANGES self-reported by codex (gpt-6-astra, high) at " + head[:7]}
+	if calls := readCalls(t, log); len(calls) != 2 || !reflect.DeepEqual(calls[1], want) {
+		t.Fatalf("gh calls = %q, want the status read then %q", calls, want)
+	}
+
+	if err := os.Remove(log); err != nil {
+		t.Fatal(err)
+	}
+	rec.SHA = "0123456789abcdef0123456789abcdef01234567"
+	res, err = RecordCommitStatus(context.Background(), repo, cfg, rec)
+	if want := "ateam/review-record: reviewed commit 0123456 is not in this checkout"; err == nil || err.Error() != want || res != (StatusResult{Errors: 1}) {
+		t.Fatalf("missing commit = %+v, %v; want errors 1 and %q", res, err, want)
+	}
+	if calls := readCalls(t, log); len(calls) != 0 {
+		t.Fatalf("a missing commit still called gh: %q", calls)
+	}
 }
