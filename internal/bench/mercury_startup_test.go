@@ -2,6 +2,7 @@ package bench
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -177,9 +179,16 @@ func TestMercuryPinnedBridgeStartup(t *testing.T) {
 
 func checkMercuryBridgeStartup(t *testing.T, bridge string) {
 	t.Helper()
-	var requests atomic.Int64
 	// Hold an unrelated listener throughout startup. Readiness must never visit it.
-	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { requests.Add(1); w.WriteHeader(http.StatusTeapot) }))
+	// Record each sender so a stray request names its origin (#288).
+	var mu sync.Mutex
+	var senders []string
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		senders = append(senders, fmt.Sprintf("%s %s from %s (User-Agent %q)", r.Method, r.URL.RequestURI(), r.RemoteAddr, r.UserAgent()))
+		mu.Unlock()
+		w.WriteHeader(http.StatusTeapot)
+	}))
 	defer foreign.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -212,8 +221,11 @@ func checkMercuryBridgeStartup(t *testing.T, bridge string) {
 	if err != nil || parsed.Hostname() != "127.0.0.1" || parsed.Port() == "0" || base == foreign.URL {
 		t.Fatalf("invalid actual address %q (%v)", base, err)
 	}
-	if requests.Load() != 0 {
-		t.Fatalf("foreign provider listener got %d startup requests", requests.Load())
+	mu.Lock()
+	stray := append([]string(nil), senders...)
+	mu.Unlock()
+	if len(stray) != 0 {
+		t.Fatalf("foreign provider listener got %d startup requests: %s", len(stray), strings.Join(stray, "; "))
 	}
 	t.Log("kernel-assigned loopback address received; authenticated readiness passed; unrelated listener requests=0")
 }
