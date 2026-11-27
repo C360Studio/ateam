@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/c360studio/ateam/internal/review"
+	"github.com/c360studio/ateam/internal/testspec"
 )
 
 // ForgeProvider identifies the issue/PR hosting provider.
@@ -216,6 +217,9 @@ func SyncForgeBoard(ctx context.Context, root string, cfg ForgeConfig) ([]BoardC
 			rec := policy.Canonical(*cards[i].Review)
 			cards[i].Review = &rec
 		}
+		for j := range cards[i].Rejections {
+			cards[i].Rejections[j].RecordComment = policy.Canonical(cards[i].Rejections[j].RecordComment)
+		}
 	}
 	return cards, err
 }
@@ -253,9 +257,11 @@ type forgeIssuePayload struct {
 	// CommentsUnread marks an issue whose comments the sync could not read, so its Depends on: lines are unknown.
 	CommentsUnread bool `json:"-"`
 	// Review, ReviewURL and HandoffURL are filled only for an open PR whose branch has a local worktree.
-	Review     *review.RecordComment `json:"-"`
-	ReviewURL  string                `json:"-"`
-	HandoffURL string                `json:"-"`
+	Review         *review.RecordComment `json:"-"`
+	ReviewURL      string                `json:"-"`
+	HandoffURL     string                `json:"-"`
+	Rejections     []ReviewRound         `json:"-"`
+	RoundsContinue int                   `json:"-"`
 }
 
 // forgeComment is one issue or PR comment: gh names its link url, Gitea html_url.
@@ -276,6 +282,7 @@ func (c forgeComment) link() string {
 // oldest first.
 func (it *forgeIssuePayload) setPRComments(comments []forgeComment) {
 	it.Review, it.ReviewURL = latestReview(comments)
+	it.Rejections, it.RoundsContinue = reviewRounds(comments)
 	for i := len(comments) - 1; i >= 0; i-- {
 		if isHandoffComment(comments[i].Body) {
 			it.HandoffURL = comments[i].link()
@@ -312,6 +319,36 @@ func latestReview(comments []forgeComment) (*review.RecordComment, string) {
 		}
 	}
 	return nil, ""
+}
+
+// RoundsContinuePrefix starts the PR comment line by which the owner, or a judge the coordinator started, lets one
+// more review round follow the REQUEST CHANGES record it counts (#411).
+const RoundsContinuePrefix = "review-rounds-continue:"
+
+// reviewRounds returns the REQUEST CHANGES records among comments, oldest first, and the count the newest unfenced
+// review-rounds-continue: line names, 0 when none does. A review record's own lines never count: a reviewer does not
+// lift the stop on its own rounds.
+func reviewRounds(comments []forgeComment) ([]ReviewRound, int) {
+	var rounds []ReviewRound
+	allowed := 0
+	for _, c := range comments {
+		if rec, ok := review.ParseRecordComment(c.Body); ok {
+			if rec.Verdict == "REQUEST CHANGES" {
+				rounds = append(rounds, ReviewRound{RecordComment: rec, URL: c.link()})
+			}
+			continue
+		}
+		testspec.EachUnfencedLine(c.Body, func(line string) {
+			t := strings.TrimSpace(line)
+			if len(t) < len(RoundsContinuePrefix) || !strings.EqualFold(t[:len(RoundsContinuePrefix)], RoundsContinuePrefix) {
+				return
+			}
+			if n, err := strconv.Atoi(strings.TrimSpace(t[len(RoundsContinuePrefix):])); err == nil && n > 0 {
+				allowed = n
+			}
+		})
+	}
+	return rounds, allowed
 }
 
 func parseIssueComments(raw json.RawMessage) ([]string, int) {
@@ -406,10 +443,18 @@ func fetchGiteaRESTCards(ctx context.Context, root string, cfg ForgeConfig) ([]B
 					continue
 				}
 				commentsURL := fmt.Sprintf("%s/issues/%d/comments", repoAPI, item.Number)
+				_, count := parseIssueComments(item.Comments)
 				wg.Go(func() {
 					slots <- struct{}{}
 					defer func() { <-slots }()
-					item.setPRComments(fetchGiteaIssueComments(ctx, client, token, commentsURL))
+					// One unpaged call returns only the server's first page, so a long PR would hide its newest
+					// records and rejections (#411); without a comment count, keep that one call.
+					if count == 0 {
+						item.setPRComments(fetchGiteaIssueComments(ctx, client, token, commentsURL))
+						return
+					}
+					comments, _ := fetchGiteaAllIssueComments(ctx, client, token, commentsURL, count)
+					item.setPRComments(comments)
 				})
 			}
 			continue
@@ -854,6 +899,8 @@ func mapForgeItemToCard(it forgeIssuePayload, isPR bool, forgeName string) Board
 		Claims:               claims,
 		CommentsUnread:       open && !isPR && it.CommentsUnread,
 		Review:               it.Review,
+		Rejections:           it.Rejections,
+		RoundsContinue:       it.RoundsContinue,
 		ReviewURL:            it.ReviewURL,
 		HandoffURL:           it.HandoffURL,
 		Forge:                forgeName,
