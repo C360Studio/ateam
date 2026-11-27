@@ -21,6 +21,14 @@ const launchTiers = `"model_tiers":{"frontier":["claude:opus","codex:gpt-6-astra
 
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
+// onGitHub makes requestForge resolve "github" for the test, as a checkout with a github.com origin does.
+func onGitHub(t *testing.T) {
+	t.Helper()
+	prev := requestForge
+	requestForge = func(context.Context, string) string { return "github" }
+	t.Cleanup(func() { requestForge = prev })
+}
+
 func writeLaunchFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, rel)
@@ -445,6 +453,7 @@ func (f *failFirst) run(ctx context.Context, argv []string) error {
 // spec: openspec/specs/model-review/spec.md#Requirement: Review blocking bar and round scope
 func TestReviewRequestRereview(t *testing.T) {
 	const prHead = "fedcba9876543210fedcba9876543210fedcba98"
+	onGitHub(t)
 	const older = "0123456789abcdef0123456789abcdef01234567"
 	prev := readPullBody
 	readPullBody = func(context.Context, string, int) (string, string, error) { return "", prHead, nil }
@@ -474,7 +483,7 @@ func TestReviewRequestRereview(t *testing.T) {
 			root := t.TempDir()
 			writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"review_launch":"agent",`+launchTiers+`}`)
 			writeLaunchFile(t, root, ".agents/hosts/fake.toml", manifest)
-			st := state.State{Cards: []state.BoardCard{{ID: "GH-PR-41", Number: 41, Type: "pr", Review: &reviewer}, {ID: "GH-PR-42", Number: 42, Type: "pr", Review: tc.record}}}
+			st := state.State{Cards: []state.BoardCard{{ID: "GH-PR-41", Number: 41, Type: "pr", Forge: "github", Review: &reviewer}, {ID: "GH-PR-42", Number: 42, Type: "pr", Forge: "github", Review: tc.record}}}
 			data, err := json.Marshal(st)
 			if err != nil {
 				t.Fatal(err)
@@ -536,6 +545,7 @@ func TestReviewRequestRereview(t *testing.T) {
 // spec: openspec/specs/model-review/spec.md#Requirement: Re-review to the reviewing session
 func TestRereviewPrintedCommandsRun(t *testing.T) {
 	const prHead = "fedcba9876543210fedcba9876543210fedcba98"
+	onGitHub(t)
 	prev := readPullBody
 	readPullBody = func(context.Context, string, int) (string, string, error) {
 		return "implemented-by: claude (opus, high)\n", prHead, nil
@@ -545,7 +555,7 @@ func TestRereviewPrintedCommandsRun(t *testing.T) {
 	writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"cross_provider":true,"review_launch":"agent",`+launchTiers+`}`)
 	writeLaunchFile(t, root, ".agents/hosts/toolhost.toml", "[launch]\ntool = \"start {agent} back to {return_to}\"\n[notify]\ntool = \"queue_message for {return_to}\"\n")
 	reviewer := review.RecordComment{SHA: "0123456", Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "xhigh"}
-	data, err := json.Marshal(state.State{Cards: []state.BoardCard{{ID: "GH-PR-42", Number: 42, Type: "pr", Review: &reviewer}}})
+	data, err := json.Marshal(state.State{Cards: []state.BoardCard{{ID: "GH-PR-42", Number: 42, Type: "pr", Forge: "github", Review: &reviewer}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -597,6 +607,7 @@ func TestRereviewPrintedCommandsRun(t *testing.T) {
 // spec: model-review / Owner decision after the third rejecting review
 func TestReviewRequestRoundsStop(t *testing.T) {
 	const prHead = "fedcba9876543210fedcba9876543210fedcba98"
+	onGitHub(t)
 	prev := readPullBody
 	readPullBody = func(context.Context, string, int) (string, string, error) { return "", prHead, nil }
 	defer func() { readPullBody = prev }()
@@ -623,7 +634,7 @@ func TestReviewRequestRoundsStop(t *testing.T) {
 			root := t.TempDir()
 			writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"review_launch":"agent",`+launchTiers+`}`)
 			writeLaunchFile(t, root, ".agents/hosts/fake.toml", manifest)
-			card := state.BoardCard{ID: "GH-PR-42", Number: 42, Type: "pr", HeadSHA: prHead, RoundsContinue: tc.allowed}
+			card := state.BoardCard{ID: "GH-PR-42", Number: 42, Type: "pr", Forge: "github", HeadSHA: prHead, RoundsContinue: tc.allowed}
 			for _, sha := range shas[:tc.rejections] {
 				card.Rejections = append(card.Rejections, reject(sha))
 			}
@@ -656,6 +667,61 @@ func TestReviewRequestRoundsStop(t *testing.T) {
 				if !strings.Contains(stderr, "at "+sha+" by codex (gpt-6-astra, xhigh) https://forge.test/pr/42#"+sha) {
 					t.Fatalf("stderr %q; want rejection %s with its reviewer and link", stderr, sha)
 				}
+			}
+		})
+	}
+}
+
+// The cache keeps both forges' cards, so the stop counts only the requested forge's PR, in either card order
+// (PR #438 review round 1).
+//
+// spec: model-review / Owner decision after the third rejecting review
+func TestReviewRequestRoundsStopScopesForge(t *testing.T) {
+	const prHead = "fedcba9876543210fedcba9876543210fedcba98"
+	prevBody, prevForge := readPullBody, requestForge
+	readPullBody = func(context.Context, string, int) (string, string, error) { return "", prHead, nil }
+	requestForge = func(context.Context, string) string { return "gitea" }
+	defer func() { readPullBody, requestForge = prevBody, prevForge }()
+	card := func(id, forge string, rejections int) state.BoardCard {
+		c := state.BoardCard{ID: id, Number: 42, Type: "pr", Forge: forge, HeadSHA: prHead}
+		for i := range rejections {
+			c.Rejections = append(c.Rejections, state.ReviewRound{RecordComment: review.RecordComment{
+				SHA: strings.Repeat(string(rune('1'+i)), 7), Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "xhigh"}})
+		}
+		return c
+	}
+	for _, tc := range []struct {
+		name    string
+		cards   []state.BoardCard
+		stopped bool
+	}{
+		{"github rejections first do not stop gitea", []state.BoardCard{card("GH-PR-42", "github", 3), card("GT-PR-42", "gitea", 0)}, false},
+		{"github rejections last do not stop gitea", []state.BoardCard{card("GT-PR-42", "gitea", 0), card("GH-PR-42", "github", 3)}, false},
+		{"gitea rejections stop behind a github card", []state.BoardCard{card("GH-PR-42", "github", 0), card("GT-PR-42", "gitea", 3)}, true},
+		{"gitea rejections stop ahead of a github card", []state.BoardCard{card("GT-PR-42", "gitea", 3), card("GH-PR-42", "github", 0)}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"review_launch":"agent",`+launchTiers+`}`)
+			writeLaunchFile(t, root, ".agents/hosts/fake.toml", "[launch]\ncommand = [\"hostctl\", \"start\", \"{agent}\", \"{return_to}\"]\n")
+			data, err := json.Marshal(state.State{Cards: tc.cards})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeLaunchFile(t, root, ".ateam/state.json", string(data))
+			rec := &recorder{}
+			code, stderr := captureBenchError(t, func() int {
+				return reviewRequest(context.Background(), root, []string{"--implementer", "claude:opus:high", "--return-to", "impl-1", "42"},
+					envOf(map[string]string{"ATEAM_HOST": "fake"}), &bytes.Buffer{}, rec.run)
+			})
+			if tc.stopped {
+				if code != 2 || len(rec.calls) != 0 || !strings.Contains(stderr, "\nreview-rounds-continue: 3\n") {
+					t.Fatalf("exit %d, calls %q, stderr %q; want the gitea PR's third rejection to stop the round", code, rec.calls, stderr)
+				}
+				return
+			}
+			if code != 0 || len(rec.calls) != 1 {
+				t.Fatalf("exit %d, calls %q, stderr %q; want the gitea PR with no rejections to launch", code, rec.calls, stderr)
 			}
 		})
 	}

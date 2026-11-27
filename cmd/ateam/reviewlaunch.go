@@ -169,7 +169,7 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 		fmt.Fprintln(os.Stderr, "ateam review: --reviewer-session must be 1 to 128 of A-Z a-z 0-9 . _ : -")
 		return 2
 	}
-	if why := roundsStop(cachedCard(root, pr)); why != "" {
+	if why := roundsStop(cachedCard(root, requestForge(ctx, root), pr)); why != "" {
 		fmt.Fprintln(os.Stderr, "ateam review: "+why)
 		return 2
 	}
@@ -281,7 +281,7 @@ func encodeSpec(out io.Writer, spec launchSpec) int {
 // to a reviewer run the merge gate still accepts against these implementers.
 // The notify command runs, as a launch command does, only under review_launch: agent.
 func rereview(ctx context.Context, root string, spec *launchSpec, policy review.Policy, m *hostManifest, session string, dryRun bool, run launchRunner) string {
-	rec := cachedRecord(root, spec.PR)
+	rec := cachedRecord(ctx, root, spec.PR)
 	switch {
 	case rec == nil:
 		return "no cached record; run ateam state sync"
@@ -322,21 +322,32 @@ func rereview(ctx context.Context, root string, spec *launchSpec, policy review.
 
 // cachedRecord is the newest review record the last ateam state sync cached
 // for the pull request, or nil.
-func cachedRecord(root string, pr int) *review.RecordComment {
-	if c := cachedCard(root, pr); c != nil {
+func cachedRecord(ctx context.Context, root string, pr int) *review.RecordComment {
+	if c := cachedCard(root, requestForge(ctx, root), pr); c != nil {
 		return c.Review
 	}
 	return nil
 }
 
-// cachedCard is the PR's card in the sync cache, or nil.
-func cachedCard(root string, pr int) *state.BoardCard {
+// requestForge is the forge readPullBody reads the PR from, "github" or "gitea", or "" when none resolves; tests
+// substitute it.
+var requestForge = func(ctx context.Context, root string) string {
+	cfg, _, err := gateForge(ctx, root, false)
+	if err != nil {
+		return ""
+	}
+	return cfg.Provider
+}
+
+// cachedCard is the PR's card from forge in the sync cache, or nil. The cache keeps both forges' cards (MergeForgeCards),
+// so a number alone could pick the other forge's PR and stop, or let through, the wrong review round (PR #438 review).
+func cachedCard(root, forge string, pr int) *state.BoardCard {
 	st, err := state.Load(root)
 	if err != nil {
 		return nil
 	}
 	for i, c := range st.Cards {
-		if c.Type == "pr" && c.Number == pr {
+		if c.Type == "pr" && c.Number == pr && c.Forge == forge {
 			return &st.Cards[i]
 		}
 	}
