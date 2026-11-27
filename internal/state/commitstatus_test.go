@@ -257,6 +257,7 @@ func TestRecordStillCurrent(t *testing.T) {
 	}
 }
 
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestTouchedChangesAtHead(t *testing.T) {
 	repo := t.TempDir()
 	gitIn(t, repo, "init", "-q", "-b", "main")
