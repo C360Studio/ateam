@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks across Claude Code, Codex CLI, and Gemini CLI, the 2-tool low-tax MCP server (`ateam_state`, `ateam_task`), OpenSpec queue and `Hold:` validation (`spec:queue` and `spec:check`), dual-forge state synchronization (**GitHub** and **Gitea**), `// shortcut:` debt scanning, and the agentic benchmark suite (`ateam bench`).
-
 ## Requirements
-
 ### Requirement: Lifecycle hook normalization under 10ms
 
 `ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 10ms using cached `.ateam/state.json`.
@@ -1449,3 +1447,18 @@ A `Judged-by:` line in `proposal.md` SHALL count as approval only while `.agents
 
 - **WHEN** a code pull request touches a change whose `proposal.md` has an empty `Approved-by:` and a filled `Judged-by:`
 - **THEN** the merge check notes that the change was judged by the named agent, not owner-reviewed, and its exit status is unchanged
+
+### Requirement: Merge check on pull_request_target
+
+On GitHub Actions, `ateam review gate` SHALL treat `pull_request_target` as a pull-request run and apply the same rules as `pull_request`, including the awaiting probe. On Gitea Actions it SHALL stop with exit 1 naming why, as any other unhandled event does.
+
+#### Scenario: Base-branch trigger on GitHub
+
+- **WHEN** `GITHUB_ACTIONS=true` and `GITHUB_EVENT_NAME=pull_request_target` on a GitHub repository
+- **THEN** the gate reads the pull request and applies the review and known-flake checks as for `pull_request`
+
+#### Scenario: Base-branch trigger on Gitea
+
+- **WHEN** the same event is set on a Gitea repository
+- **THEN** the gate exits 1 and says `pull_request_target` is not supported on Gitea
+
