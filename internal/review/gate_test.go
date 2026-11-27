@@ -694,7 +694,7 @@ func TestGateGitea(t *testing.T) {
 	}
 }
 
-// spec: openspec/specs/harness/spec.md#Requirement: Merge check on pull_request_target
+// spec: harness / Merge check on pull_request_target
 func TestGateEvent(t *testing.T) {
 	// #402: pull_request_target is a pull-request run on GitHub, judged by the
 	// pull_request rule; Gitea refuses it, and an unknown event stays refused,
