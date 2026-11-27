@@ -1,5 +1,5 @@
 # Proposal: decision-line-grammar-421
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-27) sha256:6b4d59375760
 
 ## Track
 
