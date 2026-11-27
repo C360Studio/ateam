@@ -18,6 +18,13 @@ import (
 // flagSpec maps a flag name to whether it is a bool flag, which takes no value.
 type flagSpec map[string]bool
 
+// cliFlags is the flag inventory read from source: each FlagSet's flags, and for a set
+// parsed from args[N:] rather than args, that N.
+type cliFlags struct {
+	sets      map[string]flagSpec
+	parseFrom map[string]int
+}
+
 // flagSetAliases names FlagSets whose name is not the command path that reaches them.
 var flagSetAliases = map[string]string{"spec-check": "state spec-check"}
 
@@ -33,9 +40,9 @@ func repoRoot(t *testing.T) string {
 
 // flagSets reads every flag.NewFlagSet in the given directories' non-test Go files and the
 // flags defined on that set in the same function, so the check never runs a command.
-func flagSets(t *testing.T, dirs ...string) map[string]flagSpec {
+func flagSets(t *testing.T, dirs ...string) cliFlags {
 	t.Helper()
-	sets := map[string]flagSpec{}
+	inv := cliFlags{sets: map[string]flagSpec{}, parseFrom: map[string]int{}}
 	fset := token.NewFileSet()
 	for _, dir := range dirs {
 		files, err := filepath.Glob(filepath.Join(dir, "*.go"))
@@ -52,18 +59,23 @@ func flagSets(t *testing.T, dirs ...string) map[string]flagSpec {
 			}
 			for _, decl := range f.Decls {
 				if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
-					collectFlagSets(fn.Body, sets)
+					collectFlagSets(fn.Body, inv)
 				}
 			}
 		}
 	}
-	return sets
+	return inv
 }
 
 // collectFlagSets records, for each `v := flag.NewFlagSet("<name>", …)` in body, the flags
-// that body defines through v.
-func collectFlagSets(body *ast.BlockStmt, sets map[string]flagSpec) {
-	byVar := map[string]flagSpec{}
+// that body defines through v. Receivers are matched by their resolved declaration, not
+// their spelling, so two `fs :=` in sibling switch cases stay separate sets.
+func collectFlagSets(body *ast.BlockStmt, inv cliFlags) {
+	type set struct {
+		name string
+		spec flagSpec
+	}
+	byObj := map[*ast.Object]set{}
 	ast.Inspect(body, func(n ast.Node) bool {
 		assign, ok := n.(*ast.AssignStmt)
 		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
@@ -75,15 +87,15 @@ func collectFlagSets(body *ast.BlockStmt, sets map[string]flagSpec) {
 		}
 		name, ok := stringLit(call.Args[0])
 		ident, isIdent := assign.Lhs[0].(*ast.Ident)
-		if !ok || !isIdent {
+		if !ok || !isIdent || ident.Obj == nil {
 			return true
 		}
 		if alias, found := flagSetAliases[name]; found {
 			name = alias
 		}
 		spec := flagSpec{}
-		sets[name] = spec
-		byVar[ident.Name] = spec
+		inv.sets[name] = spec
+		byObj[ident.Obj] = set{name, spec}
 		return true
 	})
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -96,13 +108,25 @@ func collectFlagSets(body *ast.BlockStmt, sets map[string]flagSpec) {
 			return true
 		}
 		recv, ok := sel.X.(*ast.Ident)
-		if !ok {
+		if !ok || recv.Obj == nil {
 			return true
 		}
-		spec, known := byVar[recv.Name]
+		s, known := byObj[recv.Obj]
 		if !known {
 			return true
 		}
+		if sel.Sel.Name == "Parse" {
+			if len(call.Args) == 1 {
+				if slice, ok := call.Args[0].(*ast.SliceExpr); ok && slice.Low != nil {
+					if lit, ok := slice.Low.(*ast.BasicLit); ok && lit.Kind == token.INT {
+						n, _ := strconv.Atoi(lit.Value)
+						inv.parseFrom[s.name] = n
+					}
+				}
+			}
+			return true
+		}
+		spec := s.spec
 		// The flag name is the first argument of fs.Bool/String/Int/Duration/Func and the
 		// second of fs.BoolVar/StringVar/Var and the like.
 		idx := 0
@@ -166,16 +190,27 @@ func commandTokens(cmd string) []string {
 
 // checkQuotedCommand reports why Go flag parsing would reject cmd (which starts with
 // "ateam "), or "" when it parses. A span ending on a value flag is a reference to that flag.
-func checkQuotedCommand(cmd string, sets map[string]flagSpec) string {
+func checkQuotedCommand(cmd string, inv cliFlags) string {
 	toks := commandTokens(strings.TrimPrefix(cmd, "ateam "))
 	var spec flagSpec
-	path := 0
+	path, lead := 0, 0
 	for k := min(2, len(toks)); k >= 1; k-- {
-		if s, ok := sets[strings.Join(toks[:k], " ")]; ok {
+		name := strings.Join(toks[:k], " ")
+		if s, ok := inv.sets[name]; ok {
 			spec, path = s, k
+			// A set parsed from args[N:] sees args starting at the last path token (bench
+			// run/compare/export take args[0] = subcommand, args[1] = artifact), so N-1
+			// positionals come before its flags.
+			if n := inv.parseFrom[name]; n > 0 {
+				lead = n - 1
+			}
 			break
 		}
 	}
+	if path+lead > len(toks) {
+		return ""
+	}
+	path += lead
 	rest := toks[path:]
 	if spec == nil {
 		// shortcut: a path without a FlagSet is not checked against run's dispatch, so a misspelled
@@ -231,7 +266,7 @@ var quotedCommand = regexp.MustCompile("`(ateam [^`]+)`")
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
 func TestQuotedCommandsParse(t *testing.T) {
 	root := repoRoot(t)
-	sets := flagSets(t, filepath.Join(root, "cmd", "ateam"), filepath.Join(root, "internal", "mutate"))
+	inv := flagSets(t, filepath.Join(root, "cmd", "ateam"), filepath.Join(root, "internal", "mutate"))
 
 	files := []string{filepath.Join(root, "AGENTS.md"), filepath.Join(root, ".agents", "protocol.md")}
 	for _, pattern := range []string{".agents/contracts/*.md", ".agents/skills/*/SKILL.md"} {
@@ -251,7 +286,7 @@ func TestQuotedCommandsParse(t *testing.T) {
 		rel, _ := filepath.Rel(root, path)
 		for _, m := range quotedCommand.FindAllStringSubmatch(string(body), -1) {
 			checked++
-			if why := checkQuotedCommand(m[1], sets); why != "" {
+			if why := checkQuotedCommand(m[1], inv); why != "" {
 				t.Errorf("%s: `%s`: %s", rel, m[1], why)
 			}
 		}
@@ -263,7 +298,19 @@ func TestQuotedCommandsParse(t *testing.T) {
 
 // spec: openspec/specs/harness/spec.md#Requirement: Agent initialization and configuration parity
 func TestCheckQuotedCommand(t *testing.T) {
-	sets := flagSets(t, filepath.Join(repoRoot(t), "cmd", "ateam"), filepath.Join(repoRoot(t), "internal", "mutate"))
+	inv := flagSets(t, filepath.Join(repoRoot(t), "cmd", "ateam"), filepath.Join(repoRoot(t), "internal", "mutate"))
+	sets := inv.sets
+	run, compare := sets["bench run"], sets["bench compare"]
+	if !run["dry-run"] || run["output"] || len(run) != 2 {
+		t.Fatalf("bench run flags = %v, want exactly bool dry-run and value output", run)
+	}
+	if _, ok := compare["dry-run"]; ok || !compare["json"] {
+		t.Fatalf("bench compare flags = %v, want bool json and no dry-run", compare)
+	}
+	wantFrom := map[string]int{"bench run": 2, "bench compare": 2, "bench export": 2}
+	if fmt.Sprint(inv.parseFrom) != fmt.Sprint(wantFrom) {
+		t.Fatalf("parseFrom = %v, want %v: a new args[N:] parse needs its lead checked", inv.parseFrom, wantFrom)
+	}
 	if spec := sets["review request"]; !spec["dry-run"] || spec["return-to"] {
 		t.Fatalf("review request flags = %v, want bool dry-run and value return-to", spec)
 	}
@@ -288,8 +335,13 @@ func TestCheckQuotedCommand(t *testing.T) {
 		{"ateam doctor --check", ""},
 		{"ateam state mode <on|off>", ""},
 		{"ateam --help", ""},
+		{"ateam bench compare <run.json> --json", ""},
+		{"ateam bench run <experiment.json> --dry-run --output <dir>", ""},
+		{"ateam bench export <run.json> --check <dir>", ""},
+		{"ateam bench compare <run.json> --dry-run", "flag --dry-run is not defined"},
+		{"ateam bench compare <run.json> extra --json", "flag --json after positional extra is never parsed"},
 	} {
-		if got := checkQuotedCommand(tc.cmd, sets); got != tc.want {
+		if got := checkQuotedCommand(tc.cmd, inv); got != tc.want {
 			t.Errorf("checkQuotedCommand(%q) = %q, want %q", tc.cmd, got, tc.want)
 		}
 	}
