@@ -154,7 +154,7 @@ A record disappears when someone deletes a PR comment, removes a label, deletes 
 
 ## Informational commit statuses
 
-`ateam state sync` and a posting handoff (`ateam state handoff` without `--no-post`, or the MCP `ateam_state` handoff without `post: false`) set three commit statuses on the open PR head, so GitHub, Gitea, and any client that shows a PR's checks list shows them too. Sync covers each open PR whose branch has a worktree on this machine; a handoff covers its own branch's PR. They describe the PR; no gate reads them, none is a required check, and `task merge:check` is unchanged. Hooks, pickup, prune, board, the MCP pickup, and the UI never write them.
+`ateam state sync` and a posting handoff (`ateam state handoff` without `--no-post`, or the MCP `ateam_state` handoff without `post: false`) set three commit statuses on the open PR head, so GitHub, Gitea, and any client that shows a PR's checks list shows them too. Sync covers each open PR whose branch has a worktree on this machine; a handoff covers its own branch's PR. A reviewer's `ateam review notify --record` sets `ateam/review-record` alone, on the commit its record names, so the verdict shows even when auto-merge lands before the author's next sync (#414). They describe the PR; no gate reads them, none is a required check, and `task merge:check` is unchanged. Hooks, pickup, prune, board, the MCP pickup, and the UI never write them.
 
 | Context | Condition (first match wins) | State and description |
 | --- | --- | --- |
@@ -167,11 +167,12 @@ A record disappears when someone deletes a PR comment, removes a label, deletes 
 | `ateam/handoff` | the handoff tree was dirty | `pending` `handoff at <sha7> has uncommitted changes` |
 | `ateam/handoff` | otherwise | `success` `handoff at <sha7>, <time UTC>` |
 | `ateam/review-record` | no review record | not posted |
+| `ateam/review-record` | on GitHub, every commit after the record's is a document-only commit or a merge of `main` touching none of the PR's files, the commits `task merge:check` accepts | the verdict rows below, with `, current at head <sha7>` appended |
 | `ateam/review-record` | the record names another commit | `pending` `record at <sha7> is behind head <sha7>` |
 | `ateam/review-record` | `APPROVE` or `REQUEST CHANGES` | `success` or `failure` `<verdict> self-reported by <agent> (<model>, <effort>) at <sha7>`: the record's own lines name the reviewer and models, and no check reads who wrote the comment |
 | `ateam/review-record` | any other verdict, or none | `pending` `record at <sha7> has no single verdict` |
 
-A context is written only when its state or description differs from the latest status with that context on the head, so a repeated sync posts nothing. Writes use the write token (`ATEAM_TOKEN_WRITE`, see above), which needs permission to set commit statuses. A rejected write prints one warning and never changes an exit code; `ateam doctor` then warns from the cache, naming the context and HTTP or `gh` exit code but never the token, and `--check` still passes. `REQUEST CHANGES` shows as a red check although nothing requires it. Statuses refresh only on sync and posting handoffs, so they lag a bare `git push` until the next one. Set `commit_statuses: false` in [`.agents/ateam.json`](#team-settings) to turn all of this off for the team, or `ATEAM_COMMIT_STATUSES=0` (or `1`) to override that on one machine.
+A context is written only when its state or description differs from the latest status with that context on the head, so a repeated sync posts nothing. Writes use the write token (`ATEAM_TOKEN_WRITE`, see above), which needs permission to set commit statuses. A rejected write prints one warning and never changes an exit code; `ateam doctor` then warns from the cache, naming the context and HTTP or `gh` exit code but never the token, and `--check` still passes. `REQUEST CHANGES` shows as a red check although nothing requires it. Statuses refresh only on sync, posting handoffs and a reviewer's notify, so they lag a bare `git push` until the next one. Set `commit_statuses: false` in [`.agents/ateam.json`](#team-settings) to turn all of this off for the team, or `ATEAM_COMMIT_STATUSES=0` (or `1`) to override that on one machine.
 
 ## Team settings
 
