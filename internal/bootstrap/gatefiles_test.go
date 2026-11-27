@@ -20,9 +20,32 @@ case "$*" in
   "api --paginate repos/{owner}/{repo}/issues/7/comments?per_page=100") key=comments ;;
   *) echo "fake gh: unexpected call: $*" >&2; exit 3 ;;
 esac
-if [ -e "$d/$key.fail" ]; then echo "HTTP 502 (fake)" >&2; exit 1; fi
+echo "$*" >> "$d/$key.calls"
+if [ -e "$d/$key.fail" ]; then
+  # An empty .fail fails every call; one holding n fails the next n calls,
+  # printing a partial page first as a failed --paginate run can (#441).
+  n=$(cat "$d/$key.fail")
+  if [ -z "$n" ] || [ "$n" -gt 0 ]; then
+    [ -n "$n" ] && echo $((n - 1)) > "$d/$key.fail"
+    printf '[{"filename":"partial/page.md"}]'
+    echo "gh: Server Error: Sorry, this diff is temporarily unavailable due to heavy server load. (HTTP 500)" >&2
+    exit 1
+  fi
+fi
 cat "$d/$key.txt"
 `
+
+// gateCalls fails unless the fake forge served key exactly want times (#441).
+func gateCalls(t *testing.T, d, key string, want int) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(d, key+".calls"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(b), "\n"); got != want {
+		t.Fatalf("read %s attempted %d times, want %d:\n%s", key, got, want, b)
+	}
+}
 
 // gateHead is the live head of the fake pull request; gateOld is an earlier commit (#319).
 const (
@@ -95,6 +118,8 @@ func TestGateFilesCheck(t *testing.T) {
 		labels   string
 		comments string // issue comments JSON; empty means none
 		failRead string
+		failN    string // .fail contents: "" fails every attempt, "2" fails two
+		calls    int    // when set, the failRead read's attempts
 		wantCode int
 		wantOut  string
 	}{
@@ -120,7 +145,9 @@ func TestGateFilesCheck(t *testing.T) {
 		{name: "comments read fails", files: names("scripts/merge-check.sh"), reported: -1, labels: "gate-change-approved\n", failRead: "comments", wantCode: 2, wantOut: "could not read the comments"},
 		{name: "label name must match exactly", files: names("scripts/merge-check.sh"), reported: -1, labels: "not-gate-change-approved\n", wantCode: 1, wantOut: "waits for the owner"},
 		{name: "pull read fails", files: names("README.md"), reported: -1, failRead: "pull", wantCode: 2, wantOut: "could not read pull request"},
-		{name: "files read fails", files: names("README.md"), reported: -1, failRead: "files", wantCode: 2, wantOut: "could not read the changed files"},
+		{name: "files read fails", files: names("README.md"), reported: -1, failRead: "files", calls: 4, wantCode: 2, wantOut: "could not read the changed files"},
+		{name: "files read fails twice then answers", files: names("README.md"), reported: -1, failRead: "files", failN: "2", calls: 3, wantOut: "touches no gate file"},
+		{name: "a retried read keeps its verdict", files: names("scripts/merge-check.sh"), reported: -1, labels: "gate-change-approved\n", comments: approvalAt(t, gateOld), failRead: "comments", failN: "3", calls: 4, wantCode: 1, wantOut: "covers " + gateOld},
 		{name: "labels read fails", files: names("internal/review/x.go"), reported: -1, failRead: "labels", wantCode: 2, wantOut: "could not read the labels"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -148,13 +175,13 @@ func TestGateFilesCheck(t *testing.T) {
 				}
 			}
 			if tc.failRead != "" {
-				if err := os.WriteFile(filepath.Join(d, tc.failRead+".fail"), nil, 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(d, tc.failRead+".fail"), []byte(tc.failN), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
 			root := copyScript(t, "gate-files.sh")
 			cmd := exec.Command(filepath.Join(root, "scripts", "gate-files.sh"), "7")
-			cmd.Env = fakeBin(t, map[string]string{"gh": fakeGateGH}, "FAKE_GH_DIR="+d)
+			cmd.Env = fakeBin(t, map[string]string{"gh": fakeGateGH}, "FAKE_GH_DIR="+d, "ATEAM_GATE_RETRY_WAITS=0 0 0")
 			out, err := cmd.CombinedOutput()
 			code := 0
 			if ee, ok := err.(*exec.ExitError); ok {
@@ -164,6 +191,9 @@ func TestGateFilesCheck(t *testing.T) {
 			}
 			if code != tc.wantCode || !strings.Contains(string(out), tc.wantOut) {
 				t.Fatalf("gate-files.sh exit %d, want %d with %q:\n%s", code, tc.wantCode, tc.wantOut, out)
+			}
+			if tc.calls > 0 {
+				gateCalls(t, d, tc.failRead, tc.calls)
 			}
 		})
 	}
@@ -301,7 +331,15 @@ case "$url" in
   "https://gitea.example.test/api/v1/repos/acme/widgets/issues/7/comments") key=comments ;;
   *) echo "fake curl: unexpected call: $*" >&2; exit 3 ;;
 esac
-if [ -e "$d/$key.fail" ]; then echo "curl: (22) The requested URL returned error: 502" >&2; exit 22; fi
+echo "$url" >> "$d/$key.calls"
+if [ -e "$d/$key.fail" ]; then
+  n=$(cat "$d/$key.fail")
+  if [ -z "$n" ] || [ "$n" -gt 0 ]; then
+    [ -n "$n" ] && echo $((n - 1)) > "$d/$key.fail"
+    echo "curl: (22) The requested URL returned error: 500" >&2
+    exit 22
+  fi
+fi
 cat "$d/$key.txt"
 `
 
@@ -321,6 +359,8 @@ func TestGateFilesCheckGitea(t *testing.T) {
 		labels   []string
 		comments string // issue comments JSON; empty means none
 		failRead string
+		failN    string // .fail contents: "" fails every attempt, "2" fails two
+		calls    int    // when set, the failRead read's attempts
 		wantCode int
 		wantOut  string
 	}{
@@ -333,7 +373,9 @@ func TestGateFilesCheckGitea(t *testing.T) {
 		{name: "label without an approval comment", files: names("internal/review/gate.go"), reported: -1, labels: []string{"gate-change-approved"}, wantCode: 1, wantOut: "no 'gate-change-approved: <sha>' comment"},
 		{name: "comments read fails", files: names("internal/review/gate.go"), reported: -1, labels: []string{"gate-change-approved"}, failRead: "comments", wantCode: 2, wantOut: "could not read the comments"},
 		{name: "pull read fails", files: names("README.md"), reported: -1, failRead: "pull", wantCode: 2, wantOut: "could not read pull request"},
-		{name: "files read fails", files: names("README.md"), reported: -1, failRead: "files-1", wantCode: 2, wantOut: "could not read the changed files"},
+		{name: "files read fails", files: names("README.md"), reported: -1, failRead: "files-1", calls: 4, wantCode: 2, wantOut: "could not read the changed files"},
+		{name: "a later files page fails twice then answers", files: many, reported: -1, failRead: "files-2", failN: "2", calls: 3, wantCode: 1, wantOut: ".gitea/workflows/ci.yml"},
+		{name: "pull read fails three times then answers", files: names("README.md"), reported: -1, failRead: "pull", failN: "3", calls: 4, wantOut: "touches no gate file"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := t.TempDir()
@@ -364,12 +406,12 @@ func TestGateFilesCheckGitea(t *testing.T) {
 				write(fmt.Sprintf("files-%d.txt", page+1), gatePages(t, tc.files[page*50:min(page*50+50, len(tc.files))]))
 			}
 			if tc.failRead != "" {
-				write(tc.failRead+".fail", "")
+				write(tc.failRead+".fail", tc.failN)
 			}
 			root := copyScript(t, "gate-files.sh")
 			cmd := exec.Command(filepath.Join(root, "scripts", "gate-files.sh"), "7")
 			cmd.Env = fakeBin(t, map[string]string{"curl": fakeGateCurl, "gh": "#!/bin/sh\necho 'gh must not run on Gitea' >&2; exit 3\n"},
-				"FAKE_GH_DIR="+d, "ATEAM_FORGE=gitea", "GITHUB_SERVER_URL=https://gitea.example.test/", "GITHUB_REPOSITORY=acme/widgets", "GITEA_TOKEN=gitea-test-token")
+				"FAKE_GH_DIR="+d, "ATEAM_GATE_RETRY_WAITS=0 0 0", "ATEAM_FORGE=gitea", "GITHUB_SERVER_URL=https://gitea.example.test/", "GITHUB_REPOSITORY=acme/widgets", "GITEA_TOKEN=gitea-test-token")
 			out, err := cmd.CombinedOutput()
 			code := 0
 			if ee, ok := err.(*exec.ExitError); ok {
@@ -380,6 +422,63 @@ func TestGateFilesCheckGitea(t *testing.T) {
 			if code != tc.wantCode || !strings.Contains(string(out), tc.wantOut) {
 				t.Fatalf("gate-files.sh exit %d, want %d with %q:\n%s", code, tc.wantCode, tc.wantOut, out)
 			}
+			if tc.calls > 0 {
+				gateCalls(t, d, tc.failRead, tc.calls)
+			}
 		})
+	}
+}
+
+// spec: harness / Gate reads retry transient forge failures
+func TestProbeStepPrintsGateOutput(t *testing.T) {
+	// #441: under the step's bash -e a bare out=$(…) ended the step before the
+	// gate's "unavailable" line reached the log. Run each forge's probe step as
+	// Actions does and check the line is printed and the status kept.
+	for _, forge := range []string{".github", ".gitea"} {
+		data, err := os.ReadFile(filepath.Join(repoRoot(t), forge, "workflows", "merge-check.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wf, err := parseCIWorkflowYAML(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var run string
+		for _, st := range wf.Jobs["awaiting"].Steps {
+			if st.ID == "probe" {
+				run = st.Run
+			}
+		}
+		if run == "" {
+			t.Fatalf("%s merge-check.yml: no probe step", forge)
+		}
+		for _, tc := range []struct {
+			name, gate, output string
+			code               int
+		}{
+			{name: "unavailable", gate: "echo 'merge-check: unavailable: the read of x failed'; exit 2", code: 2},
+			{name: "answer", gate: "echo 'merge-check: forge=github'; echo awaiting=true", output: "awaiting=true\n"},
+		} {
+			dir := t.TempDir()
+			ateam := filepath.Join(dir, "ateam")
+			if err := os.WriteFile(ateam, []byte("#!/bin/sh\n"+tc.gate+"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			outputs := filepath.Join(dir, "output")
+			cmd := exec.Command("bash", "-e", "-c", run)
+			cmd.Env = append(os.Environ(), "ATEAM="+ateam, "PR_NUMBER=7", "GITHUB_OUTPUT="+outputs)
+			out, err := cmd.CombinedOutput()
+			code := 0
+			if ee, ok := err.(*exec.ExitError); ok {
+				code = ee.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			first := strings.SplitN(tc.gate, "'", 3)[1]
+			got, _ := os.ReadFile(outputs)
+			if code != tc.code || !strings.Contains(string(out), first) || string(got) != tc.output {
+				t.Errorf("%s probe %s: exit %d (want %d), GITHUB_OUTPUT %q (want %q), log:\n%s", forge, tc.name, code, tc.code, got, tc.output, out)
+			}
+		}
 	}
 }
