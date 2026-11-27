@@ -593,3 +593,70 @@ func TestRereviewPrintedCommandsRun(t *testing.T) {
 		})
 	}
 }
+
+// spec: model-review / Owner decision after the third rejecting review
+func TestReviewRequestRoundsStop(t *testing.T) {
+	const prHead = "fedcba9876543210fedcba9876543210fedcba98"
+	prev := readPullBody
+	readPullBody = func(context.Context, string, int) (string, string, error) { return "", prHead, nil }
+	defer func() { readPullBody = prev }()
+	manifest := "[launch]\ncommand = [\"hostctl\", \"start\", \"{agent}\", \"{return_to}\"]\n[notify]\ncommand = [\"hostctl\", \"send\", \"{return_to}\"]\n"
+	reject := func(sha string) state.ReviewRound {
+		return state.ReviewRound{RecordComment: review.RecordComment{SHA: sha, Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "xhigh"},
+			URL: "https://forge.test/pr/42#" + sha}
+	}
+	shas := []string{"1111111", "2222222", "3333333", "4444444"}
+	for _, tc := range []struct {
+		name       string
+		rejections int
+		allowed    int
+		args       []string
+		stopLine   string
+	}{
+		{"two pass", 2, 0, nil, ""},
+		{"third stops", 3, 0, nil, "review-rounds-continue: 3"},
+		{"decision lifts one round", 3, 3, nil, ""},
+		{"fourth stops again", 4, 3, nil, "review-rounds-continue: 4"},
+		{"same-session stops too", 3, 0, []string{"--reviewer-session", "conv-7"}, "review-rounds-continue: 3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeLaunchFile(t, root, ".agents/review-policy.json", `{"version":1,"review_launch":"agent",`+launchTiers+`}`)
+			writeLaunchFile(t, root, ".agents/hosts/fake.toml", manifest)
+			card := state.BoardCard{ID: "GH-PR-42", Number: 42, Type: "pr", HeadSHA: prHead, RoundsContinue: tc.allowed}
+			for _, sha := range shas[:tc.rejections] {
+				card.Rejections = append(card.Rejections, reject(sha))
+			}
+			last := card.Rejections[len(card.Rejections)-1].RecordComment
+			card.Review = &last
+			data, err := json.Marshal(state.State{Cards: []state.BoardCard{card}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeLaunchFile(t, root, ".ateam/state.json", string(data))
+			rec := &recorder{}
+			var out bytes.Buffer
+			args := append(append([]string{"--implementer", "claude:opus:high", "--return-to", "impl-1"}, tc.args...), "42")
+			code, stderr := captureBenchError(t, func() int {
+				return reviewRequest(context.Background(), root, args, envOf(map[string]string{"ATEAM_HOST": "fake"}), &out, rec.run)
+			})
+			if tc.stopLine == "" {
+				if code != 0 || len(rec.calls) != 1 {
+					t.Fatalf("exit %d, calls %q, stderr %q; want the launch to run", code, rec.calls, stderr)
+				}
+				return
+			}
+			if code != 2 || len(rec.calls) != 0 || out.Len() != 0 {
+				t.Fatalf("exit %d, calls %q, output %q; want 2 with nothing run or printed", code, rec.calls, out.String())
+			}
+			if !strings.Contains(stderr, "\n"+tc.stopLine+"\n") || !strings.Contains(stderr, prHead) {
+				t.Fatalf("stderr %q; want the line %q on its own and the head", stderr, tc.stopLine)
+			}
+			for _, sha := range shas[:tc.rejections] {
+				if !strings.Contains(stderr, "at "+sha+" by codex (gpt-6-astra, xhigh) https://forge.test/pr/42#"+sha) {
+					t.Fatalf("stderr %q; want rejection %s with its reviewer and link", stderr, sha)
+				}
+			}
+		})
+	}
+}

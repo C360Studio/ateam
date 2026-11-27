@@ -169,6 +169,10 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 		fmt.Fprintln(os.Stderr, "ateam review: --reviewer-session must be 1 to 128 of A-Z a-z 0-9 . _ : -")
 		return 2
 	}
+	if why := roundsStop(cachedCard(root, pr)); why != "" {
+		fmt.Fprintln(os.Stderr, "ateam review: "+why)
+		return 2
+	}
 	var policy review.Policy
 	data, err := readReviewFile(filepath.Join(root, ".agents", "review-policy.json"))
 	switch {
@@ -319,16 +323,46 @@ func rereview(ctx context.Context, root string, spec *launchSpec, policy review.
 // cachedRecord is the newest review record the last ateam state sync cached
 // for the pull request, or nil.
 func cachedRecord(root string, pr int) *review.RecordComment {
+	if c := cachedCard(root, pr); c != nil {
+		return c.Review
+	}
+	return nil
+}
+
+// cachedCard is the PR's card in the sync cache, or nil.
+func cachedCard(root string, pr int) *state.BoardCard {
 	st, err := state.Load(root)
 	if err != nil {
 		return nil
 	}
-	for _, c := range st.Cards {
-		if c.Type == "pr" && c.Number == pr && c.Review != nil {
-			return c.Review
+	for i, c := range st.Cards {
+		if c.Type == "pr" && c.Number == pr {
+			return &st.Cards[i]
 		}
 	}
 	return nil
+}
+
+// roundsStop says why another review round waits for the owner, or returns "": the last sync read three or more
+// REQUEST CHANGES records on the PR and no review-rounds-continue: line naming that count (#411). It reads the cache,
+// so a round requested before the sync that reads the third record still runs; the coordinator's own stop covers it.
+func roundsStop(c *state.BoardCard) string {
+	if c == nil || len(c.Rejections) < 3 || c.RoundsContinue == len(c.Rejections) {
+		return ""
+	}
+	n := len(c.Rejections)
+	var b strings.Builder
+	fmt.Fprintf(&b, "PR #%d has %d REQUEST CHANGES records, so the next review round waits for the owner's decision; to allow one more round, the owner, or a judge the coordinator started, posts this line in a PR comment:\n%s %d\n",
+		c.Number, n, state.RoundsContinuePrefix, n)
+	for i, r := range c.Rejections {
+		who := cmp.Or(r.Agent, "unnamed agent")
+		if r.Model != "" {
+			who += " (" + r.Model + ", " + cmp.Or(r.Effort, "no effort") + ")"
+		}
+		fmt.Fprintf(&b, "  REQUEST CHANGES %d: at %s by %s %s\n", i+1, r.SHA, who, r.URL)
+	}
+	fmt.Fprintf(&b, "  PR head at the last sync: %s", cmp.Or(c.HeadSHA, "unknown"))
+	return b.String()
 }
 
 // chooseReviewer is the --reviewer run, else the first eligible one, refused
