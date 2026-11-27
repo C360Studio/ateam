@@ -1,5 +1,5 @@
 # Proposal: archive-after-approval-412
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-27) sha256:648da44c7e60
 
 ## Track
 

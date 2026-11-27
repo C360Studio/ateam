@@ -2,8 +2,7 @@
 
 ## 1. Approval
 
-- [ ] 1.1 Owner approves the proposal.
-  Hold: OPEN-Q proposal awaits owner approval
+- [x] 1.1 Owner approves the proposal (`Approved-by: Coby Leuschke (2026-11-27) sha256:648da44c7e60`).
 
 ## 2. Implementation
 
