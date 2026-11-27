@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -349,6 +351,84 @@ func TestStateHandoffPostOutcome(t *testing.T) {
 		calls := f.apiCalls(t)
 		if len(calls) != 2 || !strings.Contains(calls[1], "|target_url=https://github.com/o/r/pull/7#issuecomment-41") {
 			t.Fatalf("gh api calls = %q, want a status linking the existing comment", calls)
+		}
+	})
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+func TestReviewNotifySetsRecordStatus(t *testing.T) {
+	// notify runs in the reviewer's checkout of the PR; the expected status is the D3 row for a record at the head.
+	notify := func(t *testing.T, f statusFixture, record string, args ...string) (int, string, string) {
+		t.Helper()
+		writeLaunchFile(t, f.wt, ".agents/hosts/toolhost.toml", "[notify]\ntool = \"call send_message to {return_to}\"\n")
+		writeLaunchFile(t, f.wt, "record.md", record)
+		var out bytes.Buffer
+		code, stderr := captureBenchError(t, func() int {
+			return reviewNotify(context.Background(), f.wt, append(args, "7"), envOf(map[string]string{"ATEAM_HOST": "toolhost"}), &out, (&recorder{}).run)
+		})
+		return code, out.String(), stderr
+	}
+	recordAt := func(f statusFixture, verdict string) string {
+		return "reviewed-by: codex (gpt-6-astra, xhigh)\nReviewed at " + f.head[:7] + "\nVerdict: " + verdict + "\n"
+	}
+	posted := func(f statusFixture, state, desc string) string {
+		return "|api|-X|POST|repos/o/r/statuses/" + f.head + "|-f|state=" + state + "|-f|context=ateam/review-record|-f|description=" + desc
+	}
+	posts := func(t *testing.T, f statusFixture) []string {
+		t.Helper()
+		var out []string
+		for _, c := range f.apiCalls(t) {
+			if strings.Contains(c, "|POST|") {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+
+	for _, tc := range []struct{ verdict, state string }{{"APPROVE", "success"}, {"REQUEST CHANGES", "failure"}} {
+		t.Run(tc.verdict, func(t *testing.T) {
+			f := newStatusFixture(t, `{"statuses":[]}`)
+			code, out, stderr := notify(t, f, recordAt(f, tc.verdict), "--record", filepath.Join(f.wt, "record.md"), "--return-to", "impl-1")
+			if code != 0 || stderr != "" || !strings.HasPrefix(out, "notify: call send_message to impl-1; message: review record for PR #7 landed at "+f.head[:7]) {
+				t.Fatalf("notify = %d, stdout %q, stderr %q; want 0, the tool line, silent", code, out, stderr)
+			}
+			want := []string{posted(f, tc.state, tc.verdict+" self-reported by codex (gpt-6-astra, xhigh) at "+f.head[:7])}
+			if got := posts(t, f); !reflect.DeepEqual(got, want) {
+				t.Fatalf("status writes =\n%q\nwant\n%q", got, want)
+			}
+		})
+	}
+
+	t.Run("disabled", func(t *testing.T) {
+		f := newStatusFixture(t, `{"statuses":[]}`)
+		t.Setenv("ATEAM_COMMIT_STATUSES", "0")
+		if code, _, _ := notify(t, f, recordAt(f, "APPROVE"), "--record", filepath.Join(f.wt, "record.md"), "--return-to", "impl-1"); code != 0 {
+			t.Fatalf("notify = %d, want 0", code)
+		}
+		if got := f.apiCalls(t); len(got) != 0 {
+			t.Fatalf("disabled statuses still called gh api: %q", got)
+		}
+	})
+
+	t.Run("decline", func(t *testing.T) {
+		f := newStatusFixture(t, `{"statuses":[]}`)
+		if code, _, _ := notify(t, f, recordAt(f, "APPROVE"), "--decline", "--return-to", "impl-1"); code != 0 {
+			t.Fatalf("notify --decline = %d, want 0", code)
+		}
+		if got := f.apiCalls(t); len(got) != 0 {
+			t.Fatalf("decline called gh api: %q", got)
+		}
+	})
+
+	t.Run("write rejected", func(t *testing.T) {
+		f := newStatusFixture(t, `{"statuses":[]}`)
+		t.Setenv("FAKE_POST_EXIT", "4")
+		code, out, stderr := notify(t, f, recordAt(f, "APPROVE"), "--record", filepath.Join(f.wt, "record.md"), "--return-to", "impl-1")
+		if code != 0 || !strings.HasPrefix(out, "notify: call send_message to impl-1;") {
+			t.Fatalf("notify = %d, stdout %q; want 0 and the message still printed", code, out)
+		}
+		if want := "ateam review: notify: warning: commit status: ateam/review-record on " + f.head[:7] + ": gh exit 4 (posted 0, unchanged 0, errors 1)\n"; stderr != want {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
 		}
 	})
 }

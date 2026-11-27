@@ -444,6 +444,7 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 		}
 		sha = rec.SHA
 		msg = notifyText(pr, sha, session, target)
+		publishRecordStatus(ctx, root, rec)
 	}
 	if host == "cli" {
 		if target == "" {
@@ -475,6 +476,26 @@ func reviewNotify(ctx context.Context, root string, args []string, getenv func(s
 		fmt.Fprintf(out, "notify: host %s has no notify in .agents/hosts/%s.toml; send %q to %q\n", host, host, msg, target)
 	}
 	return 0
+}
+
+// publishRecordStatus sets ateam/review-record on the reviewed commit (#414), so the PR shows the verdict even when
+// auto-merge lands before the author's next sync. It is informational: a failure is one warning, and the notify still
+// goes out with its usual exit code.
+func publishRecordStatus(ctx context.Context, root string, rec review.RecordComment) {
+	if !state.CommitStatusesEnabled(root) {
+		return
+	}
+	st, err := state.Refresh(ctx, root, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ateam review: notify: warning: commit status: %v\n", err)
+		return
+	}
+	if st.Forge.Provider != state.ForgeGitHub && st.Forge.Provider != state.ForgeGitea {
+		return
+	}
+	if res, err := state.RecordCommitStatus(ctx, root, st.Forge, rec); err != nil {
+		fmt.Fprintf(os.Stderr, "ateam review: notify: warning: commit status: %v (%s)\n", err, res)
+	}
 }
 
 // hostManifestList is " (one of: a, b)" naming the hosts with a manifest in

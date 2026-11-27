@@ -102,6 +102,10 @@ func TestChooseStatusesD3Table(t *testing.T) {
 			want: []CommitStatus{{Context: "ateam/review-record", State: "pending", Description: "record at abc1234 has no single verdict", TargetURL: prURL}}},
 		{name: "record: no verdict", ctx: StatusContextRecord, in: statusInputs{Record: rec("abc1234", "")},
 			want: []CommitStatus{{Context: "ateam/review-record", State: "pending", Description: "record at abc1234 has no single verdict", TargetURL: prURL}}},
+		{name: "record: behind head, later commits pass the gate", ctx: StatusContextRecord, in: statusInputs{Record: rec("0123456", "APPROVE"), RecordCurrent: true},
+			want: []CommitStatus{{Context: "ateam/review-record", State: "success", Description: "APPROVE self-reported by codex (gpt-6-astra, xhigh) at 0123456, current at head abc1234", TargetURL: prURL}}},
+		{name: "record: REQUEST CHANGES carries over", ctx: StatusContextRecord, in: statusInputs{Record: rec("0123456", "REQUEST CHANGES"), RecordCurrent: true},
+			want: []CommitStatus{{Context: "ateam/review-record", State: "failure", Description: "REQUEST CHANGES self-reported by codex (gpt-6-astra, xhigh) at 0123456, current at head abc1234", TargetURL: prURL}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.in.HeadSHA = headFull
@@ -162,6 +166,97 @@ const (
 )
 
 // spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+// spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
+func TestRecordStillCurrent(t *testing.T) {
+	// The expected answers are the GitHub merge gate's later-commit rule (protocol § 4): a docs-only non-merge commit
+	// or a merge of main touching none of the PR's files keeps a record; anything else needs a new review.
+	const libGo = "package lib\n\n// a\n\n// b\n\n// c\n"
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-q", "-b", "main")
+	writeRepoFile(t, repo, "README.md", "# r\n")
+	writeRepoFile(t, repo, "lib.go", libGo)
+	gitIn(t, repo, "add", "-A")
+	gitIn(t, repo, "commit", "-q", "-m", "init")
+	gitIn(t, repo, "update-ref", "refs/remotes/origin/main", "main")
+	commit := func(msg string, files map[string]string) string {
+		for rel, body := range files {
+			writeRepoFile(t, repo, rel, body)
+		}
+		gitIn(t, repo, "add", "-A")
+		gitIn(t, repo, "commit", "-q", "-m", msg)
+		return gitIn(t, repo, "rev-parse", "HEAD")
+	}
+	// mainAdvances moves main (and origin/main) by one commit and returns to branch.
+	mainAdvances := func(branch, rel, body string) {
+		gitIn(t, repo, "checkout", "-q", "main")
+		commit("main moves", map[string]string{rel: body})
+		gitIn(t, repo, "update-ref", "refs/remotes/origin/main", "main")
+		gitIn(t, repo, "checkout", "-q", branch)
+	}
+	// pr starts a branch from main with one reviewed code commit and returns its sha.
+	pr := func(name string) string {
+		gitIn(t, repo, "checkout", "-q", "-b", name, "main")
+		return commit("feat "+name, map[string]string{"feat_" + name + ".go": "package lib\n"})
+	}
+
+	pr("docs")
+	docsRec := commit("change", map[string]string{"openspec/changes/x/proposal.md": "# p\n"})
+	gitIn(t, repo, "mv", "openspec/changes/x", "openspec/changes/archive")
+	commit("archive", map[string]string{"openspec/changes/archive/x/notes.yaml": "a: 1\n"})
+	docsHead := commit("docs", map[string]string{"docs/guide.md": "# g\n"})
+
+	codeRec := pr("code")
+	codeHead := commit("code after record", map[string]string{"lib.go": "package lib // changed\n"})
+
+	agentsRec := pr("agents")
+	agentsHead := commit("reviewer contract", map[string]string{".agents/contracts/reviewer.md": "# c\n"})
+
+	cleanRec := pr("clean")
+	mainAdvances("clean", "other.go", "package lib\n")
+	gitIn(t, repo, "merge", "-q", "--no-ff", "-m", "Merge branch 'main' into clean", "main")
+	cleanHead := gitIn(t, repo, "rev-parse", "HEAD")
+
+	pr("dirty")
+	dirtyRec := commit("pr edits lib.go", map[string]string{"lib.go": strings.Replace(libGo, "// a", "// a pr", 1)})
+	mainAdvances("dirty", "lib.go", strings.Replace(libGo, "// c", "// c main", 1))
+	gitIn(t, repo, "merge", "-q", "--no-ff", "-m", "Merge branch 'main' into dirty", "main")
+	dirtyHead := gitIn(t, repo, "rev-parse", "HEAD")
+
+	otherRec := pr("other")
+	gitIn(t, repo, "checkout", "-q", "-b", "side", "main")
+	commit("side", map[string]string{"side.md": "# s\n"})
+	gitIn(t, repo, "checkout", "-q", "other")
+	gitIn(t, repo, "merge", "-q", "--no-ff", "-m", "Merge branch 'side' into other", "side")
+	otherHead := gitIn(t, repo, "rev-parse", "HEAD")
+
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name         string
+		record, head string
+		baseRef      string
+		provider     ForgeProvider
+		want         bool
+	}{
+		{"docs-only commits, a rename into archive included", docsRec, docsHead, "origin/main", ForgeGitHub, true},
+		{"short record sha", docsRec[:7], docsHead, "origin/main", ForgeGitHub, true},
+		{"code commit after the record", codeRec, codeHead, "origin/main", ForgeGitHub, false},
+		{"markdown under the reviewer's contracts is code", agentsRec, agentsHead, "origin/main", ForgeGitHub, false},
+		{"clean merge of main", cleanRec, cleanHead, "origin/main", ForgeGitHub, true},
+		{"merge of main touching a PR file", dirtyRec, dirtyHead, "origin/main", ForgeGitHub, false},
+		{"merge of a branch that is not main", otherRec, otherHead, "origin/main", ForgeGitHub, false},
+		{"record missing from the checkout", "0123456789abcdef0123456789abcdef01234567", docsHead, "origin/main", ForgeGitHub, false},
+		{"record not an ancestor of head", codeHead, docsHead, "origin/main", ForgeGitHub, false},
+		{"no base ref", docsRec, docsHead, "", ForgeGitHub, false},
+		{"Gitea wants a new review after any commit", docsRec, docsHead, "origin/main", ForgeGitea, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := recordStillCurrent(ctx, tc.provider, repo, tc.baseRef, tc.record, tc.head); got != tc.want {
+				t.Fatalf("recordStillCurrent = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestTouchedChangesAtHead(t *testing.T) {
 	repo := t.TempDir()
 	gitIn(t, repo, "init", "-q", "-b", "main")
