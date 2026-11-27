@@ -101,14 +101,22 @@ func TestInitShipsJudgeContract(t *testing.T) {
 			"Never write a review record or turn a rejection into an approval",
 			"Never apply `gate-change-approved`, tag or release",
 			"comment on each issue you move with the old and new line",
+			// status-label-route-443 D1-D4.
+			"put your answer on a line starting `Ruling:` in your comment, and remove that label",
+			"quote each one's state in your comment, and only then remove that label; if one is still open, answer \"cannot decide\"",
+			"Never add a label, and never remove one you were not asked about: `gate-change-approved` and `class:flake` stay the owner's.",
 		},
 		".agents/contracts/coordinator.md": {
 			"A change touching a gate file and a release still stop for the owner.",
+			"an issue labelled `status:needs-decision`, and an issue labelled `status:blocked` that `ateam state queue-check` reports with every `Depends on:` issue closed.",
+			"Any other `status:blocked` issue stays an owner gate and does not end the run.",
 			"run `ateam review compare --implementer <agent:model:effort>` for each run it rules on with `--reviewer <the judge run>`",
 			"End the run and hand back to the owner when a judge answers \"cannot decide\", `main` CI goes red, a unit touches a gate file, or the milestone you started on is finished.",
 		},
 		".agents/skills/coordinate/SKILL.md": {
 			"the developer run fixes the findings it rules blocking and files the rest as follow-up issues, then request a fresh review",
+			"or a status-labelled issue's number with its `ateam state queue-check` finding)",
+			"After a judge removes a status label, run `ateam state sync`, so `ateam state next` can name the issue.",
 		},
 	} {
 		body := read(dir, rel)
