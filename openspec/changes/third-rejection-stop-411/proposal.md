@@ -1,5 +1,5 @@
 # Proposal: third-rejection-stop-411
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-27) sha256:dc517106367f
 
 ## Track
 
