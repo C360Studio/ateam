@@ -12,8 +12,8 @@
 - [x] 2.4 Developer contract: arm only on the coordinator's message, catch up by a merge of `main`, hand off `ready` if that merge needs a new record (premise: no arming rule, `.agents/contracts/developer.md:7`, `internal/bootstrap/review.go:23`; clean-merge rule `internal/review/gate.go:801`). Accept: byte parity in `TestCanonicalReviewContracts`.
 - [x] 2.5 `.agents/protocol.md:45` (§ 2 step 5): one sentence sending a coordinated run to the coordinator's message before arming, as its own sentence so the Close wording `wording_test.go:36` pins stays whole; `protocolCloseStep` (`templates.go:726`) carries it. Accept: `TestInitRepoAndParitySensitivity` and `ateam doctor --check`.
 - [x] 2.6 Harness spec ADDED *Coordinator merge plan*; shipped-text test in `internal/bootstrap/coordinator_test.go` citing it, each template literal shown `detection` with `task mutate:check` (`templates.go` "Release one approved PR at a time" and `review.go` "arm auto-merge only when its message tells you to": both `detection`).
-- [ ] 2.7 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
+- [x] 2.7 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
 
 ## 3. Close
 
-- [ ] 3.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
+- [x] 3.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
