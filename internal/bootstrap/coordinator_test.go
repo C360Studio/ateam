@@ -268,3 +268,36 @@ func TestInitShipsOwnerMessageRoutes(t *testing.T) {
 		t.Error("shipped coordinator contract still counts every message that covers a pull request")
 	}
 }
+
+// spec: harness / Optional coordinator role
+func TestInitShipsWakeUpReasons(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitRepo(context.Background(), dir, Options{}); err != nil {
+		t.Fatalf("InitRepo: %v", err)
+	}
+	// Literals from the approved proposal wake-up-reasons-448: six reasons,
+	// a claimed signal, design-track questions, and the duplicate rule.
+	for rel, want := range map[string][]string{
+		".agents/skills/coordinate/SKILL.md": {
+			"Once your draft PR is open, and after every handoff, send 'developer handoff for #<n> (<reason>);",
+			"where <reason> is claimed when the draft PR opens, ready at ready-for-review, blocked at a blocker or owner gate, question when you posted a question on the PR or in design.md, holding when you wait on the coordinator with no owner action, or closed once the PR has merged and your worktree is removed.",
+			"A wake-up whose handoff you have already read, because it arrived late or twice, is acknowledged in one line and nothing else",
+			"read the question from the PR comment or `design.md` section its handoff names.",
+		},
+		".agents/contracts/developer.md": {
+			"on the design track, put the proposal's open questions in `design.md` § Open Questions instead",
+			"naming that comment or section as the blocker",
+			"hand off with the reason `holding`, which asks the owner nothing.",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
+	}
+}
