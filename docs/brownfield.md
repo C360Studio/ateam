@@ -8,7 +8,10 @@ integration) are in the [adoption guide](adoption.md); read them first. A Cargo 
 
 Every output below was recorded on the v0.3.2 candidate (`eeda39d`, the commit that landed this guide; the adopter
 checks from #158, #159 and #152 are in it) against a scratch repository: a hand-written `AGENTS.md` and `CLAUDE.md`, a
-`.claude/settings.json` with one permission and one `SessionStart` hook, and a one-task `Taskfile.yml`.
+`.claude/settings.json` with one permission and one `SessionStart` hook, and a one-task `Taskfile.yml`. Later releases
+add checks, so expect extra lines: `ateam doctor --check` now also fails when `Taskfile.yml` is missing or has no
+`verify` target (#415), and warns about a relative hook or MCP command path (#378). The counts below are from the
+original run.
 
 ## 1. Install the binary
 
@@ -16,11 +19,15 @@ Releases carry no binary assets yet. Install a tag with Go alone, as in the
 [README](../README.md#install-a-release-adopters), put the binary on the PATH of your agents, and check it:
 
 ```bash
-go install github.com/c360studio/ateam/cmd/ateam@v0.3.9
-ateam version   # ateam v0.3.9 (module)
+go install github.com/c360studio/ateam/cmd/ateam@v0.4.7
+ateam version   # ateam v0.4.7 (module)
 ```
 
-Do not install `v0.3.1` or earlier: they predate the adopter checks this guide describes. `(module)` means a `go install` of a tag; such a binary has every command and hook but an empty board UI, so build from source as in the [README](../README.md#build-from-source) if you need `ateam serve`'s board. When this repository pins a different release from another one on the same machine, install into a repository-local `GOBIN`, point the hook commands at it, and declare the release as `ateam_version` in `.agents/ateam.json` so `ateam doctor` fails when a binary drifts from it, as the README describes; `ateam init` writes a bare `ateam`, which runs the one on `PATH`.
+Do not install `v0.3.1` or earlier: they predate the adopter checks this guide describes. A `(module)` binary has every
+command and hook but an empty board UI, so [build from source](../README.md#build-from-source) if you need `ateam serve`'s
+board. To run a different release here than elsewhere on the machine, follow
+[pinning a release](adoption.md#pinning-a-release-per-repository); `ateam init` writes a bare `ateam`, which runs the one
+on `PATH`.
 
 A source build takes its release from the build, not from the source. `task build` stamps `git describe`, so a tag checkout prints the tag and a later commit prints `<tag>-<n>-g<commit>`. A plain `go build` prints the version Go embeds from git, which can be the parent checkout's inside a linked worktree, or `dev` without git data. Use `task build`. A smoke pass qualifies a release candidate only when `ateam doctor` shows `hook_binary`, `disk_build`, and `head_commit` at the candidate commit, because the hooks run the `ateam` their hook command names (a bare `ateam` resolves on `PATH`), not `./bin/ateam`.
 
@@ -31,7 +38,7 @@ cd your-repo
 ateam init
 ```
 
-Init adds only what is missing: the `.agents/` tree (protocol, rules index, six skills, contracts), the
+Init adds only what is missing: the `.agents/` tree (protocol, rules index, seven skills, five contracts), the
 `.claude/skills` and `.gemini/commands` adapters, `openspec/`, and any of `.mcp.json`, `.codex/` and `.gemini/settings.json` you do not
 have. It appends four lines to `.gitignore` (`.ateam/`, `.worktrees/`, `.enjoy-logs/`, `benchmarks/runs/`). Your
 `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json` and `Taskfile.yml` stay byte-for-byte unchanged, and `backed_up` in
@@ -44,8 +51,8 @@ configuration is never replaced, so `--force` resolves none of the violations be
 ### Existing specialist contracts
 
 Your repository may already keep role contracts under `.agents/contracts/` with its own names (`go-developer.md`,
-`acme-reviewer.md`). Init adds the base `developer.md`, `reviewer.md` and `architect.md` beside them and touches none of
-yours. A subagent that reads only its specialist contract never sees the base rules, so link the two:
+`acme-reviewer.md`). Init adds the base `developer.md`, `reviewer.md` and `architect.md`, plus the optional `coordinator.md` and `judge.md`
+([daily guide](daily-use.md#7-coordinate-a-milestone-optional)), beside them and touches none of yours. A subagent that reads only its specialist contract never sees the base rules, so link the two:
 
 - **Keep the base contracts as init wrote them.** `ateam doctor --check` and `ateam review setup` drift-check
   `architect.md`, `developer.md` and `reviewer.md`: each must still contain every paragraph ateam generates. Add your
@@ -78,6 +85,7 @@ token (see [forge tokens](adoption.md#forge-tokens)); it does not fail the check
 | `.gemini/settings.json: missing context.fileName AGENTS.md` | Add `"context": {"fileName": "AGENTS.md"}` at the top level. If the file has a `context` object, add `"fileName": "AGENTS.md"` inside it. |
 | `... (Gemini CLI ignores the top-level contextFileName)` | Replace the top-level `"contextFileName": "AGENTS.md"` with `"context": {"fileName": "AGENTS.md"}`. Gemini CLI reads only the nested key, so the old line had it loading `GEMINI.md`. |
 | `<file>: expected enabled ateam stdio registration ...` | Add the `ateam` server to the file's existing servers, from the [MCP guide](mcp.md#migrating-existing-configurations). |
+| `Taskfile.yml: missing; ...` or `Taskfile.yml: no verify target; ...` | The shipped skills and protocol run `task verify`. Add a `verify` target to your `Taskfile.yml` (an alias does not count), or create the file. |
 
 The scratch repository's `AGENTS.md` kept its three sentences of product rules and gained one numbered table of two
 rows; `.agents/rules-index.md` repeated that heading and those two rows. Product rules belong in your `AGENTS.md`;
@@ -118,15 +126,15 @@ summary, and `ateam state pickup` prints it on demand.
 
 ## 4. What stays yours afterwards
 
-- **Skills.** Doctor checks the six canonical skills (`pickup`, `handoff`, `preflight`, `ponytail`, `review-pr`, `design`)
-  strictly: numbered steps, workflow markers, and an adapter that links to them. Any other directory under
+- **Skills.** Doctor checks the seven canonical skills (`pickup`, `handoff`, `preflight`, `ponytail`, `review-pr`, `design`,
+  `coordinate`) strictly: numbered steps, workflow markers, and an adapter that links to them. Any other directory under
   `.agents/skills/` is an adopter skill, listed as `adopter_skills` and checked only for links that resolve (for
   example, the opt-in [plain technical prose recipe](adoption.md#plain-technical-prose-ste-style-anti-buzzword-recipe)). To use
   your own `preflight`, put it at `.agents/skills/<yours>/SKILL.md` and point the Claude and Gemini adapters at it;
   doctor reports `skill_aliases` such as `alias: .claude/skills/preflight -> .agents/skills/acme-preflight`. An aliased
   target inherits the canonical skill's obligations: it is not an ordinary adopter skill, and doctor requires `## 1.`
   and the canonical markers in it (`file:line` and `adopter seam` for design; `Goal:` and `ateam state handoff` for
-  handoff; `Verify Write Ownership` and `ateam state pickup` for pickup; `6-Step Decision Ladder` and `// shortcut:`
+  handoff; `ateam state next` and `owner-prompts:` for coordinate; `Verify Write Ownership` and `ateam state pickup` for pickup; `6-Step Decision Ladder` and `// shortcut:`
   for ponytail; `task verify` and `Record Evidence` for preflight; `reviewed-by:` and `Reviewed at` for review-pr, or
   `review-implementation.md` and `--reviewer-record` under `review_record: "aip"`). Add the markers to your file or
   consolidate onto the generic one. Keep the generic `.agents/skills/preflight/SKILL.md` either way: Codex and
