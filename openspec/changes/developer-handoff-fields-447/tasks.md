@@ -3,7 +3,6 @@
 ## 1. Approval
 
 - [ ] 1.1 Owner approves the proposal.
-  Hold: OPEN-Q proposal awaits owner approval
 
 ## 2. Implementation
 

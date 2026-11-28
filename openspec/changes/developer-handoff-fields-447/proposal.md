@@ -1,5 +1,5 @@
 # Proposal: developer-handoff-fields-447
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-28) sha256:93b831cabe73
 
 ## Track
 
