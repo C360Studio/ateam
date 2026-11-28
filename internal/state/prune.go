@@ -83,6 +83,11 @@ func (st *State) PruneVerdict(wt Worktree, agent, currentPath string, force bool
 	}
 	if strings.HasPrefix(label, "merged via ") || label == "merged (ancestor of main)" {
 		if !force {
+			// The coordinator contract's worktree has no PR and no commits of its own, so it reads merged as soon as
+			// main moves past its head, while its run may still wait hours on a developer or the owner (#445).
+			if strings.EqualFold(branch, owner+"/coordinator") {
+				return false, "coordinator worktree; pass --force once the run has ended"
+			}
 			if why := st.occupiedBy(wt); why != "" {
 				return false, why
 			}
