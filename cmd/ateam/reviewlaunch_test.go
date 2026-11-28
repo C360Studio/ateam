@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -460,8 +461,10 @@ func TestReviewRequestRereview(t *testing.T) {
 	defer func() { readPullBody = prev }()
 	manifest := "[launch]\ncommand = [\"hostctl\", \"start\", \"{agent}\", \"{return_to}\"]\n[notify]\ncommand = [\"hostctl\", \"send\", \"{return_to}\"]\n"
 	reviewer := review.RecordComment{SHA: older[:7], Verdict: "REQUEST CHANGES", Agent: "codex", Model: "gpt-6-astra", Effort: "xhigh"}
-	msg := "PR #42 moved to " + prHead + " after your REQUEST CHANGES at 0123456; check out " + prHead + " detached, confirm each finding of your record is closed, review 0123456.." + prHead +
-		" (the full base-to-head diff only when it touches files your last review did not), rerun task verify, post a new record, then run ateam review notify --record <record file> --from conv-7 --return-to impl-1 42; if your context is past your handoff threshold, run ateam review notify --decline --return-to impl-1 42 instead"
+	tail := " (the full base-to-head diff only when it touches files your last review did not), rerun task verify, post a new record, then run ateam review notify --record <record file> --from conv-7 --return-to impl-1 42; if your context is past your handoff threshold, run ateam review notify --decline --return-to impl-1 42 instead"
+	msg := "PR #42 moved to " + prHead + " after your REQUEST CHANGES at 0123456; check out " + prHead + " detached, confirm each finding of your record is closed, review 0123456.." + prHead + tail
+	// After APPROVE there is no blocking finding to confirm closed (#452).
+	approveMsg := "PR #42 moved to " + prHead + " after your APPROVE at 0123456; check out " + prHead + " detached, review 0123456.." + prHead + tail
 	at := func(r review.RecordComment, f func(*review.RecordComment)) *review.RecordComment { f(&r); return &r }
 	for _, tc := range []struct {
 		name     string
@@ -469,15 +472,16 @@ func TestReviewRequestRereview(t *testing.T) {
 		args     []string
 		failSend bool
 		rereview string
-		sent     bool
+		sent     string
 	}{
-		{"same-session", &reviewer, nil, false, "same-session", true},
-		{"approve", at(reviewer, func(r *review.RecordComment) { r.Verdict = "APPROVE" }), nil, false, "record verdict is approve", false},
-		{"at-head", at(reviewer, func(r *review.RecordComment) { r.SHA = prHead[:9] }), nil, false, "record is at the head", false},
-		{"no-record", nil, nil, false, "no cached record; run ateam state sync", false},
-		{"gate-rejects", at(reviewer, func(r *review.RecordComment) { r.Model = "gpt-6-sol"; r.Effort = "medium" }), nil, false, "previous reviewer: ", false},
-		{"fresh-flag", &reviewer, []string{"--fresh"}, false, "fresh", false},
-		{"unreachable", &reviewer, nil, true, "unreachable", false},
+		{"same-session", &reviewer, nil, false, "same-session", msg},
+		{"approve", at(reviewer, func(r *review.RecordComment) { r.Verdict = "APPROVE" }), nil, false, "same-session", approveMsg},
+		{"no-verdict", at(reviewer, func(r *review.RecordComment) { r.Verdict = "" }), nil, false, "record verdict is missing", ""},
+		{"at-head", at(reviewer, func(r *review.RecordComment) { r.SHA = prHead[:9] }), nil, false, "record is at the head", ""},
+		{"no-record", nil, nil, false, "no cached record; run ateam state sync", ""},
+		{"gate-rejects", at(reviewer, func(r *review.RecordComment) { r.Model = "gpt-6-sol"; r.Effort = "medium" }), nil, false, "previous reviewer: ", ""},
+		{"fresh-flag", &reviewer, []string{"--fresh"}, false, "fresh", ""},
+		{"unreachable", &reviewer, nil, true, "unreachable", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -506,11 +510,11 @@ func TestReviewRequestRereview(t *testing.T) {
 			if !strings.HasPrefix(spec.Rereview, tc.rereview) || (tc.rereview == "fresh") != (spec.Rereview == "fresh") {
 				t.Fatalf("rereview = %q, want %q", spec.Rereview, tc.rereview)
 			}
-			send := []string{"hostctl", "send", "conv-7", msg}
+			send := []string{"hostctl", "send", "conv-7", cmp.Or(tc.sent, msg)}
 			launch := []string{"hostctl", "start", spec.Eligible[0].Agent, "impl-1"}
 			want := [][]string{launch}
 			switch {
-			case tc.sent:
+			case tc.sent != "":
 				want = [][]string{send}
 			case tc.failSend:
 				want = [][]string{send, launch}
