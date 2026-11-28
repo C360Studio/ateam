@@ -154,7 +154,7 @@ func reviewRequest(ctx context.Context, root string, args []string, getenv func(
 	fs.Var(&implementers, "implementer", "implementing run as agent:model:effort; repeat for several (default: the PR's implemented-by: line)")
 	fs.Var(&reviewers, "reviewer", "reviewing run as agent:model:effort for {agent} {model} {effort} (default: the first eligible run)")
 	returnTo := fs.String("return-to", "", "session the reviewer notifies (default: the host's thread or pane id)")
-	reviewerSession := fs.String("reviewer-session", "", "after REQUEST CHANGES, send the re-review to this reviewing session (from its notify message)")
+	reviewerSession := fs.String("reviewer-session", "", "once the head moves past a REQUEST CHANGES or APPROVE record, send the re-review to this reviewing session (from its notify message)")
 	fresh := fs.Bool("fresh", false, "launch a fresh reviewer even when --reviewer-session is given")
 	dryRun := fs.Bool("dry-run", false, "print the expanded launch command without running it")
 	if err := fs.Parse(args); err != nil {
@@ -277,7 +277,8 @@ func encodeSpec(out io.Writer, spec launchSpec) int {
 
 // rereview sends the round back to the reviewing session through the host's
 // notify action and returns "same-session", or returns why a fresh launch
-// follows instead. It goes back only after REQUEST CHANGES at an older commit,
+// follows instead. It goes back only after REQUEST CHANGES or APPROVE at an older
+// commit (an approved PR whose catch-up merge touched its files needs a new record, #452),
 // to a reviewer run the merge gate still accepts against these implementers.
 // The notify command runs, as a launch command does, only under review_launch: agent.
 func rereview(ctx context.Context, root string, spec *launchSpec, policy review.Policy, m *hostManifest, session string, dryRun bool, run launchRunner) string {
@@ -285,7 +286,7 @@ func rereview(ctx context.Context, root string, spec *launchSpec, policy review.
 	switch {
 	case rec == nil:
 		return "no cached record; run ateam state sync"
-	case rec.Verdict != "REQUEST CHANGES":
+	case rec.Verdict != "REQUEST CHANGES" && rec.Verdict != "APPROVE":
 		return "record verdict is " + strings.ToLower(cmp.Or(rec.Verdict, "missing"))
 	case spec.HeadSHA == "" || strings.HasPrefix(spec.HeadSHA, rec.SHA):
 		return "record is at the head"
@@ -298,7 +299,7 @@ func rereview(ctx context.Context, root string, spec *launchSpec, policy review.
 	if _, err := chooseReviewer(policy, spec.Implementers, []review.Run{prev}, spec.Eligible); err != nil {
 		return "previous reviewer: " + err.Error()
 	}
-	msg := rereviewText(spec.PR, rec.SHA, spec.HeadSHA, session, spec.ReturnTo)
+	msg := rereviewText(spec.PR, rec.Verdict, rec.SHA, spec.HeadSHA, session, spec.ReturnTo)
 	if len(m.Notify.Command) > 0 {
 		spec.Command = append(expandArgs(m.Notify.Command, map[string]string{"pr": strconv.Itoa(spec.PR), "sha": spec.HeadSHA, "return_to": session}), msg)
 		if policy.ReviewLaunch == review.LaunchAgent {
@@ -429,10 +430,15 @@ func returnFlag(id string) string {
 }
 
 // rereviewText is the whole message a re-review sends the reviewing session
-// (#372): fixed text over validated ids, never anything from the record body.
-func rereviewText(pr int, recordSHA, head, session, returnTo string) string {
-	return fmt.Sprintf("PR #%d moved to %s after your REQUEST CHANGES at %s; check out %s detached, confirm each finding of your record is closed, review %s..%s (the full base-to-head diff only when it touches files your last review did not), rerun task verify, post a new record, then run ateam review notify --record <record file> --from %s --return-to %s %d; if your context is past your handoff threshold, run ateam review notify --decline --return-to %s %d instead",
-		pr, head, recordSHA, head, recordSHA, head, session, returnTo, pr, returnTo, pr)
+// (#372): fixed text over validated ids and a verdict rereview checked, never anything
+// from the record body. An APPROVE record has no blocking finding to close (#452).
+func rereviewText(pr int, verdict, recordSHA, head, session, returnTo string) string {
+	confirm := " confirm each finding of your record is closed,"
+	if verdict == "APPROVE" {
+		confirm = ""
+	}
+	return fmt.Sprintf("PR #%d moved to %s after your %s at %s; check out %s detached,%s review %s..%s (the full base-to-head diff only when it touches files your last review did not), rerun task verify, post a new record, then run ateam review notify --record <record file> --from %s --return-to %s %d; if your context is past your handoff threshold, run ateam review notify --decline --return-to %s %d instead",
+		pr, head, verdict, recordSHA, head, confirm, recordSHA, head, session, returnTo, pr, returnTo, pr)
 }
 
 // sessionID bounds a session id that enters another session's prompt.

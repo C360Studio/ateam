@@ -20,6 +20,10 @@
 - [x] 3.1 Round-1 P2 (codex record at `ddd36fd`): the 2.6a exception contradicted `openspec/specs/harness/spec.md:1450-1454`. Added `specs/harness/spec.md` (MODIFIED *Optional coordinator role*: `Gate files` excused only on a gate-file PR, merge still needs it green), dropped `skip_specs`, and revised `proposal.md` (track line, a ready-exception decision, scope) and `design.md` (D5, new D6).
 - [x] 3.2 Owner re-approves the proposal and design (`Approved-by: Coby Leuschke (2026-11-28) sha256:b6ee1aa6c044`).
 
-## 4. Close
+## 4. Catch-up with `main` before round 2
 
-- [ ] 4.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
+- [x] 4.1 Merged `main` at 88d980e (#445, #448, #452, #451). Took main's coordinate skill, `templates.go` and `coordinator_test.go`, reapplied #453's clauses, and rebuilt `specs/harness/spec.md` on main's *Optional coordinator role* (the #448 scenario kept). Aligned `developer.md`'s gate-file paragraph with #451's release flow: ask after the coordinator's release and the `main` merge, then arm once the required checks pass. The changed literal shows `detection` under `task mutate:check`.
+
+## 5. Close
+
+- [ ] 5.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.

@@ -28,6 +28,12 @@
 - **THEN** the shipped developer contract puts owner-owed actions in the handoff Goal, names the track with the reason for `quick`, states a gate-file claim only as the line `scripts/gate-files.sh` printed, and keeps any `owner-prompts:` line unchanged
 - **AND** the shipped `coordinate` skill's owner message lists those owed actions and repeats each proposal's track
 
+#### Scenario: Wake-up reasons cover every developer signal
+
+- **WHEN** the shipped `coordinate` skill starts a developer run
+- **THEN** its launch prompt sends the wake-up line once the draft PR is open and after every handoff, with the reason `claimed`, `ready`, `blocked`, `question`, `holding` or `closed`, and the shipped developer contract sends a design-track proposal's open questions as `question` naming the `design.md` section
+- **AND WHEN** a wake-up arrives for a handoff the coordinator has already read, the skill has it acknowledge the wake-up and do nothing else
+
 #### Scenario: Proposal approvals offer only working routes and are not re-asked
 
 - **WHEN** the shipped `coordinate` skill asks the owner to approve a proposal

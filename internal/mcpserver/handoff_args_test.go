@@ -18,6 +18,10 @@ import (
 // spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
 func TestMCPHandoffRefusesInvalidArgumentsBeforeAnyWrite(t *testing.T) {
 	// #266: a blank or wrong-type goal must not replace a useful checkpoint, release the lease, or post.
+	// A fake gh on a machine loaded by the full suite can miss the 2 s open-PR lookup budget, which skips the post (#445).
+	oldRead := state.HandoffCommentReadTimeout
+	state.HandoffCommentReadTimeout = time.Minute
+	t.Cleanup(func() { state.HandoffCommentReadTimeout = oldRead })
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
@@ -33,7 +37,7 @@ func TestMCPHandoffRefusesInvalidArgumentsBeforeAnyWrite(t *testing.T) {
 	// A fake gh that records every call and succeeds, so a post would land in the log.
 	binDir := t.TempDir()
 	ghLog := filepath.Join(binDir, "gh.log")
-	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte("#!/bin/sh\necho \"$@\" >> '"+ghLog+"'\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte("#!/bin/sh\necho \"$@\" >> '"+ghLog+"'\ncase \"$*\" in 'pr list --head main '*) printf '[{\"number\":3}]';; esac\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -101,7 +105,7 @@ func TestMCPHandoffRefusesInvalidArgumentsBeforeAnyWrite(t *testing.T) {
 	if h := st.Handoffs["claude@main"]; h == nil || h.Goal != "Replacement goal" || h.SessionID != "sess-266" {
 		t.Fatalf("slot after valid handoff = %+v, want the replacement goal", h)
 	}
-	if got, _ := os.ReadFile(ghLog); !strings.Contains(string(got), "pr comment main") {
+	if got, _ := os.ReadFile(ghLog); !strings.Contains(string(got), "pr comment 3 ") {
 		t.Fatalf("valid handoff made no forge post: %q", got)
 	}
 	if _, err := os.Stat(state.WriterLeasePath(dir)); !os.IsNotExist(err) {
