@@ -1,5 +1,5 @@
 # Proposal: rereview-after-approve-452
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-28) sha256:302436cccf1a
 
 ## Track
 
