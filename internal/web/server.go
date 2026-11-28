@@ -148,7 +148,36 @@ func (s *Server) authorizeAPIRequest(w http.ResponseWriter, r *http.Request, rem
 		writeError(w, http.StatusUnauthorized, remoteMsg)
 		return false
 	}
+	// A page on another site can have its DNS name re-pointed at 127.0.0.1; the browser then sends this server a
+	// loopback request whose Host and Origin both name that site, so the peer address alone does not show the user
+	// addressed the board. Without a token, answer only a request addressed to this machine by a loopback name.
+	if !loopbackAddressed(r) {
+		writeError(w, http.StatusForbidden, "without ATEAM_API_TOKEN the board answers only localhost, 127.0.0.1 and [::1]")
+		return false
+	}
 	return true
+}
+
+// loopbackAddressed reports whether r's Host, and its Origin when it has one, name a loopback host.
+func loopbackAddressed(r *http.Request) bool {
+	if !isLoopbackHost(r.Host) {
+		return false
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	return err == nil && isLoopbackHost(u.Host)
+}
+
+// isLoopbackHost reports whether authority ("localhost:8420", "[::1]", "127.0.0.1") names a loopback host.
+func isLoopbackHost(authority string) bool {
+	host := strings.TrimSpace(authority)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return isLoopbackRequest(strings.Trim(host, "[]"))
 }
 
 func (s *Server) validateReadRequest(w http.ResponseWriter, r *http.Request) bool {
@@ -715,6 +744,25 @@ type approveRequest struct {
 // openspec/changes/.
 var changeNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+// validBranchName reports whether name passes git check-ref-format for a branch, and is also refused when it is "@",
+// "HEAD" or holds "#". The approve handler puts the name into forge API paths, so a name that git itself would refuse,
+// one that climbs out of the branches path ("../../x"), one a forge reads as an option ("-x") or one that ends the
+// path ("a#b") never reaches the forge. Each slash-separated part is checked on its own: git refuses a part that
+// starts with "." or ends with ".lock", and a part that ends with "." is refused here as well.
+func validBranchName(name string) bool {
+	if name == "@" || name == "HEAD" || strings.HasPrefix(name, "-") || strings.Contains(name, "..") || strings.Contains(name, "@{") {
+		return false
+	}
+	for _, part := range strings.Split(name, "/") {
+		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
+	return !strings.ContainsFunc(name, func(r rune) bool {
+		return r < ' ' || r == 0x7f || strings.ContainsRune(" ~^:?*[\\#", r)
+	})
+}
+
 // handleOpenSpecApprove writes the owner approval edit (state.ApproveEdits) on a change's branch through the forge,
 // never a local worktree (#181). The files are read at one head commit so the digest covers the bytes approved,
 // and the one commit is refused if any of the three moved after that read, so a push in between is a 409.
@@ -729,8 +777,8 @@ func (s *Server) handleOpenSpecApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Branch = strings.TrimSpace(req.Branch)
-	if !changeNameRe.MatchString(req.Change) || req.Branch == "" {
-		writeError(w, http.StatusBadRequest, "approve needs a change name and its branch")
+	if !changeNameRe.MatchString(req.Change) || !validBranchName(req.Branch) {
+		writeError(w, http.StatusBadRequest, "approve needs a change name and the change's branch, a valid git branch name")
 		return
 	}
 

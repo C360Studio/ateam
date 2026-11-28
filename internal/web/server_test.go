@@ -27,7 +27,7 @@ func TestServerEndpoints(t *testing.T) {
 	h := srv.Handler()
 
 	// 1. GET /api/state (loopback)
-	req := httptest.NewRequest(http.MethodGet, "/api/state", nil)
+	req := httptest.NewRequest(http.MethodGet, testBoardURL+"/api/state", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -41,7 +41,7 @@ func TestServerEndpoints(t *testing.T) {
 		Title:  "Build SvelteKit Kanban view",
 		Column: "backlog",
 	})
-	req = httptest.NewRequest(http.MethodPost, "/api/cards", bytes.NewReader(cardBody))
+	req = httptest.NewRequest(http.MethodPost, testBoardURL+"/api/cards", bytes.NewReader(cardBody))
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -56,7 +56,7 @@ func TestServerEndpoints(t *testing.T) {
 		"column": "in-progress",
 		"agent":  "claude",
 	})
-	req = httptest.NewRequest(http.MethodPost, "/api/cards/move", bytes.NewReader(moveBody))
+	req = httptest.NewRequest(http.MethodPost, testBoardURL+"/api/cards/move", bytes.NewReader(moveBody))
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -73,7 +73,7 @@ func TestServerEndpoints(t *testing.T) {
 		DoneWhen:    "task verify green",
 		ChecksToRun: "task verify",
 	})
-	req = httptest.NewRequest(http.MethodPost, "/api/handoff", bytes.NewReader(hoBody))
+	req = httptest.NewRequest(http.MethodPost, testBoardURL+"/api/handoff", bytes.NewReader(hoBody))
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -88,7 +88,7 @@ func TestServerEndpoints(t *testing.T) {
 		want  int
 	}{{"", http.StatusConflict}, {"?force=1", http.StatusOK}} {
 		body, _ := json.Marshal(state.Handoff{Goal: "Other session", SessionID: "web-B"})
-		req = httptest.NewRequest(http.MethodPost, "/api/handoff"+tc.query, bytes.NewReader(body))
+		req = httptest.NewRequest(http.MethodPost, testBoardURL+"/api/handoff"+tc.query, bytes.NewReader(body))
 		req.RemoteAddr = "127.0.0.1:12345"
 		req.Header.Set("Content-Type", "application/json")
 		rec = httptest.NewRecorder()
@@ -100,7 +100,7 @@ func TestServerEndpoints(t *testing.T) {
 
 	// 5. POST /api/mode
 	modeBody, _ := json.Marshal(map[string]string{"mode": "on"})
-	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(modeBody))
+	req = httptest.NewRequest(http.MethodPost, testBoardURL+"/api/mode", bytes.NewReader(modeBody))
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -119,7 +119,7 @@ func TestServerEndpoints(t *testing.T) {
 		"owner":    "c360",
 		"repo":     "ateam",
 	})
-	req = httptest.NewRequest(http.MethodPost, "/api/forges", bytes.NewReader(forgeBody))
+	req = httptest.NewRequest(http.MethodPost, testBoardURL+"/api/forges", bytes.NewReader(forgeBody))
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -132,7 +132,7 @@ func TestServerEndpoints(t *testing.T) {
 	repo2 := t.TempDir()
 	_ = os.WriteFile(filepath.Join(repo2, "AGENTS.md"), []byte("# repo2\n"), 0o644)
 	repoBody, _ := json.Marshal(map[string]string{"add_path": repo2})
-	req = httptest.NewRequest(http.MethodPost, "/api/repos", bytes.NewReader(repoBody))
+	req = httptest.NewRequest(http.MethodPost, testBoardURL+"/api/repos", bytes.NewReader(repoBody))
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -220,6 +220,7 @@ func TestSecurityAndFailClosedProbes(t *testing.T) {
 	modeBody := []byte(`{"mode":"off"}`)
 	reqPlain := httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(modeBody))
 	reqPlain.RemoteAddr = "127.0.0.1:12345"
+	reqPlain.Host = testBoardHost
 	reqPlain.Header.Set("Content-Type", "text/plain")
 	recPlain := httptest.NewRecorder()
 	h.ServeHTTP(recPlain, reqPlain)
@@ -229,6 +230,7 @@ func TestSecurityAndFailClosedProbes(t *testing.T) {
 
 	reqEvilOrigin := httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(modeBody))
 	reqEvilOrigin.RemoteAddr = "127.0.0.1:12345"
+	reqEvilOrigin.Host = testBoardHost
 	reqEvilOrigin.Header.Set("Content-Type", "application/json")
 	reqEvilOrigin.Header.Set("Origin", "https://evil.example")
 	recEvilOrigin := httptest.NewRecorder()
@@ -323,6 +325,7 @@ func TestModeAPIRejectsLegacyLevels(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"mode": mode})
 		req := httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(body))
 		req.RemoteAddr = "127.0.0.1:12345"
+		req.Host = testBoardHost
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)

@@ -132,7 +132,7 @@ ateam serve   # then open http://127.0.0.1:8420 (--addr 127.0.0.1:9000 picks ano
 - View and manage work items as a **Kanban board** (`Backlog`, `In Progress`, `Review`, `Done`) or a **table**.
 - Sync issues and PRs from GitHub or Gitea (`Sync Forge`, or `ateam state sync`).
 - Inspect OpenSpec changes, `Hold:` blockers, and `// shortcut:` items. The spec panel's **Approve** writes the owner `Approved-by:` edit to the change's branch through the forge, never to a local worktree.
-- Switch the Ponytail mode (`on`, `off`) or set `ATEAM_API_TOKEN` from the profile menu.
+- Switch the Ponytail mode (`on`, `off`) or set `ATEAM_API_TOKEN` from the profile menu. Without a token the board answers only requests addressed as `localhost`, `127.0.0.1` or `[::1]`; reaching it by another hostname (a tunnel, a LAN name) needs the token.
 - Receive live webhooks at `/api/webhooks/github` (`X-Hub-Signature-256`) and `/api/webhooks/gitea` (`X-Gitea-Signature`) when `ATEAM_WEBHOOK_SECRET` is set. Webhooks always target the served checkout.
 
 Writes carry `X-ATeam-Repo` to reject stale repository selections. The read-only routing panel is described in [model-review](docs/model-review.md#dashboard-routing-display).

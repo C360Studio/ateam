@@ -340,3 +340,42 @@ func TestForgeFilesUnknownBranch(t *testing.T) {
 		})
 	}
 }
+
+// The correct behavior: the branch reaches Gitea as one path of escaped segments with the slashes kept. The wrong
+// behavior to catch: an unescaped "?" or "#" in a branch ends the path and the rest is read as a query or fragment, so
+// the request names another resource, and an unescaped "%" is read as an escape.
+//
+// spec: openspec/specs/harness/spec.md#Requirement: Approve an OpenSpec change from the board
+func TestGiteaHeadEscapesTheBranchPerSegment(t *testing.T) {
+	const prefix = "/api/v1/repos/o/r/branches/"
+	cases := []struct{ branch, wantURI string }{
+		{"claude/alpha", prefix + "claude/alpha"},
+		{"claude/100%", prefix + "claude/100%25"},
+		{"claude/a?b#c", prefix + "claude/a%3Fb%23c"},
+		{`claude/a"b{c}`, prefix + "claude/a%22b%7Bc%7D"},
+		{"feat/ünï", prefix + "feat/%C3%BCn%C3%AF"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.branch, func(t *testing.T) {
+			var gotURI, gotPath, gotQuery string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotURI, gotPath, gotQuery = r.RequestURI, r.URL.Path, r.URL.RawQuery
+				_, _ = io.WriteString(w, `{"commit":{"id":"`+fakeHead+`"}}`)
+			}))
+			t.Cleanup(srv.Close)
+			files, err := NewForgeFiles("", ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "o", Repo: "r"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := files.Head(context.Background(), tc.branch); err != nil {
+				t.Fatalf("Head(%q): %v", tc.branch, err)
+			}
+			if gotURI != tc.wantURI {
+				t.Errorf("request target = %q, want %q", gotURI, tc.wantURI)
+			}
+			if gotPath != prefix+tc.branch || gotQuery != "" {
+				t.Errorf("server read path %q and query %q, want path %q and no query", gotPath, gotQuery, prefix+tc.branch)
+			}
+		})
+	}
+}

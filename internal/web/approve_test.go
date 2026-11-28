@@ -88,6 +88,7 @@ func approveServer(t *testing.T, files *fakeFiles) (*Server, http.Handler) {
 func postApprove(srv *Server, h http.Handler, body string, mutate func(*http.Request)) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/api/openspec/approve", bytes.NewReader([]byte(body)))
 	req.RemoteAddr = "127.0.0.1:1234"
+	req.Host = testBoardHost
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-ATeam-Repo", srv.currentRepo())
 	if mutate != nil {

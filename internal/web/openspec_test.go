@@ -46,6 +46,7 @@ func TestOpenSpecAPIListsWorktreeChanges(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/openspec", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
+	req.Host = testBoardHost
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
