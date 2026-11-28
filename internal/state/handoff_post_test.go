@@ -51,13 +51,13 @@ func TestPostPRHandoffCommentSkipsARepeatOfTheNewestHandoff(t *testing.T) {
 				t.Setenv("FAKE_COMMENTS", "fail")
 			}
 			log := installForgeCLI(t, "gh", "case \"$*\" in\n"+
-				"'pr view claude/x --json comments') [ \"$FAKE_COMMENTS\" = fail ] && exit 1; printf '%s' \"$FAKE_COMMENTS\";;\n"+
+				"'pr list --head claude/x --state open --json number,headRefOid,url --limit 1') printf '%s' '[{\"number\":7,\"headRefOid\":\""+headFull+"\",\"url\":\"https://forge.example/pr/7\"}]';;\n"+
+				"'pr view 7 --json comments') [ \"$FAKE_COMMENTS\" = fail ] && exit 1; printf '%s' \"$FAKE_COMMENTS\";;\n"+
 				"'pr comment'*) printf '%s\\n' 'https://forge.example/new';;\n"+
-				"'pr view claude/x --json number,headRefOid,url') printf '%s' '{\"number\":7,\"headRefOid\":\""+headFull+"\",\"url\":\"https://forge.example/pr/7\"}';;\n"+
 				"*) exit 1;;\nesac\n")
 			post, err := PostPRHandoffComment(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub}, "claude/x", handoffPostBody)
 			data, _ := os.ReadFile(log)
-			sent := strings.Count(string(data), "pr comment claude/x")
+			sent := strings.Count(string(data), "pr comment 7 ")
 			checkHandoffPost(t, post, err, sent, tc.existing, "https://forge.example/new")
 			// The PR head is read either way, so commit statuses still run on a repeat.
 			if post.Number != 7 || post.HeadSHA != headFull {
@@ -167,10 +167,10 @@ func TestPostPRHandoffCommentReportsATimedOutSendAsUncertain(t *testing.T) {
 			if tc.rejected {
 				send = "echo 'HTTP 422' >&2; exit 1"
 			}
-			log := installForgeCLI(t, "gh", "case \"$*\" in\n'pr view claude/x --json comments') "+read+";;\n'pr comment'*) "+send+";;\n*) exit 1;;\nesac\n")
+			log := installForgeCLI(t, "gh", "case \"$*\" in\n"+"'pr list --head claude/x --state open --json number,headRefOid,url --limit 1') printf '%s' '[{\"number\":7,\"headRefOid\":\""+headFull+"\",\"url\":\"https://forge.example/pr/7\"}]';;\n"+"'pr view 7 --json comments') "+read+";;\n'pr comment'*) "+send+";;\n*) exit 1;;\nesac\n")
 			_, err := PostPRHandoffComment(parentCtx(t, tc.parent), t.TempDir(), ForgeConfig{Provider: ForgeGitHub}, "claude/x", handoffPostBody)
 			data, _ := os.ReadFile(log)
-			check(t, err, strings.Contains(string(data), "pr comment claude/x"), tc.uncertain, tc.sent)
+			check(t, err, strings.Contains(string(data), "pr comment 7 "), tc.uncertain, tc.sent)
 		})
 		t.Run("gitea/"+tc.name, func(t *testing.T) {
 			var sent atomic.Bool
@@ -200,6 +200,44 @@ func TestPostPRHandoffCommentReportsATimedOutSendAsUncertain(t *testing.T) {
 			defer srv.Close()
 			_, err := PostPRHandoffComment(parentCtx(t, tc.parent), t.TempDir(), ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "o", Repo: "r"}, "claude/x", handoffPostBody)
 			check(t, err, sent.Load(), tc.uncertain, tc.sent)
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPostPRHandoffCommentOnGitHubPostsOnlyToAnOpenPR(t *testing.T) {
+	// The fake answers like real gh: `pr view <branch>` and `pr comment <branch>` find the branch's merged PR #444,
+	// while the open-PR list is empty. A post that addressed the branch would land on the merged PR (#445).
+	merged := "'pr view claude/x'*) printf '%s' '{\"number\":444,\"state\":\"MERGED\"}';;\n" +
+		"'pr comment claude/x'*) printf '%s\\n' 'https://forge.example/pr/444#c';;\n"
+	for _, tc := range []struct {
+		name, list string
+		wantErr    string
+	}{
+		{name: "no PR at all", list: "printf '[]'"},
+		{name: "only a merged PR", list: "printf '[]'"},
+		{name: "the open-PR read fails", list: "echo 'HTTP 502' >&2; exit 1", wantErr: "HTTP 502"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			script := "case \"$*\" in\n'pr list --head claude/x --state open'*) " + tc.list + ";;\n"
+			if tc.name != "no PR at all" {
+				script += merged
+			}
+			log := installForgeCLI(t, "gh", script+"*) exit 1;;\nesac\n")
+			post, err := PostPRHandoffComment(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub}, "claude/x", handoffPostBody)
+			data, _ := os.ReadFile(log)
+			if strings.Contains(string(data), "pr comment") {
+				t.Fatalf("a comment was sent; calls:\n%s", data)
+			}
+			if post != (HandoffPost{}) {
+				t.Fatalf("post = %+v, want the zero post (nothing posted, no PR head for commit statuses)", post)
+			}
+			if tc.wantErr == "" && err != nil {
+				t.Fatalf("err = %v, want nil: no open PR is not an error", err)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("err = %v, want one naming %q", err, tc.wantErr)
+			}
 		})
 	}
 }

@@ -62,8 +62,8 @@ func newStatusFixture(t *testing.T, statusJSON string) statusFixture {
 		"case \"$*\" in\n" +
 		"'pr list --state open'*) printf '%s' '" + prList + "';;\n" +
 		"'pr comment'*) [ -n \"$FAKE_COMMENT_SLEEP\" ] && exec sleep \"$FAKE_COMMENT_SLEEP\"; echo 'https://github.com/o/r/pull/7#issuecomment-42';;\n" +
-		"'pr view claude/pr-7 --json comments') printf '%s' \"${FAKE_HANDOFF_COMMENTS:-[]}\";;\n" +
-		"'pr view claude/pr-7 --json number,headRefOid,url'*) printf '%s' '" + prView + "';;\n" +
+		"'pr list --head claude/pr-7 --state open'*) printf '[%s]' '" + prView + "';;\n" +
+		"'pr view 7 --json comments') printf '%s' \"${FAKE_HANDOFF_COMMENTS:-[]}\";;\n" +
 		"'pr view 7 --json comments'*) printf '%s' '{\"comments\":[]}';;\n" +
 		"'api -X POST '*) echo 'response body secret-body' >&2; exit \"${FAKE_POST_EXIT:-0}\";;\n" +
 		"'api repos/'*) cat '" + statusFile + "';;\n" +
@@ -250,7 +250,7 @@ func TestStateHandoffCommitStatuses(t *testing.T) {
 			t.Fatalf("handoff = %d", code)
 		}
 		data, _ := os.ReadFile(f.log)
-		if !strings.Contains(string(data), "|pr|comment|claude/pr-7|") || len(f.apiCalls(t)) != 0 {
+		if !strings.Contains(string(data), "|pr|comment|7|") || len(f.apiCalls(t)) != 0 {
 			t.Fatalf("want the comment and no status call, got:\n%s", data)
 		}
 	})
@@ -324,7 +324,7 @@ func TestStateHandoffPostOutcome(t *testing.T) {
 		f := newStatusFixture(t, `{"statuses":[]}`)
 		t.Setenv("FAKE_COMMENT_SLEEP", "10")
 		code, stderr := handoff(t, f)
-		want := "ateam state handoff: forge PR comment uncertain: gh pr comment claude/pr-7 timed out: outcome unknown; rerun ateam state handoff to post it once\n"
+		want := "ateam state handoff: forge PR comment uncertain: gh pr comment 7 timed out: outcome unknown; rerun ateam state handoff to post it once\n"
 		if code != 0 || stderr != want {
 			t.Fatalf("handoff = %d, stderr %q; want 0 and %q", code, stderr, want)
 		}

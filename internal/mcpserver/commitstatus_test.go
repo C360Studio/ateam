@@ -45,8 +45,8 @@ func mcpStatusRepo(t *testing.T) (root, head, log string) {
 		"{ for a in \"$@\"; do printf '%s|' \"$a\"; done; printf '\\n'; } >> '" + log + "'\n" +
 		"case \"$*\" in\n" +
 		"'pr comment'*) [ -n \"$FAKE_COMMENT_SLEEP\" ] && exec sleep \"$FAKE_COMMENT_SLEEP\"; echo 'https://github.com/o/r/pull/7#issuecomment-42';;\n" +
-		"'pr view claude/pr-7 --json comments') printf '%s' \"${FAKE_HANDOFF_COMMENTS:-[]}\";;\n" +
-		"'pr view claude/pr-7 --json number,headRefOid,url'*) printf '%s' '{\"number\":7,\"headRefOid\":\"" + head + "\",\"url\":\"https://github.com/o/r/pull/7\"}';;\n" +
+		"'pr list --head claude/pr-7 --state open'*) printf '%s' '[{\"number\":7,\"headRefOid\":\"" + head + "\",\"url\":\"https://github.com/o/r/pull/7\"}]';;\n" +
+		"'pr view 7 --json comments') printf '%s' \"${FAKE_HANDOFF_COMMENTS:-[]}\";;\n" +
 		"'api -X POST '*) echo 'response body secret-body' >&2; exit 1;;\n" +
 		"'api repos/'*) printf '%s' '{\"statuses\":[]}';;\n" +
 		"*) printf '[]';;\nesac\n"
@@ -92,7 +92,7 @@ func TestMCPHandoffPostOutcome(t *testing.T) {
 		root, _, log := mcpStatusRepo(t)
 		t.Setenv("FAKE_COMMENT_SLEEP", "10")
 		text, isErr := execStateTool(context.Background(), root, args, "", "test")
-		if want := "PR comment: uncertain (gh pr comment claude/pr-7 timed out: outcome unknown)\n"; isErr || !strings.HasSuffix(text, want) {
+		if want := "PR comment: uncertain (gh pr comment 7 timed out: outcome unknown)\n"; isErr || !strings.HasSuffix(text, want) {
 			t.Fatalf("handoff isErr=%v text =\n%s\nwant suffix %q", isErr, text, want)
 		}
 		if data, _ := os.ReadFile(log); strings.Contains(string(data), "api|-X|POST") {
