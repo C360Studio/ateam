@@ -220,3 +220,51 @@ func TestInitShipsDeveloperHandoffFields(t *testing.T) {
 		}
 	}
 }
+
+// spec: harness / Optional coordinator role
+func TestInitShipsOwnerMessageRoutes(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitRepo(context.Background(), dir, Options{}); err != nil {
+		t.Fatalf("InitRepo: %v", err)
+	}
+	// Literals from the approved proposal owner-message-routes-449: the owner
+	// message links the developer run first, offers three approval routes and
+	// drops a refused one, reads before asking, and counts a repeated gate once.
+	for rel, want := range map[string][]string{
+		".agents/skills/coordinate/SKILL.md": {
+			"Before each owner message, run `ateam state sync` and, for every gate you would list, read its branch (`Approved-by:` filled, the hold gone) and the PR's comments since you last asked; drop a gate already answered",
+			"the developer run's conversation link when it has one (the one your launch tool returned), then the PR or issue,",
+			"For a proposal, offer three ways to approve: answer you, and you pass the owner's words unchanged to that developer run; say it in the developer's conversation; or commit the `Approved-by:` edit themselves.",
+			"Leave out the first when that developer run handed off as `blocked` because its host refused the edit.",
+			"each PR that message newly asks about",
+			"a gate already asked and still unanswered adds nothing when you repeat it.",
+		},
+		".agents/contracts/coordinator.md": {
+			"each pull request that message newly asks about, never for a gate repeated while still unanswered;",
+		},
+		".agents/contracts/developer.md": {
+			"Write `Approved-by:` only on the owner's own words, given in your conversation or passed on unchanged by the coordinator;",
+			"a summary of the answer, or an approval naming a digest other than the one `task spec:queue` prints, is not one, so ask again.",
+			"quote the owner's words and where they came from in the commit message.",
+			"When your host refuses the edit, do not retry it: hand off as `blocked` naming the refusal,",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
+	}
+	// The old wording counted every message that covered a pull request.
+	contract, err := os.ReadFile(filepath.Join(dir, ".agents", "contracts", "coordinator.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(contract), "that message covers;") {
+		t.Error("shipped coordinator contract still counts every message that covers a pull request")
+	}
+}
