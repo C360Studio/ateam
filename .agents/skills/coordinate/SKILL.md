@@ -23,7 +23,7 @@ When a developer hands off at ready-for-review, first read the required checks a
 
 ## 4. Ask the Owner Once
 
-A developer handoff with the reason `question` is an owner gate: read the question from the PR comment or `design.md` section its handoff names. When any unit waits on an owner gate, send one message that lists every waiting gate: the PR or issue, the question in plain words, and what you need (for a proposal, the digest `task spec:queue` prints). When the owner answers a developer's question, message that developer run to resume from the answer. Then add 1 to the `owner-prompts: <n>` line of each PR that message covers, creating the line at `owner-prompts: 1`, with `gh pr edit <pr> --body-file <file>` (Gitea: `PATCH /repos/{owner}/{repo}/pulls/{index}`). Continue other units while you wait.
+A developer handoff with the reason `question` is an owner gate: read the question from the PR comment or `design.md` section its handoff names. When any unit waits on an owner gate, send one message that lists every waiting gate: the PR or issue, the question in plain words, and what you need (for a proposal, the digest `task spec:queue` prints). With each proposal, repeat the track its developer handoff names and, for `quick`, its reason, and list every action a developer handoff Goal names as owed by the owner. When the owner answers a developer's question, message that developer run to resume from the answer. Then add 1 to the `owner-prompts: <n>` line of each PR that message covers, creating the line at `owner-prompts: 1`, with `gh pr edit <pr> --body-file <file>` (Gitea: `PATCH /repos/{owner}/{repo}/pulls/{index}`). Continue other units while you wait.
 
 ## Hold-my-beer Mode
 
