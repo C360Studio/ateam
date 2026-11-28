@@ -12,6 +12,7 @@ import (
 func restoredRequest(s *Server, method, endpoint, body, repo string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, endpoint, strings.NewReader(body))
 	req.RemoteAddr = "127.0.0.1:12345"
+	req.Host = testBoardHost
 	req.Header.Set("Content-Type", "application/json")
 	if repo != "" {
 		req.Header.Set("X-ATeam-Repo", repo)

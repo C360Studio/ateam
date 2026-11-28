@@ -28,6 +28,7 @@ func requestRouting(t *testing.T, srv *Server, endpoint string) map[string]any {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, endpoint, nil)
 	req.RemoteAddr = "127.0.0.1:12345"
+	req.Host = testBoardHost
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -202,6 +203,7 @@ func TestModelRoutingAuthorization(t *testing.T) {
 			}
 			req := httptest.NewRequest(tc.method, "/api/model-routing", nil)
 			req.RemoteAddr = tc.remote
+			req.Host = testBoardHost
 			req.Header.Set("X-ATeam-Token", tc.provided)
 			rec := httptest.NewRecorder()
 			srv.Handler().ServeHTTP(rec, req)
@@ -273,6 +275,7 @@ func TestModelRoutingSelectedRepository(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{step.action: step.path})
 		req := httptest.NewRequest(http.MethodPost, "/api/repos", strings.NewReader(string(body)))
 		req.RemoteAddr = "127.0.0.1:12345"
+		req.Host = testBoardHost
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)

@@ -148,7 +148,36 @@ func (s *Server) authorizeAPIRequest(w http.ResponseWriter, r *http.Request, rem
 		writeError(w, http.StatusUnauthorized, remoteMsg)
 		return false
 	}
+	// A page on another site can have its DNS name re-pointed at 127.0.0.1; the browser then sends this server a
+	// loopback request whose Host and Origin both name that site, so the peer address alone does not show the user
+	// addressed the board. Without a token, answer only a request addressed to this machine by a loopback name.
+	if !loopbackAddressed(r) {
+		writeError(w, http.StatusForbidden, "without ATEAM_API_TOKEN the board answers only localhost, 127.0.0.1 and [::1]")
+		return false
+	}
 	return true
+}
+
+// loopbackAddressed reports whether r's Host, and its Origin when it has one, name a loopback host.
+func loopbackAddressed(r *http.Request) bool {
+	if !isLoopbackHost(r.Host) {
+		return false
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	return err == nil && isLoopbackHost(u.Host)
+}
+
+// isLoopbackHost reports whether authority ("localhost:8420", "[::1]", "127.0.0.1") names a loopback host.
+func isLoopbackHost(authority string) bool {
+	host := strings.TrimSpace(authority)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return isLoopbackRequest(strings.Trim(host, "[]"))
 }
 
 func (s *Server) validateReadRequest(w http.ResponseWriter, r *http.Request) bool {

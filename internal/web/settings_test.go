@@ -46,6 +46,7 @@ func TestForgesAPIRefusesCommittedList(t *testing.T) {
 			} {
 				req := httptest.NewRequest(http.MethodPost, "/api/forges", strings.NewReader(payload))
 				req.RemoteAddr = "127.0.0.1:12345"
+				req.Host = testBoardHost
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
 				srv.Handler().ServeHTTP(rec, req)
@@ -96,6 +97,7 @@ func TestForgesAPIEditAfterCommittedListRemoved(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/forges", strings.NewReader(`{"provider":"github","owner":"newboard","repo":"app"}`))
 	req.RemoteAddr = "127.0.0.1:12345"
+	req.Host = testBoardHost
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
