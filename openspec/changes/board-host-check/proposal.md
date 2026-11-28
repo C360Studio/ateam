@@ -19,11 +19,11 @@ With no token, the board trusts any request whose peer address is loopback. A we
 1. `authorizeAPIRequest` in its tokenless branch, after the loopback peer check, answers 403 unless `Host` and any `Origin` name a loopback host. This covers every board read and write, including model routing. The token branch, the webhooks and the static UI are unchanged.
 2. `handleOpenSpecApprove` answers 400 for a branch that git would refuse as a ref name, one that climbs a path (`..`), starts with `-`, or holds a character that ends a URL path.
 3. The Gitea branch lookup escapes the branch per path segment, as the GitHub one already does.
-4. The board API and Approve Requirements and one sentence each in `README.md` and `docs/adoption.md`.
+4. The board API and Approve Requirements and one sentence in `README.md`.
 
 ## Scope & Non-Goals
 
-- **In-bounds:** `internal/web/server.go` and its tests, `internal/state/forgefiles.go` and its test, `openspec/specs/harness/spec.md`, the two doc sentences.
+- **In-bounds:** `internal/web/server.go` and its tests, `internal/state/forgefiles.go` and its test, `openspec/specs/harness/spec.md`, the one README sentence.
 - **Non-goals:** request body limits, server timeouts, webhook replay and the approve lock are tracked in #474; binding the approval digest is #464. No allow-list setting for extra hosts: a token is the supported way to reach the board remotely.
 
 ## Definition of Done
