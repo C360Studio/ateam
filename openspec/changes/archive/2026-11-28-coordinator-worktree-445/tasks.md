@@ -16,4 +16,4 @@
 
 ## 4. Close
 
-- [ ] 4.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
+- [x] 4.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
