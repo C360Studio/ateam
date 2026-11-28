@@ -1,5 +1,5 @@
 # Proposal: approve-recommended-450
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-28) sha256:b4fe7920e993
 
 ## Track
 
