@@ -18,10 +18,10 @@ Open every file the change touches and record each claim as `file:line`, opened 
 Write `openspec/changes/<id>/design.md` with the `spec-driven` sections (Context, Goals / Non-Goals, Decisions, Risks / Trade-offs, Migration Plan, Open Questions) and follow the `design` rules in `openspec/config.yaml` when present:
 
 - **Context:** the `file:line` inventory from step 1.
-- **Decisions:** each names at least two options with cost, blast radius, and what each forecloses, plus the adopter seam: what a developer who never opened this file must know, and what happens if they do nothing.
-- **Open Questions:** mark each one that needs an owner ruling. A question that would change specs, approach, or tasks is resolved before tasks.
+- **Decisions:** each names at least two options with cost, blast radius, and what each forecloses, marks the one you recommend, plus the adopter seam: what a developer who never opened this file must know, and what happens if they do nothing.
+- **Open Questions:** mark each one that needs an owner ruling and name the answer you recommend. A question that would change specs, approach, or tasks is resolved before tasks.
 
-For each Decision, add one bullet to `proposal.md` under `## Decisions you are making by approving` naming in plain words what triggers it and what changes for the user, with no identifiers or constants; `task spec:check` fails a change with a `design.md` and no such bullet.
+Open `proposal.md`'s `## Decisions you are making by approving` section with `Approving accepts the recommended option of each decision unless you name another.`, then add one bullet for each Decision naming in plain words what triggers it and what changes for the user, with no identifiers or constants; `task spec:check` fails a change with a `design.md` and no such bullet.
 
 Stay under 120 lines; `task spec:check` warns past the limit.
 
