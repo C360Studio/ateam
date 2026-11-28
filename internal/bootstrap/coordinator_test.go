@@ -175,7 +175,7 @@ func TestInitShipsReviewOnGreenChecks(t *testing.T) {
 		},
 		".agents/skills/coordinate/SKILL.md": {
 			"When a developer hands off at ready-for-review, first read the required checks at the PR head (`gh pr checks <pr> --required`;",
-			"message the developer run with that check and its state instead of requesting review. Otherwise run `ateam review request --return-to <your id> <pr>`",
+			"has not reported yet (the command lists only checks that have reported), message the developer run with that check and its state instead of requesting review. Otherwise run `ateam review request --return-to <your id> <pr>`",
 		},
 	} {
 		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
