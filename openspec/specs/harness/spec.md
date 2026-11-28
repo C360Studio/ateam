@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks across Claude Code, Codex CLI, and Gemini CLI, the 2-tool low-tax MCP server (`ateam_state`, `ateam_task`), OpenSpec queue and `Hold:` validation (`spec:queue` and `spec:check`), dual-forge state synchronization (**GitHub** and **Gitea**), `// shortcut:` debt scanning, and the agentic benchmark suite (`ateam bench`).
-
 ## Requirements
-
 ### Requirement: Lifecycle hook normalization under 10ms
 
 `ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 10ms using cached `.ateam/state.json`.
@@ -1464,7 +1462,8 @@ Session-start SHALL decide whether another writer is active from the cached writ
 
 - **WHEN** a developer run hands off a coordinated pull request at ready-for-review
 - **THEN** the shipped developer contract allows a `ready` handoff only once every required check at the pull request head other than `Merge check` has passed, and the shipped `coordinate` skill reads those checks before `ateam review request`
-- **AND WHEN** one of them failed or is still running, the coordinator messages the developer run instead of requesting review
+- **AND** on a pull request touching a gate file, `Gate files` is excused as well while it waits for the owner's approval, which the developer asks for last; no other check is excused, and the pull request still merges only once `Gate files` passes at its head
+- **AND WHEN** any other of them failed or is still running, the coordinator messages the developer run instead of requesting review
 
 #### Scenario: Developer handoffs surface what the owner must see
 
