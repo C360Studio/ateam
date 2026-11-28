@@ -3,7 +3,9 @@
 ## Purpose
 
 Defines the behavioral contract for `ateam`: universal CLI lifecycle hooks across Claude Code, Codex CLI, and Gemini CLI, the 2-tool low-tax MCP server (`ateam_state`, `ateam_task`), OpenSpec queue and `Hold:` validation (`spec:queue` and `spec:check`), dual-forge state synchronization (**GitHub** and **Gitea**), `// shortcut:` debt scanning, and the agentic benchmark suite (`ateam bench`).
+
 ## Requirements
+
 ### Requirement: Lifecycle hook normalization under 10ms
 
 `ateam hook` SHALL normalize lifecycle events (`session-start`, `before-prompt`, `pre-compact`, `turn-end`) from Claude Code (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Codex CLI (`SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`), Gemini CLI (`SessionStart`, `BeforeAgent`, `PreCompress`, `AfterAgent`), and Antigravity (`SessionStart`, `PreInvocation`, `Stop`) over JSON stdio in under 10ms using cached `.ateam/state.json`.
@@ -339,7 +341,7 @@ Initialization SHALL write usable canonical instructions, skill adapters, hook s
 
 ### Requirement: Board state and authenticated API access
 
-The board SHALL expose state and support card creation, movement, handoff, and mode updates through its API, with the static application served at the root. Without an API token, protected reads and writes SHALL accept only loopback clients; when a token is configured, every client SHALL supply it. Board helpers SHALL group cards into all six canonical columns, filter by text, agent, forge, and column, and format five-field pickup prompts deterministically.
+The board SHALL expose state and support card creation, movement, handoff, and mode updates through its API, with the static application served at the root. Without an API token, protected reads and writes SHALL accept only loopback clients that address a loopback host; when a token is configured, every client SHALL supply it. Board helpers SHALL group cards into all six canonical columns, filter by text, agent, forge, and column, and format five-field pickup prompts deterministically.
 
 #### Scenario: Repository and dashboard behavior
 
@@ -351,6 +353,12 @@ The board SHALL expose state and support card creation, movement, handoff, and m
 - **WHEN** a user adds and selects another repository, then removes it
 - **THEN** state and model routing follow that selection and fall back to the startup repository
 - **AND** stale clients cannot write to the newly selected repository
+
+#### Scenario: Tokenless request addressed to another host
+
+- **WHEN** a loopback client sends a protected read or write with no token configured, and its `Host`, or its `Origin` when present, is not `localhost`, `127.0.0.1` or `[::1]`, with or without a port
+- **THEN** the request is refused with 403 and writes nothing
+- **AND** with a loopback `Host` and no foreign `Origin` it is served, and with a token configured the host is not checked
 
 #### Scenario: Configured token
 
@@ -1280,7 +1288,7 @@ Canonical skills, role contracts and their `ateam init` templates SHALL name the
 
 ### Requirement: Approve an OpenSpec change from the board
 
-`ateam serve` SHALL accept `POST /api/openspec/approve` with a change and its branch. It SHALL apply the owner approval edit to the files read at the branch head commit, and write it in one forge commit that is refused when `proposal.md`, `design.md` or `tasks.md` changed after that read, never to a local worktree or the default branch. The approver is the login behind the forge write token.
+`ateam serve` SHALL accept `POST /api/openspec/approve` with a change and its branch, which SHALL be a valid git branch name. It SHALL apply the owner approval edit to the files read at the branch head commit, and write it in one forge commit that is refused when `proposal.md`, `design.md` or `tasks.md` changed after that read, never to a local worktree or the default branch. The approver is the login behind the forge write token.
 
 #### Scenario: Approve a change holding on OPEN-Q
 
@@ -1291,6 +1299,11 @@ Canonical skills, role contracts and their `ateam init` templates SHALL name the
 
 - **WHEN** `proposal.md`, `design.md` or `tasks.md` changed on the branch after it was read, or the change has no approval hold, or the branch is the default branch
 - **THEN** the endpoint returns 409 for the stale file and 400 otherwise, and writes nothing
+
+#### Scenario: Branch that is not a git branch name
+
+- **WHEN** the branch is `@` or `HEAD`, starts with `-`, holds `..`, `@{`, a space, a control character or any of `~ ^ : ? * [ \ #`, or has a slash-separated part that is empty, starts with `.`, or ends with `.` or `.lock`
+- **THEN** the endpoint returns 400 before any forge call and writes nothing
 
 ### Requirement: Proposal decisions section and spec text length
 
@@ -1529,4 +1542,3 @@ On GitHub Actions, `ateam review gate` SHALL treat `pull_request_target` as a pu
 
 - **WHEN** the same event is set on a Gitea repository
 - **THEN** the gate exits 1 and says `pull_request_target` is not supported on Gitea
-
