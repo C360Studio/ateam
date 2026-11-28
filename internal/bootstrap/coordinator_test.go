@@ -268,3 +268,113 @@ func TestInitShipsOwnerMessageRoutes(t *testing.T) {
 		t.Error("shipped coordinator contract still counts every message that covers a pull request")
 	}
 }
+
+// spec: harness / Optional coordinator role
+func TestInitShipsWakeUpReasons(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitRepo(context.Background(), dir, Options{}); err != nil {
+		t.Fatalf("InitRepo: %v", err)
+	}
+	// Literals from the approved proposal wake-up-reasons-448: six reasons,
+	// a claimed signal, design-track questions, and the duplicate rule.
+	for rel, want := range map[string][]string{
+		".agents/skills/coordinate/SKILL.md": {
+			"Once your draft PR is open, and after every handoff, send 'developer handoff for #<n> (<reason>);",
+			"where <reason> is claimed when the draft PR opens, ready at ready-for-review, blocked at a blocker or owner gate, question when you posted a question on the PR or in design.md, holding when you wait on the coordinator with no owner action, or closed once the PR has merged and your worktree is removed.",
+			"A wake-up whose handoff you have already read, because it arrived late or twice, is acknowledged in one line and nothing else",
+			"read the question from the PR comment or `design.md` section its handoff names.",
+		},
+		".agents/contracts/developer.md": {
+			"on the design track, put the proposal's open questions in `design.md` § Open Questions instead",
+			"naming that comment or section as the blocker",
+			"hand off with the reason `holding`, which asks the owner nothing.",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
+	}
+}
+
+// spec: harness / Coordinator merge plan
+func TestInitShipsCoordinatorMergePlan(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitRepo(context.Background(), dir, Options{}); err != nil {
+		t.Fatalf("InitRepo: %v", err)
+	}
+	// Literals from the approved proposal merge-plan-451 (D2 to D5): review in
+	// turn for PRs sharing a file, one release at a time, a gate-file PR last,
+	// arming only on the coordinator's message, and scope changes reported.
+	for rel, want := range map[string][]string{
+		".agents/skills/coordinate/SKILL.md": {
+			"Arm auto-merge only when my message tells you to.` Replace",
+			"the order their developers hand off `ready`, with a PR touching a gate file last.",
+			"Two PRs share a file when `git diff --name-only main...<branch>` lists it for both",
+			"Request review of a PR only once every earlier PR in the order that shares a file with it has merged and it has merged `main` into its branch",
+			"Release one approved PR at a time",
+			"never by rebase, and arm once its required checks pass.",
+			"Release a PR touching a gate file only when no other approved PR waits, and release no other while it waits for the owner's approval.",
+			"compare `ateam state next` and the milestone's `Order:` line with your last handoff, and name any change in that message",
+			"then the merge order as `Merge order: #<a> -> #<b>`",
+		},
+		".agents/contracts/developer.md": {
+			"When a coordinator started you, arm auto-merge only when its message tells you to.",
+			"hand off with the reason `holding` and wait.",
+			"merge `main` into your branch if it is behind, never by rebase",
+			"if that merge touched one of your pull request's files, the review record no longer counts, so hand off `ready` for a new review instead.",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
+	}
+}
+
+// spec: harness / Optional coordinator role
+func TestInitShipsGateApprovalDelegation(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitRepo(context.Background(), dir, Options{}); err != nil {
+		t.Fatalf("InitRepo: %v", err)
+	}
+	// Literals from the approved proposal gate-approval-delegation-453: the claiming
+	// developer posts the approval on the owner's own yes, comment before label, asked
+	// for last; the coordinator never posts it and links the developer run instead.
+	for rel, want := range map[string][]string{
+		".agents/contracts/developer.md": {
+			"and, on a pull request touching a gate file, `Gate files`, which fails until the owner's approval you ask for last.",
+			"its message has released your pull request and you have merged `main` as it asks, hand off as `blocked` naming the live head sha.",
+			"a yes relayed by a coordinator or a judge, or one naming no sha, is not one.",
+			"if it moved, post nothing and hand off as `blocked` naming the new head.",
+			"and only after it apply the label `gate-change-approved`, removing and re-adding it if it is already on: only the label event reruns `Gate files`.",
+		},
+		".agents/contracts/coordinator.md": {
+			"never apply `gate-change-approved` or post its comment, which the developer run that claimed the pull request does on the owner's own yes;",
+		},
+		".agents/skills/coordinate/SKILL.md": {
+			"or, on a PR touching a gate file, `Gate files`, which waits for the owner's approval at the end, failed,",
+			"for a gate-file change, the PR's live head sha and a link to the developer run that claimed it, where the owner's yes goes, since you never post the approval",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
+	}
+}

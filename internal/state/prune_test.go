@@ -84,6 +84,48 @@ func TestPruneVerdict(t *testing.T) {
 }
 
 // spec: openspec/specs/harness/spec.md#Requirement: Prune finished worktrees the caller owns
+func TestPruneKeepsTheCoordinatorWorktree(t *testing.T) {
+	clean := false
+	st := defaultState()
+	st.Git.Branch, st.Git.HeadSHA = "claude/here", "9999999"
+	merged := []BoardCard{{ID: "GH-PR-1", Number: 1, Type: "pr", Column: "done", Merged: true, Branch: "claude/coordinator", HeadSHA: "aaaaaaa"}}
+	// main has moved past the coordinator's head, so git alone reads it merged (#445).
+	ancestor := Worktree{Path: "/r/.worktrees/claude-coordinator", Branch: "claude/coordinator", Head: "5555555", Dirty: &clean, MergedIntoMain: true}
+	viaPR := Worktree{Path: "/r/.worktrees/claude-coordinator", Branch: "claude/coordinator", Head: "aaaaaaa", Dirty: &clean, AheadCount: 1}
+	lookalike := Worktree{Path: "/r/.worktrees/claude-coordinator-docs", Branch: "claude/coordinator-docs", Head: "5555555", Dirty: &clean, MergedIntoMain: true}
+	const kept = "coordinator worktree; pass --force once the run has ended"
+	for _, tc := range []struct {
+		name   string
+		wt     Worktree
+		cards  []BoardCard
+		force  bool
+		remove bool
+		reason string
+	}{
+		{"ancestor of main", ancestor, nil, false, false, kept},
+		{"merged via a PR", viaPR, merged, false, false, kept},
+		{"ancestor of main with --force", ancestor, nil, true, true, "merged (ancestor of main)"},
+		{"merged via a PR with --force", viaPR, merged, true, true, "merged via #1"},
+		{"a topic that only starts with coordinator", lookalike, nil, false, true, "merged (ancestor of main)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st.Cards = tc.cards
+			remove, reason := st.PruneVerdict(tc.wt, "claude", "/r/me", tc.force)
+			if remove != tc.remove || reason != tc.reason {
+				t.Fatalf("PruneVerdict = (%v, %q), want (%v, %q)", remove, reason, tc.remove, tc.reason)
+			}
+		})
+	}
+
+	st.CurrentAgent, st.Cards = "claude", nil
+	st.Git.Worktrees = []Worktree{ancestor}
+	summary := BuildPickupSummary(st)
+	if want := "- claude/coordinator (head=5555555, dirty=false, ahead=0, merged (ancestor of main))\n"; !strings.Contains(summary, want) {
+		t.Fatalf("pickup summary missing %q (the label stays, the prune hint goes):\n%s", want, summary)
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Prune finished worktrees the caller owns
 func TestPruneRemovesOnlyOwnedFinishedWorktrees(t *testing.T) {
 	clearAgentSessionEnv(t)
 	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"} {

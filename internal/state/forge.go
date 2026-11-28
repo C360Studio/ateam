@@ -1006,11 +1006,11 @@ func newestHandoffMatches(comments []forgeComment, body string) (forgeComment, b
 	return forgeComment{}, false
 }
 
-// ghNewestHandoffMatches reads the branch PR's comments under HandoffCommentReadTimeout; a failed read matches nothing.
-func ghNewestHandoffMatches(ctx context.Context, root, branch, body string) (forgeComment, bool) {
+// ghNewestHandoffMatches reads PR number's comments under HandoffCommentReadTimeout; a failed read matches nothing.
+func ghNewestHandoffMatches(ctx context.Context, root string, number int, body string) (forgeComment, bool) {
 	rctx, cancel := context.WithTimeout(ctx, HandoffCommentReadTimeout)
 	defer cancel()
-	read := ghCommand(rctx, ReadToken(), "pr", "view", branch, "--json", "comments")
+	read := ghCommand(rctx, ReadToken(), "pr", "view", strconv.Itoa(number), "--json", "comments")
 	read.Dir = root
 	out, err := read.Output()
 	var view struct {
@@ -1022,7 +1022,8 @@ func ghNewestHandoffMatches(ctx context.Context, root, branch, body string) (for
 	return newestHandoffMatches(view.Comments, body)
 }
 
-// PostPRHandoffComment posts the 5-field handoff block to the open PR for branch on GitHub or Gitea. When the
+// PostPRHandoffComment posts the 5-field handoff block to the open PR for branch on GitHub or Gitea; a branch with
+// no open PR returns the zero HandoffPost and no error (#445). When the
 // PR's newest handoff comment already has this body it sends nothing and sets Existing; a failed comment read
 // posts anyway. A send that times out returns an error wrapping ErrPostUncertain (#320).
 func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, branch, body string) (HandoffPost, error) {
@@ -1037,43 +1038,7 @@ func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, bra
 		if _, err := exec.LookPath("gh"); err != nil {
 			return post, fmt.Errorf("gh CLI not found")
 		}
-		if c, ok := ghNewestHandoffMatches(ctx, root, branch, body); ok {
-			post.Posted, post.Existing, post.CommentURL = true, true, c.link()
-		}
-		cctx, cancel := context.WithTimeout(ctx, handoffPostTimeout)
-		defer cancel()
-		if !post.Existing {
-			cmd := ghCommand(cctx, WriteToken(), "pr", "comment", branch, "--body", body)
-			cmd.Dir = root
-			var stderr bytes.Buffer
-			cmd.Stderr = &stderr
-			out, err := cmd.Output()
-			if err != nil {
-				// A deadline that stopped gh from starting sent nothing; only a started send is uncertain.
-				if cmd.Process != nil && errors.Is(cctx.Err(), context.DeadlineExceeded) {
-					return post, fmt.Errorf("gh pr comment %s timed out: %w", branch, ErrPostUncertain)
-				}
-				return post, fmt.Errorf("gh pr comment %s: %w (%s)", branch, err, strings.TrimSpace(stderr.String()))
-			}
-			post.Posted = true
-			// gh pr comment prints the new comment's URL on stdout.
-			if lines := strings.Fields(string(out)); len(lines) > 0 && strings.HasPrefix(lines[len(lines)-1], "https://") {
-				post.CommentURL = lines[len(lines)-1]
-			}
-		}
-		view := ghCommand(cctx, ReadToken(), "pr", "view", branch, "--json", "number,headRefOid,url")
-		view.Dir = root
-		if viewOut, err := view.Output(); err == nil {
-			var pr struct {
-				Number     int    `json:"number"`
-				HeadRefOid string `json:"headRefOid"`
-				URL        string `json:"url"`
-			}
-			if json.Unmarshal(viewOut, &pr) == nil {
-				post.Number, post.HeadSHA, post.PRURL = pr.Number, pr.HeadRefOid, pr.URL
-			}
-		}
-		return post, nil
+		return ghPostPRHandoffComment(ctx, root, branch, body)
 
 	case ForgeGitea:
 		if cfg.BaseURL == "" || cfg.Owner == "" || cfg.Repo == "" {
@@ -1142,6 +1107,63 @@ func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, bra
 	default:
 		return post, nil
 	}
+}
+
+// ghPostPRHandoffComment is PostPRHandoffComment on GitHub. gh pr comment <branch> also finds a merged or closed
+// PR, so the open PR is listed first; none posts nothing, as on Gitea (#445).
+func ghPostPRHandoffComment(ctx context.Context, root, branch, body string) (HandoffPost, error) {
+	var post HandoffPost
+	// The CLI passes a context with no deadline, so the lookup carries the read budget itself; a stalled list is a
+	// read that failed, and nothing has been sent (#483 review).
+	lctx, cancel := context.WithTimeout(ctx, HandoffCommentReadTimeout)
+	list := ghCommand(lctx, ReadToken(), "pr", "list", "--head", branch, "--state", "open", "--json", "number,headRefOid,url", "--limit", "1")
+	list.Dir = root
+	var stderr bytes.Buffer
+	list.Stderr = &stderr
+	out, err := list.Output()
+	if lctx.Err() != nil {
+		err = fmt.Errorf("%w (%w)", err, lctx.Err())
+	}
+	cancel()
+	if err != nil {
+		return post, fmt.Errorf("gh pr list --head %s: %w (%s)", branch, err, strings.TrimSpace(stderr.String()))
+	}
+	var prs []struct {
+		Number     int    `json:"number"`
+		HeadRefOid string `json:"headRefOid"`
+		URL        string `json:"url"`
+	}
+	if err := json.Unmarshal(out, &prs); err != nil {
+		return post, fmt.Errorf("gh pr list --head %s: %w", branch, err)
+	}
+	if len(prs) == 0 || prs[0].Number <= 0 {
+		return post, nil
+	}
+	post.Number, post.HeadSHA, post.PRURL = prs[0].Number, prs[0].HeadRefOid, prs[0].URL
+	if c, ok := ghNewestHandoffMatches(ctx, root, post.Number, body); ok {
+		post.Posted, post.Existing, post.CommentURL = true, true, c.link()
+		return post, nil
+	}
+	cctx, cancel := context.WithTimeout(ctx, handoffPostTimeout)
+	defer cancel()
+	cmd := ghCommand(cctx, WriteToken(), "pr", "comment", strconv.Itoa(post.Number), "--body", body)
+	cmd.Dir = root
+	stderr.Reset()
+	cmd.Stderr = &stderr
+	out, err = cmd.Output()
+	if err != nil {
+		// A deadline that stopped gh from starting sent nothing; only a started send is uncertain.
+		if cmd.Process != nil && errors.Is(cctx.Err(), context.DeadlineExceeded) {
+			return post, fmt.Errorf("gh pr comment %d timed out: %w", post.Number, ErrPostUncertain)
+		}
+		return post, fmt.Errorf("gh pr comment %d: %w (%s)", post.Number, err, strings.TrimSpace(stderr.String()))
+	}
+	post.Posted = true
+	// gh pr comment prints the new comment's URL on stdout.
+	if lines := strings.Fields(string(out)); len(lines) > 0 && strings.HasPrefix(lines[len(lines)-1], "https://") {
+		post.CommentURL = lines[len(lines)-1]
+	}
+	return post, nil
 }
 
 // BootstrapForgeLabels seeds the 4 standard workflow labels on GitHub or Gitea.

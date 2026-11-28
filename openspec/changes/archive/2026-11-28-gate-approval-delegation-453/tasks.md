@@ -1,0 +1,29 @@
+# Tasks: gate-approval-delegation-453
+
+## 1. Approval
+
+- [x] 1.1 Owner approves the proposal and design (`Approved-by: Coby Leuschke (2026-11-28) sha256:ff7c9a41ec68`).
+
+## 2. Implementation
+
+- [x] 2.1 `.agents/protocol.md:94` and `:101`: the developer run that claimed the PR posts the comment, then the label, on the owner's own yes naming the PR and its live head; a relayed or stale yes is not one; ask last (after the approving review, the archive commit and an update from `main`). Acceptance: the owner-only sentences are gone and the shared-login attestation sentence stays.
+- [x] 2.2 `.agents/contracts/developer.md:7` and `developerContract` (`internal/bootstrap/review.go:23`): the steps from D2–D4. Acceptance: byte parity in `TestCanonicalReviewContracts` (`review_test.go:151`) and a new literal for the gate-file paragraph.
+- [x] 2.3 `.agents/contracts/coordinator.md:5`, `:7` and `coordinatorContract` (`templates.go:368`, `:370`): still never posts; the owner message links the developer's session. Keep the literal at `coordinator_test.go:43`.
+- [x] 2.4 `.agents/skills/coordinate/SKILL.md:26` and `templates.go:421`: for a gate-file change, the PR's live head and a link to the developer's session. Acceptance: byte parity in `TestInitShipsCoordinatorAsCanonical`.
+- [x] 2.5 `AGENTS.md:91`, `.agents/rules-index.md:42`, `docs/adoption.md:176`, `docs/adr/0003-roles-and-routes.md:26`: the delegated post in each.
+- [x] 2.6 New literals in `TestInitShipsGateApprovalDelegation` (`coordinator_test.go`; `review_test.go` keeps its byte parity), shown able to fail: three `task mutate:check` mutants (`review.go`, two in `templates.go`), each `detection`.
+- [x] 2.6a Asking last (D4) leaves `Gate files` red at ready-for-review, which the #446 rule (`developer.md:9`, `SKILL.md:22`) would treat as a failing check; both now exempt it on a gate-file PR, pinned by the same test.
+- [x] 2.7 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
+
+## 3. Review round 1
+
+- [x] 3.1 Round-1 P2 (codex record at `ddd36fd`): the 2.6a exception contradicted `openspec/specs/harness/spec.md:1450-1454`. Added `specs/harness/spec.md` (MODIFIED *Optional coordinator role*: `Gate files` excused only on a gate-file PR, merge still needs it green), dropped `skip_specs`, and revised `proposal.md` (track line, a ready-exception decision, scope) and `design.md` (D5, new D6).
+- [x] 3.2 Owner re-approves the proposal and design (`Approved-by: Coby Leuschke (2026-11-28) sha256:b6ee1aa6c044`).
+
+## 4. Catch-up with `main` before round 2
+
+- [x] 4.1 Merged `main` at 88d980e (#445, #448, #452, #451). Took main's coordinate skill, `templates.go` and `coordinator_test.go`, reapplied #453's clauses, and rebuilt `specs/harness/spec.md` on main's *Optional coordinator role* (the #448 scenario kept). Aligned `developer.md`'s gate-file paragraph with #451's release flow: ask after the coordinator's release and the `main` merge, then arm once the required checks pass. The changed literal shows `detection` under `task mutate:check`.
+
+## 5. Close
+
+- [x] 5.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.

@@ -36,6 +36,10 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 
 func newStatusFixture(t *testing.T, statusJSON string) statusFixture {
 	t.Helper()
+	// A fake gh on a machine loaded by the full suite can miss the 2 s open-PR lookup budget, which skips the post (#445).
+	oldRead := state.HandoffCommentReadTimeout
+	state.HandoffCommentReadTimeout = time.Minute
+	t.Cleanup(func() { state.HandoffCommentReadTimeout = oldRead })
 	for _, k := range []string{"ATEAM_FORGE", "GITEA_URL", "ATEAM_COMMIT_STATUSES", "FAKE_POST_EXIT", "FAKE_COMMENT_SLEEP", "FAKE_HANDOFF_COMMENTS", "GH_TOKEN", "ATEAM_TOKEN_READ", "ATEAM_TOKEN_WRITE",
 		"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "HERDR_ENV"} {
 		t.Setenv(k, "")
@@ -62,8 +66,8 @@ func newStatusFixture(t *testing.T, statusJSON string) statusFixture {
 		"case \"$*\" in\n" +
 		"'pr list --state open'*) printf '%s' '" + prList + "';;\n" +
 		"'pr comment'*) [ -n \"$FAKE_COMMENT_SLEEP\" ] && exec sleep \"$FAKE_COMMENT_SLEEP\"; echo 'https://github.com/o/r/pull/7#issuecomment-42';;\n" +
-		"'pr view claude/pr-7 --json comments') printf '%s' \"${FAKE_HANDOFF_COMMENTS:-[]}\";;\n" +
-		"'pr view claude/pr-7 --json number,headRefOid,url'*) printf '%s' '" + prView + "';;\n" +
+		"'pr list --head claude/pr-7 --state open'*) printf '[%s]' '" + prView + "';;\n" +
+		"'pr view 7 --json comments') printf '%s' \"${FAKE_HANDOFF_COMMENTS:-[]}\";;\n" +
 		"'pr view 7 --json comments'*) printf '%s' '{\"comments\":[]}';;\n" +
 		"'api -X POST '*) echo 'response body secret-body' >&2; exit \"${FAKE_POST_EXIT:-0}\";;\n" +
 		"'api repos/'*) cat '" + statusFile + "';;\n" +
@@ -250,7 +254,7 @@ func TestStateHandoffCommitStatuses(t *testing.T) {
 			t.Fatalf("handoff = %d", code)
 		}
 		data, _ := os.ReadFile(f.log)
-		if !strings.Contains(string(data), "|pr|comment|claude/pr-7|") || len(f.apiCalls(t)) != 0 {
+		if !strings.Contains(string(data), "|pr|comment|7|") || len(f.apiCalls(t)) != 0 {
 			t.Fatalf("want the comment and no status call, got:\n%s", data)
 		}
 	})
@@ -324,7 +328,7 @@ func TestStateHandoffPostOutcome(t *testing.T) {
 		f := newStatusFixture(t, `{"statuses":[]}`)
 		t.Setenv("FAKE_COMMENT_SLEEP", "10")
 		code, stderr := handoff(t, f)
-		want := "ateam state handoff: forge PR comment uncertain: gh pr comment claude/pr-7 timed out: outcome unknown; rerun ateam state handoff to post it once\n"
+		want := "ateam state handoff: forge PR comment uncertain: gh pr comment 7 timed out: outcome unknown; rerun ateam state handoff to post it once\n"
 		if code != 0 || stderr != want {
 			t.Fatalf("handoff = %d, stderr %q; want 0 and %q", code, stderr, want)
 		}
