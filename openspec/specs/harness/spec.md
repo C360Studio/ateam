@@ -247,6 +247,12 @@ State SHALL round-trip mode and the five handoff fields without inventing board 
 - **THEN** the CLI prints `forge PR comment uncertain: <err>; rerun ateam state handoff to post it once` (exit 0) and MCP prints `PR comment: uncertain (<err>)`, never `skipped`, and no commit status is posted
 - **AND WHEN** a later post finds that the PR's newest handoff comment has the same body, it posts nothing and reports `posted (already on PR)`, while a different newest body, or a failed read of the comments, posts
 
+#### Scenario: A handoff on a branch with no open PR
+
+- **WHEN** `ateam state handoff` or `ateam_state(action="handoff")` runs on GitHub or Gitea for a branch with no open pull request, including one whose only pull request is merged or closed
+- **THEN** no comment is posted on any pull request, the CLI prints no `forge PR comment` line (exit 0), MCP prints `PR comment: skipped (no open PR for branch)`, and no commit status is posted
+- **AND WHEN** the read that looks for the open pull request fails, nothing is posted and the CLI prints `forge PR comment skipped: <err>`
+
 ### Requirement: Fast Git identity across worktrees
 
 Git identity reads SHALL resolve loose and packed refs, detached HEADs, and linked-worktree gitdir/commondir pointers, returning the branch and seven-character commit identity.
@@ -830,6 +836,12 @@ Pickup SHALL show an attributed, bounded goal preview for every other handoff sl
 
 - **WHEN** pickup renders a linked worktree whose branch has no agent prefix (a host such as T3 Code created it on `t3/<topic>`)
 - **THEN** its line names the agent from that worktree's handoff slot for the branch, else from its writer lease, else `owner unknown`
+
+#### Scenario: The coordinator worktree is kept
+
+- **WHEN** a clean linked worktree on the caller's `<agent>/coordinator` branch is labelled `merged (ancestor of main)` or `merged via #<n>`
+- **THEN** without `--force` it is listed as `kept <agent>/coordinator: coordinator worktree; pass --force once the run has ended`, and pickup does not mark it a prune candidate
+- **AND WHEN** `--force` is passed, it is removed under the same checks as any finished worktree (with `--dry-run`, listed as `would remove`)
 
 ### Requirement: Build provenance names the binary the hooks run
 

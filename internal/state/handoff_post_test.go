@@ -32,6 +32,16 @@ var handoffPostCases = []struct {
 	{name: "comment read fails", failRead: true, existing: -1},
 }
 
+// widenHandoffReadBudget lifts the 2 s read budget for a test whose fake gh must answer the open-PR lookup: a
+// freshly written fake on a machine loaded by the full suite can take longer, and a lookup past the budget skips
+// the post (#445 verify run).
+func widenHandoffReadBudget(t *testing.T) {
+	t.Helper()
+	old := HandoffCommentReadTimeout
+	HandoffCommentReadTimeout = time.Minute
+	t.Cleanup(func() { HandoffCommentReadTimeout = old })
+}
+
 func handoffComments(t *testing.T, bodies []string) []forgeComment {
 	t.Helper()
 	out := make([]forgeComment, len(bodies))
@@ -45,19 +55,20 @@ func handoffComments(t *testing.T, bodies []string) []forgeComment {
 func TestPostPRHandoffCommentSkipsARepeatOfTheNewestHandoff(t *testing.T) {
 	for _, tc := range handoffPostCases {
 		t.Run("github/"+tc.name, func(t *testing.T) {
+			widenHandoffReadBudget(t)
 			raw, _ := json.Marshal(map[string]any{"comments": handoffComments(t, tc.comments)})
 			t.Setenv("FAKE_COMMENTS", string(raw))
 			if tc.failRead {
 				t.Setenv("FAKE_COMMENTS", "fail")
 			}
 			log := installForgeCLI(t, "gh", "case \"$*\" in\n"+
-				"'pr view claude/x --json comments') [ \"$FAKE_COMMENTS\" = fail ] && exit 1; printf '%s' \"$FAKE_COMMENTS\";;\n"+
+				"'pr list --head claude/x --state open --json number,headRefOid,url --limit 1') printf '%s' '[{\"number\":7,\"headRefOid\":\""+headFull+"\",\"url\":\"https://forge.example/pr/7\"}]';;\n"+
+				"'pr view 7 --json comments') [ \"$FAKE_COMMENTS\" = fail ] && exit 1; printf '%s' \"$FAKE_COMMENTS\";;\n"+
 				"'pr comment'*) printf '%s\\n' 'https://forge.example/new';;\n"+
-				"'pr view claude/x --json number,headRefOid,url') printf '%s' '{\"number\":7,\"headRefOid\":\""+headFull+"\",\"url\":\"https://forge.example/pr/7\"}';;\n"+
 				"*) exit 1;;\nesac\n")
 			post, err := PostPRHandoffComment(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub}, "claude/x", handoffPostBody)
 			data, _ := os.ReadFile(log)
-			sent := strings.Count(string(data), "pr comment claude/x")
+			sent := strings.Count(string(data), "pr comment 7 ")
 			checkHandoffPost(t, post, err, sent, tc.existing, "https://forge.example/new")
 			// The PR head is read either way, so commit statuses still run on a repeat.
 			if post.Number != 7 || post.HeadSHA != headFull {
@@ -157,6 +168,7 @@ func TestPostPRHandoffCommentReportsATimedOutSendAsUncertain(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run("github/"+tc.name, func(t *testing.T) {
+			widenHandoffReadBudget(t)
 			read, send := "exit 1", "printf '%s\\n' https://forge.example/new"
 			if tc.readHang {
 				read = "exec sleep 5"
@@ -167,10 +179,10 @@ func TestPostPRHandoffCommentReportsATimedOutSendAsUncertain(t *testing.T) {
 			if tc.rejected {
 				send = "echo 'HTTP 422' >&2; exit 1"
 			}
-			log := installForgeCLI(t, "gh", "case \"$*\" in\n'pr view claude/x --json comments') "+read+";;\n'pr comment'*) "+send+";;\n*) exit 1;;\nesac\n")
+			log := installForgeCLI(t, "gh", "case \"$*\" in\n"+"'pr list --head claude/x --state open --json number,headRefOid,url --limit 1') printf '%s' '[{\"number\":7,\"headRefOid\":\""+headFull+"\",\"url\":\"https://forge.example/pr/7\"}]';;\n"+"'pr view 7 --json comments') "+read+";;\n'pr comment'*) "+send+";;\n*) exit 1;;\nesac\n")
 			_, err := PostPRHandoffComment(parentCtx(t, tc.parent), t.TempDir(), ForgeConfig{Provider: ForgeGitHub}, "claude/x", handoffPostBody)
 			data, _ := os.ReadFile(log)
-			check(t, err, strings.Contains(string(data), "pr comment claude/x"), tc.uncertain, tc.sent)
+			check(t, err, strings.Contains(string(data), "pr comment 7 "), tc.uncertain, tc.sent)
 		})
 		t.Run("gitea/"+tc.name, func(t *testing.T) {
 			var sent atomic.Bool
@@ -201,5 +213,87 @@ func TestPostPRHandoffCommentReportsATimedOutSendAsUncertain(t *testing.T) {
 			_, err := PostPRHandoffComment(parentCtx(t, tc.parent), t.TempDir(), ForgeConfig{Provider: ForgeGitea, BaseURL: srv.URL, Owner: "o", Repo: "r"}, "claude/x", handoffPostBody)
 			check(t, err, sent.Load(), tc.uncertain, tc.sent)
 		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPostPRHandoffCommentOnGitHubPostsOnlyToAnOpenPR(t *testing.T) {
+	// The fake answers like real gh: `pr view <branch>` and `pr comment <branch>` find the branch's merged PR #444,
+	// while the open-PR list is empty. A post that addressed the branch would land on the merged PR (#445).
+	merged := "'pr view claude/x'*) printf '%s' '{\"number\":444,\"state\":\"MERGED\"}';;\n" +
+		"'pr comment claude/x'*) printf '%s\\n' 'https://forge.example/pr/444#c';;\n"
+	for _, tc := range []struct {
+		name, list string
+		wantErr    string
+	}{
+		{name: "no PR at all", list: "printf '[]'"},
+		{name: "only a merged PR", list: "printf '[]'"},
+		{name: "the open-PR read fails", list: "echo 'HTTP 502' >&2; exit 1", wantErr: "HTTP 502"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			widenHandoffReadBudget(t)
+			script := "case \"$*\" in\n'pr list --head claude/x --state open'*) " + tc.list + ";;\n"
+			if tc.name != "no PR at all" {
+				script += merged
+			}
+			log := installForgeCLI(t, "gh", script+"*) exit 1;;\nesac\n")
+			post, err := PostPRHandoffComment(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub}, "claude/x", handoffPostBody)
+			data, _ := os.ReadFile(log)
+			if strings.Contains(string(data), "pr comment") {
+				t.Fatalf("a comment was sent; calls:\n%s", data)
+			}
+			if post != (HandoffPost{}) {
+				t.Fatalf("post = %+v, want the zero post (nothing posted, no PR head for commit statuses)", post)
+			}
+			if tc.wantErr == "" && err != nil {
+				t.Fatalf("err = %v, want nil: no open PR is not an error", err)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("err = %v, want one naming %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPostPRHandoffCommentBoundsAStalledOpenPRLookup(t *testing.T) {
+	// The CLI passes context.Background(), so only the lookup's own budget can end a stalled gh pr list (#483 review).
+	old := HandoffCommentReadTimeout
+	HandoffCommentReadTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { HandoffCommentReadTimeout = old })
+	started := t.TempDir() + "/list-started"
+	t.Setenv("FAKE_LIST_STARTED", started)
+	log := installForgeCLI(t, "gh", "case \"$*\" in\n"+
+		"'pr list --head claude/x --state open'*) : > \"$FAKE_LIST_STARTED\"; exec sleep 5;;\n"+
+		"'pr comment'*) printf '%s\\n' 'https://forge.example/new';;\n"+
+		"*) printf '{}';;\nesac\n")
+
+	type result struct {
+		post HandoffPost
+		err  error
+	}
+	done := make(chan result, 1)
+	begin := time.Now()
+	go func() {
+		post, err := PostPRHandoffComment(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub}, "claude/x", handoffPostBody)
+		done <- result{post, err}
+	}()
+	var got result
+	select {
+	case got = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("PostPRHandoffComment still running after 10s with a stalled gh pr list")
+	}
+	if elapsed := time.Since(begin); elapsed > 2*time.Second {
+		t.Fatalf("a stalled open-PR lookup held the handoff for %v, want it ended near the 200ms read budget", elapsed)
+	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatalf("the fake gh pr list never started, so the stall was not exercised: %v", err)
+	}
+	if got.err == nil || errors.Is(got.err, ErrPostUncertain) || !strings.Contains(got.err.Error(), "gh pr list") {
+		t.Fatalf("err = %v, want a plain gh pr list read error, not an uncertain post", got.err)
+	}
+	if data, _ := os.ReadFile(log); strings.Contains(string(data), "pr comment") || got.post != (HandoffPost{}) {
+		t.Fatalf("post = %+v after a failed lookup; calls:\n%s", got.post, data)
 	}
 }
