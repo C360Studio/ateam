@@ -763,6 +763,7 @@ func TestSyncKeepsCommentURLsOffCache(t *testing.T) {
 // spec: openspec/specs/harness/spec.md#Requirement: Informational commit statuses on the PR head
 func TestPostPRHandoffCommentReturnsPRHead(t *testing.T) {
 	t.Run("github", func(t *testing.T) {
+		widenHandoffReadBudget(t)
 		installForgeCLI(t, "gh", "case \"$*\" in\n"+
 			"'pr comment'*) printf '%s\\n' 'https://github.com/o/r/pull/7#issuecomment-42';;\n"+
 			"'pr list --head claude/x --state open --json number,headRefOid,url --limit 1') printf '%s' '[{\"number\":7,\"headRefOid\":\""+headFull+"\",\"url\":\"https://github.com/o/r/pull/7\"}]';;\n"+

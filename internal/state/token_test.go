@@ -119,6 +119,7 @@ func TestGitHubForgeTokenRoles(t *testing.T) {
 			t.Setenv("ATEAM_TOKEN_READ", tc.read)
 			t.Setenv("ATEAM_TOKEN_WRITE", tc.write)
 			t.Setenv("GH_TOKEN", "fake-inherited")
+			widenHandoffReadBudget(t)
 			log := installForgeCLI(t, "gh", "printf 'auth %s %s %s\\n' \"$GH_TOKEN\" \"$1\" \"$2\" >> \"$FORGE_CALL_LOG\"\n"+
 				"case \"$*\" in 'pr list --head claude/x'*) printf '[{\"number\":7}]'; exit 0;; esac\n"+ghEmptyLists)
 			cfg := ForgeConfig{Provider: ForgeGitHub, Owner: "o", Repo: "r"}

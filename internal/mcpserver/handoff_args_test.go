@@ -18,6 +18,10 @@ import (
 // spec: openspec/specs/harness/spec.md#Requirement: Two-tool MCP context budget
 func TestMCPHandoffRefusesInvalidArgumentsBeforeAnyWrite(t *testing.T) {
 	// #266: a blank or wrong-type goal must not replace a useful checkpoint, release the lease, or post.
+	// A fake gh on a machine loaded by the full suite can miss the 2 s open-PR lookup budget, which skips the post (#445).
+	oldRead := state.HandoffCommentReadTimeout
+	state.HandoffCommentReadTimeout = time.Minute
+	t.Cleanup(func() { state.HandoffCommentReadTimeout = oldRead })
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},

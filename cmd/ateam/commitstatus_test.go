@@ -36,6 +36,10 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 
 func newStatusFixture(t *testing.T, statusJSON string) statusFixture {
 	t.Helper()
+	// A fake gh on a machine loaded by the full suite can miss the 2 s open-PR lookup budget, which skips the post (#445).
+	oldRead := state.HandoffCommentReadTimeout
+	state.HandoffCommentReadTimeout = time.Minute
+	t.Cleanup(func() { state.HandoffCommentReadTimeout = oldRead })
 	for _, k := range []string{"ATEAM_FORGE", "GITEA_URL", "ATEAM_COMMIT_STATUSES", "FAKE_POST_EXIT", "FAKE_COMMENT_SLEEP", "FAKE_HANDOFF_COMMENTS", "GH_TOKEN", "ATEAM_TOKEN_READ", "ATEAM_TOKEN_WRITE",
 		"ATEAM_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "GEMINI_SESSION_ID", "HERDR_ENV"} {
 		t.Setenv(k, "")

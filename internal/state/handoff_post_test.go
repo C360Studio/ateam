@@ -32,6 +32,16 @@ var handoffPostCases = []struct {
 	{name: "comment read fails", failRead: true, existing: -1},
 }
 
+// widenHandoffReadBudget lifts the 2 s read budget for a test whose fake gh must answer the open-PR lookup: a
+// freshly written fake on a machine loaded by the full suite can take longer, and a lookup past the budget skips
+// the post (#445 verify run).
+func widenHandoffReadBudget(t *testing.T) {
+	t.Helper()
+	old := HandoffCommentReadTimeout
+	HandoffCommentReadTimeout = time.Minute
+	t.Cleanup(func() { HandoffCommentReadTimeout = old })
+}
+
 func handoffComments(t *testing.T, bodies []string) []forgeComment {
 	t.Helper()
 	out := make([]forgeComment, len(bodies))
@@ -45,6 +55,7 @@ func handoffComments(t *testing.T, bodies []string) []forgeComment {
 func TestPostPRHandoffCommentSkipsARepeatOfTheNewestHandoff(t *testing.T) {
 	for _, tc := range handoffPostCases {
 		t.Run("github/"+tc.name, func(t *testing.T) {
+			widenHandoffReadBudget(t)
 			raw, _ := json.Marshal(map[string]any{"comments": handoffComments(t, tc.comments)})
 			t.Setenv("FAKE_COMMENTS", string(raw))
 			if tc.failRead {
@@ -157,6 +168,7 @@ func TestPostPRHandoffCommentReportsATimedOutSendAsUncertain(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run("github/"+tc.name, func(t *testing.T) {
+			widenHandoffReadBudget(t)
 			read, send := "exit 1", "printf '%s\\n' https://forge.example/new"
 			if tc.readHang {
 				read = "exec sleep 5"
@@ -219,6 +231,7 @@ func TestPostPRHandoffCommentOnGitHubPostsOnlyToAnOpenPR(t *testing.T) {
 		{name: "the open-PR read fails", list: "echo 'HTTP 502' >&2; exit 1", wantErr: "HTTP 502"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			widenHandoffReadBudget(t)
 			script := "case \"$*\" in\n'pr list --head claude/x --state open'*) " + tc.list + ";;\n"
 			if tc.name != "no PR at all" {
 				script += merged
