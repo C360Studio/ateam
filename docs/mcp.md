@@ -2,7 +2,7 @@
 
 `ateam mcp` is a local **stdio** server: the agent client launches the executable and exchanges newline-delimited JSON-RPC over stdin/stdout. It is separate from lifecycle hooks and from the HTTP web board (`ateam serve`). There is no MCP HTTP endpoint or standalone daemon to start first.
 
-It offers two tools, four prompts, and four resources. The two-tool design keeps discovery small by grouping related state operations under an `action` argument. The reported schema budget is a bytes/4 estimate for tool definitions (currently 759 bytes, 190 tokens, against a limit of 300), not a measured tokenizer count or the cost of returned content.
+It offers two tools, four prompts, and four resources. The two-tool design keeps discovery small by grouping related state operations under an `action` argument. The reported schema budget is a bytes/4 estimate for tool definitions against a limit of 300 tokens (`ateam doctor` prints `mcp_schema_bytes` and `mcp_schema_tokens`), not a measured tokenizer count or the cost of returned content.
 
 ## Install and register
 
