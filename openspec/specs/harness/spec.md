@@ -1447,6 +1447,12 @@ Session-start SHALL decide whether another writer is active from the cached writ
 - **WHEN** a coordinated pull request reaches an owner gate
 - **THEN** the coordinator stops that unit, puts the question in one message with every other pending owner question, and the pull request body's `owner-prompts:` line counts each message that covered it
 
+#### Scenario: Review is requested only on green required checks
+
+- **WHEN** a developer run hands off a coordinated pull request at ready-for-review
+- **THEN** the shipped developer contract allows a `ready` handoff only once every required check at the pull request head other than `Merge check` has passed, and the shipped `coordinate` skill reads those checks before `ateam review request`
+- **AND WHEN** one of them failed or is still running, the coordinator messages the developer run instead of requesting review
+
 ### Requirement: Judge approvals under the hold-my-beer opt-in
 
 A `Judged-by:` line in `proposal.md` SHALL count as approval only while `.agents/review-policy.json` sets `hold_my_beer: true`. It SHALL bind to the same digest as `Approved-by:`, which leaves both lines out, and SHALL never be shown as the owner's. While the opt-in is off, `spec-check` SHALL fail a filled `Judged-by:`.

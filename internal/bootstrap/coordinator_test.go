@@ -159,3 +159,33 @@ func TestInitShipsRoundsContinueRule(t *testing.T) {
 		}
 	}
 }
+
+// spec: harness / Optional coordinator role
+func TestInitShipsReviewOnGreenChecks(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitRepo(context.Background(), dir, Options{}); err != nil {
+		t.Fatalf("InitRepo: %v", err)
+	}
+	// Literals from the approved proposal review-on-green-checks-446: a ready
+	// handoff needs green required checks, and the coordinator reads them first.
+	for rel, want := range map[string][]string{
+		".agents/contracts/developer.md": {
+			"Hand off at ready-for-review (the reason `ready`) only once every required check at the pull request head has passed, apart from `Merge check`",
+			"when one fails, fix it and push, or hand off as `blocked` naming the check.",
+		},
+		".agents/skills/coordinate/SKILL.md": {
+			"When a developer hands off at ready-for-review, first read the required checks at the PR head (`gh pr checks <pr> --required`;",
+			"has not reported yet (the command lists only checks that have reported), message the developer run with that check and its state instead of requesting review. Otherwise run `ateam review request --return-to <your id> <pr>`",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
+	}
+}
