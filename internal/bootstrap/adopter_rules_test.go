@@ -225,3 +225,41 @@ func TestInitWritesDesignRulesMatchingThisRepository(t *testing.T) {
 		t.Fatalf("config lost its schema line:\n%s", written)
 	}
 }
+
+// spec: harness / Opt-in design track
+func TestInitShipsApprovalOfRecommendedOptions(t *testing.T) {
+	root := t.TempDir()
+	if _, err := InitRepo(context.Background(), root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	// Literals from the approved proposal approve-recommended-450: every open question
+	// names a recommended option, the decisions section opens with one sentence, and a
+	// different pick is written into the document and approved at its new digest.
+	const sentence = "Approving accepts the recommended option of each decision unless you name another."
+	for rel, want := range map[string][]string{
+		".agents/protocol.md": {
+			"Each open question in `proposal.md` or `design.md` names a recommended option, and the decisions section opens with `" + sentence + "`",
+			"when the owner names another option, the developer writes it into the document and the owner approves its new digest.",
+		},
+		".agents/skills/design/SKILL.md": {
+			"what each forecloses, marks the one you recommend,",
+			"mark each one that needs an owner ruling and name the answer you recommend.",
+			"Open `proposal.md`'s `## Decisions you are making by approving` section with `" + sentence + "`",
+		},
+		"openspec/config.yaml": {
+			"section: first the line '" + sentence + "', then one bullet per decision",
+			"what each forecloses, marks the recommended one,",
+			"Mark each Open Question that needs an owner ruling as such and name the recommended answer;",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
+	}
+}
