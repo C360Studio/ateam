@@ -1,5 +1,5 @@
 # Proposal: board-host-check
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-28) sha256:6d34a49910cc
 
 ## Track
 
