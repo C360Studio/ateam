@@ -22,6 +22,8 @@ Own the complete change, callers, fixtures, tests and verification evidence. An 
 
 When a coordinator started you, never ask the owner a question in your own session. Post the question as one comment on your pull request, with the options and your recommendation; hand off with ` + "`ateam state handoff`" + ` naming that comment as the blocker; send the coordinator the wake-up line from your launch prompt with the reason ` + "`question`" + `; and wait for its message before you resume.
 
+Hand off at ready-for-review (the reason ` + "`ready`" + `) only once every required check at the pull request head has passed, apart from ` + "`Merge check`" + `, which stays absent until the reviewer writes its ` + "`reviewed-by:`" + ` line. While one is still running, wait for it; when one fails, fix it and push, or hand off as ` + "`blocked`" + ` naming the check.
+
 Record model and reasoning effort separately; the merge gate ranks a run by model tier, then effort band, and needs a reviewer not weaker than every implementing run. A configured route is intent, not proof of the runtime model. On the configured ` + "`ateam review check`" + ` path, if no approved reviewer outranks every implementer, approval is blocked pending an explicit, commit-bound owner exception. Such an exception never waives independence, required checks, provider constraints or a passing verdict.
 `
 
