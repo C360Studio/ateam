@@ -3,7 +3,7 @@ Approved-by: Coby Leuschke (2026-11-28) sha256:ff7c9a41ec68
 
 ## Track
 
-`design`: it widens what a developer run may write on the forge (the `gate-change-approved` comment and label), in the contracts `ateam init` ships to adopters. No code, CLI flag, gate file or spec Requirement changes; `scripts/gate-files.sh` already checks what the new route produces.
+`design`: it widens what a developer run may write on the forge (the `gate-change-approved` comment and label), in the contracts `ateam init` ships to adopters. No code, CLI flag or gate file changes, and one harness scenario changes (the ready exception below); `scripts/gate-files.sh` already checks what the new route produces.
 
 ## Decisions you are making by approving
 
@@ -11,7 +11,8 @@ Approved-by: Coby Leuschke (2026-11-28) sha256:ff7c9a41ec68
 - **Only your own yes counts.** A yes that names no commit, a commit that is no longer the PR's head, or a message passed on by the coordinator or a judge is not an approval; the developer asks again instead of posting. The coordinator still never posts it, and its message to you links the developer's conversation.
 - **If the head moves after your yes, the developer posts nothing and asks again for the new head.** A merge from `main` moves the head too, so the approval still names one exact commit (Q2 = A).
 - **You are asked for the approval last.** The developer asks only after the approving review, the archive commit and an update from `main`, when the gate-file PR is the next to merge; the merge plan in #451 puts it last.
-- **No spec, script or workflow changes.** The check already reads a comment and a label at the live head; it cannot tell who posted them under a shared login, as today.
+- **A gate-file PR can be marked ready and reviewed while its gate-file check is still red.** That check waits for the approval you give last, so the developer hands off for review with it red, and the coordinator requests review instead of sending it back. It is the only check excused, only on a PR that touches a gate file, and the PR still cannot merge until that check passes after your approval. The harness spec's scenario for ready handoffs says so.
+- **No script or workflow changes.** The check already reads a comment and a label at the live head; it cannot tell who posted them under a shared login, as today.
 
 ## Why
 
@@ -27,8 +28,8 @@ Approved-by: Coby Leuschke (2026-11-28) sha256:ff7c9a41ec68
 
 ## Scope & Non-Goals
 
-- **In-bounds:** the files above, `internal/bootstrap/coordinator_test.go`, `internal/bootstrap/review_test.go`.
-- **Non-goals:** any gate file (`scripts/gate-files.sh`, the workflows, `.agents/hosts/`, `.agents/review-policy.json`, `internal/review/`); accepting a later head after a clean `main` merge (Q2 = B); `openspec/specs/`; a coordinator or judge write.
+- **In-bounds:** the files above, the harness scenario *Review is requested only on green required checks* (one MODIFIED Requirement, *Optional coordinator role*), `internal/bootstrap/coordinator_test.go`, `internal/bootstrap/review_test.go`.
+- **Non-goals:** any gate file (`scripts/gate-files.sh`, the workflows, `.agents/hosts/`, `.agents/review-policy.json`, `internal/review/`); accepting a later head after a clean `main` merge (Q2 = B); any other `openspec/specs/` change; a coordinator or judge write.
 - **Out of scope, not ruled:** the whole-review finding that `scripts/gate-files.sh:126` never checks who wrote the approval comment. These rulings do not cover it; it stays on #453's thread for a separate decision and a gate-file change.
 
 ## Definition of Done

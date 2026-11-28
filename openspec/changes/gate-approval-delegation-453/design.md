@@ -1,6 +1,6 @@
 # Design: gate-approval-delegation-453
 
-Drafted by claude (opus, high) in the developer run, under the design skill. Read-only on the deliverable until approval; the owner rules. Q1 and Q2 were ruled by the owner on 2026-11-28 (#453); D2, D3 and D5 are the details those rulings leave open.
+Drafted by claude (opus, high) in the developer run, under the design skill. Read-only on the deliverable until approval; the owner rules. Q1 and Q2 were ruled by the owner on 2026-11-28 (#453); D2, D3, D5 and D6 are the details those rulings leave open. D5 was revised and D6 added after review round 1 (codex record at `ddd36fd`).
 
 ## Context
 
@@ -13,6 +13,7 @@ Drafted by claude (opus, high) in the developer run, under the design skill. Rea
 - `.github/workflows/gate-files.yml:12-13`: runs on `labeled`/`unlabeled` and pushes, not on comments; `.gitea/workflows/gate-files.yml:13`, `:26-30` likewise on `label_updated`. So a comment alone reruns nothing; the label event after it does.
 - `AGENTS.md:91`, `.agents/rules-index.md:42`: "only the owner applies them, and a blocked agent hands off". `docs/adoption.md:176`: *Gate-change approval*, decided by the owner. `docs/adr/0003-roles-and-routes.md:26`: the developer's *May write* cell.
 - `openspec/specs/harness/spec.md:524-533` (*Gate-file changes wait for the owner*) specifies the check, not who posts; `:1438` keeps the coordinator from applying the label. PRs #483 and #484 edit that file.
+- `openspec/specs/harness/spec.md:1450-1454` (*Review is requested only on green required checks*, from #446): a `ready` handoff and a review request need every required check green except `Merge check`; `.agents/contracts/developer.md:9` and `.agents/skills/coordinate/SKILL.md:22` ship it.
 - `internal/bootstrap/review_test.go:151-158` and `coordinator_test.go:30-39` fail when a shipped contract or skill differs from the repository's.
 
 ## Goals / Non-Goals
@@ -46,8 +47,17 @@ Drafted by claude (opus, high) in the developer run, under the design skill. Rea
 
 ### D5. Spec
 
-- **A (recommended): no delta (`skip_specs: true`).** The check is unchanged and the scenario at `spec.md:524` describes it; the new route is instruction text pinned by the init tests. Keeps clear of #483 and #484.
-- **B: reword the scenario's "until the owner posts".** More literal, but rewrites a long Requirement block (strict-length risk after archive) for no behaviour change.
+- **A (recommended): one delta, for D6 only.** The `Gate files` check is unchanged and the scenario at `spec.md:524` still describes it; the delegated post is instruction text pinned by the init tests. D6 changes a specified workflow, so *Optional coordinator role* is MODIFIED for that one scenario.
+- **B: also reword the gate-file scenario's "until the owner posts".** More literal, but rewrites a long Requirement block (strict-length risk after archive) for no behaviour change.
+- **C: no delta (the first draft).** Round 1 found it contradicts `spec.md:1450-1454` once D6 ships.
+
+### D6. A gate-file PR's ready handoff
+
+Asking last (D4) leaves `Gate files` red when the PR is marked ready, and the #446 rule (`spec.md:1450-1454`) then forbids the `ready` handoff and the review request.
+
+- **A (recommended): excuse `Gate files`, and only it, on a PR touching a gate file.** The developer hands off `ready` and the coordinator requests review; the PR still merges only once `Gate files` passes at its head, which the ruleset requires. Blast radius: one clause in the developer contract, coordinate step 3 and the scenario.
+- **B: ask for the approval before review.** Every review fix moves the head and voids it; this is the friction Q2 = A accepted to avoid.
+- *Adopter seam:* a team with no gate files never meets it; one that does gets the clause on the next init or reconcile.
 
 ## Risks / Trade-offs
 
@@ -60,4 +70,4 @@ None. Adopters get the text on the next `ateam init` or contract reconcile.
 
 ## Open Questions
 
-None for the owner beyond approving D2, D3 and D5; D1 and D4 record the rulings.
+None for the owner beyond approving D2, D3, D5 and D6; D1 and D4 record the rulings.

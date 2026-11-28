@@ -15,6 +15,11 @@
 - [x] 2.6a Asking last (D4) leaves `Gate files` red at ready-for-review, which the #446 rule (`developer.md:9`, `SKILL.md:22`) would treat as a failing check; both now exempt it on a gate-file PR, pinned by the same test.
 - [x] 2.7 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
 
-## 3. Close
+## 3. Review round 1
 
-- [ ] 3.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
+- [x] 3.1 Round-1 P2 (codex record at `ddd36fd`): the 2.6a exception contradicted `openspec/specs/harness/spec.md:1450-1454`. Added `specs/harness/spec.md` (MODIFIED *Optional coordinator role*: `Gate files` excused only on a gate-file PR, merge still needs it green), dropped `skip_specs`, and revised `proposal.md` (track line, a ready-exception decision, scope) and `design.md` (D5, new D6).
+- [ ] 3.2 Owner re-approves the proposal and design at the digest `task spec:queue` prints. Hold: OPEN-Q proposal awaits owner approval
+
+## 4. Close
+
+- [ ] 4.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
