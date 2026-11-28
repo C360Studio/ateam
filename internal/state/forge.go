@@ -1113,11 +1113,18 @@ func PostPRHandoffComment(ctx context.Context, root string, cfg ForgeConfig, bra
 // PR, so the open PR is listed first; none posts nothing, as on Gitea (#445).
 func ghPostPRHandoffComment(ctx context.Context, root, branch, body string) (HandoffPost, error) {
 	var post HandoffPost
-	list := ghCommand(ctx, ReadToken(), "pr", "list", "--head", branch, "--state", "open", "--json", "number,headRefOid,url", "--limit", "1")
+	// The CLI passes a context with no deadline, so the lookup carries the read budget itself; a stalled list is a
+	// read that failed, and nothing has been sent (#483 review).
+	lctx, cancel := context.WithTimeout(ctx, HandoffCommentReadTimeout)
+	list := ghCommand(lctx, ReadToken(), "pr", "list", "--head", branch, "--state", "open", "--json", "number,headRefOid,url", "--limit", "1")
 	list.Dir = root
 	var stderr bytes.Buffer
 	list.Stderr = &stderr
 	out, err := list.Output()
+	if lctx.Err() != nil {
+		err = fmt.Errorf("%w (%w)", err, lctx.Err())
+	}
+	cancel()
 	if err != nil {
 		return post, fmt.Errorf("gh pr list --head %s: %w (%s)", branch, err, strings.TrimSpace(stderr.String()))
 	}

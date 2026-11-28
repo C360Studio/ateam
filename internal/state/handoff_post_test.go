@@ -241,3 +241,46 @@ func TestPostPRHandoffCommentOnGitHubPostsOnlyToAnOpenPR(t *testing.T) {
 		})
 	}
 }
+
+// spec: openspec/specs/harness/spec.md#Requirement: Durable shared state and five-field handoff
+func TestPostPRHandoffCommentBoundsAStalledOpenPRLookup(t *testing.T) {
+	// The CLI passes context.Background(), so only the lookup's own budget can end a stalled gh pr list (#483 review).
+	old := HandoffCommentReadTimeout
+	HandoffCommentReadTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { HandoffCommentReadTimeout = old })
+	started := t.TempDir() + "/list-started"
+	t.Setenv("FAKE_LIST_STARTED", started)
+	log := installForgeCLI(t, "gh", "case \"$*\" in\n"+
+		"'pr list --head claude/x --state open'*) : > \"$FAKE_LIST_STARTED\"; exec sleep 5;;\n"+
+		"'pr comment'*) printf '%s\\n' 'https://forge.example/new';;\n"+
+		"*) printf '{}';;\nesac\n")
+
+	type result struct {
+		post HandoffPost
+		err  error
+	}
+	done := make(chan result, 1)
+	begin := time.Now()
+	go func() {
+		post, err := PostPRHandoffComment(context.Background(), t.TempDir(), ForgeConfig{Provider: ForgeGitHub}, "claude/x", handoffPostBody)
+		done <- result{post, err}
+	}()
+	var got result
+	select {
+	case got = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("PostPRHandoffComment still running after 10s with a stalled gh pr list")
+	}
+	if elapsed := time.Since(begin); elapsed > 2*time.Second {
+		t.Fatalf("a stalled open-PR lookup held the handoff for %v, want it ended near the 200ms read budget", elapsed)
+	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatalf("the fake gh pr list never started, so the stall was not exercised: %v", err)
+	}
+	if got.err == nil || errors.Is(got.err, ErrPostUncertain) || !strings.Contains(got.err.Error(), "gh pr list") {
+		t.Fatalf("err = %v, want a plain gh pr list read error, not an uncertain post", got.err)
+	}
+	if data, _ := os.ReadFile(log); strings.Contains(string(data), "pr comment") || got.post != (HandoffPost{}) {
+		t.Fatalf("post = %+v after a failed lookup; calls:\n%s", got.post, data)
+	}
+}

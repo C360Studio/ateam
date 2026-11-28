@@ -10,6 +10,10 @@
 - [x] 2.2 Prune keeps `<agent>/coordinator` unless `--force` (premise: `PruneVerdict` removes any owned clean branch labelled `merged (ancestor of main)` once `occupiedBy` is empty, `internal/state/prune.go:84-91`; pickup marks the same verdict `, prune candidate`, `internal/state/state.go:3354`). Accept: `TestPruneKeepsTheCoordinatorWorktree` (kept without `--force` as ancestor of main and via a merged PR, removed with it, `claude/coordinator-docs` still pruned, pickup line without the hint); `task mutate:check` detection with the base `prune.go`, a prefix match, and the rule disabled (pickup assertion).
 - [x] 2.3 Harness spec delta applied at archive (tests cite the existing Requirements in `openspec/specs/harness/spec.md`); `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
 
-## 3. Close
+## 3. Review round 1
 
-- [ ] 3.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
+- [x] 3.1 Round-1 P2 (codex record at `a79efc2`): the open-PR lookup in `ghPostPRHandoffComment` ran on the caller's context, which the CLI leaves without a deadline (`cmd/ateam/main.go:404`). It now runs under `HandoffCommentReadTimeout` as a child of that context, and a stalled list returns a plain read error with nothing sent. Accept: `TestPostPRHandoffCommentBoundsAStalledOpenPRLookup`, shown able to fail with `task mutate:check` against the unbounded lookup.
+
+## 4. Close
+
+- [ ] 4.1 After the approving review record: archive this change in a document-only commit, then arm auto-merge when the coordinator says so.
