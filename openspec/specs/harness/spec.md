@@ -1445,7 +1445,8 @@ Session-start SHALL decide whether another writer is active from the cached writ
 #### Scenario: Owner gates are batched and counted
 
 - **WHEN** a coordinated pull request reaches an owner gate
-- **THEN** the coordinator stops that unit, puts the question in one message with every other pending owner question, and the pull request body's `owner-prompts:` line counts each message that covered it
+- **THEN** the coordinator stops that unit, puts the question in one message with every other pending owner question, and the pull request body's `owner-prompts:` line counts each message that first asked about it
+- **AND WHEN** a later message repeats a gate already asked and still unanswered, that pull request's `owner-prompts:` line is unchanged
 
 #### Scenario: Review is requested only on green required checks
 
@@ -1464,6 +1465,13 @@ Session-start SHALL decide whether another writer is active from the cached writ
 - **WHEN** the shipped `coordinate` skill starts a developer run
 - **THEN** its launch prompt sends the wake-up line once the draft PR is open and after every handoff, with the reason `claimed`, `ready`, `blocked`, `question`, `holding` or `closed`, and the shipped developer contract sends a design-track proposal's open questions as `question` naming the `design.md` section
 - **AND WHEN** a wake-up arrives for a handoff the coordinator has already read, the skill has it acknowledge the wake-up and do nothing else
+
+#### Scenario: Proposal approvals offer only working routes and are not re-asked
+
+- **WHEN** the shipped `coordinate` skill asks the owner to approve a proposal
+- **THEN** the message gives the developer run's conversation link before the pull request and offers approval through the coordinator, in that developer conversation, or by the owner's own commit, leaving out a route the developer reported its host refused
+- **AND** before sending, the skill syncs and reads the branch and pull request, and drops a gate already answered
+- **AND** the shipped developer contract writes `Approved-by:` only on the owner's own words, quoting them in the commit, and hands off as `blocked` when its host refuses the edit
 
 ### Requirement: Judge approvals under the hold-my-beer opt-in
 
