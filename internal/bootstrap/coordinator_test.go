@@ -189,3 +189,34 @@ func TestInitShipsReviewOnGreenChecks(t *testing.T) {
 		}
 	}
 }
+
+// spec: harness / Optional coordinator role
+func TestInitShipsDeveloperHandoffFields(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitRepo(context.Background(), dir, Options{}); err != nil {
+		t.Fatalf("InitRepo: %v", err)
+	}
+	// Literals from the approved proposal developer-handoff-fields-447: what a
+	// developer handoff and PR body must surface, and what the owner message repeats.
+	for rel, want := range map[string][]string{
+		".agents/contracts/developer.md": {
+			"An action only the owner can take goes in the handoff Goal, named as owed by the owner",
+			"The handoff names the change's track and, for `quick`, the one-line reason no design trigger applies.",
+			"never write \"no gate file touched\"; quote the line `scripts/gate-files.sh <pr>` printed and the commit it ran at.",
+			"When you rewrite your pull request body, keep any `owner-prompts:` line you find, unchanged.",
+		},
+		".agents/skills/coordinate/SKILL.md": {
+			"With each proposal, repeat the track its developer handoff names and, for `quick`, its reason, and list every action a developer handoff Goal names as owed by the owner.",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
+	}
+}

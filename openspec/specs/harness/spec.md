@@ -1465,6 +1465,12 @@ Session-start SHALL decide whether another writer is active from the cached writ
 - **THEN** the shipped developer contract allows a `ready` handoff only once every required check at the pull request head other than `Merge check` has passed, and the shipped `coordinate` skill reads those checks before `ateam review request`
 - **AND WHEN** one of them failed or is still running, the coordinator messages the developer run instead of requesting review
 
+#### Scenario: Developer handoffs surface what the owner must see
+
+- **WHEN** a developer run hands off or rewrites its pull request body
+- **THEN** the shipped developer contract puts owner-owed actions in the handoff Goal, names the track with the reason for `quick`, states a gate-file claim only as the line `scripts/gate-files.sh` printed, and keeps any `owner-prompts:` line unchanged
+- **AND** the shipped `coordinate` skill's owner message lists those owed actions and repeats each proposal's track
+
 ### Requirement: Judge approvals under the hold-my-beer opt-in
 
 A `Judged-by:` line in `proposal.md` SHALL count as approval only while `.agents/review-policy.json` sets `hold_my_beer: true`. It SHALL bind to the same digest as `Approved-by:`, which leaves both lines out, and SHALL never be shown as the owner's. While the opt-in is off, `spec-check` SHALL fail a filled `Judged-by:`.
