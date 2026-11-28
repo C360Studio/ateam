@@ -744,6 +744,21 @@ type approveRequest struct {
 // openspec/changes/.
 var changeNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+// validBranchName reports whether name passes git check-ref-format for a branch (a segment starting with "." is
+// refused too). The approve handler puts the name into forge API paths, so a name that git itself would refuse, one
+// that climbs out of the branches path ("../../x"), or one a forge reads as an option ("-x"), never reaches the forge.
+func validBranchName(name string) bool {
+	if name == "" || strings.HasPrefix(name, "/") || strings.HasPrefix(name, "-") || strings.HasPrefix(name, ".") ||
+		strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".lock") ||
+		strings.Contains(name, "..") || strings.Contains(name, "//") || strings.Contains(name, "/.") ||
+		strings.Contains(name, "@{") {
+		return false
+	}
+	return !strings.ContainsFunc(name, func(r rune) bool {
+		return r < ' ' || r == 0x7f || strings.ContainsRune(" ~^:?*[\\#", r)
+	})
+}
+
 // handleOpenSpecApprove writes the owner approval edit (state.ApproveEdits) on a change's branch through the forge,
 // never a local worktree (#181). The files are read at one head commit so the digest covers the bytes approved,
 // and the one commit is refused if any of the three moved after that read, so a push in between is a 409.
@@ -758,8 +773,8 @@ func (s *Server) handleOpenSpecApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Branch = strings.TrimSpace(req.Branch)
-	if !changeNameRe.MatchString(req.Change) || req.Branch == "" {
-		writeError(w, http.StatusBadRequest, "approve needs a change name and its branch")
+	if !changeNameRe.MatchString(req.Change) || !validBranchName(req.Branch) {
+		writeError(w, http.StatusBadRequest, "approve needs a change name and the change's branch, a valid git branch name")
 		return
 	}
 

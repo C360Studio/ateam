@@ -302,9 +302,9 @@ func (g giteaFiles) do(ctx context.Context, method, path, token string, body []b
 }
 
 func (g giteaFiles) Head(ctx context.Context, branch string) (string, error) {
-	// shortcut: the branch goes into the path unescaped, as Gitea's router matches slashes in branch names; escape it
-	// if a branch with other reserved characters is ever approved.
-	data, code, err := g.do(ctx, http.MethodGet, g.repo+"/branches/"+branch, giteaToken(ReadToken()), nil)
+	// Gitea's router matches slashes in branch names, so only each segment is escaped: a branch holding "?" or "#"
+	// would otherwise end the path and name another resource.
+	data, code, err := g.do(ctx, http.MethodGet, g.repo+"/branches/"+escapePath(branch), giteaToken(ReadToken()), nil)
 	if err != nil {
 		return "", err
 	}
