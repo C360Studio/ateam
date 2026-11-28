@@ -13,7 +13,7 @@
 - [x] 2.5 `AGENTS.md:91`, `.agents/rules-index.md:42`, `docs/adoption.md:176`, `docs/adr/0003-roles-and-routes.md:26`: the delegated post in each.
 - [x] 2.6 New literals in `TestInitShipsGateApprovalDelegation` (`coordinator_test.go`; `review_test.go` keeps its byte parity), shown able to fail: three `task mutate:check` mutants (`review.go`, two in `templates.go`), each `detection`.
 - [x] 2.6a Asking last (D4) leaves `Gate files` red at ready-for-review, which the #446 rule (`developer.md:9`, `SKILL.md:22`) would treat as a failing check; both now exempt it on a gate-file PR, pinned by the same test.
-- [ ] 2.7 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
+- [x] 2.7 Run `task verify`, `ateam doctor --check`, `ateam bench --selftest`.
 
 ## 3. Close
 
