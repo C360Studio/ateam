@@ -1,5 +1,5 @@
 # Proposal: gate-approval-delegation-453
-Approved-by: Coby Leuschke (2026-11-28) sha256:ff7c9a41ec68
+Approved-by: Coby Leuschke (2026-11-28) sha256:b6ee1aa6c044
 
 ## Track
 

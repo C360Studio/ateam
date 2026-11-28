@@ -18,7 +18,7 @@
 ## 3. Review round 1
 
 - [x] 3.1 Round-1 P2 (codex record at `ddd36fd`): the 2.6a exception contradicted `openspec/specs/harness/spec.md:1450-1454`. Added `specs/harness/spec.md` (MODIFIED *Optional coordinator role*: `Gate files` excused only on a gate-file PR, merge still needs it green), dropped `skip_specs`, and revised `proposal.md` (track line, a ready-exception decision, scope) and `design.md` (D5, new D6).
-- [ ] 3.2 Owner re-approves the proposal and design at the digest `task spec:queue` prints. Hold: OPEN-Q proposal awaits owner approval
+- [x] 3.2 Owner re-approves the proposal and design (`Approved-by: Coby Leuschke (2026-11-28) sha256:b6ee1aa6c044`).
 
 ## 4. Close
 
