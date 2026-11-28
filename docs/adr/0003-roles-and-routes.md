@@ -23,7 +23,7 @@ This repository documents two roles as contracts, developer and reviewer (`.agen
 | Role | Contract | May write | Never |
 | --- | --- | --- | --- |
 | `architect` | `.agents/contracts/architect.md` | The change's `design.md` and the premises in its `tasks.md` | Implement, rule, or edit any other file |
-| `developer` | `.agents/contracts/developer.md` | The complete change: code, callers, tests, fixtures, OpenSpec task evidence | Review its own work, or lower its model to make review possible |
+| `developer` | `.agents/contracts/developer.md` | The complete change: code, callers, tests, fixtures, OpenSpec task evidence; on the owner's yes naming its PR and head, the `gate-change-approved` comment and label (#453) | Review its own work, or lower its model to make review possible |
 | `reviewer` | `.agents/contracts/reviewer.md` | One review record comment on the pull request | Edit the deliverable it grades |
 | `coordinator` | `.agents/contracts/coordinator.md` | Its handoff, PR comments relaying review results or the owner's batched questions, and a PR body's `owner-prompts:` line | Implement, review, rule, fill `Approved-by:`, apply `gate-change-approved`, change labels or milestones, or release |
 | `judge` | `.agents/contracts/judge.md` (#424); otherwise the owner's prompt states the one question | A ruling on that question, posted where the owner asks; in hold-my-beer mode, a proposal's `Judged-by:` line with its hold removed, a milestone's `Order:` line or an issue's milestone, and removal of the `status:needs-decision` or `status:blocked` label it was asked about | Sweep, implement, rule on anything it was not asked, write `Approved-by:` or a review record, add a label, apply `gate-change-approved`, or release |

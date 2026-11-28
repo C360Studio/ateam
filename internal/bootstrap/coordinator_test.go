@@ -341,3 +341,40 @@ func TestInitShipsCoordinatorMergePlan(t *testing.T) {
 		}
 	}
 }
+
+// spec: harness / Optional coordinator role
+func TestInitShipsGateApprovalDelegation(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitRepo(context.Background(), dir, Options{}); err != nil {
+		t.Fatalf("InitRepo: %v", err)
+	}
+	// Literals from the approved proposal gate-approval-delegation-453: the claiming
+	// developer posts the approval on the owner's own yes, comment before label, asked
+	// for last; the coordinator never posts it and links the developer run instead.
+	for rel, want := range map[string][]string{
+		".agents/contracts/developer.md": {
+			"and, on a pull request touching a gate file, `Gate files`, which fails until the owner's approval you ask for last.",
+			"its message has released your pull request and you have merged `main` as it asks, hand off as `blocked` naming the live head sha.",
+			"a yes relayed by a coordinator or a judge, or one naming no sha, is not one.",
+			"if it moved, post nothing and hand off as `blocked` naming the new head.",
+			"and only after it apply the label `gate-change-approved`, removing and re-adding it if it is already on: only the label event reruns `Gate files`.",
+		},
+		".agents/contracts/coordinator.md": {
+			"never apply `gate-change-approved` or post its comment, which the developer run that claimed the pull request does on the owner's own yes;",
+		},
+		".agents/skills/coordinate/SKILL.md": {
+			"or, on a PR touching a gate file, `Gate files`, which waits for the owner's approval at the end, failed,",
+			"for a gate-file change, the PR's live head sha and a link to the developer run that claimed it, where the owner's yes goes, since you never post the approval",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range want {
+			if !strings.Contains(string(data), s) {
+				t.Errorf("shipped %s lacks %q", rel, s)
+			}
+		}
+	}
+}
