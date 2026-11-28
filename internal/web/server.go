@@ -744,15 +744,19 @@ type approveRequest struct {
 // openspec/changes/.
 var changeNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// validBranchName reports whether name passes git check-ref-format for a branch (a segment starting with "." is
-// refused too). The approve handler puts the name into forge API paths, so a name that git itself would refuse, one
-// that climbs out of the branches path ("../../x"), or one a forge reads as an option ("-x"), never reaches the forge.
+// validBranchName reports whether name passes git check-ref-format for a branch, and is also refused when it is "@",
+// "HEAD" or holds "#". The approve handler puts the name into forge API paths, so a name that git itself would refuse,
+// one that climbs out of the branches path ("../../x"), one a forge reads as an option ("-x") or one that ends the
+// path ("a#b") never reaches the forge. Each slash-separated part is checked on its own: git refuses a part that
+// starts with "." or ends with ".lock", and a part that ends with "." is refused here as well.
 func validBranchName(name string) bool {
-	if name == "" || strings.HasPrefix(name, "/") || strings.HasPrefix(name, "-") || strings.HasPrefix(name, ".") ||
-		strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".lock") ||
-		strings.Contains(name, "..") || strings.Contains(name, "//") || strings.Contains(name, "/.") ||
-		strings.Contains(name, "@{") {
+	if name == "@" || name == "HEAD" || strings.HasPrefix(name, "-") || strings.Contains(name, "..") || strings.Contains(name, "@{") {
 		return false
+	}
+	for _, part := range strings.Split(name, "/") {
+		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
 	}
 	return !strings.ContainsFunc(name, func(r rune) bool {
 		return r < ' ' || r == 0x7f || strings.ContainsRune(" ~^:?*[\\#", r)

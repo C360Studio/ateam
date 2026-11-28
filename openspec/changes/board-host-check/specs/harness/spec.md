@@ -54,5 +54,5 @@ The board SHALL expose state and support card creation, movement, handoff, and m
 
 #### Scenario: Branch that is not a git branch name
 
-- **WHEN** the branch is empty, starts with `-`, `/` or `.`, ends with `/` or `.lock`, or holds `..`, `//`, `/.`, `@{`, a space, a control character or any of `~ ^ : ? * [ \ #`
+- **WHEN** the branch is `@` or `HEAD`, starts with `-`, holds `..`, `@{`, a space, a control character or any of `~ ^ : ? * [ \ #`, or has a slash-separated part that is empty, starts with `.`, or ends with `.` or `.lock`
 - **THEN** the endpoint returns 400 before any forge call and writes nothing
