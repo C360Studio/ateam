@@ -21,6 +21,12 @@
 - **THEN** the shipped developer contract allows a `ready` handoff only once every required check at the pull request head other than `Merge check` has passed, and the shipped `coordinate` skill reads those checks before `ateam review request`
 - **AND WHEN** one of them failed or is still running, the coordinator messages the developer run instead of requesting review
 
+#### Scenario: Developer handoffs surface what the owner must see
+
+- **WHEN** a developer run hands off or rewrites its pull request body
+- **THEN** the shipped developer contract puts owner-owed actions in the handoff Goal, names the track with the reason for `quick`, states a gate-file claim only as the line `scripts/gate-files.sh` printed, and keeps any `owner-prompts:` line unchanged
+- **AND** the shipped `coordinate` skill's owner message lists those owed actions and repeats each proposal's track
+
 #### Scenario: Proposal approvals offer only working routes and are not re-asked
 
 - **WHEN** the shipped `coordinate` skill asks the owner to approve a proposal
