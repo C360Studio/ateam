@@ -1,5 +1,5 @@
 # Proposal: wake-up-reasons-448
-Approved-by:
+Approved-by: Coby Leuschke (2026-11-28) sha256:a2de8cfe8777
 
 ## Track
 
