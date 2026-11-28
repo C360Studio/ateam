@@ -14,6 +14,12 @@
 - **WHEN** a coordinated pull request reaches an owner gate
 - **THEN** the coordinator stops that unit, puts the question in one message with every other pending owner question, and the pull request body's `owner-prompts:` line counts each message that covered it
 
+#### Scenario: Review is requested only on green required checks
+
+- **WHEN** a developer run hands off a coordinated pull request at ready-for-review
+- **THEN** the shipped developer contract allows a `ready` handoff only once every required check at the pull request head other than `Merge check` has passed, and the shipped `coordinate` skill reads those checks before `ateam review request`
+- **AND WHEN** one of them failed or is still running, the coordinator messages the developer run instead of requesting review
+
 #### Scenario: Developer handoffs surface what the owner must see
 
 - **WHEN** a developer run hands off or rewrites its pull request body
